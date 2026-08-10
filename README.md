@@ -3,9 +3,9 @@
 Effect-v4-native, Pi-harnessed, model-agnostic code-review agent. ("Run the
 gauntlet on medium.")
 
-**Status: pre-implementation.** Design decisions are being worked as a
-[Wayfinder map](https://github.com/JRGiardiniere/gauntlet/issues/1); the spec
-lands when the map's tickets close.
+**Status: implementation.** The decision-complete spec is
+[#15](https://github.com/JRGiardiniere/gauntlet/issues/15); implementation is
+ticketed as [#16–#26](https://github.com/JRGiardiniere/gauntlet/issues?q=is%3Aissue+label%3Aready-for-agent).
 
 ## Toolchain
 
@@ -26,4 +26,3 @@ lands when the map's tickets close.
   beta.90 → beta.106 deltas)
 - `docs/research/` — Wayfinder research findings (Effect batteries, durable
   execution, Pi harness surface)
-- `docs/STARTING-POINT.md` — pre-charting exploration; deleted once the spec lands
