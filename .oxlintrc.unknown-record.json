@@ -1,0 +1,26 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "jsPlugins": [
+    {
+      "name": "gauntlet",
+      "specifier": "./scripts/lint-rules/index.js"
+    }
+  ],
+  "categories": {
+    "correctness": "off",
+    "suspicious": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "style": "off",
+    "restriction": "off",
+    "nursery": "off"
+  },
+  "ignorePatterns": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**"
+  ],
+  "rules": {
+    "gauntlet/no-record-string-unknown": "warn"
+  }
+}

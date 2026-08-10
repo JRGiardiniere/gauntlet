@@ -1,6 +1,11 @@
 # Possible Effect-native review-agent successor: architectural starting point
 
-- **Status:** Exploratory input for Wayfinder charting
+> ⚠️ **DELETE after the Wayfinder map's decisions are made** (when
+> [Assemble spec + backlog, #14](https://github.com/JRGiardiniere/gauntlet/issues/14)
+> closes). This is pre-decision exploration; where it disagrees with the map's
+> Decisions-so-far or the spec, it is WRONG. Do not treat it as guidance.
+
+- **Status:** Exploratory input for Wayfinder charting — superseded by decisions on [map #1](https://github.com/JRGiardiniere/gauntlet/issues/1)
 - **Created:** 2026-08-09
 - **Decision state:** Nothing in this document is approved architecture
 
