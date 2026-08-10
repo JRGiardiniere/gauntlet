@@ -1,4 +1,5 @@
 ---
+category: spec
 needs-spec: true
 ---
 

@@ -1,3 +1,7 @@
+---
+category: correctness
+---
+
 # Removed-behavior auditor
 
 For every line the diff DELETES or replaces, name the invariant or behavior it

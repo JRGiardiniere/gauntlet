@@ -1,3 +1,7 @@
+---
+category: cleanup
+---
+
 # Citable cleanup
 
 Every finding on this lens must carry its own proof. If you cannot name the
@@ -37,15 +41,25 @@ lifetime (a memory leak when that scope holds large values); prefer a
 class/struct that copies only the fields it needs. Name the cheaper
 alternative.
 
-## Conventions (CLAUDE.md)
+## Conventions
 
-Find the CLAUDE.md files that govern the changed code: the user-level
-~/.claude/CLAUDE.md, the repo-root CLAUDE.md, plus any CLAUDE.md or
-CLAUDE.local.md in a directory that is an ancestor of a changed file (a
-directory's CLAUDE.md only applies to files at or below it). Read each one
-that exists, then check the diff for clear violations of the rules they state.
+Find the documents that govern how the changed code should be written. Two
+kinds:
+
+- CLAUDE.md files: the user-level ~/.claude/CLAUDE.md, the repo-root
+  CLAUDE.md, plus any CLAUDE.md or CLAUDE.local.md in a directory that is an
+  ancestor of a changed file (a directory's CLAUDE.md only applies to files
+  at or below it).
+- The repo's own documented standards: CONTRIBUTING.md, CODING_STANDARDS.md,
+  a style guide under docs/, or anything the README points at as "how we
+  write code here".
+
+Read each one that exists, then check the diff for clear violations of the
+rules they state. Skip anything tooling already enforces — a linter that
+would catch it owns it.
 
 Only flag a violation when you can quote the exact rule and the exact line
 that breaks it — no style preferences, no vague "spirit of the doc"
-inferences. In the finding, name the CLAUDE.md path and quote the rule so the
-report can cite it. If no CLAUDE.md applies, return nothing for this angle.
+inferences. In the finding, name the document's path and quote the rule so
+the report can cite it. If no such document applies, return nothing for this
+angle.

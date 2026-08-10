@@ -1,3 +1,7 @@
+---
+category: correctness
+---
+
 # Cross-file tracer
 
 For each function the diff changes, find its callers (grep for the symbol) and

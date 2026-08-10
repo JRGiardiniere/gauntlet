@@ -1,3 +1,7 @@
+---
+category: correctness
+---
+
 # Wrapper/proxy correctness
 
 When the change adds or modifies a type that wraps another (cache, proxy,

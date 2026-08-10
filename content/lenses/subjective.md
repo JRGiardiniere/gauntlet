@@ -1,3 +1,7 @@
+---
+category: judgment
+---
+
 # Judgment
 
 This lens is deliberately loose. Nothing here has to be refutable by citation —

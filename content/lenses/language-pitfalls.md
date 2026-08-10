@@ -1,3 +1,7 @@
+---
+category: correctness
+---
+
 # Language-pitfall specialist
 
 Scan for the classic pitfalls of the diff's language/framework — for example:

@@ -1,3 +1,7 @@
+---
+category: cleanup
+---
+
 # Absence checks
 
 Bugs are not only wrong lines that exist — they are also right lines that are

@@ -9,7 +9,9 @@ and lens files, no plumbing. The companion specifications live in
 
 - `lenses/` — the shipped built-in lenses, in the ADR 0004 format: name from
   the filename, body is the prompt tail, frontmatter limited to an optional
-  model override and an optional `needs-spec: true` flag (skip-if-absent).
+  model override, an optional `needs-spec: true` flag (skip-if-absent), and
+  an optional display-only `category` tag (groups listings and report
+  headers; never read by routing — a candidate routes by its own type).
   Project-local lenses in `.gauntlet/lenses/` use the identical format.
 - `prompts/` — finder system prompt, and templates for the shared finder
   block, the stage scope block, and the Pool / verifier / judge prompts.
@@ -82,3 +84,18 @@ Deliberate changes made during the port:
   journal, the Observation path's only quality record.
 - **Terminology**: preset → recipe, bug path → BugClaim path, subjective
   path → Observation path / Judgment, per CONTEXT.md.
+
+Post-port additions (gap-fill after comparing against an external two-axis
+review skill):
+
+- **`refactoring-checklist.md`** — a second judgment lens carrying the Fowler
+  smell catalogue (*Refactoring*, ch. 3) as a checklist with fix directions.
+  Differs from `subjective.md` by *method* (shape-matching vs open judgment),
+  not by altitude — the axis the failed 2026-08-04 code/design split got
+  wrong.
+- **Conventions sweep widened** — `cleanup.md` now reads repo-documented
+  standards (CONTRIBUTING.md, CODING_STANDARDS.md, style guides) alongside
+  CLAUDE.md files, and skips anything tooling already enforces.
+- **`category` frontmatter** — every shipped lens carries a display-only
+  category (`correctness` / `cleanup` / `spec` / `judgment`); ADR 0004 and
+  CONTEXT.md amended accordingly.

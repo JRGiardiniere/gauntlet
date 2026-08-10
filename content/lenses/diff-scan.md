@@ -1,3 +1,7 @@
+---
+category: correctness
+---
+
 # Line-by-line diff scan
 
 Read every hunk in the diff, line by line. Then Read the enclosing function for

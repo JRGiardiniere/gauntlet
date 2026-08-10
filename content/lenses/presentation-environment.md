@@ -1,3 +1,7 @@
+---
+category: correctness
+---
+
 # Presentation & environment
 
 This code may execute exactly as written and still be wrong where it meets a
