@@ -3,9 +3,8 @@ import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
-import * as Stdio from "effect/Stdio"
-import * as Stream from "effect/Stream"
 import * as Command from "effect/unstable/cli/Command"
+import { progress, writeStdout } from "./stdio.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { targetIdentityOf } from "../domain/review-target.ts"
@@ -24,28 +23,6 @@ import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 export const InvocationDirectory = Context.Reference<string>(
   "gauntlet/InvocationDirectory",
   { defaultValue: () => globalThis.process.cwd() },
-)
-
-const writeStdout = Effect.fn("gauntlet.cli.write_stdout")(
-  function* (text: string) {
-    const stdio = yield* Stdio.Stdio
-    yield* Stream.run(
-      Stream.succeed(text),
-      stdio.stdout({ endOnDone: false }),
-    )
-  },
-)
-
-// Progress narration goes to stderr only; stdout stays a clean digest
-// (ADR 0005).
-const progress = Effect.fn("gauntlet.cli.progress")(
-  function* (text: string) {
-    const stdio = yield* Stdio.Stdio
-    yield* Stream.run(
-      Stream.succeed(`gauntlet: ${text}\n`),
-      stdio.stderr({ endOnDone: false }),
-    )
-  },
 )
 
 const executeReview = Effect.fn("gauntlet.cli.execute_review")(function* () {

@@ -7,8 +7,9 @@ import {
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
-  RawUsage,
+  SessionOpenError,
   type StopReason,
+  UsageRow,
 } from "./harness-session.ts"
 
 // The bridge between a HarnessSession and fiber-land — the invocation
@@ -31,6 +32,11 @@ import {
 export interface SessionCaptureState {
   validatedEmit: unknown
   hasValidatedEmit: boolean
+  // Validated emit calls past the first. The emit contract is exactly-once;
+  // the first call is kept and extras are counted, never silently last-wins.
+  // Whether duplicates poison the outcome is invocation-engine policy (#18) —
+  // the model repeating a tool call is model behavior, not adapter drift.
+  duplicateValidatedEmits: number
   salvagedEmit: unknown
   hasSalvagedEmit: boolean
   stopReason: StopReason | undefined
@@ -43,6 +49,7 @@ export interface SessionCaptureState {
 export const makeCaptureState = (): SessionCaptureState => ({
   validatedEmit: undefined,
   hasValidatedEmit: false,
+  duplicateValidatedEmits: 0,
   salvagedEmit: undefined,
   hasSalvagedEmit: false,
   stopReason: undefined,
@@ -58,11 +65,12 @@ export const makeCaptureState = (): SessionCaptureState => ({
 export interface CaptureResult {
   readonly validatedEmit: unknown
   readonly hasValidatedEmit: boolean
+  readonly duplicateValidatedEmits: number
   readonly salvagedEmit: unknown
   readonly hasSalvagedEmit: boolean
   readonly stopReason: StopReason | undefined
   readonly errorMessage: string | undefined
-  readonly usageRows: ReadonlyArray<RawUsage>
+  readonly usageRows: ReadonlyArray<UsageRow>
   // The same rows verbatim, for the journal (ADR 0006: raw usage, verbatim).
   readonly rawUsageRows: ReadonlyArray<unknown>
 }
@@ -117,6 +125,16 @@ const captureEvent = (state: SessionCaptureState, emitToolName: string) =>
 export const openCapturedSession = Effect.fn(
   "gauntlet.session_bridge.open_captured_session",
 )(function* (config: OpenSessionConfig, state: SessionCaptureState) {
+  // Guarded here so every adapter is covered: Pi treats an empty system
+  // prompt as "use the stock prompt" (#4 §2) — a silently wrong review agent,
+  // not a working one.
+  if (config.systemPrompt === "") {
+    return yield* new SessionOpenError({
+      operation: "validate-config",
+      reason: "systemPrompt must be non-empty — Pi treats an empty string as 'use the stock prompt'",
+    })
+  }
+
   const factory = yield* HarnessSessionFactory
 
   const session = yield* Effect.acquireRelease(
@@ -126,6 +144,10 @@ export const openCapturedSession = Effect.fn(
       emitTool: {
         ...config.emitTool,
         execute: (args) => {
+          if (state.hasValidatedEmit) {
+            state.duplicateValidatedEmits += 1
+            return
+          }
           state.validatedEmit = args
           state.hasValidatedEmit = true
         },
@@ -171,7 +193,18 @@ export const abortAbandonedSession = (
     void session.abort().catch(() => undefined)
   })
 
-const decodeUsageRow = Schema.decodeUnknownEffect(RawUsage)
+const decodeUsageRow = Schema.decodeUnknownEffect(UsageRow)
+
+// Render a drifted row for the violation message without letting the
+// rendering itself blow up: JSON.stringify throws on bigint and circular
+// values, which would turn the typed failure into a defect.
+const describeRow = (row: unknown): string => {
+  try {
+    return JSON.stringify(row) ?? String(row)
+  } catch {
+    return String(row)
+  }
+}
 
 // Turn surviving capture state into data the invocation engine can assemble
 // from — or fail as AdapterContractViolation. Ordering is deliberate: a
@@ -191,13 +224,13 @@ export const finalizeCapture = Effect.fn(
     })
   }
 
-  const usageRows: Array<RawUsage> = []
+  const usageRows: Array<UsageRow> = []
   for (const row of state.usageRows) {
     const decoded = yield* decodeUsageRow(row).pipe(
       Effect.mapError(
         () =>
           new AdapterContractViolation({
-            reason: `usage row does not match Pi's contract: ${JSON.stringify(row)}`,
+            reason: `usage row does not match Pi's contract: ${describeRow(row)}`,
           }),
       ),
     )
@@ -207,6 +240,7 @@ export const finalizeCapture = Effect.fn(
   return {
     validatedEmit: state.validatedEmit,
     hasValidatedEmit: state.hasValidatedEmit,
+    duplicateValidatedEmits: state.duplicateValidatedEmits,
     salvagedEmit: state.salvagedEmit,
     hasSalvagedEmit: state.hasSalvagedEmit,
     stopReason: state.stopReason,

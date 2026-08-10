@@ -7,7 +7,6 @@ import * as Queue from "effect/Queue"
 import * as TestClock from "effect/testing/TestClock"
 import {
   AdapterContractViolation,
-  HarnessSessionFactory,
   SessionOpenError,
 } from "./harness-session.ts"
 import {
@@ -18,7 +17,12 @@ import {
   type OpenSessionConfig,
   type SessionCaptureState,
 } from "./session-bridge.ts"
-import { makeScripted, type ScriptedBehavior, usageRow } from "./scripted.ts"
+import {
+  makeScripted,
+  type ScriptedBehavior,
+  scriptedLayer,
+  usageRow,
+} from "./scripted.ts"
 
 // The bridge under test is the bridge that ships (#17): these tests drive the
 // shared session mechanics through the scripted adapter — the identical
@@ -50,7 +54,7 @@ const promptToCompletion = (
           yield* Effect.promise(() => opened.session.prompt("review this"))
           return yield* Queue.takeAll(opened.events)
         }),
-      ).pipe(Effect.provideService(HarnessSessionFactory, scripted.factory)),
+      ).pipe(Effect.provide(scriptedLayer(scripted))),
     )
     yield* TestClock.adjust(Duration.minutes(30))
     const events = yield* Fiber.join(fiber)
@@ -119,7 +123,7 @@ describe("session bridge (scripted adapter, TestClock)", () => {
           openCapturedSession(CONFIG, state).pipe(
             Effect.timeoutOption(Duration.millis(60_000)),
           ),
-        ).pipe(Effect.provideService(HarnessSessionFactory, scripted.factory)),
+        ).pipe(Effect.provide(scriptedLayer(scripted))),
       )
       // The fiber must settle AT the timeout — with the default
       // uninterruptible acquire it would still be stuck inside open here.
@@ -151,7 +155,7 @@ describe("session bridge (scripted adapter, TestClock)", () => {
             const opened = yield* openCapturedSession(CONFIG, state)
             yield* Effect.promise(() => opened.session.prompt("review this"))
           }),
-        ).pipe(Effect.provideService(HarnessSessionFactory, scripted.factory)),
+        ).pipe(Effect.provide(scriptedLayer(scripted))),
       )
       yield* TestClock.adjust(Duration.millis(5_000))
       yield* Fiber.interrupt(fiber)
@@ -180,7 +184,7 @@ describe("session bridge (scripted adapter, TestClock)", () => {
           const opened = yield* openCapturedSession(CONFIG, state)
           yield* abortAbandonedSession(opened.session)
         }),
-      ).pipe(Effect.provideService(HarnessSessionFactory, scripted.factory))
+      ).pipe(Effect.provide(scriptedLayer(scripted)))
       // The abort was fired and never settles — yet the scope closed and the
       // session was disposed.
       expect(scripted.log).toContain("abort")
@@ -319,10 +323,113 @@ describe("session bridge (scripted adapter, TestClock)", () => {
         promptSettles: "never",
       })
       const failure = yield* Effect.scoped(openCapturedSession(CONFIG, state)).pipe(
-        Effect.provideService(HarnessSessionFactory, scripted.factory),
+        Effect.provide(scriptedLayer(scripted)),
         Effect.flip,
       )
       expect(failure).toBeInstanceOf(SessionOpenError)
       expect(failure.reason).toBe("no credentials for provider")
+    }))
+
+  it.effect("an empty system prompt is rejected before any session opens", () =>
+    Effect.gen(function* () {
+      const state = makeCaptureState()
+      const scripted = makeScripted({ events: [], promptSettles: "never" })
+      const failure = yield* Effect.scoped(
+        openCapturedSession({ ...CONFIG, systemPrompt: "" }, state),
+      ).pipe(Effect.provide(scriptedLayer(scripted)), Effect.flip)
+      expect(failure).toBeInstanceOf(SessionOpenError)
+      expect(failure.operation).toBe("validate-config")
+      // Pi treats an empty prompt as "use the stock prompt", so the open must
+      // never be attempted at all.
+      expect(scripted.log).toEqual([])
+    }))
+
+  it.effect("a duplicate validated emit keeps the first and counts the extras", () =>
+    Effect.gen(function* () {
+      const state = makeCaptureState()
+      yield* promptToCompletion(
+        {
+          events: [
+            { afterMillis: 1_000, kind: "emit", args: GOOD_EMIT, valid: true },
+            {
+              afterMillis: 2_000,
+              kind: "emit",
+              args: { findings: [] },
+              valid: true,
+            },
+            {
+              afterMillis: 3_000,
+              kind: "message_end",
+              stopReason: "toolUse",
+              usage: usageRow(),
+            },
+          ],
+          promptSettles: "after-events",
+        },
+        state,
+      )
+      // Never silently last-wins: the first call is the emit, extras are
+      // counted for the invocation engine to judge (#18).
+      const result = yield* finalizeCapture(state)
+      expect(result.validatedEmit).toEqual(GOOD_EMIT)
+      expect(result.duplicateValidatedEmits).toBe(1)
+    }))
+
+  it.effect("a re-prompt after the script has played settles instead of hanging", () =>
+    Effect.gen(function* () {
+      const state = makeCaptureState()
+      const scripted = makeScripted({
+        events: [
+          {
+            afterMillis: 1_000,
+            kind: "message_end",
+            stopReason: "stop",
+            usage: usageRow(),
+          },
+        ],
+        promptSettles: "after-events",
+      })
+      const fiber = yield* Effect.forkChild(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const opened = yield* openCapturedSession(CONFIG, state)
+            yield* Effect.promise(() => opened.session.prompt("review this"))
+            // The corrective-turn shape (#18): re-prompt the same session
+            // after a clean stop.
+            yield* Effect.promise(() =>
+              opened.session.prompt("you stopped without emitting"),
+            )
+          }),
+        ).pipe(Effect.provide(scriptedLayer(scripted))),
+      )
+      yield* TestClock.adjust(Duration.minutes(30))
+      yield* Fiber.join(fiber)
+      expect(scripted.log.filter((entry) => entry === "prompt")).toHaveLength(2)
+    }))
+
+  it.effect("an unserializable drifted row still fails typed, not as a defect", () =>
+    Effect.gen(function* () {
+      const state = makeCaptureState()
+      const circular: { self?: unknown } = {}
+      circular.self = circular
+      yield* promptToCompletion(
+        {
+          events: [
+            {
+              afterMillis: 1_000,
+              kind: "message_end",
+              stopReason: "toolUse",
+              usage: usageRow(),
+            },
+          ],
+          promptSettles: "after-events",
+          // JSON.stringify throws on this row; the violation message must
+          // survive that rather than turning into a defect.
+          sweptUsageRows: [circular],
+        },
+        state,
+      )
+      const failure = yield* Effect.flip(finalizeCapture(state))
+      expect(failure).toBeInstanceOf(AdapterContractViolation)
     }))
 })

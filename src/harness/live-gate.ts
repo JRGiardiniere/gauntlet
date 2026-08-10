@@ -1,11 +1,11 @@
+import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
-import * as Stdio from "effect/Stdio"
-import * as Stream from "effect/Stream"
+import { writeStdout } from "../cli/stdio.ts"
 import type { HarnessEvent } from "./harness-session.ts"
 import { livePiLayer } from "./pi-live.ts"
 import {
@@ -63,17 +63,20 @@ Changed file: src/discount.ts
 \`\`\`diff
 ${DIFF}\`\`\``
 
+// Both deadlines are the gate's own (deadlines are caller-owned adapter
+// mechanics): open covers credential/catalog reads and session construction,
+// prompt covers the model round-trip.
+const OPEN_DEADLINE = Duration.minutes(1)
 const PROMPT_DEADLINE = Duration.minutes(4)
 
-const writeLine = Effect.fn("gauntlet.live_gate.write_line")(
-  function* (text: string) {
-    const stdio = yield* Stdio.Stdio
-    yield* Stream.run(
-      Stream.succeed(`${text}\n`),
-      stdio.stdout({ endOnDone: false }),
-    )
-  },
-)
+const writeLine = (text: string) => writeStdout(`${text}\n`)
+
+// Pi's prompt() can reject (missing auth, transport failure). Typed so the
+// rejection stays on the error channel and renders as a FAIL line instead of
+// escaping the gate as a defect.
+class PromptRejected extends Data.TaggedError("PromptRejected")<{
+  readonly reason: string
+}> {}
 
 interface GateCheck {
   readonly name: string
@@ -155,11 +158,21 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
             },
           },
           state,
-        ).pipe(Effect.provide(livePiLayer({ provider, model, cwd })))
+        ).pipe(
+          // The interruptible acquire is what makes this bound real: a
+          // hanging credential read or session construction is cut loose
+          // here, not left to hang the command.
+          Effect.timeout(OPEN_DEADLINE),
+          Effect.provide(livePiLayer({ provider, model, cwd })),
+        )
 
-        const settled = yield* Effect.promise(() =>
-          opened.session.prompt(PROMPT),
-        ).pipe(Effect.timeoutOption(PROMPT_DEADLINE))
+        // tryPromise, not promise: Pi's prompt() rejects (e.g. missing auth),
+        // and a rejection must surface as this gate's typed failure — a
+        // defect would bypass the check report entirely.
+        const settled = yield* Effect.tryPromise({
+          try: () => opened.session.prompt(PROMPT),
+          catch: (cause) => new PromptRejected({ reason: String(cause) }),
+        }).pipe(Effect.timeoutOption(PROMPT_DEADLINE))
         if (Option.isNone(settled)) {
           yield* abortAbandonedSession(opened.session)
         }
@@ -168,14 +181,22 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
       }),
     )
 
+    // Every failure renders with its reason — a bare String() on a tagged
+    // error drops the reason, which is the actionable part.
+    const failed = (failure: string) =>
+      Effect.succeed({
+        settled: false,
+        events: [] as ReadonlyArray<HarnessEvent>,
+        failure: failure as string | undefined,
+      })
     const outcome = yield* run.pipe(
-      Effect.match({
-        onSuccess: (value) => ({ ...value, openError: undefined }),
-        onFailure: (error) => ({
-          settled: false,
-          events: [] as ReadonlyArray<HarnessEvent>,
-          openError: String(error),
-        }),
+      Effect.map((value) => ({ ...value, failure: undefined as string | undefined })),
+      Effect.catchTags({
+        SessionOpenError: (error) =>
+          failed(`session open failed (${error.operation}): ${error.reason}`),
+        TimeoutError: () =>
+          failed(`session open did not settle inside ${Duration.format(OPEN_DEADLINE)}`),
+        PromptRejected: (error) => failed(`prompt rejected: ${error.reason}`),
       }),
     )
 
@@ -183,8 +204,8 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
     checks.push(
       check(
         "one live session opened and its run settled inside the deadline",
-        outcome.openError === undefined && outcome.settled,
-        outcome.openError ?? "",
+        outcome.failure === undefined && outcome.settled,
+        outcome.failure ?? "",
       ),
     )
 
@@ -217,8 +238,11 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
       ),
     )
 
-    // 3. The boundary decode holds live: swept usage rows match RawUsage and
-    // the run was actually metered.
+    // 3. The boundary decode holds live: swept usage rows match UsageRow and
+    // the run was actually metered. Deliberately beyond the #7 "round-trip +
+    // terminate-batch" minimum: this check is what caught the
+    // present-but-undefined `reasoning` drift on the gate's first real run —
+    // a measured justification (standing directive, #8).
     const capture = yield* finalizeCapture(state).pipe(
       Effect.match({
         onSuccess: (result) => result,

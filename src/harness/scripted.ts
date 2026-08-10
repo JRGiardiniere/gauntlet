@@ -1,13 +1,15 @@
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import {
   type HarnessEvent,
   type HarnessSession,
-  type RawUsage,
+  HarnessSessionFactory,
   type SessionConfig,
   type HarnessSessionFactoryShape,
   SessionOpenError,
   type StopReason,
+  type UsageRow,
 } from "./harness-session.ts"
 
 // The deterministic scripted adapter — the test layer of the seam.
@@ -26,7 +28,7 @@ export type ScriptedEvent =
       readonly kind: "message_end"
       readonly stopReason: StopReason
       readonly errorMessage?: string
-      readonly usage?: RawUsage
+      readonly usage?: UsageRow
     }
   // Fires tool_execution_start with the raw args; when `valid`, also calls
   // the emit tool's execute (Pi calls execute only after validation passes).
@@ -64,7 +66,7 @@ export interface Scripted {
   readonly log: Array<string>
 }
 
-export const usageRow = (partial?: Partial<RawUsage>): RawUsage => ({
+export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
   input: 1000,
   output: 200,
   cacheRead: 800,
@@ -81,7 +83,10 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
     Effect.gen(function* () {
       log.push("open")
       if (behavior.failOpen !== undefined) {
-        return yield* new SessionOpenError({ reason: behavior.failOpen })
+        return yield* new SessionOpenError({
+          operation: "open",
+          reason: behavior.failOpen,
+        })
       }
       if (behavior.openDelayMillis !== undefined) {
         yield* Effect.sleep(Duration.millis(behavior.openDelayMillis))
@@ -91,6 +96,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       const rows: Array<unknown> = []
       let promptStarted: (() => void) | undefined
       let promptSettled: (() => void) | undefined
+      let driverDone = false
       const promptStartedPromise = new Promise<void>((resolve) => {
         promptStarted = resolve
       })
@@ -145,9 +151,12 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             }
           })
         }
-        if (behavior.promptSettles === "after-events") {
-          yield* Effect.sync(() => promptSettled?.())
-        }
+        yield* Effect.sync(() => {
+          driverDone = true
+          if (behavior.promptSettles === "after-events") {
+            promptSettled?.()
+          }
+        })
       })
       yield* Effect.forkScoped(drive)
 
@@ -162,6 +171,13 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         },
         prompt: () => {
           log.push("prompt")
+          // A prompt after the script has fully played (a corrective re-prompt
+          // on a cleanly stopped session, #18) settles immediately — there are
+          // no events left to drive it. Per-prompt event scripting arrives
+          // with the corrective-turn work.
+          if (driverDone && behavior.promptSettles === "after-events") {
+            return Promise.resolve()
+          }
           return new Promise<void>((resolve) => {
             promptSettled = resolve
             promptStarted?.()
@@ -191,3 +207,14 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
 
   return { factory: { open }, log }
 }
+
+// Fakes are Layers (house style rule 19): tests provide the scripted factory
+// through this rather than raw provideService. Deliberate deviation from the
+// full Ref-backed dual-tag pattern: the log is written from Pi's literal
+// plain-Promise/callback surface, where no fiber context exists to run a Ref
+// update, and tests hold the log by closure from `makeScripted` — a second
+// context tag would add lookup machinery nothing needs.
+export const scriptedLayer = (
+  scripted: Scripted,
+): Layer.Layer<HarnessSessionFactory> =>
+  Layer.succeed(HarnessSessionFactory, scripted.factory)

@@ -1,4 +1,5 @@
 import {
+  type AgentSessionEvent,
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
@@ -17,10 +18,10 @@ import {
   type HarnessSession,
   HarnessSessionFactory,
   type HarnessSessionFactoryShape,
-  RawUsage,
   type SessionConfig,
   SessionOpenError,
   StopReason,
+  UsageRow,
 } from "./harness-session.ts"
 
 // The live Pi adapter: maps the real @earendil-works/pi-coding-agent session
@@ -37,12 +38,28 @@ export interface LivePiConfig {
   readonly cwd: string
 }
 
+// Pi's message role vocabulary at the pinned version, checked both ways:
+// `satisfies` fails the build if the SDK renames a role (the compile-time
+// tripwire of docs/research/pi-harness-surface.md §8), and the closed runtime
+// decode turns an unknown role into a contract_violation instead of silently
+// dropping a message that might carry terminal state and usage.
+type PiMessage = Extract<AgentSessionEvent, { type: "message_end" }>["message"]
+const PI_MESSAGE_ROLES = [
+  "user",
+  "assistant",
+  "toolResult",
+  "bashExecution",
+  "custom",
+  "branchSummary",
+  "compactionSummary",
+] as const satisfies ReadonlyArray<PiMessage["role"]>
+
 // Boundary decoders for the subset of Pi's event payloads the seam consumes.
 // A renamed SDK field compiles clean and reads undefined through a cast —
 // the drift that turned every cost into NaN once (#4 §8) — so the fields are
 // decoded at runtime and failure surfaces as a contract_violation event.
 const PiMessageRole = Schema.Struct({
-  message: Schema.Struct({ role: Schema.String }),
+  message: Schema.Struct({ role: Schema.Literals(PI_MESSAGE_ROLES) }),
 })
 
 const PiAssistantMessageEnd = Schema.Struct({
@@ -52,7 +69,7 @@ const PiAssistantMessageEnd = Schema.Struct({
     // Present-but-undefined on Pi's in-memory messages (this is not a JSON
     // boundary), so plain optionalKey would read healthy runs as drift.
     errorMessage: Schema.optional(Schema.String),
-    usage: RawUsage,
+    usage: UsageRow,
   }),
 })
 
@@ -76,8 +93,10 @@ const violation = (context: string, error: unknown): HarnessEvent => ({
 
 // Rename the three consumed Pi events into seam events; everything else is
 // dropped. Events of a consumed type that no longer decode become
-// contract_violation events — never a silent coercion.
-const mapPiEvent = (event: { readonly type: string }): HarnessEvent | undefined => {
+// contract_violation events — never a silent coercion. The parameter is Pi's
+// own event union, so an SDK rename of a consumed type or field breaks the
+// build here before it can drift at runtime.
+const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   switch (event.type) {
     case "message_start": {
       return Result.match(decodeMessageRole(event), {
@@ -125,130 +144,196 @@ const mapPiEvent = (event: { readonly type: string }): HarnessEvent | undefined 
 
 export const makeLivePiFactory = (
   config: LivePiConfig,
-): HarnessSessionFactoryShape => ({
-  open: (session: SessionConfig) =>
-    Effect.gen(function* () {
-      const openFailed = (cause: unknown) =>
-        new SessionOpenError({ reason: String(cause) })
+): HarnessSessionFactoryShape => {
+  // One ModelRuntime per factory: create() reloads the model catalog, config,
+  // and credentials, so per-open recreation would make a fan-out of N lenses
+  // pay N full initializations. A failed create is evicted rather than
+  // cached, so a transient failure never poisons later opens.
+  let runtimePromise: ReturnType<typeof ModelRuntime.create> | undefined
+  const sharedModelRuntime = () => {
+    if (runtimePromise === undefined) {
+      const created = ModelRuntime.create()
+      runtimePromise = created
+      created.catch(() => {
+        runtimePromise = undefined
+      })
+    }
+    return runtimePromise
+  }
 
-      // Model resolution first, via Pi's own resolver — model ids contain
-      // colons, so `pattern:level` must be tried as a whole id before any
-      // colon splitting; a re-implementation rejects strings Pi accepts.
-      const { modelRuntime, resolved } = yield* Effect.tryPromise({
-        try: async () => {
-          const runtime = await ModelRuntime.create()
-          return {
-            modelRuntime: runtime,
-            resolved: resolveCliModel({
+  return {
+    open: (session: SessionConfig) =>
+      Effect.gen(function* () {
+        // Deliberately zero-arg (no abort signal): the promise is shared
+        // across opens, so one caller's interrupt must not cancel it.
+        const modelRuntime = yield* Effect.tryPromise({
+          try: () => sharedModelRuntime(),
+          catch: (cause) =>
+            new SessionOpenError({
+              operation: "model-runtime",
+              reason: String(cause),
+              cause,
+            }),
+        })
+
+        // Model resolution via Pi's own resolver — model ids contain colons,
+        // so `pattern:level` must be tried as a whole id before any colon
+        // splitting; a re-implementation rejects strings Pi accepts.
+        const resolved = yield* Effect.try({
+          try: () =>
+            resolveCliModel({
               cliProvider: config.provider,
               cliModel: config.model,
-              modelRuntime: runtime,
+              modelRuntime,
             }),
-          }
-        },
-        catch: openFailed,
-      })
-      const model = resolved.model
-      if (!model) {
-        return yield* new SessionOpenError({
-          reason:
-            resolved.error ?? `model not found: ${config.provider}/${config.model}`,
+          catch: (cause) =>
+            new SessionOpenError({
+              operation: "resolve-model",
+              reason: String(cause),
+              cause,
+            }),
         })
-      }
-
-      return yield* Effect.tryPromise({
-        try: async (): Promise<HarnessSession> => {
-          // Retry ownership is ADR 0002, stated here rather than inherited from
-          // Pi defaults: agent-level retry on (3 attempts), provider-level 0 —
-          // provider retries above 0 can absorb quota errors invisibly.
-          // Compaction off: it rewrites the shared conversation prefix every
-          // fan-out agent's cache warmup paid for; overflow surfaces honestly
-          // as a "length" stop instead.
-          const settingsManager = SettingsManager.inMemory({
-            transport: "sse",
-            compaction: { enabled: false },
-            retry: { enabled: true, maxRetries: 3, provider: { maxRetries: 0 } },
+        const model = resolved.model
+        if (!model) {
+          return yield* new SessionOpenError({
+            operation: "resolve-model",
+            reason:
+              resolved.error ??
+              `model not found: ${config.provider}/${config.model}`,
           })
-          const resourceLoader = new DefaultResourceLoader({
-            cwd: config.cwd,
-            agentDir: getAgentDir(),
-            settingsManager,
-            noExtensions: true,
-            noSkills: true,
-            noContextFiles: true,
-            noPromptTemplates: true,
-            noThemes: true,
-            systemPrompt: session.systemPrompt,
-          })
-          await resourceLoader.reload()
-
-          // The cast on `parameters` is the documented plain-JSON-Schema path:
-          // Pi detects the missing TypeBox.Kind symbol and runs its JSON-Schema
-          // coercion pass instead (#4 §5). Sequential execution closes the
-          // last-call-wins/terminate-unanimity hazard: `terminate` only ends
-          // the run when every finalized call in the batch terminates.
-          const emitToolDefinition = {
-            name: session.emitTool.name,
-            label: session.emitTool.name,
-            description: session.emitTool.description,
-            parameters: session.emitTool
-              .parameters as unknown as ToolDefinition["parameters"],
-            executionMode: "sequential",
-            execute: async (_toolCallId: string, args: unknown) => {
-              session.emitTool.execute(args)
-              return {
-                content: [{ type: "text" as const, text: "captured" }],
-                details: {},
-                terminate: true,
-              }
-            },
-          } as unknown as ToolDefinition
-
-          const sessionManager = SessionManager.inMemory(
-            config.cwd,
-            session.sessionId === undefined ? undefined : { id: session.sessionId },
+        }
+        if (resolved.warning !== undefined) {
+          // Abnormal resolution — e.g. the pattern fell back to a custom
+          // model id. Not fatal, but never silent.
+          yield* Effect.logWarning(
+            `model resolution warning: ${resolved.warning}`,
           )
-          const created = await createAgentSession({
-            cwd: config.cwd,
-            model,
-            modelRuntime,
-            ...(resolved.thinkingLevel === undefined
-              ? {}
-              : { thinkingLevel: resolved.thinkingLevel }),
-            noTools: "builtin",
-            // The allowlist is HARD (#4 §5): a custom tool absent from it is
-            // dropped before the model ever sees it.
-            tools: [session.emitTool.name],
-            customTools: [emitToolDefinition],
-            resourceLoader,
-            sessionManager,
-            settingsManager,
-          })
-          const agentSession = created.session
+        }
 
-          return {
-            subscribe: (listener) =>
-              agentSession.subscribe((event) => {
-                const mapped = mapPiEvent(event)
-                if (mapped !== undefined) listener(mapped)
-              }),
-            prompt: (text) => agentSession.prompt(text),
-            abort: () => agentSession.abort(),
-            dispose: () => {
-              agentSession.dispose()
-            },
-            // Raw and verbatim; the bridge decodes rows against RawUsage and a
-            // renamed field fails loudly there instead of reading as $0.
-            usageRows: () =>
-              agentSession.messages
-                .filter((message) => message.role === "assistant")
-                .map((message): unknown => message.usage),
-          } satisfies HarnessSession
-        },
-        catch: openFailed,
-      })
-    }),
-})
+        const constructed = yield* Effect.tryPromise({
+          try: async (signal): Promise<HarnessSession | "interrupted"> => {
+            // Retry ownership is ADR 0002, stated here rather than inherited
+            // from Pi defaults: agent-level retry on (3 attempts),
+            // provider-level 0 — provider retries above 0 can absorb quota
+            // errors invisibly. Compaction off: it rewrites the shared
+            // conversation prefix every fan-out agent's cache warmup paid
+            // for; overflow surfaces honestly as a "length" stop instead.
+            const settingsManager = SettingsManager.inMemory({
+              transport: "sse",
+              compaction: { enabled: false },
+              retry: {
+                enabled: true,
+                maxRetries: 3,
+                provider: { maxRetries: 0 },
+              },
+            })
+            const resourceLoader = new DefaultResourceLoader({
+              cwd: config.cwd,
+              agentDir: getAgentDir(),
+              settingsManager,
+              noExtensions: true,
+              noSkills: true,
+              noContextFiles: true,
+              noPromptTemplates: true,
+              noThemes: true,
+              systemPrompt: session.systemPrompt,
+            })
+            await resourceLoader.reload()
+
+            // The cast on `parameters` is the documented plain-JSON-Schema
+            // path: Pi detects the missing TypeBox.Kind symbol and runs its
+            // JSON-Schema coercion pass instead (#4 §5). The cast is confined
+            // to that one field so the SDK still type-checks every other.
+            const emitToolDefinition: ToolDefinition = {
+              name: session.emitTool.name,
+              label: session.emitTool.name,
+              description: session.emitTool.description,
+              parameters: session.emitTool
+                .parameters as unknown as ToolDefinition["parameters"],
+              // Sequential execution closes the last-call-wins/terminate-
+              // unanimity hazard: `terminate` only ends the run when every
+              // finalized call in the batch terminates.
+              executionMode: "sequential",
+              execute: async (_toolCallId, args) => {
+                session.emitTool.execute(args)
+                return {
+                  content: [{ type: "text" as const, text: "captured" }],
+                  details: {},
+                  terminate: true,
+                }
+              },
+            }
+
+            const sessionManager = SessionManager.inMemory(
+              config.cwd,
+              session.sessionId === undefined
+                ? undefined
+                : { id: session.sessionId },
+            )
+            const created = await createAgentSession({
+              cwd: config.cwd,
+              model,
+              modelRuntime,
+              ...(resolved.thinkingLevel === undefined
+                ? {}
+                : { thinkingLevel: resolved.thinkingLevel }),
+              noTools: "builtin",
+              // The allowlist is HARD (#4 §5): a custom tool absent from it
+              // is dropped before the model ever sees it.
+              tools: [session.emitTool.name],
+              customTools: [emitToolDefinition],
+              resourceLoader,
+              sessionManager,
+              settingsManager,
+            })
+            if (signal.aborted) {
+              // The caller's deadline fired mid-construction. The interrupted
+              // acquire will never hand this session to the release
+              // finalizer, so dispose it here instead of leaking it.
+              created.session.dispose()
+              return "interrupted"
+            }
+            const agentSession = created.session
+
+            return {
+              subscribe: (listener) =>
+                agentSession.subscribe((event) => {
+                  const mapped = mapPiEvent(event)
+                  if (mapped !== undefined) listener(mapped)
+                }),
+              prompt: (text) => agentSession.prompt(text),
+              abort: () => agentSession.abort(),
+              dispose: () => {
+                agentSession.dispose()
+              },
+              // Raw and verbatim; the bridge decodes rows against UsageRow
+              // and a renamed field fails loudly there instead of reading
+              // as $0.
+              usageRows: () =>
+                agentSession.messages
+                  .filter((message) => message.role === "assistant")
+                  .map((message): unknown => message.usage),
+            } satisfies HarnessSession
+          },
+          catch: (cause) =>
+            new SessionOpenError({
+              operation: "session-construction",
+              reason: String(cause),
+              cause,
+            }),
+        })
+        if (constructed === "interrupted") {
+          // Only reachable if the fiber somehow survives the abort; the
+          // session is already disposed either way.
+          return yield* new SessionOpenError({
+            operation: "session-construction",
+            reason: "interrupted during session construction",
+          })
+        }
+        return constructed
+      }),
+  }
+}
 
 export const livePiLayer = (config: LivePiConfig) =>
   Layer.succeed(HarnessSessionFactory, makeLivePiFactory(config))

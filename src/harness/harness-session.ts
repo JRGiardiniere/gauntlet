@@ -32,8 +32,10 @@ const usageNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 // boundary. A drifted shape silently reads as $0 and looks healthy — the
 // demonstrated hazard (#4 §8) — so every field must decode finite and
 // non-negative. `reasoning` is a subset of `output` (never summed in) and is
-// genuinely absent for many providers.
-export const RawUsage = Schema.Struct({
+// genuinely absent for many providers. This is the DECODED accounting subset;
+// the verbatim rows the journal persists (ADR 0006) are the untouched
+// `unknown` values (`CaptureResult.rawUsageRows`).
+export const UsageRow = Schema.Struct({
   input: usageNumber,
   output: usageNumber,
   cacheRead: usageNumber,
@@ -43,7 +45,7 @@ export const RawUsage = Schema.Struct({
   reasoning: Schema.optional(usageNumber),
   cost: Schema.Struct({ total: usageNumber }),
 })
-export type RawUsage = typeof RawUsage.Type
+export type UsageRow = typeof UsageRow.Type
 
 // The three events production consumes (#4 §3) — liveness, terminal message
 // state, and raw pre-validation tool args (the salvage path) — plus the
@@ -56,7 +58,7 @@ export type HarnessEvent =
       readonly type: "message_end"
       readonly stopReason: StopReason
       readonly errorMessage?: string
-      readonly usage: RawUsage
+      readonly usage: UsageRow
     }
   | {
       readonly type: "tool_execution_start"
@@ -75,7 +77,7 @@ export interface HarnessSession {
   readonly dispose: () => void
   // Terminal accounting sweep over the session's assistant messages, raw and
   // verbatim. MUST be called before dispose — dispose disconnects the session
-  // from the agent that owns the messages. Rows decode against RawUsage in
+  // from the agent that owns the messages. Rows decode against UsageRow in
   // the bridge; drift fails loudly there.
   readonly usageRows: () => ReadonlyArray<unknown>
 }
@@ -103,9 +105,23 @@ export interface SessionConfig {
   readonly emitTool: EmitToolSpec
 }
 
+// The distinct steps an adapter's `open` can fail in — the coarse-error
+// operation discriminator (house style rule 7). The seam enumerates every
+// adapter's operations so the union stays a closed, typo-proof set.
+export type SessionOpenOperation =
+  | "validate-config"
+  | "model-runtime"
+  | "resolve-model"
+  | "session-construction"
+  | "open"
+
 // "No outcome can exist" — session construction failed (CONTEXT.md: Failure).
+// `cause` retains the original thrown value for diagnosis at this multi-step
+// external boundary; `reason` is the human-readable rendering.
 export class SessionOpenError extends Data.TaggedError("SessionOpenError")<{
+  readonly operation: SessionOpenOperation
   readonly reason: string
+  readonly cause?: unknown
 }> {}
 
 // "No outcome can exist" — the adapter broke its contract: a drifted usage
