@@ -53,6 +53,11 @@ const executeReview = Effect.fn("gauntlet.cli.execute_review")(function* () {
   yield* progress("resolving working-tree review target")
   const directory = yield* InvocationDirectory
   const target = yield* resolveWorkingTreeTarget(directory)
+  // Scope degradation is never silent (spec #16): each warning is narrated
+  // as it is discovered, in addition to landing on the plan and report.
+  for (const warning of target.warnings) {
+    yield* progress(`warning — ${warning}`)
+  }
 
   const runsRoot = yield* resolveRunsRoot()
   const runId = yield* makeRunId()
@@ -91,15 +96,16 @@ const executeReview = Effect.fn("gauntlet.cli.execute_review")(function* () {
 
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
-        const report = renderReport(plan, dossier, {
+        const accounting = {
           costUsd: 0,
           invocationCount: 0,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
-        })
+        }
+        const report = renderReport(plan, dossier, accounting)
         yield* writeArtifactText(paths.report, report)
         yield* Effect.log("report rendered", { path: paths.report })
 
-        yield* writeStdout(`${renderDigest(plan, dossier, paths)}\n`)
+        yield* writeStdout(`${renderDigest(plan, dossier, accounting, paths)}\n`)
       }).pipe(Effect.provide(Logger.layer([fileLogger])))
     }),
   )
@@ -123,9 +129,18 @@ export const runGauntlet = (
 ) =>
   Command.runWith(gauntlet, { version: "0.0.0" })(argv).pipe(
     Effect.as(0),
-    Effect.catchTag("TargetUnresolvable", (unresolvable) =>
-      progress(`could not review — ${unresolvable.reason}`).pipe(Effect.as(1)),
-    ),
+    Effect.catchTags({
+      // ShowHelp is help control flow, not a failed review: the CLI has
+      // already rendered help (and any parse errors). Plain help exits 0;
+      // help shown because arguments failed to parse exits 1.
+      ShowHelp: (help) => Effect.succeed(help.errors.length === 0 ? 0 : 1),
+      TargetUnresolvable: (unresolvable) =>
+        progress(`could not review — ${unresolvable.reason}`).pipe(Effect.as(1)),
+      ArtifactWriteError: (failure) =>
+        progress(`could not review — failed to write ${failure.path}`).pipe(
+          Effect.as(1),
+        ),
+    }),
     Effect.catch((unreviewable) =>
       progress(`could not review — ${String(unreviewable)}`).pipe(Effect.as(1)),
     ),

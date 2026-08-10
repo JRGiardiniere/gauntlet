@@ -3,7 +3,7 @@ import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import type { Severity } from "../domain/verdict.ts"
-import { viewDossier } from "./dossier-view.ts"
+import { type DossierView, viewDossier } from "./dossier-view.ts"
 
 export interface RunAccounting {
   readonly costUsd: number
@@ -43,8 +43,7 @@ const severityOrder: ReadonlyArray<Severity> = ["P1", "P2", "P3"]
 // Findings by tier: confirmed/kept first within their tier, then
 // unverified/undecided tagged in the main section — first-class, never
 // banished to an appendix (ADR 0006).
-const renderFindings = (dossier: Dossier): string => {
-  const view = viewDossier(dossier)
+const renderFindings = (view: DossierView): string => {
   const lines: Array<string> = []
   for (const tier of severityOrder) {
     for (const entry of view.confirmed) {
@@ -99,6 +98,12 @@ export const renderReport = (
     : dossier.coverageGaps
       .map((gap) => `${gap.stage}${gap.lens === undefined ? "" : ` (${gap.lens})`}: ${gap.reason}`)
       .join("; ")
+  // Scope-degradation warnings (e.g. untracked files outside the diff) must
+  // reach the reader — a review that silently narrowed its scope would
+  // otherwise present as complete.
+  const warnings = plan.target.warnings.length === 0
+    ? "none"
+    : plan.target.warnings.join("; ")
 
   const refutedLines = view.refuted.map((entry) =>
     findingLine(entry.candidate, undefined, "refuted", entry.verdict.evidence)
@@ -115,10 +120,11 @@ export const renderReport = (
     `- Lenses: ${lensList}`,
     `- Cost: $${accounting.costUsd.toFixed(2)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
     `- Coverage gaps: ${coverageGaps}`,
+    `- Warnings: ${warnings}`,
     "",
     "## Findings",
     "",
-    renderFindings(dossier),
+    renderFindings(view),
     "",
     "## Appendix: refuted claims",
     "",

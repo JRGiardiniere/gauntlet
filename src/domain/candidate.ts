@@ -1,12 +1,13 @@
 import * as Schema from "effect/Schema"
 
 // Shared core of every Candidate: identity, lens, location, summary
-// (CONTEXT.md). `line` may be absent on whole-change findings.
+// (CONTEXT.md). `line` may be absent on whole-change findings; when present
+// it is 1-indexed (docs/spec/emit-tools.md).
 const candidateCore = {
   id: Schema.NonEmptyString,
   lens: Schema.NonEmptyString,
   file: Schema.NonEmptyString,
-  line: Schema.optionalKey(Schema.Int),
+  line: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   summary: Schema.NonEmptyString,
 }
 

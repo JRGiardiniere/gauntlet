@@ -154,6 +154,8 @@ describe("gauntlet review — walking skeleton", () => {
       expect(tally).toContain("0 confirmed · 0 kept · 0 unverified · 0 undecided")
       expect(tally).toContain("working tree @")
       expect(tally).toContain("recipe: none")
+      // Cost and wall time belong to the tally (ADR 0006).
+      expect(tally).toMatch(/\$0\.00 · \d+s/)
       expect(stdout).toContain(`report: ${fixture.runsRoot}`)
       expect(stdout).toContain("report.md")
       expect(stdout).toContain("dossier.json")
@@ -181,6 +183,36 @@ describe("gauntlet review — walking skeleton", () => {
       const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(planText)
       expect(plan.target.warnings).toHaveLength(1)
       expect(plan.target.warnings[0]).toContain("untracked.txt")
+
+      // Scope degradation is never silent: the warning reaches the report
+      // header and the stderr narration, not just the machine-read plan.
+      const report = yield* fs.readFileString(
+        join(fixture.runsRoot, runIds[0] ?? "", "report.md"),
+      )
+      expect(report).toContain("- Warnings: ")
+      expect(report).toContain("untracked.txt")
+      expect(captured.stderr.join("")).toContain("warning — ")
+      expect(captured.stderr.join("")).toContain("untracked.txt")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("help is not a failed review: plain help exits 0, bad usage exits 1", () =>
+    Effect.gen(function* () {
+      const fixture = makeFixture()
+      const helpCaptured: CapturedOutput = { stdout: [], stderr: [] }
+      const helpExit = yield* runGauntlet([]).pipe(
+        Effect.provideService(InvocationDirectory, fixture.repo),
+        Effect.provide(testLayers(fixture, helpCaptured)),
+      )
+      expect(helpExit).toBe(0)
+      expect(helpCaptured.stderr.join("")).not.toContain("could not review")
+
+      const badCaptured: CapturedOutput = { stdout: [], stderr: [] }
+      const badExit = yield* runGauntlet(["not-a-subcommand"]).pipe(
+        Effect.provideService(InvocationDirectory, fixture.repo),
+        Effect.provide(testLayers(fixture, badCaptured)),
+      )
+      expect(badExit).toBe(1)
+      expect(badCaptured.stderr.join("")).not.toContain("could not review")
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("exits 1 with no run directory when the tree has nothing to review", () =>

@@ -29,6 +29,12 @@ describe("domain model", () => {
 
       const observation = yield* decode({ _tag: "Observation", ...core })
       expect(Candidate.guards.Observation(observation)).toBe(true)
+
+      // Lines are 1-indexed (docs/spec/emit-tools.md); 0 is a finder bug.
+      const rejected = yield* Effect.flip(
+        decode({ _tag: "Observation", ...core, line: 0 }),
+      )
+      expect(rejected._tag).toBe("SchemaError")
     }))
 
   it.effect("every expected bad ending is a Termination mode, as data", () =>

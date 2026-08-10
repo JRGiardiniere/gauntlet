@@ -55,7 +55,11 @@ export const createRunDirectory = Effect.fn("gauntlet.run_record.create_run_dire
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const paths = runPaths(runsRoot, runId, path)
-    yield* fs.makeDirectory(paths.journalDirectory, { recursive: true })
+    yield* fs.makeDirectory(runsRoot, { recursive: true })
+    // The run directory itself is created non-recursively: a colliding run ID
+    // fails loudly here instead of two runs silently sharing artifacts.
+    yield* fs.makeDirectory(paths.root)
+    yield* fs.makeDirectory(paths.journalDirectory)
     return paths
   },
 )

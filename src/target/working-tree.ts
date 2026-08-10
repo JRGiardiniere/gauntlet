@@ -12,14 +12,20 @@ export class TargetUnresolvable extends Data.TaggedError("TargetUnresolvable")<{
 
 const explainGit = (reason: string) =>
 <A, R>(self: Effect.Effect<A, GitCommandError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
-  Effect.catchTag(self, "GitCommandError", (cause) =>
-    Effect.fail(
-      new TargetUnresolvable({
-        reason: cause.stderr.trim() === "" ? reason : `${reason}: ${cause.stderr.trim()}`,
-        cause,
-      }),
-    ),
-  )
+  Effect.catchTag(self, "GitCommandError", (cause) => {
+    // exitCode undefined = git itself never ran (missing binary, spawn
+    // failure) — a different truth than the command-specific reason.
+    const explained = cause.exitCode === undefined
+      ? `git could not run: ${String(cause.cause)}`
+      : cause.stderr.trim() === ""
+      ? reason
+      : `${reason}: ${cause.stderr.trim()}`
+    return Effect.fail(new TargetUnresolvable({ reason: explained, cause }))
+  })
+
+// rev-parse output is one line terminated by \n. Strip exactly that newline —
+// trim() would also eat whitespace that is legally part of the path.
+const chompLine = (out: string) => out.replace(/\n$/, "")
 
 // Resolves the default target: uncommitted changes vs HEAD, diff frozen at
 // submission (ADR 0005 — explicit aiming, the working tree is the
@@ -30,22 +36,25 @@ export const resolveWorkingTreeTarget = Effect.fn(
 )(function* (directory: string) {
   const repoRoot = yield* runGit(directory, ["rev-parse", "--show-toplevel"]).pipe(
     explainGit("not inside a git repository"),
-    Effect.map((out) => out.trim()),
+    Effect.map(chompLine),
   )
   const headCommit = yield* runGit(repoRoot, ["rev-parse", "HEAD"]).pipe(
     explainGit("repository has no HEAD commit to diff against"),
-    Effect.map((out) => out.trim()),
+    Effect.map(chompLine),
   )
-  const diff = yield* runGit(repoRoot, ["diff", "HEAD"]).pipe(
-    explainGit("could not diff the working tree against HEAD"),
-  )
-  const untracked = yield* runGit(repoRoot, [
-    "ls-files",
-    "--others",
-    "--exclude-standard",
-  ]).pipe(
-    explainGit("could not list untracked files"),
-    Effect.map((out) => out.split("\n").filter((line) => line !== "")),
+  // Diff against the resolved hash, not symbolic HEAD — a commit landing
+  // between the two commands must not desynchronize identity and diff.
+  const [diff, untracked] = yield* Effect.all(
+    [
+      runGit(repoRoot, ["diff", headCommit]).pipe(
+        explainGit("could not diff the working tree against HEAD"),
+      ),
+      runGit(repoRoot, ["ls-files", "--others", "--exclude-standard"]).pipe(
+        explainGit("could not list untracked files"),
+        Effect.map((out) => out.split("\n").filter((line) => line !== "")),
+      ),
+    ],
+    { concurrency: 2 },
   )
 
   if (diff === "") {
