@@ -20,15 +20,15 @@ invocation uses, not the invocation itself)
 
 **ReviewPlan**:
 The fully resolved instructions governing one review — semantics-and-spend
-fields only (lenses, models/recipes, budgets, caps, tool capabilities) —
+fields only (lenses, models/recipes, caps, tool capabilities) —
 persisted once at submission so a resumed Run is the same review. Delivery
 destination is not part of the plan.
 _Avoid_: configuration snapshot, settings, options
 
 **Recipe**:
 A named model selection as pure content: one small file in
-`~/.gauntlet/recipes/` naming a seat per stage (`provider/model:effort`) plus
-budgets. Name from the filename, chosen positionally at invocation; built-ins
+`~/.gauntlet/recipes/` naming a seat per stage (`provider/model:effort`) —
+seats only, never budgets or cost limits. Name from the filename, chosen positionally at invocation; built-ins
 ship as the same files and one loader reads all. Favorites and the default
 recipe are settings metadata, never recipe anatomy. The ReviewPlan freezes the
 resolved seats at submission.

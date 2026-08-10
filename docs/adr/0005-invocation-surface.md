@@ -36,7 +36,9 @@ and the future PR watcher arrives with the number in hand.
 ## Recipes
 
 A recipe is content: one small file in `~/.gauntlet/recipes/` naming a seat
-per stage (grammar `provider/model:effort`) plus budgets. Name from the
+per stage (grammar `provider/model:effort`) — seats only; no budget or cost
+fields (amended by ADR 0006: cost is read afterward, never constrained
+proactively). Name from the
 filename, positional at invocation (`gauntlet review luna-high`). Built-ins
 (`low`, `medium`, `high`, `quick`) ship as the same files; one loader reads
 all; adding or renaming a recipe never touches code. Trialling a model is
