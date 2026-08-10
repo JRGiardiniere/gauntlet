@@ -1,9 +1,12 @@
 > **Imported reference (cloudflare-hub).** Written for cloudflare-hub against
-> **effect@4.0.0-beta.90**; gauntlet pins **4.0.0-beta.106** and runs plain Node
-> (no Cloudflare Sandbox). "For hub:" recommendations and hub service names are
-> historical context. Known beta.90→106 deltas so far: `Effect.fork` →
-> `Effect.forkChild`; `Schedule` substantially reworked (see
-> [research/effect-batteries.md](research/effect-batteries.md)).
+> effect@4.0.0-beta.90; gauntlet pins **4.0.0-beta.106** and runs plain Node
+> (no Cloudflare Sandbox). "For hub:" recommendations, hub service names, and
+> "we pin beta.90" statements are historical context. Every API name, import
+> path, and signature claim that speaks to our pin has been **verified against
+> the installed beta.106 source** (verified 2026-08-10); the substantive
+> beta.90→106 renames folded in are `Schedule.take(n)` → `Schedule.upTo({ times: n })`
+> and `Schema.TaggedErrorClass` → `Schema.TaggedError`. Code excerpts from the
+> reference repos remain quotes of those repos at their own (older) pins.
 
 # Effect v4 Patterns Guide for cloudflare-hub
 
@@ -90,7 +93,7 @@ const asResult = <A>(effect: Effect.Effect<A, { readonly message: string }>) =>
 - `scripts/hub.mjs` is one-shot, so it uses `NodeRuntime.runMain(program, { teardown })` over `publishCli(...).pipe(Effect.provide(AppLayer))` (the executor/opencode CLI shape) rather than a `ManagedRuntime` + `runPromise` facade (motel's `cli.ts` — right for a caller that runs *many* effects against one runtime). `runMain` interrupts the main fiber on SIGINT/SIGTERM, so scope finalizers (child-process teardown, layer disposal) run before exit; a custom `teardown` maps the rendered outcome to the exit code (`Runtime.defaultTeardown` handles interrupt=130 / defect=1).
 - Render `PublishError`/`DirtyWorkingTree`/etc. into operator text with `Effect.catchTags` / `Effect.match` *before* the boundary, because the Exit/Promise crossing erases types.
 
-**beta.90 gotcha**: use `NodeRuntime.runMain` from `@effect/platform-node` (every reference except `effect-app/libs`, motel-on-Node, and arcwork uses Bun's). `Effect.runPromiseExitWith(services)` / `runSyncExitWith` are the beta.90 names (`effect-app/libs`); a `makeFiberFailure`-based approach is gone (their `errors.ts` carries a `// v4: makeFiberFailure removed` migration note — use `Cause.prettyErrors`).
+**beta.90 gotcha**: use `NodeRuntime.runMain` from `@effect/platform-node` (every reference except `effect-app/libs`, motel-on-Node, and arcwork uses Bun's). `Effect.runPromiseExitWith(services)` / `runSyncExitWith` are the current names (`effect-app/libs`; both still present at beta.106); a `makeFiberFailure`-based approach is gone (their `errors.ts` carries a `// v4: makeFiberFailure removed` migration note — use `Cause.prettyErrors`).
 
 ---
 
@@ -138,11 +141,11 @@ The `deno-subprocess` error overrides `get message()` to map `ENOENT` to an acti
 
 ### For hub
 
-- Use **`Data.TaggedError`** for in-process leaf errors (`PublishError` sub-tags, `GitDirtyTree`, `DeployFailed`, subprocess errors carrying `command/exitCode/stderr/cause`). Use **`Schema.TaggedErrorClass`** only for errors that must serialize across the MCP wire.
+- Use **`Data.TaggedError`** for in-process leaf errors (`PublishError` sub-tags, `GitDirtyTree`, `DeployFailed`, subprocess errors carrying `command/exitCode/stderr/cause`). Use **`Schema.TaggedError`** (the beta.106 name for what the references call `Schema.TaggedErrorClass`) only for errors that must serialize across the MCP wire.
 - Follow opencode's **coarse-error-with-discriminator** style: one `OperationError` per service with an `operation` literal union, not one class per git verb. Keep `cause: Schema.optional(Schema.Defect())` to hold the original throwable.
 - At the MCP boundary, prefer an explicit `Effect.catchTags({...})` switch (lalph's `root.ts`) so each tag maps to a deliberate user-facing message and the compiler enforces exhaustiveness, backed by a `catchCause` fallback for defects (executor's `tool-invoker.ts`).
 
-**beta.90 gotcha**: `Schema.TaggedErrorClass`/`Schema.Defect()` are the beta.90 surface (ghui, motel, opencode all use them). Do not cargo-cult `Schema.TaggedErrorClass` everywhere — it carries heavier machinery (`effect-app/libs` shows `disableValidation`/manual `super(... as any)`); reserve it for the wire. **Avoid** the hand-rolled `class X extends Error { readonly _tag = "X" }` shortcut (motel's boundary services, dfx's `BadWebhookSignature`) and the Schema-struct-as-error `{ _tag: Literal("NotFound") }` (effect-http-starter) — both lose `catchTag`/exhaustiveness ergonomics.
+**beta.90 gotcha**: `Schema.TaggedErrorClass`/`Schema.Defect()` are the beta.90 surface (ghui, motel, opencode all use them); at beta.106 the class is renamed **`Schema.TaggedError`** (same shape — `Schema.TaggedError<Self>()("Tag", fields, annotations?)`) and `Schema.Defect()` is unchanged. Do not cargo-cult schema-backed error classes everywhere — it carries heavier machinery (`effect-app/libs` shows `disableValidation`/manual `super(... as any)`); reserve it for the wire. **Avoid** the hand-rolled `class X extends Error { readonly _tag = "X" }` shortcut (motel's boundary services, dfx's `BadWebhookSignature`) and the Schema-struct-as-error `{ _tag: Literal("NotFound") }` (effect-http-starter) — both lose `catchTag`/exhaustiveness ergonomics.
 
 ---
 
@@ -152,7 +155,7 @@ The five hub services: `AppLoader`, `GitVersionRecorder`, `GitMetadataReader`, `
 
 ### STEAL — the stock beta.90 two-param form (ghui / motel / opencode)
 
-> **Correction (verified against stock beta.90 `Context.d.ts`):** this section originally recommended effect-app/libs' single-type-param `Context.Service<S>()(id, { make })` form. That form is NOT stock Effect — `CUPS.ts` imports `Context` from effect-app's own `effect-app/Context` wrapper, which adds a bespoke overload (and a `toLayer` helper). Stock beta.90 requires BOTH type parameters (`<Self, Shape>`), and its `{ make }` option merely attaches a `.make` effect to the class — it does not generate a Default layer. The beta.90-pinned stock-effect references (ghui, motel) and opencode all use the two-param form below, and hub follows them.
+> **Correction (verified against stock beta.90 `Context.d.ts`; re-verified at beta.106):** this section originally recommended effect-app/libs' single-type-param `Context.Service<S>()(id, { make })` form. That form is NOT stock Effect — `CUPS.ts` imports `Context` from effect-app's own `effect-app/Context` wrapper, which adds a bespoke overload (and a `toLayer` helper). Stock beta.90 requires BOTH type parameters (`<Self, Shape>`), and its `{ make }` option merely attaches a `.make` effect to the class — it does not generate a Default layer. The beta.90-pinned stock-effect references (ghui, motel) and opencode all use the two-param form below, and hub follows them.
 
 The canonical stock-beta.90 service shape — explicit interface as the second type parameter, `make` reads deps/Config inside the gen and returns a plain record via `Service.of`, and the class statically exposes a real layer *and* a fake layer for tests:
 
@@ -186,7 +189,7 @@ export class CommandRunner extends Context.Service<CommandRunner, {
 - Give `LiveStatus` a `disabledLayer` fallback via `Layer.catchCause` (ghui) so a broken Cloudflare client collapses to a no-op service instead of failing the whole graph.
 - Give every service a `static Fake`/`Default` (effect-app/libs) for tests.
 
-**beta.90 gotcha**: avoid `sst/opencode`'s bespoke `LayerNode` DI graph (`packages/core/src/effect/layer-node.ts`, ~12KB of type machinery) — it's scale-justified for dozens of services and pure overhead for hub's five. Use plain `Layer.provide`/`provideMerge`. The curried `Layer.effect(this)(this.make)` form (sandromaglione, beta.66) and the un-curried `Layer.effect(this, this.make)` (effect-app/libs, beta.90) differ across betas — use the beta.90 un-curried form.
+**beta.90 gotcha**: avoid `sst/opencode`'s bespoke `LayerNode` DI graph (`packages/core/src/effect/layer-node.ts`, ~12KB of type machinery) — it's scale-justified for dozens of services and pure overhead for hub's five. Use plain `Layer.provide`/`provideMerge`. The curried `Layer.effect(this)(this.make)` form (sandromaglione, beta.66) and the un-curried `Layer.effect(this, this.make)` (effect-app/libs, beta.90) differ across betas — use the un-curried form (still current at beta.106).
 
 ---
 
@@ -241,7 +244,7 @@ const telemetryLayer = NodeSdk.layer(() => ({
 - Name each publish step `Effect.fn("Publisher.loadManifest")`, `Effect.fn("Publisher.buildCss")`, `Effect.fn("Publisher.bundleClient")`, `Effect.fn("Publisher.wranglerDeploy")` to get a free span tree. Use `Effect.fnUntraced` only for genuinely-internal helpers.
 - If hub ever traces calls that themselves carry telemetry egress, exclude those routes (motel's `HttpMiddleware.layerTracerDisabledForUrls` avoids a self-tracing feedback loop). On the Cloudflare REST calls hub probably wants trace propagation **ON** (the inverse of dfx/receipts, which set `TracerPropagationEnabled = false` to avoid leaking traceparent to a third party — know the knob exists).
 
-**beta.90 gotcha**: the `@effect/opentelemetry` peer must be pinned to beta.90 alongside `effect`. opencode is beta.83 — verify `NodeSdk.layer` signature against beta.90 (motel confirms it holds at beta.90). Do **not** copy any in-core `effect/unstable/observability/OtlpTracer.layer` wiring (alchemy/ghui/arcwork) — that is the workerd/Bun path and conflicts with our NodeSdk brief.
+**beta.90 gotcha**: the `@effect/opentelemetry` peer must be pinned to the same beta as `effect`. opencode is beta.83 — verify `NodeSdk.layer` signature against your installed pin (motel confirms it holds at beta.90; `@effect/opentelemetry` is not installed in gauntlet, so this one is unverified at beta.106). Do **not** copy any in-core `effect/unstable/observability/OtlpTracer.layer` wiring (alchemy/ghui/arcwork) — that is the workerd/Bun path and conflicts with our NodeSdk brief.
 
 ---
 
@@ -384,10 +387,10 @@ const run = Effect.fn("CommandRunner.run")(function* (command, args, options?) {
 ### For hub
 
 - **Subprocess**: build one subprocess service (opencode `process.ts` + ghui `CommandRunner`), wrap each tool in a per-tool service (`git.ts` style) that names spans `Effect.fn("Tool.op")`, maps non-zero exit → a coarse tagged error with an `operation` discriminator, and provides a `run()` (degrade) vs `execute()` (surface) split. Register SIGKILL-on-abort (ghui). Scrub inherited `GIT_*` env so a process launched inside a git context can't target the wrong repo, and bump `maxBuffer` (arcwork `git/exec.ts`).
-- **REST/LiveStatus**: motel's `tryPromise` + `AbortSignal.timeout` + `tapError`-to-degrade is the simplest fit; add dfx's `retryTransient`/exponential schedule for flaky reads. The whole adapter must **never throw** — terminate every path in a status state via `Effect.catch` (lalph's `Effect.option`, ghui's per-item catch). Two `retryTransient` facts verified against stock beta.90 source: (1) its default `retryOn: "errors-and-responses"` mode ALSO repeats on a transient-status **response** (408/429/500/502/503/504) via a success-channel `Effect.repeat` — so it retries HTTP-level 429/5xx even **without** `filterStatusOk` (which is why hub can skip `filterStatusOk` for its 404→missing branching and lose nothing); (2) the `times` option caps ANY schedule, including a plain unbounded `Schedule.spaced` (`buildFromOptions` wraps the schedule in an attempt-count `while`), so `times: N` and `Schedule.take(N)` are equivalent bounds. Note beta.90's `FetchHttpClient` applies NO timeout of its own (only the interruption-linked AbortSignal) — add a per-attempt `HttpClient.transformResponse(Effect.timeout(...))` UNDER `retryTransient` so a hung connection times out, is classified transient, and retries before degrading. That transform bounds only time-to-headers (fetch resolves when headers arrive); bound the body read (`schemaBodyJson` etc.) with its own `Effect.timeout` or a stalled body stream still hangs.
+- **REST/LiveStatus**: motel's `tryPromise` + `AbortSignal.timeout` + `tapError`-to-degrade is the simplest fit; add dfx's `retryTransient`/exponential schedule for flaky reads. The whole adapter must **never throw** — terminate every path in a status state via `Effect.catch` (lalph's `Effect.option`, ghui's per-item catch). Two `retryTransient` facts verified against stock source (re-verified at beta.106): (1) its default `retryOn: "errors-and-responses"` mode ALSO repeats on a transient-status **response** (408/429/500/502/503/504) via a success-channel `Effect.repeat` — so it retries HTTP-level 429/5xx even **without** `filterStatusOk` (which is why hub can skip `filterStatusOk` for its 404→missing branching and lose nothing); (2) the `times` option caps ANY schedule, including a plain unbounded `Schedule.spaced` (`buildFromOptions` wraps the schedule in an attempt-count `while`), so `times: N` and `Schedule.upTo({ times: N })` (the beta.106 replacement for the removed `Schedule.take(N)`) are equivalent bounds. Note that `FetchHttpClient` applies NO timeout of its own (re-verified at beta.106) (only the interruption-linked AbortSignal) — add a per-attempt `HttpClient.transformResponse(Effect.timeout(...))` UNDER `retryTransient` so a hung connection times out, is classified transient, and retries before degrading. That transform bounds only time-to-headers (fetch resolves when headers arrive); bound the body read (`schemaBodyJson` etc.) with its own `Effect.timeout` or a stalled body stream still hangs.
 - **fs**: `AppLoader` reads the manifest via the Effect `FileSystem` service so it stays mockable.
 
-**beta.90 gotcha — the biggest decision point**: references split between (a) the v4 built-in `effect/unstable/process` `ChildProcess`/`ChildProcessSpawner` (opencode, alchemy, lalph, effect-app/libs `os-command.ts`) and (b) raw `node:child_process` wrapped in `Effect.promise`/`tryPromise` (arcwork `git/exec.ts`, effect-app/libs `CUPS.ts`, motel `daemon.ts`). Both work on beta.90. The built-in gives typed exit-code/stderr and integrates with FileSystem/Path; the raw-node path gives full control of error shape and the non-throwing-wrapper idiom (arcwork resolves `{stdout,stderr,exitCode,spawnFailed}` and `Effect.promise`s it). **Note: nobody used `@effect/platform` `Command` directly** — `effect/unstable/process` is the in-core v4 location. Use `Effect.callback` (not the older `Effect.async`) to bridge callback-style SDKs (effect-app/libs `Sendgrid.ts`, receipts). `effect/unstable/process` and `effect/unstable/http` are *unstable* subpaths that can move between betas — verify against beta.90 (ghui/motel confirm the locations hold).
+**beta.90 gotcha — the biggest decision point**: references split between (a) the v4 built-in `effect/unstable/process` `ChildProcess`/`ChildProcessSpawner` (opencode, alchemy, lalph, effect-app/libs `os-command.ts`) and (b) raw `node:child_process` wrapped in `Effect.promise`/`tryPromise` (arcwork `git/exec.ts`, effect-app/libs `CUPS.ts`, motel `daemon.ts`). Both work on beta.90. The built-in gives typed exit-code/stderr and integrates with FileSystem/Path; the raw-node path gives full control of error shape and the non-throwing-wrapper idiom (arcwork resolves `{stdout,stderr,exitCode,spawnFailed}` and `Effect.promise`s it). **Note: nobody used `@effect/platform` `Command` directly** — `effect/unstable/process` is the in-core v4 location. Use `Effect.callback` (not the older `Effect.async`) to bridge callback-style SDKs (effect-app/libs `Sendgrid.ts`, receipts). `effect/unstable/process` and `effect/unstable/http` are *unstable* subpaths that can move between betas — verify against the installed pin (both locations, and `ChildProcess`/`ChildProcessSpawner` within them, hold at beta.106).
 
 ---
 
@@ -422,7 +425,7 @@ it.effect("fails on malformed authorization headers",
 
 ### For hub
 
-- Use the real `@effect/vitest` package (`it.effect`/`it.layer`/`it.scoped`) — pinned to beta.90.
+- Use the real `@effect/vitest` package (`it.effect`/`it.live`/`it.layer`; `it.scoped` no longer exists at beta.106 — `it.effect` already provides a `Scope`) — pinned to the same beta as `effect`.
 - Give each service a `static Fake` layer (effect-app/libs). Test `Publisher`/`GitVersionRecorder` by providing a fake subprocess service with a recorder (ghui) — never touch real git/wrangler. Test `LiveStatus` with a recording `HttpClient` (executor).
 - Assert typed failures with `Effect.flip` + `toBeInstanceOf` (effect-app/libs).
 - Scrub `GIT_*` env in test setup (arcwork).
@@ -474,7 +477,7 @@ motel's `tsconfig.json` is a clean, copyable strict baseline with the language-s
 - Typecheck with `tsgo` (`@typescript/native-preview`); keep `tsc --noEmit` as a slow fallback. Run `effect-language-service patch` in `prepare`.
 - Use `@effect/platform-node` throughout (`NodeRuntime.runMain`, `NodeFileSystem.layer`, `NodePath.layer`) and `@effect/opentelemetry` NodeSdk — **not** the `@effect/platform-bun` or in-core `effect/unstable/observability` choices most references make.
 
-**beta.90 gotcha**: caret ranges on betas invite breaking drift between builds — keep exact pins (alchemy uses a loose `>=4.0.0-beta.84` range and effect-http-starter uses `^beta.60`; both are the wrong call for hub). v4 pulls submodules from deep/unstable paths (`effect/unstable/http`, `effect/unstable/process`, `effect/unstable/cli`, `effect/References`, `effect/Logger`) that can move between betas — verify import locations against beta.90.
+**beta.90 gotcha**: caret ranges on betas invite breaking drift between builds — keep exact pins (alchemy uses a loose `>=4.0.0-beta.84` range and effect-http-starter uses `^beta.60`; both are the wrong call for hub). v4 pulls submodules from deep/unstable paths (`effect/unstable/http`, `effect/unstable/process`, `effect/unstable/cli`, `effect/References`, `effect/Logger`) that can move between betas — verify import locations against the installed pin (all five still exist at beta.106).
 
 ---
 
@@ -494,7 +497,7 @@ Aggregated from across the references:
 - **Over-heavy machinery**: skip opencode's `LayerNode` DI graph, alchemy's resource-graph/DAG scheduler, lalph's `Semaphore`+`FiberSet` worker loop, arcwork's `NotificationStatusFix` MCP middleware — all scale- or client-specific overhead for hub's five flat services and linear pipeline.
 - **`*Unsafe` escape hatches** (`Context.makeUnsafe`, `Semaphore.makeUnsafe`, `PubSub.publishUnsafe`) and `as any` (effect-genserver internals) are library-building tools — keep hub's application services in the typed, non-Unsafe surface.
 - **Browser/React boundaries**: receipts/effract/ghui/arcwork drive Effects through `@effect/atom-react` `Atom.runtime` or xstate — do NOT copy for hub's MCP/CLI boundary.
-- **`effect/unstable/*` churn**: unstable subpaths and `Effect.callback` (replaces `Effect.async`), `Cause.prettyErrors` (replaces `makeFiberFailure`) shifted across betas — pin exactly and verify against beta.90.
+- **`effect/unstable/*` churn**: unstable subpaths and `Effect.callback` (replaces `Effect.async`), `Cause.prettyErrors` (replaces `makeFiberFailure`) shifted across betas — pin exactly and verify against the installed pin (all of these hold at beta.106).
 
 ---
 

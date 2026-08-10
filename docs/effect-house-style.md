@@ -1,10 +1,12 @@
 > **Imported reference (cloudflare-hub).** This doc was written for cloudflare-hub
-> against **effect@4.0.0-beta.90**; gauntlet pins **4.0.0-beta.106**. Read it as the
-> house style's rationale and rule set, not as gauntlet gospel: hub-specific scopes
+> against effect@4.0.0-beta.90; gauntlet pins **4.0.0-beta.106**, and every code
+> snippet, import path, API name, and signature claim below has been **verified
+> against the installed beta.106 source** (verified 2026-08-10). The substantive
+> beta.90→106 renames folded in: `Schedule.take(n)` → `Schedule.upTo({ times: n })`
+> and `Schema.TaggedErrorClass` → `Schema.TaggedError`. Read it as the house style's
+> rationale and rule set, not as gauntlet gospel: hub-specific scopes
 > (`platform/operations`, the zod wire boundary, Cloudflare Sandbox constraints) do
-> not apply here, and the span prefix is `gauntlet.`, not `hub.`. Known beta.90→106
-> deltas so far: `Effect.fork` → `Effect.forkChild`, and the `Schedule` module was
-> substantially reworked (see [research/effect-batteries.md](research/effect-batteries.md)).
+> not apply here, and the span prefix is `gauntlet.`, not `hub.`.
 > Update this doc in place as gauntlet's own style decisions land.
 
 # Effect v4 House Style — cloudflare-hub
@@ -23,7 +25,7 @@ below was litigated against a real failure, not a preference.
 
 Deviations from the skill's defaults, for quick orientation: rule 6 (named service
 classes with `static Default`/`static Fake`, not the module-namespace surface), rule 7
-(`Data.TaggedError`, not `Schema.TaggedErrorClass`, except on the MCP wire), rule 8
+(`Data.TaggedError`, not `Schema.TaggedError`, except on the MCP wire), rule 8
 (CommandRunner always-capture), rule 16 (loose Cloudflare envelope decoding — scoped to
 Cloudflare API responses ONLY — and zod for cross-runtime wire contracts in `shared/`;
 every other untrusted boundary uses Schema decoders per the skill). Everything else in
@@ -37,7 +39,7 @@ and `node_modules/effect` (see "When unsure of an API" below), and consult
 `docs/effect-v4-patterns.md` — the full per-concern steal/reference/avoid analysis these
 rules were distilled from (decision record: `docs/effect-refactor-prd.md`).
 
-**Golden rule: never trust memorized Effect knowledge.** We run `effect@4.0.0-beta.90`
+**Golden rule: never trust memorized Effect knowledge.** We run `effect@4.0.0-beta.106`
 (v4, developed in `Effect-TS/effect-smol`). Training data is dominated by v3 and older
 betas; APIs moved. Before using any API you have not seen in this repo, verify it against
 `node_modules/effect` (ground truth for our pin) or the reference repos listed below.
@@ -45,7 +47,7 @@ betas; APIs moved. Before using any API you have not seen in this repo, verify i
 ## Non-negotiable rules
 
 **Versions & imports**
-1. `effect` and every `@effect/*` package are pinned **exactly** `4.0.0-beta.90` — no
+1. `effect` and every `@effect/*` package are pinned **exactly** `4.0.0-beta.106` — no
    carets, no bumps unless the task explicitly says so.
 2. HTTP and subprocess are **in-core** in v4: `effect/unstable/http/*` (HttpClient,
    HttpClientRequest, HttpClientResponse, HttpClientError, FetchHttpClient) and
@@ -70,13 +72,15 @@ betas; APIs moved. Before using any API you have not seen in this repo, verify i
    Promise (the crossing erases types).
 6. Services are the **stock two-param form**:
    `class S extends Context.Service<S, Shape>()("hub/S")` with explicit
-   `static Default = Layer.effect(S, make)` and a `static Fake` for tests. Stock beta.90
-   does NOT auto-generate `.Default` from a `{ make }` option — that is the effect-app
+   `static Default = Layer.effect(S, make)` and a `static Fake` for tests. Stock beta.106
+   does NOT auto-generate `.Default` from a `{ make }` option (it only attaches a `.make`
+   effect to the class) — that is the effect-app
    fork's extension; do not copy it. Orchestration entrypoints (publish/list/get) are
    top-level Effect **functions** requiring services via `R`, not services themselves.
 7. Errors are `Data.TaggedError` per failure mode, prefer one coarse error per service
    with an `operation` literal-union discriminator plus `cause` over one class per verb.
-   Reserve `Schema.TaggedErrorClass` for errors that must serialize across the MCP wire.
+   Reserve `Schema.TaggedError` (named `Schema.TaggedErrorClass` before beta.106) for
+   errors that must serialize across the MCP wire.
    `Effect.fail` for anything recoverable — `Effect.die` only for genuinely impossible
    states. Never hand-roll `class X extends Error { readonly _tag = "X" }`.
 8. `CommandRunner` is intentionally **always-capture** — one output path, piped and
@@ -100,8 +104,9 @@ betas; APIs moved. Before using any API you have not seen in this repo, verify i
 12. `Effect.race` prefers first *success* in v4, so a fast failure hangs waiting on the
     other branch — use `Effect.raceFirst` for first-to-settle.
 13. `retryTransient`: the bound lives **in the schedule** (`Schedule.spaced(d).pipe(
-    Schedule.take(n))`) or in `times: N` used alone. A standalone unbounded schedule is
-    NOT capped by `times` and retries forever. Its default mode also retries transient
+    Schedule.upTo({ times: n }))` — `Schedule.take` no longer exists) or in `times: N`
+    used alone (`times: N` caps whatever schedule is supplied — verified in beta.106's
+    `buildFromOptions`); an unbounded schedule with no `times` bound retries forever. Its default mode also retries transient
     HTTP **responses** (408/429/5xx), so you do not need `filterStatusOk` to get 5xx
     retries. `FetchHttpClient` applies no timeout of its own — add per-attempt
     `Effect.timeout` under the retry, and bound body reads separately.
@@ -202,19 +207,19 @@ Use this ladder for anything the rules above don't settle — an unfamiliar API,
 question (how to shape a stream, cache a layer, structure a scheduler), or any "how do
 real v4 codebases do X" question. This is expected, routine work, not a fallback.
 
-1. **`node_modules/effect`** in this repo — the arbiter for beta.90 signatures and
+1. **`node_modules/effect`** in this repo — the arbiter for beta.106 signatures and
    import paths (`effect/unstable/*` subpaths move between betas).
 2. **Reference repos** at `~/.btca/agent/sandbox/effect-v4-refs/` (grep them; each is a
    full checkout of a real v4 codebase). Search broadly — the table maps known strengths,
-   but any of them may hold the pattern you need. Caveat: they span beta.31–.90 —
-   patterns transfer, exact signatures may not.
+   but any of them may hold the pattern you need. Caveat: they span beta.31–.90, all
+   older than our beta.106 pin — patterns transfer, exact signatures may not.
 
 | Question | Repo (under `effect-v4-refs/` unless noted) |
 |---|---|
 | Overall architecture, engine + Promise facade | `~/.btca/agent/sandbox/executor` |
 | Subprocess service, NodeSdk tracing wiring | `sst__opencode` (`packages/core/src/process.ts`, `git.ts`, `observability/otlp.ts`) |
-| Our exact pin (beta.90): MCP boundary, acquireRelease, fetch wrap | `kitlangton__motel` |
-| Our exact pin: CommandRunner, layerNoDeps/layer split, error unions | `kitlangton__ghui` |
+| Beta.90 (nearest our pin): MCP boundary, acquireRelease, fetch wrap | `kitlangton__motel` |
+| Beta.90 (nearest our pin): CommandRunner, layerNoDeps/layer split, error unions | `kitlangton__ghui` |
 | Service+Fake blueprint, @effect/vitest ergonomics, file locks | `effect-app__libs` (beware: their `Context` is a fork wrapper) |
 | Maintainer-canonical API usage | `tim-smart__dfx` / `lalph` / `openapi-gen` / `effect-genserver` / `receipts` |
 | Dispatch-namespace REST, degrade-by-tag | `alchemy-run__alchemy-effect` |
@@ -253,5 +258,5 @@ roughly in order of how often they appear:
 - Type-assertion casts on an Effect's error/requirement union (`as Effect.Effect<...>`)
   to force a union past inference.
 - Caret or drifted version pins (rule 1); imports from paths not verified against
-  beta.90 (golden rule).
+  beta.106 (golden rule).
 - Change-history comments (rule 21).
