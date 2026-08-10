@@ -44,6 +44,16 @@ with a reason. Checkability does not make an Observation a BugClaim — the
 failure scenario does.
 _Avoid_: subjective candidate, nit, suggestion
 
+**Lens**:
+One finder's point of view, as pure content: a named prompt (a markdown file,
+shipped with Gauntlet or project-local, one shared format) with frontmatter
+limited to an optional model override and an optional needs-spec flag
+(skip-if-absent). A lens carries no routing, caps, or schema — its candidates
+route by their own type, not by the lens that produced them. The ReviewPlan
+freezes each lens's prompt text and content hash at submission.
+_Avoid_: bug lens / subjective lens (lenses are not typed by path), role,
+angle, finder (that's the invocation, not the prompt)
+
 **Run**:
 The durable, resumable execution of one review. The only thing that "runs" —
 agents are invoked, stages execute.
