@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "gauntlet": "bin/gauntlet.mjs"
+  },
   "packageManager": "pnpm@10.34.5",
   "engines": {
     "node": ">=23.6.0"
