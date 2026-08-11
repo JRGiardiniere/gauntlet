@@ -90,6 +90,16 @@ export interface CapturedSession {
   readonly events: Queue.Queue<HarnessEvent>
 }
 
+const bestEffortTeardown = (operation: string, teardown: () => void) =>
+  Effect.try({
+    try: teardown,
+    catch: (cause) => String(cause),
+  }).pipe(
+    Effect.catch((reason) =>
+      Effect.logWarning(`${operation} failed during session teardown: ${reason}`),
+    ),
+  )
+
 const captureEvent = (state: SessionCaptureState, emitToolName: string) =>
   (event: HarnessEvent) => {
     switch (event.type) {
@@ -163,8 +173,9 @@ export const openCapturedSession = Effect.fn(
         } catch (cause) {
           state.usageSweepError = String(cause)
         }
-        opened.dispose()
-      }),
+      }).pipe(
+        Effect.andThen(bestEffortTeardown("dispose", () => opened.dispose())),
+      ),
     { interruptible: true },
   )
 
@@ -224,18 +235,16 @@ export const finalizeCapture = Effect.fn(
     })
   }
 
-  const usageRows: Array<UsageRow> = []
-  for (const row of state.usageRows) {
-    const decoded = yield* decodeUsageRow(row).pipe(
+  const usageRows = yield* Effect.forEach(state.usageRows, (row) =>
+    decodeUsageRow(row).pipe(
       Effect.mapError(
         () =>
           new AdapterContractViolation({
             reason: `usage row does not match Pi's contract: ${describeRow(row)}`,
           }),
       ),
-    )
-    usageRows.push(decoded)
-  }
+    ),
+  )
 
   return {
     validatedEmit: state.validatedEmit,

@@ -38,11 +38,11 @@ export interface LivePiConfig {
   readonly cwd: string
 }
 
-// Pi's message role vocabulary at the pinned version, checked both ways:
-// `satisfies` fails the build if the SDK renames a role (the compile-time
-// tripwire of docs/research/pi-harness-surface.md §8), and the closed runtime
-// decode turns an unknown role into a contract_violation instead of silently
-// dropping a message that might carry terminal state and usage.
+// Every listed role is checked against Pi's message role vocabulary at the
+// pinned version. `satisfies` fails the build if one stops being valid; it does
+// not prove this list is exhaustive. The closed runtime decode still turns an
+// unknown role into a contract_violation instead of silently dropping a
+// message that might carry terminal state and usage.
 type PiMessage = Extract<AgentSessionEvent, { type: "message_end" }>["message"]
 const PI_MESSAGE_ROLES = [
   "user",
@@ -195,10 +195,14 @@ export const makeLivePiFactory = (
         })
         const model = resolved.model
         if (!model) {
+          const resolutionError = resolved.error?.replace(
+            /Use --list-models to see available (?:providers\/models|models)\./,
+            "Check the configured provider and model.",
+          )
           return yield* new SessionOpenError({
             operation: "resolve-model",
             reason:
-              resolved.error ??
+              resolutionError ??
               `model not found: ${config.provider}/${config.model}`,
           })
         }
@@ -210,8 +214,8 @@ export const makeLivePiFactory = (
           )
         }
 
-        const constructed = yield* Effect.tryPromise({
-          try: async (signal): Promise<HarnessSession | "interrupted"> => {
+        return yield* Effect.tryPromise({
+          try: async (signal): Promise<HarnessSession> => {
             // Retry ownership is ADR 0002, stated here rather than inherited
             // from Pi defaults: agent-level retry on (3 attempts),
             // provider-level 0 — provider retries above 0 can absorb quota
@@ -291,7 +295,7 @@ export const makeLivePiFactory = (
               // acquire will never hand this session to the release
               // finalizer, so dispose it here instead of leaking it.
               created.session.dispose()
-              return "interrupted"
+              throw signal.reason
             }
             const agentSession = created.session
 
@@ -310,9 +314,12 @@ export const makeLivePiFactory = (
               // and a renamed field fails loudly there instead of reading
               // as $0.
               usageRows: () =>
-                agentSession.messages
-                  .filter((message) => message.role === "assistant")
-                  .map((message): unknown => message.usage),
+                sessionManager.getEntries().flatMap((entry) =>
+                  entry.type === "message" &&
+                  entry.message.role === "assistant"
+                    ? [entry.message.usage]
+                    : [],
+                ),
             } satisfies HarnessSession
           },
           catch: (cause) =>
@@ -322,15 +329,6 @@ export const makeLivePiFactory = (
               cause,
             }),
         })
-        if (constructed === "interrupted") {
-          // Only reachable if the fiber somehow survives the abort; the
-          // session is already disposed either way.
-          return yield* new SessionOpenError({
-            operation: "session-construction",
-            reason: "interrupted during session construction",
-          })
-        }
-        return constructed
       }),
   }
 }

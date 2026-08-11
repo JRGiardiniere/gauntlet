@@ -53,9 +53,10 @@ export interface ScriptedBehavior {
   readonly abortBehavior?: "resolves" | "hangs"
   // Overrides the sweep with arbitrary rows — the drifted-usage-shape path.
   // When absent, the sweep returns the usage rows of the scripted
-  // message_end events, as Pi's terminal sweep over session.messages would.
+  // message_end events, mirroring the live adapter's terminal usage sweep.
   readonly sweptUsageRows?: ReadonlyArray<unknown>
   readonly failUsageSweep?: string
+  readonly failDispose?: string
 }
 
 export interface Scripted {
@@ -191,6 +192,9 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         },
         dispose: () => {
           log.push("dispose")
+          if (behavior.failDispose !== undefined) {
+            throw new TypeError(behavior.failDispose)
+          }
         },
         usageRows: () => {
           log.push("usage-read")

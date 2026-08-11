@@ -1,3 +1,4 @@
+import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -5,7 +6,6 @@ import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
-import { writeStdout } from "../cli/stdio.ts"
 import type { HarnessEvent } from "./harness-session.ts"
 import { livePiLayer } from "./pi-live.ts"
 import {
@@ -69,7 +69,7 @@ ${DIFF}\`\`\``
 const OPEN_DEADLINE = Duration.minutes(1)
 const PROMPT_DEADLINE = Duration.minutes(4)
 
-const writeLine = (text: string) => writeStdout(`${text}\n`)
+const writeLine = (text: string) => Console.log(text)
 
 // Pi's prompt() can reject (missing auth, transport failure). Typed so the
 // rejection stays on the error channel and renders as a FAIL line instead of

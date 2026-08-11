@@ -13,5 +13,4 @@ NodeRuntime.runMain(
     }),
     Effect.provide(NodeServices.layer),
   ),
-  { disablePrettyLogger: true },
 )

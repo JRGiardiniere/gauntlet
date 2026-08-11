@@ -171,6 +171,32 @@ describe("session bridge (scripted adapter, TestClock)", () => {
       expect(result.stopReason).toBe("toolUse")
     }))
 
+  it.effect("dispose failures do not discard captured output or usage", () =>
+    Effect.gen(function* () {
+      const state = makeCaptureState()
+      const { log } = yield* promptToCompletion(
+        {
+          events: [
+            { afterMillis: 1_000, kind: "emit", args: GOOD_EMIT, valid: true },
+            {
+              afterMillis: 2_000,
+              kind: "message_end",
+              stopReason: "toolUse",
+              usage: usageRow(),
+            },
+          ],
+          promptSettles: "after-events",
+          failDispose: "dispose failed",
+        },
+        state,
+      )
+
+      expect(cleanupTail(log)).toEqual(["unsubscribe", "usage-read", "dispose"])
+      const result = yield* finalizeCapture(state)
+      expect(result.validatedEmit).toEqual(GOOD_EMIT)
+      expect(result.usageRows).toEqual([usageRow()])
+    }))
+
   it.effect("a hanging abort never sits on the critical path", () =>
     Effect.gen(function* () {
       const state = makeCaptureState()
