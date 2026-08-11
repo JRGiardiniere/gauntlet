@@ -46,8 +46,8 @@ describe("Pool repair", () => {
     })
 
     expect(repaired.clusters).toEqual([
-      { indexes: [2, 1], summary: "merged one and two" },
-      { indexes: [3], summary: "duplicate two" },
+      { indexes: [2, 1], summary: "summary two" },
+      { indexes: [3], summary: "summary three" },
       { indexes: [5], summary: "five" },
       { indexes: [4], summary: "summary four" },
     ])

@@ -76,5 +76,8 @@ describe("evaluation prompts", () => {
         expect(prompt).toContain("\n ```\n")
         expect(prompt).toContain("\n````")
       }
+      expect(verifier).toContain(
+        "judge the change on its own terms, and do not assume intent you cannot see",
+      )
     }))
 })

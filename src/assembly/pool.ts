@@ -1,5 +1,6 @@
 import * as Array from "effect/Array"
 import * as HashSet from "effect/HashSet"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import type { BugClaim } from "../domain/candidate.ts"
 import type { PoolOutput } from "../harness/output-contract.ts"
@@ -69,9 +70,15 @@ export const repairPoolOutput = (
       seen = HashSet.add(seen, index)
       return true
     })
-    return indexes.length === 0
-      ? Result.fail(undefined)
-      : Result.succeed({ indexes, summary: cluster.summary })
+    const firstIndex = indexes[0]
+    if (firstIndex === undefined) return Result.fail(undefined)
+    const summary = indexes.length === cluster.indexes.length
+      ? cluster.summary
+      : Array.findFirst(claims, ({ index }) => index === firstIndex).pipe(
+        Option.map(({ candidate }) => candidate.summary),
+        Option.getOrElse(() => cluster.summary),
+      )
+    return Result.succeed({ indexes, summary })
   })
 
   const restored = Array.filter(claims, ({ index }) => !HashSet.has(seen, index))

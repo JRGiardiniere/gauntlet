@@ -23,6 +23,9 @@ export const VERIFICATION_TOOLS = ["read", "bash"] as const
 export const EVALUATION_SYSTEM_PROMPT =
   "You are a stage in a code-review pipeline. Follow the supplied stage instructions and finish by calling the required emit tool."
 
+const NO_INTENT_SECTION =
+  "(No PR description or spec was supplied — judge the change on its own terms, and do not assume intent you cannot see.)"
+
 export interface EvaluationPromptTemplates {
   readonly pool: string
   readonly verifier: string
@@ -103,7 +106,7 @@ export const assembleVerifierPrompt = (
         "DIFF_SECTION",
         `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
       ],
-      ["INTENT_SECTION", specText ?? "No originating spec was provided."],
+      ["INTENT_SECTION", specText ?? NO_INTENT_SECTION],
     ])
     return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],

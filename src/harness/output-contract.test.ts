@@ -71,6 +71,31 @@ describe("output contracts", () => {
       expect(output.findings[0]?.file).toBe("not-in-the-changed-file-list.ts")
     }))
 
+  it.effect("canonicalizes model-authored text used by line-oriented prompts", () =>
+    Effect.gen(function* () {
+      const findings = yield* strictDecode(EmitFindings.schema)({
+        findings: [
+          {
+            file: " src/a.ts\n",
+            summary: "first line\r\nsecond line",
+            failure_scenario: "empty input\nthrows",
+          },
+        ],
+      })
+      expect(findings.findings).toEqual([
+        {
+          file: "src/a.ts",
+          summary: "first line second line",
+          failure_scenario: "empty input throws",
+        },
+      ])
+
+      const pool = yield* strictDecode(EmitPool.schema)({
+        clusters: [{ indexes: [1], summary: "canonical\nsummary" }],
+      })
+      expect(pool.clusters[0]?.summary).toBe("canonical summary")
+    }))
+
   it.effect("requires JSON-safe 1-indexed integer locations", () =>
     Effect.gen(function* () {
       const decode = strictDecode(EmitFindings.schema)
