@@ -2,12 +2,14 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import type { FrozenLens } from "../domain/review-plan.ts"
+import {
+  DEFAULT_CANDIDATE_CAP,
+  type FrozenLens,
+} from "../domain/review-plan.ts"
 import type { ReviewTarget } from "../domain/review-target.ts"
 import { ContentDirectory, ContentLoadError } from "./lens.ts"
 
 export const FINDER_TOOLS = ["read", "bash"] as const
-export const DEFAULT_CANDIDATE_CAP = 6
 
 export class PromptAssemblyError extends Data.TaggedError(
   "PromptAssemblyError",
@@ -51,6 +53,7 @@ export const assembleFinderPrompt = (
   template: string,
   target: ReviewTarget,
   lens: FrozenLens,
+  specText?: string,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const substitutions = new Map<string, string>([
@@ -60,7 +63,7 @@ export const assembleFinderPrompt = (
         target.changedFiles.map((file) => `- ${file}`).join("\n"),
       ],
       ["DIFF", target.diff],
-      ["MAX_PER_LENS", String(lens.candidateCap)],
+      ["MAX_PER_LENS", String(DEFAULT_CANDIDATE_CAP)],
     ])
     const missing = new Set(substitutions.keys())
     const parts: Array<string> = []
@@ -87,5 +90,19 @@ export const assembleFinderPrompt = (
     }
     parts.push(template.slice(cursor))
     const shared = parts.join("")
-    return `${shared.trimEnd()}\n\n${lens.promptText}`
+    const lensSections = [lens.promptText]
+    if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
+      lensSections.push(
+        `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
+      )
+    }
+    if (lens.needsSpec) {
+      if (specText === undefined) {
+        return yield* new PromptAssemblyError({
+          reason: `lens ${lens.name} needs spec text but none is frozen in the review plan`,
+        })
+      }
+      lensSections.push(`## Originating spec\n\n${specText}`)
+    }
+    return `${shared.trimEnd()}\n\n${lensSections.join("\n\n")}`
   })

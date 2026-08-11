@@ -6,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { Seat } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
@@ -127,11 +128,98 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   })
 })
 
-export const loadFinderLens = Effect.fn("gauntlet.lens.load_finder_lens")(
-  function* (name: string) {
-    const root = yield* ContentDirectory
+const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
+  lensesDirectory: string,
+  optionalDirectory: boolean,
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const entries = yield* fs.readDirectory(lensesDirectory).pipe(
+    Effect.catchTag("PlatformError", (failure) =>
+      optionalDirectory && Predicate.isTagged("NotFound")(failure.reason)
+        ? Effect.succeed([])
+        : Effect.fail(
+          new ContentLoadError({
+            path: lensesDirectory,
+            reason: "could not list lens directory",
+            cause: failure,
+          }),
+        )),
+  )
+  return entries
+    .filter((entry) => path.extname(entry) === ".md")
+    .map((entry) => path.basename(entry, ".md"))
+    .sort((left, right) => left.localeCompare(right))
+})
+
+const loadLensDirectory = Effect.fn("gauntlet.lens.load_directory")(
+  function* (lensesDirectory: string, optionalDirectory: boolean) {
+    const names = yield* listLensNames(lensesDirectory, optionalDirectory)
+    return yield* Effect.forEach(
+      names,
+      (name) => loadLens(lensesDirectory, name),
+      { concurrency: 4 },
+    )
+  },
+)
+
+export interface FinderLensQuery {
+  readonly repoRoot: string
+  readonly names?: ReadonlyArray<string>
+  readonly specText?: string
+}
+
+// Shipped and project-local lenses are ordinary directories using the same
+// loader and format. Selection happens after the combined catalog is decoded;
+// a needs-spec lens is applicability-filtered rather than reported as a gap.
+export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
+  function* ({ names, repoRoot, specText }: FinderLensQuery) {
+    const contentRoot = yield* ContentDirectory
     const path = yield* Path.Path
-    const lensesDirectory = path.join(root, "lenses")
-    return yield* loadLens(lensesDirectory, name)
+    const shippedDirectory = path.join(contentRoot, "lenses")
+    const projectDirectory = path.join(repoRoot, ".gauntlet", "lenses")
+    const [shipped, project] = yield* Effect.all(
+      [
+        loadLensDirectory(shippedDirectory, false),
+        loadLensDirectory(projectDirectory, true),
+      ],
+      { concurrency: 2 },
+    )
+
+    const catalog = new Map<LensName, LoadedLens>()
+    for (const lens of [...shipped, ...project]) {
+      if (catalog.has(lens.name)) {
+        return yield* new ContentLoadError({
+          path: projectDirectory,
+          reason: `duplicate shipped/project lens name: ${lens.name}`,
+        })
+      }
+      catalog.set(lens.name, lens)
+    }
+
+    const selectedNames = names === undefined
+      ? [...catalog.keys()]
+      : yield* Effect.forEach(names, (name) =>
+        Schema.decodeEffect(LensName)(name).pipe(
+          Effect.mapError(
+            contentLoadError(repoRoot, `invalid selected lens name: ${name}`),
+          ),
+        ))
+    const seen = new Set<LensName>()
+    const selected: Array<LoadedLens> = []
+    for (const name of selectedNames) {
+      if (seen.has(name)) continue
+      seen.add(name)
+      const lens = catalog.get(name)
+      if (lens === undefined) {
+        return yield* new ContentLoadError({
+          path: repoRoot,
+          reason: `selected lens does not exist: ${name}`,
+        })
+      }
+      if (lens.needsSpec && specText === undefined) continue
+      selected.push(lens)
+    }
+    return selected
   },
 )

@@ -4,6 +4,7 @@ import type * as Effect from "effect/Effect"
 import type * as JsonSchema from "effect/JsonSchema"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
+import type { Seat } from "../domain/recipe.ts"
 
 // The adapter seam between Gauntlet and the Pi harness (ADR 0002, #4, #13).
 // `HarnessSession` deliberately mirrors Pi's literal surface — push-callback
@@ -101,6 +102,10 @@ export interface EmitToolSpec {
 }
 
 export interface SessionConfig {
+  // The invocation's resolved seat, frozen in ReviewPlan. The live adapter
+  // resolves it through Pi; the factory carries no independently configured
+  // ambient model.
+  readonly seat: Seat
   // Repository root used by every filesystem-facing tool in this session.
   readonly cwd: string
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty

@@ -6,12 +6,12 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Command from "effect/unstable/cli/Command"
 import * as Flag from "effect/unstable/cli/Flag"
-import { DEFAULT_CANDIDATE_CAP } from "../content/finder-prompt.ts"
+import { loadFinderLenses } from "../content/lens.ts"
 import {
-  ContentLoadError,
-  loadFinderLens,
-} from "../content/lens.ts"
-import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
+  candidateCapForLens,
+  FrozenLens,
+  ReviewPlan,
+} from "../domain/review-plan.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
 import {
@@ -36,17 +36,14 @@ export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
 // Issue #24 owns recipes and configurable seats. This slice uses the same
 // near-zero-cost seat as the live gate so `review --lenses <one>` is real
 // without pre-implementing the recipe surface.
-export const TRACER_FINDER_PROVIDER = "openai-codex"
-export const TRACER_FINDER_MODEL = "gpt-5.6-luna:low"
-export const TRACER_FINDER_SEAT =
-  `${TRACER_FINDER_PROVIDER}/${TRACER_FINDER_MODEL}`
+const TRACER_FINDER_SEAT = "openai-codex/gpt-5.6-luna:low"
 
 const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
 const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
-  lensName: string,
+  selectedLensNames: ReadonlyArray<string> | undefined,
 ) {
   const startedAt = yield* DateTime.now
   yield* progress("resolving working-tree review target")
@@ -58,34 +55,40 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     yield* progress(`warning — ${warning}`)
   }
 
-  yield* progress(`loading lens ${lensName}`)
-  const lens = yield* loadFinderLens(lensName)
-  if (lens.needsSpec) {
-    return yield* new ContentLoadError({
-      path: lens.name,
-      reason: "selected lens needs spec text; spec-aware planning lands in issue #21",
-    })
-  }
+  yield* progress(
+    selectedLensNames === undefined
+      ? "loading applicable finder lenses"
+      : `loading finder lenses ${selectedLensNames.join(", ")}`,
+  )
+  const lenses = yield* loadFinderLenses({
+    repoRoot: target.repoRoot,
+    ...(selectedLensNames === undefined
+      ? {}
+      : { names: selectedLensNames }),
+  })
 
   const runsRoot = yield* resolveRunsRoot()
   const runId = yield* makeRunId()
   const paths = yield* createRunDirectory(runsRoot, runId)
-  const frozenLens = FrozenLens.make({
-    name: lens.name,
-    promptText: lens.promptText,
-    contentHash: lens.contentHash,
-    ...(lens.category === undefined
-      ? {}
-      : { category: lens.category }),
-    candidateCap: DEFAULT_CANDIDATE_CAP,
-  })
+  const frozenLenses = lenses.map((lens) =>
+    FrozenLens.make({
+      name: lens.name,
+      promptText: lens.promptText,
+      contentHash: lens.contentHash,
+      seat: lens.modelOverride ?? TRACER_FINDER_SEAT,
+      needsSpec: lens.needsSpec,
+      ...(lens.category === undefined
+        ? {}
+        : { category: lens.category }),
+      candidateCap: candidateCapForLens(lens.name),
+    }))
 
   const plan = ReviewPlan.make({
     runId,
     createdAt: DateTime.formatIso(startedAt),
     target,
     seats: { finders: TRACER_FINDER_SEAT },
-    lenses: [frozenLens],
+    lenses: frozenLenses,
   })
   yield* progress("freezing review plan")
   yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
@@ -132,11 +135,10 @@ const executeReviewCommand = Effect.fn(
     return
   }
   if (Option.isNone(lenses)) {
-    return yield* new ReviewCommandError({
-      reason: "--lenses is required when starting a review",
-    })
+    yield* startReview(undefined)
+    return
   }
-  yield* startReview(lenses.value)
+  yield* startReview(lenses.value.split(",").map((name) => name.trim()))
 })
 
 const review = Command.make(
@@ -144,7 +146,7 @@ const review = Command.make(
   {
     lenses: Flag.string("lenses").pipe(
       Flag.optional,
-      Flag.withDescription("Run one named finder lens"),
+      Flag.withDescription("Run comma-separated named finder lenses"),
     ),
     resume: Flag.string("resume").pipe(
       Flag.optional,

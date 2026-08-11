@@ -6,8 +6,10 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
+import * as TestClock from "effect/testing/TestClock"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -19,6 +21,7 @@ import {
   makeScripted,
   scriptedLayer,
   type Scripted,
+  type ScriptedSession,
   usageRow,
 } from "../harness/scripted.ts"
 import { FindingsOutput } from "../harness/output-contract.ts"
@@ -121,32 +124,34 @@ const FINDER_OUTPUT = {
   ],
 }
 
+const successfulSession = (
+  output: FindingsOutput = FINDER_OUTPUT,
+): ScriptedSession => ({
+  prompts: [
+    {
+      events: [
+        { afterMillis: 0, kind: "message_start" },
+        {
+          afterMillis: 0,
+          kind: "emit",
+          args: output,
+          valid: true,
+        },
+        {
+          afterMillis: 0,
+          kind: "message_end",
+          stopReason: "toolUse",
+          usage: usageRow(),
+        },
+      ],
+      settles: "after-events",
+    },
+  ],
+})
+
 const successfulScripted = (): Scripted =>
   makeScripted({
-    sessions: [
-      {
-        prompts: [
-          {
-            events: [
-              { afterMillis: 0, kind: "message_start" },
-              {
-                afterMillis: 0,
-                kind: "emit",
-                args: FINDER_OUTPUT,
-                valid: true,
-              },
-              {
-                afterMillis: 0,
-                kind: "message_end",
-                stopReason: "toolUse",
-                usage: usageRow(),
-              },
-            ],
-            settles: "after-events",
-          },
-        ],
-      },
-    ],
+    sessions: [successfulSession()],
   })
 
 const runCommand = (
@@ -263,6 +268,9 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
 
       expect(run.scripted.configs).toHaveLength(1)
+      expect(run.scripted.configs[0]?.seat).toBe(
+        "openai-codex/gpt-5.6-luna:low",
+      )
       expect(run.scripted.configs[0]?.cwd).toBe(plan.target.repoRoot)
       expect(run.scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(run.scripted.promptTexts[0]).toMatch(
@@ -271,6 +279,206 @@ describe("gauntlet review — single-lens tracer", () => {
 
       const runLog = yield* fs.readFileString(join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("loads the full shipped and project-local catalog, skips needs-spec lenses, and groups mixed seats", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-other.md"),
+        "fixture other tail\n",
+      )
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-spec.md"),
+        "---\nneeds-spec: true\n---\nfixture spec tail\n",
+      )
+      const projectLenses = join(fixture.repo, ".gauntlet", "lenses")
+      mkdirSync(projectLenses, { recursive: true })
+      writeFileSync(
+        join(projectLenses, "fixture-local.md"),
+        "---\nmodel: fixture/local-model:medium\n---\nfixture local tail\n",
+      )
+
+      const scripted = makeScripted({
+        sessions: [
+          successfulSession({ findings: [] }),
+          successfulSession({ findings: [] }),
+          successfulSession({ findings: [] }),
+        ],
+      })
+      const run = runCommand(fixture, ["review"], scripted)
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) => Queue.offer(journaled, invocationKey),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+      expect(yield* Fiber.join(fiber)).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
+        ),
+      )
+      expect(plan.lenses.map((lens) => lens.name)).toEqual([
+        "fixture-other",
+        "fixture-review",
+        "fixture-local",
+      ])
+      expect(plan.lenses.some((lens) => lens.name === "fixture-spec")).toBe(
+        false,
+      )
+      expect(run.scripted.configs).toHaveLength(3)
+      const opened = run.scripted.configs.map((config, index) => ({
+        config,
+        prompt: run.scripted.promptTexts[index] ?? "",
+      }))
+      const local = opened.find((entry) =>
+        entry.prompt.includes("fixture local tail")
+      )
+      const defaults = opened.filter((entry) =>
+        !entry.prompt.includes("fixture local tail")
+      )
+      expect(local?.config.seat).toBe("fixture/local-model:medium")
+      expect(defaults.map((entry) => entry.config.seat)).toEqual([
+        "openai-codex/gpt-5.6-luna:low",
+        "openai-codex/gpt-5.6-luna:low",
+      ])
+      expect(new Set(defaults.map((entry) => entry.config.sessionId)).size).toBe(
+        1,
+      )
+      expect(local?.config.sessionId).not.toBe(defaults[0]?.config.sessionId)
+
+      const journals = yield* fs.readDirectory(
+        join(fixture.runsRoot, runId, "journal"),
+      )
+      expect(journals.sort()).toEqual([
+        "finder-fixture-local.json",
+        "finder-fixture-other.json",
+        "finder-fixture-review.json",
+      ])
+      const report = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "report.md"),
+      )
+      expect(report).toContain("$0.15 · 3 invocations")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-other.md"),
+        "fixture other tail\n",
+      )
+      const missingEmitPrompt = {
+        events: [
+          { afterMillis: 0, kind: "message_start" as const },
+          {
+            afterMillis: 0,
+            kind: "message_end" as const,
+            stopReason: "stop" as const,
+            usage: usageRow(),
+          },
+        ],
+        settles: "after-events" as const,
+      }
+      const scripted = makeScripted({
+        sessions: [
+          {
+            prompts: [
+              missingEmitPrompt,
+              missingEmitPrompt,
+              missingEmitPrompt,
+            ],
+          },
+          successfulSession(),
+        ],
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-other"],
+        scripted,
+      )
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) => Queue.offer(journaled, invocationKey),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+      expect(yield* Fiber.join(fiber)).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const dossier = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "dossier.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.coverageGaps).toEqual([
+        {
+          stage: "finders",
+          lens: "fixture-review",
+          reason: "finder emitted nothing after 2 corrective turns",
+        },
+      ])
+      expect(dossier.bugClaims).toHaveLength(1)
+      expect(dossier.observations).toHaveLength(1)
+      expect(run.scripted.configs).toHaveLength(2)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("truncates over-emitting finder output to the cap frozen in the plan", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const findings = globalThis.Array.from({ length: 8 }, (_, index) => ({
+        file: "alpha.txt",
+        line: 2,
+        summary: `candidate ${String(index + 1)}`,
+      }))
+      const run = review(
+        fixture,
+        makeScripted({ sessions: [successfulSession({ findings })] }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
+        ),
+      )
+      expect(plan.lenses[0]?.candidateCap).toBe(6)
+      const journal = yield* fs.readFileString(
+        join(
+          fixture.runsRoot,
+          runId,
+          "journal",
+          "finder-fixture-review.json",
+        ),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(FinderInvocationArtifact)),
+        ),
+      )
+      expect(journal.outcome.output?.findings).toHaveLength(6)
+      expect(journal.outcome.diagnostics).toContain(
+        "finder fixture-review emitted 8 candidates; retained the plan cap of 6",
+      )
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("prints a bounded candidate digest on stdout and narrates on stderr", () =>
