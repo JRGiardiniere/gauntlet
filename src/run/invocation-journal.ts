@@ -49,7 +49,7 @@ const invocationPath = Effect.fn(
   "gauntlet.invocation_journal.path",
 )(function* (journalDirectory: string, invocationKey: string) {
   const path = yield* Path.Path
-  return path.join(journalDirectory, `${invocationKey}.json`)
+  return path.join(journalDirectory, `${encodeURIComponent(invocationKey)}.json`)
 })
 
 // `output` has the exact type of OutputContract.schema, so the contract that

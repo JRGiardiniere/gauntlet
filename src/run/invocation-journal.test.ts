@@ -41,7 +41,7 @@ describe("executeJournaledInvocation", () => {
       const run = executeJournaledInvocation({
         journalDirectory,
         runId: "run-a",
-        invocationKey: "pool",
+        invocationKey: "pool/stage",
         output: PoolOutput,
         execute: Effect.sync(() => {
           paid += 1
@@ -59,7 +59,9 @@ describe("executeJournaledInvocation", () => {
       expect(paid).toBe(1)
 
       const fs = yield* FileSystem.FileSystem
-      const text = yield* fs.readFileString(join(journalDirectory, "pool.json"))
+      const text = yield* fs.readFileString(
+        join(journalDirectory, "pool%2Fstage.json"),
+      )
       const stored = yield* Schema.decodeEffect(
         Schema.fromJsonString(InvocationArtifact(PoolOutput)),
       )(text)
