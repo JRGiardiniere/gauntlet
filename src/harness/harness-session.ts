@@ -34,7 +34,7 @@ const usageNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 // non-negative. `reasoning` is a subset of `output` (never summed in) and is
 // genuinely absent for many providers. This is the DECODED accounting subset;
 // the verbatim rows the journal persists (ADR 0006) are the untouched
-// `unknown` values (`CaptureResult.rawUsageRows`).
+// `unknown` values retained by the invocation accumulator.
 export const UsageRow = Schema.Struct({
   input: usageNumber,
   output: usageNumber,
@@ -65,6 +65,12 @@ export type HarnessEvent =
       readonly toolName: string
       readonly args: unknown
     }
+  | {
+      readonly type: "tool_execution_end"
+      readonly toolName: string
+      readonly isError: boolean
+      readonly detail?: string
+    }
   | { readonly type: "contract_violation"; readonly reason: string }
 
 export interface HarnessSession {
@@ -78,7 +84,7 @@ export interface HarnessSession {
   // Terminal accounting sweep over the session's assistant messages, raw and
   // verbatim. MUST be called before dispose — dispose disconnects the session
   // from the agent that owns the messages. Rows decode against UsageRow in
-  // the bridge; drift fails loudly there.
+  // invoke; drift fails loudly there.
   readonly usageRows: () => ReadonlyArray<unknown>
 }
 
@@ -103,23 +109,31 @@ export interface SessionConfig {
   // group.
   readonly sessionId?: string
   readonly emitTool: EmitToolSpec
+  // The complete non-emit capability set. v1 is read-only: `read` and `bash`
+  // are recreated as custom Pi tools so their deadlines are caller-owned.
+  readonly tools: ReadonlyArray<"read" | "bash">
+  readonly toolTimeoutMillis: number
+  readonly bashTimeoutMillis: number
 }
 
 // The distinct steps an adapter's `open` can fail in — the coarse-error
 // operation discriminator (house style rule 7). The seam enumerates every
 // adapter's operations so the union stays a closed, typo-proof set.
-export type SessionOpenOperation =
+export type InvocationSetupOperation =
   | "validate-config"
   | "model-runtime"
   | "resolve-model"
   | "session-construction"
   | "open"
+  | "prompt"
 
 // "No outcome can exist" — session construction failed (CONTEXT.md: Failure).
 // `cause` retains the original thrown value for diagnosis at this multi-step
 // external boundary; `reason` is the human-readable rendering.
-export class SessionOpenError extends Data.TaggedError("SessionOpenError")<{
-  readonly operation: SessionOpenOperation
+export class InvocationSetupError extends Data.TaggedError(
+  "InvocationSetupError",
+)<{
+  readonly operation: InvocationSetupOperation
   readonly reason: string
   readonly cause?: unknown
 }> {}
@@ -132,13 +146,17 @@ export class AdapterContractViolation extends Data.TaggedError(
   "AdapterContractViolation",
 )<{ readonly reason: string }> {}
 
+export type InvocationFailure =
+  | InvocationSetupError
+  | AdapterContractViolation
+
 export interface HarnessSessionFactoryShape {
-  // `open` may do blocking work (credential/catalog reads); callers bound it
-  // separately from the run budget. Interruptibility of the acquire is the
-  // bridge's job (session-bridge.ts).
+  // `open` may do blocking work (credential/catalog reads), so invocation
+  // gives it a narrower startup bound inside the absolute overall deadline.
+  // Interruptibility of the acquire is the invocation engine's job.
   readonly open: (
     config: SessionConfig,
-  ) => Effect.Effect<HarnessSession, SessionOpenError, Scope.Scope>
+  ) => Effect.Effect<HarnessSession, InvocationSetupError, Scope.Scope>
 }
 
 // The single primary testing seam. Live layer: pi-live.ts. Test layer: the

@@ -1,6 +1,8 @@
 import {
   type AgentSessionEvent,
+  createBashToolDefinition,
   createAgentSession,
+  createReadToolDefinition,
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
@@ -18,11 +20,12 @@ import {
   type HarnessSession,
   HarnessSessionFactory,
   type HarnessSessionFactoryShape,
+  InvocationSetupError,
   type SessionConfig,
-  SessionOpenError,
   StopReason,
   UsageRow,
 } from "./harness-session.ts"
+import { withToolCallDeadline } from "./tool-deadline.ts"
 
 // The live Pi adapter: maps the real @earendil-works/pi-coding-agent session
 // onto the HarnessSession seam. The whole point is that this file is a PURE
@@ -78,6 +81,19 @@ const PiToolExecutionStart = Schema.Struct({
   args: Schema.Unknown,
 })
 
+const PiToolExecutionEnd = Schema.Struct({
+  toolName: Schema.String,
+  isError: Schema.Boolean,
+  result: Schema.Struct({
+    content: Schema.Array(
+      Schema.Struct({
+        type: Schema.String,
+        text: Schema.optional(Schema.String),
+      }),
+    ),
+  }),
+})
+
 const decodeMessageRole = Schema.decodeUnknownResult(PiMessageRole)
 const decodeAssistantMessageEnd = Schema.decodeUnknownResult(
   PiAssistantMessageEnd,
@@ -85,13 +101,14 @@ const decodeAssistantMessageEnd = Schema.decodeUnknownResult(
 const decodeToolExecutionStart = Schema.decodeUnknownResult(
   PiToolExecutionStart,
 )
+const decodeToolExecutionEnd = Schema.decodeUnknownResult(PiToolExecutionEnd)
 
 const violation = (context: string, error: unknown): HarnessEvent => ({
   type: "contract_violation",
   reason: `${context}: ${String(error)}`,
 })
 
-// Rename the three consumed Pi events into seam events; everything else is
+// Rename the consumed Pi events into seam events; everything else is
 // dropped. Events of a consumed type that no longer decode become
 // contract_violation events — never a silent coercion. The parameter is Pi's
 // own event union, so an SDK rename of a consumed type or field breaks the
@@ -136,6 +153,25 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
           violation("tool_execution_start did not decode", error),
       })
     }
+    case "tool_execution_end": {
+      return Result.match(decodeToolExecutionEnd(event), {
+        onSuccess: (end): HarnessEvent => {
+          const detail = end.result.content
+            .flatMap((content) =>
+              content.text === undefined ? [] : [content.text],
+            )
+            .join("\n")
+          return {
+            type: "tool_execution_end",
+            toolName: end.toolName,
+            isError: end.isError,
+            ...(detail === "" ? {} : { detail }),
+          }
+        },
+        onFailure: (error) =>
+          violation("tool_execution_end did not decode", error),
+      })
+    }
     default: {
       return undefined
     }
@@ -169,7 +205,7 @@ export const makeLivePiFactory = (
         const modelRuntime = yield* Effect.tryPromise({
           try: () => sharedModelRuntime(),
           catch: (cause) =>
-            new SessionOpenError({
+            new InvocationSetupError({
               operation: "model-runtime",
               reason: String(cause),
               cause,
@@ -187,7 +223,7 @@ export const makeLivePiFactory = (
               modelRuntime,
             }),
           catch: (cause) =>
-            new SessionOpenError({
+            new InvocationSetupError({
               operation: "resolve-model",
               reason: String(cause),
               cause,
@@ -199,7 +235,7 @@ export const makeLivePiFactory = (
             /Use --list-models to see available (?:providers\/models|models)\./,
             "Check the configured provider and model.",
           )
-          return yield* new SessionOpenError({
+          return yield* new InvocationSetupError({
             operation: "resolve-model",
             reason:
               resolutionError ??
@@ -268,6 +304,29 @@ export const makeLivePiFactory = (
               },
             }
 
+            const customTools = [
+              ...(session.tools.includes("read")
+                ? [
+                    withToolCallDeadline(
+                      createReadToolDefinition(config.cwd),
+                      session.toolTimeoutMillis,
+                    ),
+                  ]
+                : []),
+              ...(session.tools.includes("bash")
+                ? [
+                    withToolCallDeadline(
+                      createBashToolDefinition(config.cwd),
+                      session.bashTimeoutMillis,
+                    ),
+                  ]
+                : []),
+              withToolCallDeadline(
+                emitToolDefinition,
+                session.toolTimeoutMillis,
+              ),
+            ]
+
             const sessionManager = SessionManager.inMemory(
               config.cwd,
               session.sessionId === undefined
@@ -284,8 +343,11 @@ export const makeLivePiFactory = (
               noTools: "builtin",
               // The allowlist is HARD (#4 §5): a custom tool absent from it
               // is dropped before the model ever sees it.
-              tools: [session.emitTool.name],
-              customTools: [emitToolDefinition],
+              tools: [...session.tools, session.emitTool.name],
+              // Pi's non-generic SDK option erases each definition's
+              // parameter type. Keep the assertion at that one SDK seam;
+              // every tool remains fully typed while it is built/wrapped.
+              customTools: customTools as unknown as Array<ToolDefinition>,
               resourceLoader,
               sessionManager,
               settingsManager,
@@ -305,7 +367,11 @@ export const makeLivePiFactory = (
                   const mapped = mapPiEvent(event)
                   if (mapped !== undefined) listener(mapped)
                 }),
-              prompt: (text) => agentSession.prompt(text),
+              prompt: (text) =>
+                agentSession.prompt(text, {
+                  expandPromptTemplates: false,
+                  source: "rpc",
+                }),
               abort: () => agentSession.abort(),
               dispose: () => {
                 agentSession.dispose()
@@ -323,7 +389,7 @@ export const makeLivePiFactory = (
             } satisfies HarnessSession
           },
           catch: (cause) =>
-            new SessionOpenError({
+            new InvocationSetupError({
               operation: "session-construction",
               reason: String(cause),
               cause,
