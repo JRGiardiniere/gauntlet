@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as ConfigProvider from "effect/ConfigProvider"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
@@ -20,7 +22,11 @@ import {
   usageRow,
 } from "../harness/scripted.ts"
 import { FinderInvocationArtifact } from "../run/invocation-journal.ts"
-import { InvocationDirectory, runGauntlet } from "./main.ts"
+import {
+  InvocationDirectory,
+  InvocationJournalCheckpoint,
+  runGauntlet,
+} from "./main.ts"
 
 const git = (cwd: string, ...args: Array<string>) => {
   execFileSync("git", args, { cwd, stdio: "pipe" })
@@ -138,9 +144,13 @@ const successfulScripted = (): Scripted =>
     ],
   })
 
-const review = (fixture: Fixture, scripted = successfulScripted()) => ({
+const runCommand = (
+  fixture: Fixture,
+  argv: ReadonlyArray<string>,
+  scripted: Scripted,
+) => ({
   scripted,
-  effect: runGauntlet(["review", "--lenses", "fixture-review"]).pipe(
+  effect: runGauntlet(argv).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
     Effect.provideService(ContentDirectory, fixture.content),
     Effect.provide(
@@ -152,6 +162,24 @@ const review = (fixture: Fixture, scripted = successfulScripted()) => ({
     ),
   ),
 })
+
+const review = (fixture: Fixture, scripted = successfulScripted()) =>
+  runCommand(
+    fixture,
+    ["review", "--lenses", "fixture-review"],
+    scripted,
+  )
+
+const resume = (
+  fixture: Fixture,
+  runId: string | undefined,
+  scripted = makeScripted({ sessions: [] }),
+) =>
+  runCommand(
+    fixture,
+    ["review", "--resume", ...(runId === undefined ? [] : [runId])],
+    scripted,
+  )
 
 describe("gauntlet review — single-lens tracer", () => {
   it.effect("lands the frozen plan, invocation journal, candidates, and presentation", () =>
@@ -292,6 +320,121 @@ describe("gauntlet review — single-lens tracer", () => {
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain("warning — ")
       expect(stderr).toContain("untracked.txt")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("resumes the latest incomplete run without repaying its journaled finder", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const journaled = yield* Deferred.make<string>()
+      const first = review(fixture)
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (runId) =>
+            Deferred.succeed(journaled, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+
+      const runId = yield* Deferred.await(journaled)
+      yield* Fiber.interrupt(fiber)
+
+      const fs = yield* FileSystem.FileSystem
+      const runDir = join(fixture.runsRoot, runId)
+      expect(yield* fs.exists(join(runDir, "plan.json"))).toBe(true)
+      expect(
+        yield* fs.exists(
+          join(runDir, "journal", "finder-fixture-review.json"),
+        ),
+      ).toBe(true)
+      expect(yield* fs.exists(join(runDir, "dossier.json"))).toBe(false)
+      expect(yield* fs.exists(join(runDir, "report.md"))).toBe(false)
+
+      // Resume must use the frozen lens tail rather than reopening mutable
+      // content after the run has started.
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-review.md"),
+        "changed lens content that must not be loaded\n",
+      )
+      const resumed = resume(fixture, undefined)
+      const exitCode = yield* resumed.effect
+      expect(exitCode).toBe(0)
+      expect(resumed.scripted.configs).toHaveLength(0)
+
+      const dossierText = yield* fs.readFileString(join(runDir, "dossier.json"))
+      const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
+        dossierText,
+      )
+      expect(dossier.bugClaims[0]?.candidate.summary).toBe(
+        "the added line breaks empty inputs",
+      )
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "reusing finder fixture-review from journal",
+      )
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("re-invokes corrupt and foreign journal files instead of adopting them", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const initial = review(fixture)
+      expect(yield* initial.effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const journalPath = join(
+        fixture.runsRoot,
+        runId,
+        "journal",
+        "finder-fixture-review.json",
+      )
+      yield* fs.writeFileString(journalPath, "{not valid json\n")
+
+      const corruptResume = resume(fixture, runId, successfulScripted())
+      expect(yield* corruptResume.effect).toBe(0)
+      expect(corruptResume.scripted.configs).toHaveLength(1)
+
+      const repairedText = yield* fs.readFileString(journalPath)
+      const repaired = yield* Schema.decodeEffect(
+        Schema.fromJsonString(FinderInvocationArtifact),
+      )(repairedText)
+      const foreignText = yield* Schema.encodeEffect(
+        Schema.fromJsonString(FinderInvocationArtifact),
+      )({ ...repaired, runId: "foreign-run" })
+      yield* fs.writeFileString(
+        journalPath,
+        `${foreignText}\n`,
+      )
+
+      const foreignResume = resume(fixture, runId, successfulScripted())
+      expect(yield* foreignResume.effect).toBe(0)
+      expect(foreignResume.scripted.configs).toHaveLength(1)
+
+      const finalText = yield* fs.readFileString(journalPath)
+      const finalArtifact = yield* Schema.decodeEffect(
+        Schema.fromJsonString(FinderInvocationArtifact),
+      )(finalText)
+      expect(finalArtifact.runId).toBe(runId)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("resumes an already-complete run without invoking its finder", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const initial = review(fixture)
+      expect(yield* initial.effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const completedResume = resume(fixture, runId)
+      expect(yield* completedResume.effect).toBe(0)
+      expect(completedResume.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `resuming run ${runId}`,
+      )
+      expect(yield* fs.exists(join(fixture.runsRoot, runId, "report.md"))).toBe(
+        true,
+      )
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("help is not a failed review: plain help exits 0, bad usage exits 1", () =>

@@ -8,11 +8,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { Seat } from "../domain/recipe.ts"
-
-export const LensName = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-)
-export type LensName = typeof LensName.Type
+import { LensName } from "../domain/review-plan.ts"
 
 const LensFrontmatter = Schema.Struct({
   model: Schema.optionalKey(Seat),
@@ -137,24 +133,44 @@ export interface FinderContent {
   readonly lens: LoadedLens
 }
 
+export interface FinderPromptTemplates {
+  readonly systemPrompt: string
+  readonly sharedPromptTemplate: string
+}
+
+// Shared prompt content is code-owned rather than lens-owned. Resume loads it
+// without reopening the mutable lens file; the paid invocation's lens tail
+// always comes from the frozen ReviewPlan.
+export const loadFinderPromptTemplates = Effect.fn(
+  "gauntlet.lens.load_finder_prompt_templates",
+)(function* () {
+  const root = yield* ContentDirectory
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const promptsDirectory = path.join(root, "prompts")
+  const systemPath = path.join(promptsDirectory, "finder-system.md")
+  const sharedPath = path.join(promptsDirectory, "finder-shared-block.md")
+  const readPrompt = (promptPath: string) =>
+    fs.readFileString(promptPath).pipe(
+      Effect.mapError(contentLoadError(promptPath, "could not read prompt")),
+    )
+
+  const [systemPrompt, sharedPromptTemplate] = yield* Effect.all(
+    [readPrompt(systemPath), readPrompt(sharedPath)],
+    { concurrency: 2 },
+  )
+  return { systemPrompt, sharedPromptTemplate } satisfies FinderPromptTemplates
+})
+
 export const loadFinderContent = Effect.fn("gauntlet.lens.load_finder_content")(
   function* (name: string) {
     const root = yield* ContentDirectory
-    const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const lensesDirectory = path.join(root, "lenses")
-    const promptsDirectory = path.join(root, "prompts")
-    const systemPath = path.join(promptsDirectory, "finder-system.md")
-    const sharedPath = path.join(promptsDirectory, "finder-shared-block.md")
-    const readPrompt = (promptPath: string) =>
-      fs.readFileString(promptPath).pipe(
-        Effect.mapError(contentLoadError(promptPath, "could not read prompt")),
-      )
-
-    const [systemPrompt, sharedPromptTemplate, lens] = yield* Effect.all(
-      [readPrompt(systemPath), readPrompt(sharedPath), loadLens(lensesDirectory, name)],
+    const [templates, lens] = yield* Effect.all(
+      [loadFinderPromptTemplates(), loadLens(lensesDirectory, name)],
       { concurrency: 3 },
     )
-    return { systemPrompt, sharedPromptTemplate, lens } satisfies FinderContent
+    return { ...templates, lens } satisfies FinderContent
   },
 )
