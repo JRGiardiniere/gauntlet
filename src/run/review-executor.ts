@@ -1,10 +1,8 @@
 import * as Console from "effect/Console"
-import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
-import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { assembleSingleLensDossier } from "../assembly/single-lens.ts"
 import {
@@ -25,18 +23,10 @@ import { renderReport } from "../render/report.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
 import {
+  executeJournaledInvocation,
   finderInvocationsInPlan,
-  readFinderInvocation,
-  writeFinderInvocation,
 } from "./invocation-journal.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
-
-// Test hook after the journal commit and before assembly.
-export const InvocationJournalCheckpoint = Context.Reference<
-  (runId: string, invocationKey: string) => Effect.Effect<void>
->("gauntlet/InvocationJournalCheckpoint", {
-  defaultValue: () => () => Effect.void,
-})
 
 const TRACER_DEADLINES = {
   overallMillis: 600_000,
@@ -96,56 +86,42 @@ export const executeReviewPlan = Effect.fn(
       yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
 
-        const cached = yield* readFinderInvocation(
-          paths.journalDirectory,
-          plan.runId,
-          invocation.invocationKey,
-        )
-        const outcome = yield* Option.match(cached, {
-          onNone: () =>
-            Effect.gen(function* () {
-              yield* ensureWorkingTreeUnchanged(plan)
-              const templates = yield* loadFinderPromptTemplates()
-              const prompt = yield* assembleFinderPrompt(
-                templates.sharedPromptTemplate,
-                plan.target,
-                invocation.lens,
-              )
-              yield* progress(`invoking finder ${invocation.lens.name}`)
-              const fresh = yield* invoke({
-                cwd: plan.target.repoRoot,
-                systemPrompt: templates.systemPrompt,
-                prompt,
-                sessionId: `${plan.runId}-finders`,
-                contract: EmitFindings,
-                tools: FINDER_TOOLS,
-                deadlines: TRACER_DEADLINES,
-              })
-              yield* writeFinderInvocation(paths.journalDirectory, {
-                runId: plan.runId,
-                invocationKey: invocation.invocationKey,
-                lens: invocation.lens.name,
-                outcome: fresh,
-              })
-              yield* Effect.log("finder invocation journaled", {
-                invocationKey: invocation.invocationKey,
-              })
-              const checkpoint = yield* InvocationJournalCheckpoint
-              yield* checkpoint(plan.runId, invocation.invocationKey)
-              return fresh
-            }),
-          onSome: (artifact) =>
-            progress(
-              `reusing finder ${invocation.lens.name} from journal`,
-            ).pipe(
-              Effect.andThen(
-                Effect.log("finder invocation reused", {
-                  invocationKey: invocation.invocationKey,
-                }),
-              ),
-              Effect.as(artifact.outcome),
-            ),
+        const journaled = yield* executeJournaledInvocation({
+          journalDirectory: paths.journalDirectory,
+          runId: plan.runId,
+          invocationKey: invocation.invocationKey,
+          output: EmitFindings.schema,
+          execute: Effect.gen(function* () {
+            yield* ensureWorkingTreeUnchanged(plan)
+            const templates = yield* loadFinderPromptTemplates()
+            const prompt = yield* assembleFinderPrompt(
+              templates.sharedPromptTemplate,
+              plan.target,
+              invocation.lens,
+            )
+            yield* progress(`invoking finder ${invocation.lens.name}`)
+            return yield* invoke({
+              cwd: plan.target.repoRoot,
+              systemPrompt: templates.systemPrompt,
+              prompt,
+              sessionId: `${plan.runId}-finders`,
+              contract: EmitFindings,
+              tools: FINDER_TOOLS,
+              deadlines: TRACER_DEADLINES,
+            })
+          }),
         })
+        if (journaled.reused) {
+          yield* progress(`reusing finder ${invocation.lens.name} from journal`)
+          yield* Effect.log("finder invocation reused", {
+            invocationKey: invocation.invocationKey,
+          })
+        } else {
+          yield* Effect.log("finder invocation journaled", {
+            invocationKey: invocation.invocationKey,
+          })
+        }
+        const outcome = journaled.outcome
 
         const dossier = assembleSingleLensDossier(
           plan.runId,

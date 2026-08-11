@@ -21,8 +21,11 @@ import {
   type Scripted,
   usageRow,
 } from "../harness/scripted.ts"
-import { FinderInvocationArtifact } from "../run/invocation-journal.ts"
-import { InvocationJournalCheckpoint } from "../run/review-executor.ts"
+import { FindingsOutput } from "../harness/output-contract.ts"
+import {
+  InvocationArtifact,
+  InvocationJournalCheckpoint,
+} from "../run/invocation-journal.ts"
 import {
   InvocationDirectory,
   runGauntlet,
@@ -100,6 +103,8 @@ const makeDirtyRepo = (): Fixture => {
   writeFileSync(join(fixture.repo, "alpha.txt"), "first line\nneedle-added-line\n")
   return fixture
 }
+
+const FinderInvocationArtifact = InvocationArtifact(FindingsOutput)
 
 const FINDER_OUTPUT = {
   findings: [
