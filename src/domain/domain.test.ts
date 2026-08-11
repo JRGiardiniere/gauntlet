@@ -7,6 +7,7 @@ import { DeliveryReceipt } from "./delivery-receipt.ts"
 import { Judgment } from "./judgment.ts"
 import { Seat } from "./recipe.ts"
 import { Verdict } from "./verdict.ts"
+import { FindingsOutput } from "../harness/output-contract.ts"
 
 describe("domain model", () => {
   it.effect("a candidate self-classifies by failure-scenario presence", () =>
@@ -39,10 +40,19 @@ describe("domain model", () => {
 
   it.effect("every expected bad ending is a Termination mode, as data", () =>
     Effect.gen(function* () {
-      const outcome = yield* Schema.decodeEffect(AgentOutcome)({
+      const outcome = yield* Schema.decodeEffect(AgentOutcome(FindingsOutput))({
         termination: { _tag: "BudgetExhausted" },
         output: { findings: [] },
-        usage: { inputTokens: 12000, costUsd: 0.31 },
+        usage: {
+          input: 12000,
+          output: 200,
+          cacheRead: 8000,
+          cacheWrite: 0,
+          reasoning: 50,
+          costUsd: 0.31,
+          rawRows: [],
+        },
+        durationMillis: 30_000,
         diagnostics: ["budget hit during second corrective turn"],
       })
       // Output, usage, and a bad ending coexist (ADR 0001).
