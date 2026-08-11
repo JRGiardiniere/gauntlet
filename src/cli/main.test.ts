@@ -9,7 +9,7 @@ import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ContentDirectory } from "../content/lens.ts"
@@ -22,9 +22,9 @@ import {
   usageRow,
 } from "../harness/scripted.ts"
 import { FinderInvocationArtifact } from "../run/invocation-journal.ts"
+import { InvocationJournalCheckpoint } from "../run/review-executor.ts"
 import {
   InvocationDirectory,
-  InvocationJournalCheckpoint,
   runGauntlet,
 } from "./main.ts"
 
@@ -418,6 +418,34 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(finalArtifact.runId).toBe(runId)
     }).pipe(Effect.provide(NodeServices.layer)))
 
+  it.effect("refuses to pay a missing invocation after the working tree changes", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const initial = review(fixture)
+      expect(yield* initial.effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const journalPath = join(
+        fixture.runsRoot,
+        runId,
+        "journal",
+        "finder-fixture-review.json",
+      )
+      renameSync(journalPath, `${journalPath}.missing`)
+      writeFileSync(
+        join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nlater-edit\n",
+      )
+
+      const driftedResume = resume(fixture, runId, successfulScripted())
+      expect(yield* driftedResume.effect).toBe(1)
+      expect(driftedResume.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "working tree changed after run",
+      )
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("resumes an already-complete run without invoking its finder", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
@@ -426,6 +454,14 @@ describe("gauntlet review — single-lens tracer", () => {
 
       const fs = yield* FileSystem.FileSystem
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      renameSync(
+        join(fixture.content, "prompts"),
+        join(fixture.content, "prompts-unavailable"),
+      )
+      writeFileSync(
+        join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nlater-edit\n",
+      )
       const completedResume = resume(fixture, runId)
       expect(yield* completedResume.effect).toBe(0)
       expect(completedResume.scripted.configs).toHaveLength(0)

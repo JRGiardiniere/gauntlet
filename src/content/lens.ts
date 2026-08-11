@@ -127,12 +127,6 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   })
 })
 
-export interface FinderContent {
-  readonly systemPrompt: string
-  readonly sharedPromptTemplate: string
-  readonly lens: LoadedLens
-}
-
 export interface FinderPromptTemplates {
   readonly systemPrompt: string
   readonly sharedPromptTemplate: string
@@ -162,15 +156,11 @@ export const loadFinderPromptTemplates = Effect.fn(
   return { systemPrompt, sharedPromptTemplate } satisfies FinderPromptTemplates
 })
 
-export const loadFinderContent = Effect.fn("gauntlet.lens.load_finder_content")(
+export const loadFinderLens = Effect.fn("gauntlet.lens.load_finder_lens")(
   function* (name: string) {
     const root = yield* ContentDirectory
     const path = yield* Path.Path
     const lensesDirectory = path.join(root, "lenses")
-    const [templates, lens] = yield* Effect.all(
-      [loadFinderPromptTemplates(), loadLens(lensesDirectory, name)],
-      { concurrency: 3 },
-    )
-    return { ...templates, lens } satisfies FinderContent
+    return yield* loadLens(lensesDirectory, name)
   },
 )
