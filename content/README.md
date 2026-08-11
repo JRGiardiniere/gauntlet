@@ -21,8 +21,9 @@ and lens files, no plumbing. The companion specifications live in
 ## Template slots
 
 - `finder-shared-block.md`: `{{REPO_ROOT}}`, `{{CHANGED_FILES}}` (one `- path`
-  per line), `{{DIFF}}`, `{{MAX_PER_LENS}}`. The assembled finder prompt is
-  system prompt + shared block + lens tail (+ cap override + spec text, when
+  per line), `{{DIFF_SECTION}}`, `{{MAX_PER_LENS}}`. The diff section uses a
+  fence longer than any backtick run in the diff. The assembled finder prompt
+  is system prompt + shared block + lens tail (+ cap override + spec text, when
   applicable) — see the cache-prefix invariant in `docs/spec/pipeline-shape.md`.
 - `stage-scope-block.md`: shared by verifier and judge. `{{DIFF_SECTION}}` is
   either the inline fenced diff or a pointer to the diff file stored with the

@@ -29,16 +29,9 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
 import { executeJournaledInvocation } from "./invocation-journal.ts"
+import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import type { RunPaths } from "./run-record.ts"
 import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
-
-const STAGE_DEADLINES = {
-  overallMillis: 600_000,
-  startupMillis: 60_000,
-  firstResponseMillis: 300_000,
-  toolMillis: 120_000,
-  bashMillis: 600_000,
-} as const
 
 const progress = Effect.fn("gauntlet.bug_claim_path.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -128,7 +121,7 @@ export const executeBugClaimPath = Effect.fn(
             sessionId: `${plan.runId}-pool`,
             contract: EmitPool,
             tools: POOL_TOOLS,
-            deadlines: STAGE_DEADLINES,
+            deadlines: REVIEW_INVOCATION_DEADLINES,
           })
         }),
       })
@@ -189,7 +182,7 @@ export const executeBugClaimPath = Effect.fn(
                 sessionId: `${plan.runId}-verification`,
                 contract: EmitVerdicts,
                 tools: VERIFICATION_TOOLS,
-                deadlines: STAGE_DEADLINES,
+                deadlines: REVIEW_INVOCATION_DEADLINES,
               })
             }),
           })

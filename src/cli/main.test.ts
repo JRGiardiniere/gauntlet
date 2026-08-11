@@ -63,8 +63,7 @@ const SHARED_PROMPT = `shared start
 repo={{REPO_ROOT}}
 files:
 {{CHANGED_FILES}}
-diff:
-{{DIFF}}
+{{DIFF_SECTION}}
 cap={{MAX_PER_LENS}}
 shared end
 `

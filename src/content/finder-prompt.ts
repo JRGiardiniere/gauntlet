@@ -1,4 +1,3 @@
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -8,12 +7,15 @@ import {
 } from "../domain/review-plan.ts"
 import type { ReviewTarget } from "../domain/review-target.ts"
 import { ContentDirectory, ContentLoadError } from "./lens.ts"
+import {
+  fenceMarkdownBlock,
+  PromptAssemblyError,
+  renderPromptTemplate,
+} from "./prompt-template.ts"
+
+export { PromptAssemblyError }
 
 export const FINDER_TOOLS = ["read", "bash"] as const
-
-export class PromptAssemblyError extends Data.TaggedError(
-  "PromptAssemblyError",
-)<{ readonly reason: string }> {}
 
 export interface FinderPromptTemplates {
   readonly systemPrompt: string
@@ -56,40 +58,22 @@ export const assembleFinderPrompt = (
   specText?: string,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
-    const substitutions = new Map<string, string>([
-      ["REPO_ROOT", target.repoRoot],
+    const shared = yield* renderPromptTemplate(
+      "finder shared-block",
+      template,
       [
-        "CHANGED_FILES",
-        target.changedFiles.map((file) => `- ${file}`).join("\n"),
+        ["REPO_ROOT", target.repoRoot],
+        [
+          "CHANGED_FILES",
+          target.changedFiles.map((file) => `- ${file}`).join("\n"),
+        ],
+        [
+          "DIFF_SECTION",
+          `## Diff\n\n${fenceMarkdownBlock("diff", target.diff)}`,
+        ],
+        ["MAX_PER_LENS", String(DEFAULT_CANDIDATE_CAP)],
       ],
-      ["DIFF", target.diff],
-      ["MAX_PER_LENS", String(DEFAULT_CANDIDATE_CAP)],
-    ])
-    const missing = new Set(substitutions.keys())
-    const parts: Array<string> = []
-    let cursor = 0
-
-    for (const match of template.matchAll(/\{\{([^{}]+)\}\}/g)) {
-      const token = match[0]
-      const placeholder = token.slice(2, -2)
-      const value = substitutions.get(placeholder)
-      if (value === undefined) {
-        return yield* new PromptAssemblyError({
-          reason:
-            `finder shared-block template contains unresolved {{${placeholder}}}`,
-        })
-      }
-      parts.push(template.slice(cursor, match.index), value)
-      cursor = match.index + token.length
-      missing.delete(placeholder)
-    }
-    for (const placeholder of missing) {
-      return yield* new PromptAssemblyError({
-        reason: `finder shared-block template is missing {{${placeholder}}}`,
-      })
-    }
-    parts.push(template.slice(cursor))
-    const shared = parts.join("")
+    )
     const lensSections = [lens.promptText]
     if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
       lensSections.push(
@@ -104,5 +88,5 @@ export const assembleFinderPrompt = (
       }
       lensSections.push(`## Originating spec\n\n${specText}`)
     }
-    return `${shared.trimEnd()}\n\n${lensSections.join("\n\n")}`
+    return `${shared}\n\n${lensSections.join("\n\n")}`
   })

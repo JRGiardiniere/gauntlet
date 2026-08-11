@@ -108,6 +108,22 @@ describe("output contracts", () => {
       )
       expect(verdictFailure._tag).toBe("SchemaError")
 
+      for (const evidence of ["first line\nsecond line", "trailing newline\n"]) {
+        const multilineEvidenceFailure = yield* Effect.flip(
+          strictDecode(EmitVerdicts.schema)({
+            verdicts: [
+              {
+                cluster: 1,
+                verdict: "CONFIRMED",
+                severity: "P2",
+                evidence,
+              },
+            ],
+          }),
+        )
+        expect(multilineEvidenceFailure._tag).toBe("SchemaError")
+      }
+
       const refuted = yield* strictDecode(EmitVerdicts.schema)({
         verdicts: [
           { cluster: 1, verdict: "REFUTED", evidence: "guard rejects it" },

@@ -100,7 +100,7 @@ describe("lens content", () => {
           warnings: [],
         })
         const prompt = yield* assembleFinderPrompt(
-          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}",
+          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}",
           target,
           frozen,
         )
@@ -124,7 +124,7 @@ describe("finder prompt cache prefix", () => {
       const template = [
         "repo={{REPO_ROOT}}",
         "files={{CHANGED_FILES}}",
-        "diff={{DIFF}}",
+        "{{DIFF_SECTION}}",
         "cap={{MAX_PER_LENS}}",
       ].join("\n")
       const first = FrozenLens.make({
@@ -172,7 +172,7 @@ describe("finder prompt cache prefix", () => {
         candidateCap: 6,
       })
       const prompt = yield* assembleFinderPrompt(
-        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}",
+        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}",
         target,
         lens,
       )
@@ -190,7 +190,7 @@ describe("finder prompt cache prefix", () => {
         diff: "+fixture",
         warnings: [],
       })
-      const template = "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}"
+      const template = "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}"
       const ordinary = FrozenLens.make({
         name: "fixture-ordinary",
         promptText: "ORDINARY TAIL",
@@ -254,7 +254,7 @@ describe("finder prompt cache prefix", () => {
         candidateCap: 6,
       })
       const failure = yield* assembleFinderPrompt(
-        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}\n{{max_per_lens}}",
+        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}\n{{max_per_lens}}",
         target,
         lens,
       ).pipe(Effect.flip)

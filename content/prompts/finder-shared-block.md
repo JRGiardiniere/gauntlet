@@ -9,11 +9,7 @@ Repo root: {{REPO_ROOT}}
 Changed files:
 {{CHANGED_FILES}}
 
-## Diff
-
-```diff
-{{DIFF}}
-```
+{{DIFF_SECTION}}
 
 ## How to work
 

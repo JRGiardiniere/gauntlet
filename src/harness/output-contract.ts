@@ -64,6 +64,10 @@ export const EmitFindings = defineOutputContract(
 
 const candidateIndex = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
+const oneLine = Schema.NonEmptyString.check(
+  Schema.isPattern(/^(?![\s\S]*[\r\n])[\s\S]+$/),
+)
+
 export const PoolOutput = Schema.Struct({
   clusters: Schema.Array(
     Schema.Struct({
@@ -92,7 +96,7 @@ const verdictCore = {
     "The [cN] label of the cluster.",
   ),
   evidence: described(
-    Schema.NonEmptyString,
+    oneLine,
     "One line: the inputs/state and wrong output, or the line that refutes it.",
   ),
 }

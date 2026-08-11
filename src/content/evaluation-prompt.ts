@@ -2,8 +2,6 @@ import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as HashMap from "effect/HashMap"
-import * as HashSet from "effect/HashSet"
-import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Result from "effect/Result"
 import type {
@@ -11,8 +9,13 @@ import type {
   NumberedPoolCluster,
 } from "../assembly/pool.ts"
 import type { ReviewTarget } from "../domain/review-target.ts"
-import { PromptAssemblyError } from "./finder-prompt.ts"
+import { formatCandidateLine } from "./candidate-line.ts"
 import { ContentDirectory, ContentLoadError } from "./lens.ts"
+import {
+  fenceMarkdownBlock,
+  type PromptAssemblyError,
+  renderPromptTemplate,
+} from "./prompt-template.ts"
 
 export const POOL_TOOLS = [] as const
 export const VERIFICATION_TOOLS = ["read", "bash"] as const
@@ -56,54 +59,12 @@ export const loadEvaluationPromptTemplates = Effect.fn(
   return { pool, verifier, stageScope } satisfies EvaluationPromptTemplates
 })
 
-const renderTemplate = (
-  name: string,
-  template: string,
-  substitutions: ReadonlyArray<readonly [string, string]>,
-): Effect.Effect<string, PromptAssemblyError> =>
-  Effect.gen(function* () {
-    const values = HashMap.fromIterable(substitutions)
-    let missing = HashSet.fromIterable(HashMap.keys(values))
-    const parts: Array<string> = []
-    let cursor = 0
-
-    for (const match of template.matchAll(/\{\{([^{}]+)\}\}/g)) {
-      const token = match[0]
-      const placeholder = token.slice(2, -2)
-      const value = HashMap.get(values, placeholder)
-      if (Option.isNone(value)) {
-        return yield* new PromptAssemblyError({
-          reason: `${name} template contains unresolved {{${placeholder}}}`,
-        })
-      }
-      parts.push(template.slice(cursor, match.index), value.value)
-      cursor = match.index + token.length
-      missing = HashSet.remove(missing, placeholder)
-    }
-    const missingPlaceholder = Array.fromIterable(missing)[0]
-    if (missingPlaceholder !== undefined) {
-      return yield* new PromptAssemblyError({
-        reason: `${name} template is missing {{${missingPlaceholder}}}`,
-      })
-    }
-    parts.push(template.slice(cursor))
-    return parts.join("").trimEnd()
-  })
-
-const candidateLine = ({ candidate, index }: IndexedBugClaim): string => {
-  const location = `${candidate.file}${candidate.line === undefined ? "" : `:${String(candidate.line)}`}`
-  return [
-    `[${String(index)}] (${candidate.lens}) ${location} — ${candidate.summary}`,
-    `    claimed failure: ${candidate.failureScenario}`,
-  ].join("\n")
-}
-
 export const assemblePoolPrompt = (
   template: string,
   claims: ReadonlyArray<IndexedBugClaim>,
 ): Effect.Effect<string, PromptAssemblyError> =>
-  renderTemplate("pool", template, [
-    ["CANDIDATES", Array.map(claims, candidateLine).join("\n")],
+  renderPromptTemplate("pool", template, [
+    ["CANDIDATES", Array.map(claims, formatCandidateLine).join("\n")],
   ])
 
 const verifierClaims = (
@@ -118,7 +79,7 @@ const verifierClaims = (
       HashMap.get(byIndex, index).pipe(
         Result.fromOption(() => undefined),
       )).map((claim) =>
-        candidateLine(claim).split("\n").map((line) => `  ${line}`).join("\n")
+        formatCandidateLine(claim).split("\n").map((line) => `  ${line}`).join("\n")
       ).join("\n")
     return `### [c${String(cluster.number)}] ${cluster.summary}\n${members}`
   }).join("\n\n")
@@ -132,16 +93,19 @@ export const assembleVerifierPrompt = (
   bundle: ReadonlyArray<NumberedPoolCluster>,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
-    const scope = yield* renderTemplate("stage scope", templates.stageScope, [
+    const scope = yield* renderPromptTemplate("stage scope", templates.stageScope, [
       ["REPO_ROOT", target.repoRoot],
       [
         "CHANGED_FILES",
         Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
       ],
-      ["DIFF_SECTION", `## Diff under review\n\n\`\`\`diff\n${target.diff}\n\`\`\``],
+      [
+        "DIFF_SECTION",
+        `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
+      ],
       ["INTENT_SECTION", specText ?? "No originating spec was provided."],
     ])
-    return yield* renderTemplate("verifier", templates.verifier, [
+    return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],
       ["CLAIMS", verifierClaims(bundle, claims)],
     ])

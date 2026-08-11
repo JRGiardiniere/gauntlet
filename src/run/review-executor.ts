@@ -8,9 +8,9 @@ import * as Logger from "effect/Logger"
 import * as Record from "effect/Record"
 import * as Result from "effect/Result"
 import {
-  assembleFinderDossier,
   enforceCandidateCap,
   type FinderResult,
+  routeFinderResults,
 } from "../assembly/finders.ts"
 import {
   assembleFinderPrompt,
@@ -18,6 +18,7 @@ import {
   loadFinderPromptTemplates,
 } from "../content/finder-prompt.ts"
 import { Dossier } from "../domain/dossier.ts"
+import { Judgment } from "../domain/judgment.ts"
 import { modelIdentityOfSeat } from "../domain/recipe.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import {
@@ -34,15 +35,8 @@ import {
   finderInvocationsInPlan,
 } from "./invocation-journal.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
+import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
-
-const TRACER_DEADLINES = {
-  overallMillis: 600_000,
-  startupMillis: 60_000,
-  firstResponseMillis: 300_000,
-  toolMillis: 120_000,
-  bashMillis: 600_000,
-} as const
 
 // Pi uses the shared session id as its provider cache partition. Each model
 // group completes one real finder before its siblings fan out, then gives the
@@ -100,7 +94,7 @@ export const executeReviewPlan = Effect.fn(
                 sessionId,
                 contract: EmitFindings,
                 tools: FINDER_TOOLS,
-                deadlines: TRACER_DEADLINES,
+                deadlines: REVIEW_INVOCATION_DEADLINES,
               })
               return enforceCandidateCap(invocation.lens, outcome)
             }),
@@ -207,24 +201,22 @@ export const executeReviewPlan = Effect.fn(
           })
         }
 
-        const finderDossier = assembleFinderDossier(
-          plan.runId,
-          targetIdentityOf(plan.target),
-          results,
-        )
+        const routed = routeFinderResults(results)
         const bugClaimPath = yield* executeBugClaimPath({
           plan,
           paths,
-          bugClaims: Array.map(
-            finderDossier.bugClaims,
-            ({ candidate }) => candidate,
-          ),
+          bugClaims: routed.bugClaims,
         })
         const dossier = Dossier.make({
-          ...finderDossier,
+          runId: plan.runId,
+          target: targetIdentityOf(plan.target),
           bugClaims: bugClaimPath.bugClaims,
+          observations: Array.map(routed.observations, (candidate) => ({
+            candidate,
+            judgment: Judgment.cases.Undecided.make({}),
+          })),
           coverageGaps: [
-            ...finderDossier.coverageGaps,
+            ...routed.coverageGaps,
             ...bugClaimPath.coverageGaps,
           ],
         })
