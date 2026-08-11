@@ -372,6 +372,41 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(report).toContain("$0.15 · 3 invocations")
     }).pipe(Effect.provide(NodeServices.layer)))
 
+  it.effect("shares one model cache group across thinking efforts", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-high.md"),
+        "---\nmodel: openai-codex/gpt-5.6-luna:high\n---\nfixture high tail\n",
+      )
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-high"],
+        makeScripted({
+          sessions: [successfulSession(), successfulSession()],
+        }),
+      )
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) => Queue.offer(journaled, invocationKey),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+      expect(yield* Fiber.join(fiber)).toBe(0)
+
+      expect(run.scripted.configs.map((config) => config.seat).sort()).toEqual([
+        "openai-codex/gpt-5.6-luna:high",
+        "openai-codex/gpt-5.6-luna:low",
+      ])
+      expect(
+        new Set(run.scripted.configs.map((config) => config.sessionId)).size,
+      ).toBe(1)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
@@ -652,6 +687,45 @@ describe("gauntlet review — single-lens tracer", () => {
       const driftedResume = resume(fixture, runId, successfulScripted())
       expect(yield* driftedResume.effect).toBe(1)
       expect(driftedResume.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "working tree changed after run",
+      )
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("rechecks the working tree after a warmup before paying its followers", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-other.md"),
+        "fixture other tail\n",
+      )
+      const scripted = makeScripted({
+        sessions: [successfulSession(), successfulSession()],
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-other"],
+        scripted,
+      )
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) =>
+            Effect.sync(() => {
+              writeFileSync(
+                join(fixture.repo, "alpha.txt"),
+                "first line\nneedle-added-line\nlater-edit\n",
+              )
+            }).pipe(Effect.andThen(Queue.offer(journaled, invocationKey))),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+
+      expect(yield* Fiber.join(fiber)).toBe(1)
+      expect(scripted.configs).toHaveLength(1)
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "working tree changed after run",
       )

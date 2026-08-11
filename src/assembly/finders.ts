@@ -1,4 +1,5 @@
 import * as Array from "effect/Array"
+import * as Option from "effect/Option"
 import type { AgentOutcome } from "../domain/agent-outcome.ts"
 import { Termination } from "../domain/agent-outcome.ts"
 import { Candidate } from "../domain/candidate.ts"
@@ -34,19 +35,30 @@ export const enforceCandidateCap = (
 
 const missingOutputReason = (
   outcome: AgentOutcome<FindingsOutput>,
-): string =>
-  Termination.match(outcome.termination, {
+): string => {
+  const timeoutDiagnostic = Array.findLast(
+    outcome.diagnostics,
+    (diagnostic) =>
+      diagnostic.startsWith("session construction exceeded ") ||
+      diagnostic.startsWith("first response exceeded "),
+  )
+  return Termination.match(outcome.termination, {
     Completed: () => "finder completed without a decodable emit",
     MissingEmit: ({ correctiveTurns }) =>
       `finder emitted nothing after ${String(correctiveTurns)} corrective turns`,
-    FirstResponseTimeout: () => "finder produced no first response",
+    FirstResponseTimeout: () =>
+      Option.getOrElse(
+        timeoutDiagnostic,
+        () => "finder produced no first response",
+      ),
     BudgetExhausted: () => "finder exhausted its invocation deadline",
     ContextLimit: () => "finder reached its context limit",
     ProviderFailed: () => "finder provider failed",
     Interrupted: () => "finder was interrupted",
   })
+}
 
-// Finder-only Assembly preserves every emitted Candidate as unverified or
+// Finder-only Assembly preserves every retained Candidate as unverified or
 // undecided until issues #22 and #23 add the downstream evaluation paths.
 export const assembleFinderDossier = (
   runId: string,

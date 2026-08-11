@@ -21,6 +21,14 @@ const boundedLine = (text: string): string => {
   return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat
 }
 
+const candidateLocation = (candidate: {
+  readonly file: string
+  readonly line?: number
+}): string =>
+  boundedLine(
+    `${candidate.file}${candidate.line === undefined ? "" : `:${candidate.line}`}`,
+  )
+
 // The bounded stdout digest (ADR 0005): one tally line (counts, target,
 // recipe, cost, wall time — ADR 0006), one line per surviving finding
 // plus one bounded line per candidate still carried in the main findings
@@ -41,23 +49,19 @@ export const renderDigest = (
     `$${accounting.costUsd.toFixed(2)} · ${accounting.wallTimeSeconds}s`
   const surviving = [
     ...view.confirmed.map((entry) => {
-      const line = entry.candidate.line === undefined ? "" : `:${entry.candidate.line}`
-      return `- [${entry.verdict.severity}] ${entry.candidate.file}${line} — ${boundedLine(entry.candidate.summary)}`
+      return `- [${entry.verdict.severity}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.kept.map((entry) => {
-      const line = entry.candidate.line === undefined ? "" : `:${entry.candidate.line}`
-      return `- [${entry.judgment.tier}] ${entry.candidate.file}${line} — ${boundedLine(entry.candidate.summary)}`
+      return `- [${entry.judgment.tier}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.unverified.map((entry) => {
-      const line = entry.candidate.line === undefined ? "" : `:${entry.candidate.line}`
       const severity = entry.verdict.severity === undefined
         ? "unverified"
         : `${entry.verdict.severity} unverified`
-      return `- [${severity}] ${entry.candidate.file}${line} — ${boundedLine(entry.candidate.summary)}`
+      return `- [${severity}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.undecided.map((candidate) => {
-      const line = candidate.line === undefined ? "" : `:${candidate.line}`
-      return `- [undecided] ${candidate.file}${line} — ${boundedLine(candidate.summary)}`
+      return `- [undecided] ${candidateLocation(candidate)} — ${boundedLine(candidate.summary)}`
     }),
   ]
   return [

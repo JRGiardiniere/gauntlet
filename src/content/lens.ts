@@ -1,10 +1,12 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Context from "effect/Context"
 import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Encoding from "effect/Encoding"
 import * as FileSystem from "effect/FileSystem"
+import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
@@ -146,10 +148,12 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
           }),
         )),
   )
-  return entries
-    .filter((entry) => path.extname(entry) === ".md")
-    .map((entry) => path.basename(entry, ".md"))
-    .sort((left, right) => left.localeCompare(right))
+  return Array.sort(
+    entries
+      .filter((entry) => path.extname(entry) === ".md")
+      .map((entry) => path.basename(entry, ".md")),
+    Order.String,
+  )
 })
 
 const loadLensDirectory = Effect.fn("gauntlet.lens.load_directory")(
@@ -206,7 +210,7 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
           ),
         ))
     const seen = new Set<LensName>()
-    const selected: Array<LoadedLens> = []
+    const selected: globalThis.Array<LoadedLens> = []
     for (const name of selectedNames) {
       if (seen.has(name)) continue
       seen.add(name)

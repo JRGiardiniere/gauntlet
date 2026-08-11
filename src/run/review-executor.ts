@@ -19,6 +19,7 @@ import {
   loadFinderPromptTemplates,
 } from "../content/finder-prompt.ts"
 import { Dossier } from "../domain/dossier.ts"
+import { modelIdentityOfSeat } from "../domain/recipe.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import {
   ReviewTarget,
@@ -88,9 +89,6 @@ export const executeReviewPlan = Effect.fn(
       yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
         const templates = yield* Effect.cached(loadFinderPromptTemplates())
-        const targetUnchanged = yield* Effect.cached(
-          ensureWorkingTreeUnchanged(plan),
-        )
 
         const executeFinder = Effect.fn(
           "gauntlet.run_executor.execute_finder",
@@ -104,7 +102,7 @@ export const executeReviewPlan = Effect.fn(
             invocationKey: invocation.invocationKey,
             output: EmitFindings.schema,
             execute: Effect.gen(function* () {
-              yield* targetUnchanged
+              yield* ensureWorkingTreeUnchanged(plan)
               const promptTemplates = yield* templates
               const prompt = yield* assembleFinderPrompt(
                 promptTemplates.sharedPromptTemplate,
@@ -159,7 +157,8 @@ export const executeReviewPlan = Effect.fn(
           )
 
         const groups = Record.values(
-          Array.groupBy(invocations, (invocation) => invocation.seat),
+          Array.groupBy(invocations, (invocation) =>
+            modelIdentityOfSeat(invocation.seat)),
         )
         const groupResults = yield* Effect.forEach(
           groups,

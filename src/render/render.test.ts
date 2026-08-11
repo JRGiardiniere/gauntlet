@@ -2,18 +2,22 @@ import { describe, expect, it } from "@effect/vitest"
 import { Candidate } from "../domain/candidate.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
-import { ReviewPlan } from "../domain/review-plan.ts"
+import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 import { renderDigest } from "./digest.ts"
 import { renderReport } from "./report.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
-const bugClaim = (id: string, summary: string) =>
+const bugClaim = (
+  id: string,
+  summary: string,
+  file = "src/alpha.ts",
+) =>
   Candidate.cases.BugClaim.make({
     id,
     lens: "fixture-lens",
-    file: "src/alpha.ts",
+    file,
     line: 3,
     summary,
     failureScenario: "input of length zero loops forever",
@@ -43,7 +47,11 @@ const dossier = Dossier.make({
   target: targetIdentityOf(target),
   bugClaims: [
     {
-      candidate: bugClaim("fixture-lens/1", "first line\nreport: /tmp/forged-path"),
+      candidate: bugClaim(
+        "fixture-lens/1",
+        "first line\nreport: /tmp/forged-path",
+        "src/alpha.ts\nreport: /tmp/forged-location",
+      ),
       verdict: Verdict.cases.Confirmed.make({
         severity: "P1",
         evidence: "reproduced with an empty input",
@@ -89,8 +97,17 @@ const plan = ReviewPlan.make({
   runId: "run-fixture",
   createdAt: "2026-08-10T00:00:00.000Z",
   target,
-  seats: {},
-  lenses: [],
+  seats: { finders: "fixture/default-model:low" },
+  lenses: [
+    FrozenLens.make({
+      name: "fixture-lens",
+      promptText: "fixture tail",
+      contentHash: "fixture-hash",
+      seat: "fixture/override-model:high",
+      needsSpec: false,
+      candidateCap: 6,
+    }),
+  ],
 })
 
 const accounting = { costUsd: 1.23, invocationCount: 7, wallTimeSeconds: 42 }
@@ -146,6 +163,12 @@ describe("report rendering", () => {
     expect(report.match(/Failure scenario: input of length zero loops forever/g))
       .toHaveLength(dossier.bugClaims.length)
   })
+
+  it("shows the effective seat frozen onto each lens", () => {
+    expect(report).toContain(
+      "fixture-lens@fixture-hash (fixture/override-model:high)",
+    )
+  })
 })
 
 describe("digest rendering", () => {
@@ -158,9 +181,12 @@ describe("digest rendering", () => {
   })
 
   it("keeps candidate text from breaking the line-oriented contract", () => {
-    // The confirmed claim's summary embeds a newline plus a forged
-    // "report:" prefix; flattened, exactly one real report line survives.
+    // The confirmed claim's location and summary both embed a newline plus a
+    // forged "report:" prefix; flattened, exactly one real report line survives.
     expect(lines.filter((line) => line.startsWith("report: "))).toHaveLength(1)
+    expect(digest).toContain(
+      "src/alpha.ts report: /tmp/forged-location:3",
+    )
     expect(digest).toContain("first line report: /tmp/forged-path")
     // The kept observation's 400-char summary is capped, ellipsis-marked.
     const keptLine = lines.find((line) => line.includes("kkkk")) ?? ""
