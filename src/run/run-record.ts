@@ -10,6 +10,7 @@ import * as Random from "effect/Random"
 import * as Schema from "effect/Schema"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
+import { readOptionalArtifactText } from "./artifact.ts"
 
 export interface RunPaths {
   readonly root: string
@@ -26,7 +27,7 @@ export interface ResumableRun {
   readonly plan: ReviewPlan
 }
 
-export class RunResumeError extends Data.TaggedError("RunResumeError")<{
+export class RunError extends Data.TaggedError("RunError")<{
   readonly operation: "find-latest" | "load-plan" | "execute-plan"
   readonly reason: string
   readonly runId?: string
@@ -86,19 +87,6 @@ export const createRunDirectory = Effect.fn("gauntlet.run_record.create_run_dire
   },
 )
 
-const readOptionalText = Effect.fn("gauntlet.run_record.read_optional_text")(
-  function* (path: string) {
-    const fs = yield* FileSystem.FileSystem
-    return yield* fs.readFileString(path).pipe(
-      Effect.map(Option.some),
-      Effect.catchTag("PlatformError", (failure) =>
-        Predicate.isTagged("NotFound")(failure.reason)
-          ? Effect.succeed(Option.none<string>())
-          : Effect.fail(failure)),
-    )
-  },
-)
-
 const decodePlanOption = Schema.decodeOption(
   Schema.fromJsonString(ReviewPlan),
 )
@@ -108,7 +96,7 @@ const decodeDossierOption = Schema.decodeOption(
 
 const loadPlanOption = Effect.fn("gauntlet.run_record.load_plan_option")(
   function* (paths: RunPaths, expectedRunId: string) {
-    const source = yield* readOptionalText(paths.plan)
+    const source = yield* readOptionalArtifactText(paths.plan)
     return Option.flatMap(source, (text) =>
       decodePlanOption(text).pipe(
         Option.filter((plan) => plan.runId === expectedRunId),
@@ -119,7 +107,10 @@ const loadPlanOption = Effect.fn("gauntlet.run_record.load_plan_option")(
 const runIsComplete = Effect.fn("gauntlet.run_record.is_complete")(
   function* (paths: RunPaths, runId: string) {
     const [dossierSource, reportSource] = yield* Effect.all(
-      [readOptionalText(paths.dossier), readOptionalText(paths.report)],
+      [
+        readOptionalArtifactText(paths.dossier),
+        readOptionalArtifactText(paths.report),
+      ],
       { concurrency: 2 },
     )
     const dossier = Option.flatMap(dossierSource, decodeDossierOption).pipe(
@@ -130,13 +121,13 @@ const runIsComplete = Effect.fn("gauntlet.run_record.is_complete")(
   },
 )
 
-const resumeError = (
-  operation: RunResumeError["operation"],
+const runError = (
+  operation: RunError["operation"],
   reason: string,
   runId: string | undefined,
   cause?: unknown,
 ) =>
-  new RunResumeError({
+  new RunError({
     operation,
     reason,
     ...(runId === undefined ? {} : { runId }),
@@ -149,7 +140,7 @@ const loadSpecificRun = Effect.fn("gauntlet.run_record.load_specific_run")(
       requestedRunId,
     ).pipe(
       Effect.mapError((cause) =>
-        resumeError(
+        runError(
           "load-plan",
           `invalid run id: ${requestedRunId}`,
           requestedRunId,
@@ -161,7 +152,7 @@ const loadSpecificRun = Effect.fn("gauntlet.run_record.load_specific_run")(
     const fs = yield* FileSystem.FileSystem
     const source = yield* fs.readFileString(paths.plan).pipe(
       Effect.mapError((cause) =>
-        resumeError(
+        runError(
           "load-plan",
           `could not read frozen plan for run ${runId}`,
           runId,
@@ -172,7 +163,7 @@ const loadSpecificRun = Effect.fn("gauntlet.run_record.load_specific_run")(
       Schema.fromJsonString(ReviewPlan),
     )(source).pipe(
       Effect.mapError((cause) =>
-        resumeError(
+        runError(
           "load-plan",
           `frozen plan for run ${runId} is corrupt`,
           runId,
@@ -180,7 +171,7 @@ const loadSpecificRun = Effect.fn("gauntlet.run_record.load_specific_run")(
         )),
     )
     if (plan.runId !== runId) {
-      return yield* resumeError(
+      return yield* runError(
         "load-plan",
         `frozen plan belongs to run ${plan.runId}, not ${runId}`,
         runId,
@@ -200,7 +191,7 @@ const loadLatestIncompleteRun = Effect.fn(
       Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed([])
         : Effect.fail(
-          resumeError(
+          runError(
             "find-latest",
             `could not inspect runs root ${runsRoot}`,
             undefined,
@@ -219,7 +210,7 @@ const loadLatestIncompleteRun = Effect.fn(
     const paths = runPaths(runsRoot, runId, path)
     const plan = yield* loadPlanOption(paths, runId).pipe(
       Effect.mapError((cause) =>
-        resumeError(
+        runError(
           "find-latest",
           `could not inspect frozen plan for run ${runId}`,
           runId,
@@ -229,7 +220,7 @@ const loadLatestIncompleteRun = Effect.fn(
     if (Option.isNone(plan)) continue
     const complete = yield* runIsComplete(paths, runId).pipe(
       Effect.mapError((cause) =>
-        resumeError(
+        runError(
           "find-latest",
           `could not inspect completion artifacts for run ${runId}`,
           runId,
@@ -239,7 +230,7 @@ const loadLatestIncompleteRun = Effect.fn(
     if (!complete) return { paths, plan: plan.value } satisfies ResumableRun
   }
 
-  return yield* resumeError(
+  return yield* runError(
     "find-latest",
     "no incomplete run with a valid frozen plan was found",
     undefined,

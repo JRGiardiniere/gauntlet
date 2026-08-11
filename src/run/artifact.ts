@@ -1,6 +1,8 @@
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Random from "effect/Random"
 import * as Schema from "effect/Schema"
 
@@ -11,6 +13,19 @@ export class ArtifactWriteError extends Data.TaggedError("ArtifactWriteError")<{
 
 const artifactWriteError = (path: string) => (cause: unknown) =>
   new ArtifactWriteError({ path, cause })
+
+export const readOptionalArtifactText = Effect.fn(
+  "gauntlet.artifact.read_optional_text",
+)(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.readFileString(path).pipe(
+    Effect.map(Option.some),
+    Effect.catchTag("PlatformError", (failure) =>
+      Predicate.isTagged("NotFound")(failure.reason)
+        ? Effect.succeed(Option.none<string>())
+        : Effect.fail(failure)),
+  )
+})
 
 // Atomic artifact write: temp file + rename in the artifact's own directory,
 // never a system temp dir — cross-device rename fails (ADR 0003). A write

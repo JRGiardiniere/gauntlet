@@ -1,14 +1,12 @@
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
-import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { AgentOutcome } from "../domain/agent-outcome.ts"
 import type { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { FindingsOutput } from "../harness/output-contract.ts"
-import { writeArtifactJson } from "./artifact.ts"
+import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
 
 export const FinderInvocationArtifact = Schema.Struct({
   runId: Schema.NonEmptyString,
@@ -31,9 +29,6 @@ export class InvocationJournalReadError extends Data.TaggedError(
   readonly cause: unknown
 }> {}
 
-// The idempotency key is derived only from the frozen plan. Future finder
-// fan-out can enumerate the same entries without consulting mutable lens
-// content or runtime configuration.
 export const finderInvocationsInPlan = (
   plan: ReviewPlan,
 ): ReadonlyArray<FrozenFinderInvocation> =>
@@ -60,10 +55,8 @@ export const writeFinderInvocation = Effect.fn(
   return artifactPath
 })
 
-// Journal validity is deliberately thin per ADR 0003: the expected path is
-// derived from the plan, then schema decode + matching runId decides reuse.
-// Missing, corrupt, or foreign files are "not done yet". Other I/O failures
-// stay visible because they cannot truthfully be treated as absence.
+// Missing, corrupt, or foreign artifacts are incomplete; other I/O failures
+// remain visible (ADR 0003).
 export const readFinderInvocation = Effect.fn(
   "gauntlet.invocation_journal.read_finder",
 )(function* (
@@ -75,18 +68,9 @@ export const readFinderInvocation = Effect.fn(
     journalDirectory,
     invocationKey,
   )
-  const fs = yield* FileSystem.FileSystem
-  const text = yield* fs.readFileString(artifactPath).pipe(
-    Effect.map(Option.some),
-    Effect.catchTag("PlatformError", (failure) =>
-      Predicate.isTagged("NotFound")(failure.reason)
-        ? Effect.succeed(Option.none<string>())
-        : Effect.fail(
-          new InvocationJournalReadError({
-            path: artifactPath,
-            cause: failure,
-          }),
-        )),
+  const text = yield* readOptionalArtifactText(artifactPath).pipe(
+    Effect.mapError((cause) =>
+      new InvocationJournalReadError({ path: artifactPath, cause })),
   )
 
   return Option.flatMap(text, (source) =>

@@ -127,35 +127,6 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   })
 })
 
-export interface FinderPromptTemplates {
-  readonly systemPrompt: string
-  readonly sharedPromptTemplate: string
-}
-
-// Shared prompt content is code-owned rather than lens-owned. Resume loads it
-// without reopening the mutable lens file; the paid invocation's lens tail
-// always comes from the frozen ReviewPlan.
-export const loadFinderPromptTemplates = Effect.fn(
-  "gauntlet.lens.load_finder_prompt_templates",
-)(function* () {
-  const root = yield* ContentDirectory
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const promptsDirectory = path.join(root, "prompts")
-  const systemPath = path.join(promptsDirectory, "finder-system.md")
-  const sharedPath = path.join(promptsDirectory, "finder-shared-block.md")
-  const readPrompt = (promptPath: string) =>
-    fs.readFileString(promptPath).pipe(
-      Effect.mapError(contentLoadError(promptPath, "could not read prompt")),
-    )
-
-  const [systemPrompt, sharedPromptTemplate] = yield* Effect.all(
-    [readPrompt(systemPath), readPrompt(sharedPath)],
-    { concurrency: 2 },
-  )
-  return { systemPrompt, sharedPromptTemplate } satisfies FinderPromptTemplates
-})
-
 export const loadFinderLens = Effect.fn("gauntlet.lens.load_finder_lens")(
   function* (name: string) {
     const root = yield* ContentDirectory

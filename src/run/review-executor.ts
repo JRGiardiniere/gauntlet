@@ -10,8 +10,8 @@ import { assembleSingleLensDossier } from "../assembly/single-lens.ts"
 import {
   assembleFinderPrompt,
   FINDER_TOOLS,
+  loadFinderPromptTemplates,
 } from "../content/finder-prompt.ts"
-import { loadFinderPromptTemplates } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import {
@@ -29,11 +29,9 @@ import {
   readFinderInvocation,
   writeFinderInvocation,
 } from "./invocation-journal.ts"
-import { RunResumeError, type RunPaths } from "./run-record.ts"
+import { RunError, type RunPaths } from "./run-record.ts"
 
-// Deterministic synchronization point for the real-filesystem interruption
-// test. Production keeps the no-op default; the hook runs only after the paid
-// outcome is durably journaled and before deterministic Assembly begins.
+// Test hook after the journal commit and before assembly.
 export const InvocationJournalCheckpoint = Context.Reference<
   (runId: string, invocationKey: string) => Effect.Effect<void>
 >("gauntlet/InvocationJournalCheckpoint", {
@@ -54,16 +52,14 @@ const progress = Effect.fn("gauntlet.run_executor.progress")((text: string) =>
 
 const reviewTargetEquivalence = Schema.toEquivalence(ReviewTarget)
 
-// A missing journal entry is paid work. Before paying it, confirm the tools
-// will observe the same working tree frozen into the plan. Cached invocations
-// need no checkout access and remain resumable after later edits.
+// Only missing invocations require the working tree frozen into the plan.
 const ensureWorkingTreeUnchanged = Effect.fn(
   "gauntlet.run_executor.ensure_working_tree_unchanged",
 )(function* (plan: ReviewPlan) {
   if (plan.target._tag !== "WorkingTree") return
   const current = yield* resolveWorkingTreeTarget(plan.target.repoRoot)
   if (reviewTargetEquivalence(plan.target, current)) return
-  return yield* new RunResumeError({
+  return yield* new RunError({
     operation: "execute-plan",
     runId: plan.runId,
     reason:
@@ -78,17 +74,13 @@ export interface ReviewExecution {
   readonly startedAt: DateTime.Utc
 }
 
-// The run module hides the execution lifecycle behind one interface: replay
-// valid invocation artifacts, perform only missing paid work, then rebuild the
-// deterministic artifacts. Start and resume differ only in how they obtain the
-// frozen plan passed here.
 export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
   const invocations = finderInvocationsInPlan(plan)
   const invocation = invocations[0]
   if (invocation === undefined || invocations.length !== 1) {
-    return yield* new RunResumeError({
+    return yield* new RunError({
       operation: "execute-plan",
       runId: plan.runId,
       reason:

@@ -352,8 +352,6 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(yield* fs.exists(join(runDir, "dossier.json"))).toBe(false)
       expect(yield* fs.exists(join(runDir, "report.md"))).toBe(false)
 
-      // Resume must use the frozen lens tail rather than reopening mutable
-      // content after the run has started.
       writeFileSync(
         join(fixture.content, "lenses", "fixture-review.md"),
         "changed lens content that must not be loaded\n",

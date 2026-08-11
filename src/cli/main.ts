@@ -80,8 +80,6 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     candidateCap: DEFAULT_CANDIDATE_CAP,
   })
 
-  // The lens tail and its derived identity are frozen before the paid
-  // invocation. The invocation reads only this FrozenLens afterward.
   const plan = ReviewPlan.make({
     runId,
     createdAt: DateTime.formatIso(startedAt),
@@ -201,7 +199,7 @@ export const runGauntlet = (
         ),
       ReviewCommandError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
-      RunResumeError: (failure) =>
+      RunError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       InvocationJournalReadError: (failure) =>
         progress(`could not review — failed to read ${failure.path}`).pipe(
