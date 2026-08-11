@@ -34,9 +34,9 @@ export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
 }> {}
 
 // Issue #24 owns recipes and configurable seats. This slice uses the same
-// near-zero-cost seat as the live gate so `review --lenses <one>` is real
-// without pre-implementing the recipe surface.
-const TRACER_FINDER_SEAT = "openai-codex/gpt-5.6-luna:low"
+// near-zero-cost seat as the live gate so the implemented pipeline slices are
+// real without pre-implementing the recipe surface.
+const TRACER_SEAT = "openai-codex/gpt-5.6-luna:low"
 
 const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -75,7 +75,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       name: lens.name,
       promptText: lens.promptText,
       contentHash: lens.contentHash,
-      seat: lens.modelOverride ?? TRACER_FINDER_SEAT,
+      seat: lens.modelOverride ?? TRACER_SEAT,
       needsSpec: lens.needsSpec,
       ...(lens.category === undefined
         ? {}
@@ -87,7 +87,11 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     runId,
     createdAt: DateTime.formatIso(startedAt),
     target,
-    seats: { finders: TRACER_FINDER_SEAT },
+    seats: {
+      finders: TRACER_SEAT,
+      pool: TRACER_SEAT,
+      verification: TRACER_SEAT,
+    },
     lenses: frozenLenses,
   })
   yield* progress("freezing review plan")

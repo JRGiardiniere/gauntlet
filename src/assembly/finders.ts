@@ -1,7 +1,5 @@
 import * as Array from "effect/Array"
-import * as Option from "effect/Option"
 import type { AgentOutcome } from "../domain/agent-outcome.ts"
-import { Termination } from "../domain/agent-outcome.ts"
 import { Candidate } from "../domain/candidate.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
@@ -9,6 +7,7 @@ import type { FrozenLens } from "../domain/review-plan.ts"
 import type { TargetIdentity } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
+import { describeMissingOutput } from "./outcome.ts"
 
 export interface FinderResult {
   readonly lens: FrozenLens
@@ -33,33 +32,8 @@ export const enforceCandidateCap = (
   }
 }
 
-const missingOutputReason = (
-  outcome: AgentOutcome<FindingsOutput>,
-): string => {
-  const timeoutDiagnostic = Array.findLast(
-    outcome.diagnostics,
-    (diagnostic) =>
-      diagnostic.startsWith("session construction exceeded ") ||
-      diagnostic.startsWith("first response exceeded "),
-  )
-  return Termination.match(outcome.termination, {
-    Completed: () => "finder completed without a decodable emit",
-    MissingEmit: ({ correctiveTurns }) =>
-      `finder emitted nothing after ${String(correctiveTurns)} corrective turns`,
-    FirstResponseTimeout: () =>
-      Option.getOrElse(
-        timeoutDiagnostic,
-        () => "finder produced no first response",
-      ),
-    BudgetExhausted: () => "finder exhausted its invocation deadline",
-    ContextLimit: () => "finder reached its context limit",
-    ProviderFailed: () => "finder provider failed",
-    Interrupted: () => "finder was interrupted",
-  })
-}
-
-// Finder-only Assembly preserves every retained Candidate as unverified or
-// undecided until issues #22 and #23 add the downstream evaluation paths.
+// Finder Assembly preserves every retained Candidate as unverified or
+// undecided so each downstream path can replace only its own evaluation.
 export const assembleFinderDossier = (
   runId: string,
   target: TargetIdentity,
@@ -74,7 +48,7 @@ export const assembleFinderDossier = (
       coverageGaps.push({
         stage: "finders",
         lens: lens.name,
-        reason: missingOutputReason(outcome),
+        reason: describeMissingOutput("finder", outcome),
       })
       continue
     }
