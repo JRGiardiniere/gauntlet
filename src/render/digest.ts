@@ -23,9 +23,9 @@ const boundedLine = (text: string): string => {
 
 // The bounded stdout digest (ADR 0005): one tally line (counts, target,
 // recipe, cost, wall time — ADR 0006), one line per surviving finding
-// (confirmed BugClaims and kept Observations), then artifact paths. Refuted,
-// dropped, and evidence live only in the run dir — machine consumers parse
-// dossier.json from disk, never stdout.
+// plus one bounded line per candidate still carried in the main findings
+// section, then artifact paths. Refuted, dropped, and evidence live only in
+// the run dir — machine consumers parse dossier.json from disk, never stdout.
 export const renderDigest = (
   plan: ReviewPlan,
   dossier: Dossier,
@@ -47,6 +47,17 @@ export const renderDigest = (
     ...view.kept.map((entry) => {
       const line = entry.candidate.line === undefined ? "" : `:${entry.candidate.line}`
       return `- [${entry.judgment.tier}] ${entry.candidate.file}${line} — ${boundedLine(entry.candidate.summary)}`
+    }),
+    ...view.unverified.map((entry) => {
+      const line = entry.candidate.line === undefined ? "" : `:${entry.candidate.line}`
+      const severity = entry.verdict.severity === undefined
+        ? "unverified"
+        : `${entry.verdict.severity} unverified`
+      return `- [${severity}] ${entry.candidate.file}${line} — ${boundedLine(entry.candidate.summary)}`
+    }),
+    ...view.undecided.map((candidate) => {
+      const line = candidate.line === undefined ? "" : `:${candidate.line}`
+      return `- [undecided] ${candidate.file}${line} — ${boundedLine(candidate.summary)}`
     }),
   ]
   return [

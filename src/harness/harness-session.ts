@@ -101,6 +101,8 @@ export interface EmitToolSpec {
 }
 
 export interface SessionConfig {
+  // Repository root used by every filesystem-facing tool in this session.
+  readonly cwd: string
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
   // string as "use the stock prompt" (#4 §2).
   readonly systemPrompt: string

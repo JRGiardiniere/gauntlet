@@ -44,10 +44,14 @@ export const resolveWorkingTreeTarget = Effect.fn(
   )
   // Diff against the resolved hash, not symbolic HEAD — a commit landing
   // between the two commands must not desynchronize identity and diff.
-  const [diff, untracked] = yield* Effect.all(
+  const [diff, changedFiles, untracked] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", headCommit]).pipe(
         explainGit("could not diff the working tree against HEAD"),
+      ),
+      runGit(repoRoot, ["diff", "--name-only", "-z", headCommit]).pipe(
+        explainGit("could not list changed files"),
+        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "--others", "--exclude-standard"]).pipe(
         explainGit("could not list untracked files"),
@@ -75,6 +79,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
   return ReviewTarget.cases.WorkingTree.make({
     repoRoot,
     headCommit,
+    changedFiles,
     diff,
     warnings,
   })

@@ -1,4 +1,4 @@
-import type { Candidate } from "../domain/candidate.ts"
+import { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
@@ -34,8 +34,13 @@ const findingLine = (
 ): string => {
   const tierLabel = tier === undefined ? "" : `**[${tier}]** `
   const tagLabel = tag === undefined ? "" : `\`[${tag}]\` `
-  const detailLine = detail === undefined ? "" : `\n  - ${detail}`
-  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${candidate.summary} _(${candidate.lens})_${detailLine}`
+  const detailLines = [
+    ...(Candidate.guards.BugClaim(candidate)
+      ? [`Failure scenario: ${candidate.failureScenario}`]
+      : []),
+    ...(detail === undefined ? [] : [detail]),
+  ].map((line) => `\n  - ${line}`).join("")
+  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${candidate.summary} _(${candidate.lens})_${detailLines}`
 }
 
 const severityOrder: ReadonlyArray<Severity> = ["P1", "P2", "P3"]
@@ -91,7 +96,9 @@ export const renderReport = (
     .map(([stage, seat]) => `${stage}: ${seat}`)
     .join(", ")
   const recipeLine = plan.recipeName === undefined
-    ? "none — no seats resolved"
+    ? seatList === ""
+      ? "none — no seats resolved"
+      : `none (${seatList})`
     : `${plan.recipeName} (${seatList})`
   const coverageGaps = dossier.coverageGaps.length === 0
     ? "none"

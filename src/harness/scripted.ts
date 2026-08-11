@@ -68,6 +68,7 @@ export interface Scripted {
   readonly factory: HarnessSessionFactoryShape
   readonly log: Array<string>
   readonly configs: Array<SessionConfig>
+  readonly promptTexts: Array<string>
 }
 
 export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
@@ -88,6 +89,7 @@ interface PromptRequest {
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
   const configs: Array<SessionConfig> = []
+  const promptTexts: Array<string> = []
   let openIndex = 0
 
   const open: HarnessSessionFactoryShape["open"] = (config) =>
@@ -211,7 +213,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             listeners.delete(listener)
           }
         },
-        prompt: () => {
+        prompt: (text) => {
+          promptTexts.push(text)
           requestedPrompts += 1
           const promptIndex = requestedPrompts
           log.push(`prompt:${String(sessionIndex)}.${String(promptIndex)}`)
@@ -250,7 +253,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs }
+  return { factory: { open }, log, configs, promptTexts }
 }
 
 export const scriptedLayer = (

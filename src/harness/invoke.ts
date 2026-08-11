@@ -37,6 +37,7 @@ export interface InvocationDeadlines {
 }
 
 export interface InvokeInput<O> {
+  readonly cwd: string
   readonly systemPrompt: string
   readonly prompt: string
   readonly sessionId?: string
@@ -262,6 +263,7 @@ const openCapturedSession = Effect.fn(
   const factory = yield* HarnessSessionFactory
   const session = yield* Effect.acquireRelease(
     factory.open({
+      cwd: input.cwd,
       systemPrompt: input.systemPrompt,
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       emitTool: {

@@ -22,6 +22,7 @@ import {
 } from "./scripted.ts"
 
 const INPUT: InvokeInput<FindingsOutput> = {
+  cwd: "/fixture/repo",
   systemPrompt: "finder system prompt",
   prompt: "review this diff",
   contract: EmitFindings,
@@ -144,6 +145,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       expect(outcome.durationMillis).toBeGreaterThanOrEqual(300)
       expect(outcome.diagnostics).toContain("attempt 1 completed")
       expect(scripted.configs[0]).toMatchObject({
+        cwd: "/fixture/repo",
         tools: ["read", "bash"],
         toolTimeoutMillis: 2_000,
         bashTimeoutMillis: 20_000,

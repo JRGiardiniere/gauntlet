@@ -13,7 +13,7 @@ export const FrozenLens = Schema.Struct({
   category: Schema.optionalKey(Schema.NonEmptyString),
   // Per-lens candidate cap, stated in the prompt and enforced by truncation
   // (docs/spec/pipeline-shape.md). The shared default is applied at freeze.
-  candidateCap: Schema.Int,
+  candidateCap: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
 })
 export type FrozenLens = typeof FrozenLens.Type
 

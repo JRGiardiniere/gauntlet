@@ -4,13 +4,24 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
-import { runGauntlet } from "../src/cli/main.ts"
+import {
+  runGauntlet,
+  TRACER_FINDER_MODEL,
+  TRACER_FINDER_PROVIDER,
+} from "../src/cli/main.ts"
+import { livePiLayer } from "../src/harness/pi-live.ts"
 
 NodeRuntime.runMain(
   runGauntlet(process.argv.slice(2)).pipe(
     Effect.map((exitCode) => {
       process.exitCode = exitCode
     }),
+    Effect.provide(
+      livePiLayer({
+        provider: TRACER_FINDER_PROVIDER,
+        model: TRACER_FINDER_MODEL,
+      }),
+    ),
     Effect.provide(NodeServices.layer),
   ),
 )

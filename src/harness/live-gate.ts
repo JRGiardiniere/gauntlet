@@ -109,6 +109,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
           prefix: "gauntlet-live-gate-",
         })
         return yield* invoke({
+          cwd,
           systemPrompt: SYSTEM_PROMPT,
           prompt: PROMPT,
           contract: EmitFindings,
@@ -121,7 +122,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
             bashMillis: 600_000,
           },
         }).pipe(
-          Effect.provide(livePiLayer({ provider, model, cwd })),
+          Effect.provide(livePiLayer({ provider, model })),
           Effect.map((outcome): GateResult => ({ outcome })),
           Effect.catchTags({
             InvocationSetupError: (error) =>
