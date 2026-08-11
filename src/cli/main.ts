@@ -122,6 +122,7 @@ const executeReview = Effect.fn("gauntlet.cli.execute_review")(function* (
         )
         yield* progress(`invoking finder ${frozenLens.name}`)
         const outcome = yield* invoke({
+          cwd: target.repoRoot,
           systemPrompt: content.systemPrompt,
           prompt,
           sessionId: `${runId}-finders`,

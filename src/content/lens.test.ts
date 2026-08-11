@@ -48,7 +48,9 @@ describe("lens content", () => {
           needsSpec: true,
           category: "fixture-category",
         })
-        expect(lens.contentHash).toMatch(/^[a-f0-9]{64}$/)
+        expect(lens.contentHash).toBe(
+          "bd681019abb8bcfedc0f475036bc0448f49513f21176af3733d39691e518d15c",
+        )
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
 
@@ -142,5 +144,54 @@ describe("finder prompt cache prefix", () => {
       expect(firstPrefix).not.toContain(first.name)
       expect(firstPrefix).not.toContain(second.name)
       expect(FINDER_TOOLS).toEqual(["read", "bash"])
+    }))
+
+  it.effect("preserves placeholder-like text injected by the diff", () =>
+    Effect.gen(function* () {
+      const target = ReviewTarget.cases.WorkingTree.make({
+        repoRoot: "/fixture/repo",
+        headCommit: "abcdef",
+        changedFiles: ["src/fixture.ts"],
+        diff: '+const marker = "{{MAX_PER_LENS}}"',
+        warnings: [],
+      })
+      const lens = FrozenLens.make({
+        name: "fixture-one",
+        promptText: "FIXTURE TAIL",
+        contentHash: "hash-one",
+        candidateCap: 6,
+      })
+      const prompt = yield* assembleFinderPrompt(
+        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}",
+        target,
+        lens,
+      )
+
+      expect(prompt).toContain('+const marker = "{{MAX_PER_LENS}}"')
+      expect(prompt).toContain("\n6\n\nFIXTURE TAIL")
+    }))
+
+  it.effect("rejects every unknown placeholder shape", () =>
+    Effect.gen(function* () {
+      const target = ReviewTarget.cases.WorkingTree.make({
+        repoRoot: "/fixture/repo",
+        headCommit: "abcdef",
+        changedFiles: ["src/fixture.ts"],
+        diff: "+fixture",
+        warnings: [],
+      })
+      const lens = FrozenLens.make({
+        name: "fixture-one",
+        promptText: "FIXTURE TAIL",
+        contentHash: "hash-one",
+        candidateCap: 6,
+      })
+      const failure = yield* assembleFinderPrompt(
+        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}\n{{max_per_lens}}",
+        target,
+        lens,
+      ).pipe(Effect.flip)
+
+      expect(failure.reason).toContain("unresolved {{max_per_lens}}")
     }))
 })

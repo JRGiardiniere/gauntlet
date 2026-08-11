@@ -230,6 +230,7 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
 
       expect(run.scripted.configs).toHaveLength(1)
+      expect(run.scripted.configs[0]?.cwd).toBe(plan.target.repoRoot)
       expect(run.scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(run.scripted.promptTexts[0]).toMatch(
         /^shared start[\s\S]*shared end\n\nfixture lens tail$/,

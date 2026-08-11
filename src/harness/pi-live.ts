@@ -38,7 +38,6 @@ export interface LivePiConfig {
   // May carry a thinking level: "gpt-5.6-luna:low". Resolved by Pi's own
   // resolver, never hand-parsed — model ids contain colons (#4 §6).
   readonly model: string
-  readonly cwd: string
 }
 
 // Every listed role is checked against Pi's message role vocabulary at the
@@ -268,7 +267,7 @@ export const makeLivePiFactory = (
               },
             })
             const resourceLoader = new DefaultResourceLoader({
-              cwd: config.cwd,
+              cwd: session.cwd,
               agentDir: getAgentDir(),
               settingsManager,
               noExtensions: true,
@@ -308,7 +307,7 @@ export const makeLivePiFactory = (
               ...(session.tools.includes("read")
                 ? [
                     withToolCallDeadline(
-                      createReadToolDefinition(config.cwd),
+                      createReadToolDefinition(session.cwd),
                       session.toolTimeoutMillis,
                     ),
                   ]
@@ -316,7 +315,7 @@ export const makeLivePiFactory = (
               ...(session.tools.includes("bash")
                 ? [
                     withToolCallDeadline(
-                      createBashToolDefinition(config.cwd),
+                      createBashToolDefinition(session.cwd),
                       session.bashTimeoutMillis,
                     ),
                   ]
@@ -328,13 +327,13 @@ export const makeLivePiFactory = (
             ]
 
             const sessionManager = SessionManager.inMemory(
-              config.cwd,
+              session.cwd,
               session.sessionId === undefined
                 ? undefined
                 : { id: session.sessionId },
             )
             const created = await createAgentSession({
-              cwd: config.cwd,
+              cwd: session.cwd,
               model,
               modelRuntime,
               ...(resolved.thinkingLevel === undefined

@@ -6,9 +6,8 @@ import type { FrozenLens } from "../domain/review-plan.ts"
 import type { TargetIdentity } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 
-// This tracer-bullet Assembly preserves every finder Candidate immediately.
-// The later evaluation slices replace these placeholder states with verifier
-// verdicts and judge judgments; no model call is hidden in Assembly.
+// This tracer-bullet Assembly preserves every finder Candidate as an
+// unverified or undecided entry; no model call occurs in Assembly.
 export const assembleSingleLensDossier = (
   runId: string,
   target: TargetIdentity,

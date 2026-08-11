@@ -141,6 +141,11 @@ describe("report rendering", () => {
     expect(report).toContain("- Warnings: ")
     expect(report).toContain("stray.txt")
   })
+
+  it("includes every BugClaim failure scenario", () => {
+    expect(report.match(/Failure scenario: input of length zero loops forever/g))
+      .toHaveLength(dossier.bugClaims.length)
+  })
 })
 
 describe("digest rendering", () => {

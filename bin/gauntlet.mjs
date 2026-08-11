@@ -20,7 +20,6 @@ NodeRuntime.runMain(
       livePiLayer({
         provider: TRACER_FINDER_PROVIDER,
         model: TRACER_FINDER_MODEL,
-        cwd: process.cwd(),
       }),
     ),
     Effect.provide(NodeServices.layer),
