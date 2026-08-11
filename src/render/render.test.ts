@@ -30,6 +30,7 @@ const observation = (id: string, summary: string) =>
 const target = ReviewTarget.cases.WorkingTree.make({
   repoRoot: "/repo",
   headCommit: "abcdef0123456789",
+  changedFiles: ["src/alpha.ts", "src/beta.ts"],
   diff: "+needle",
   warnings: ["2 untracked file(s) not included in the diff: stray.txt, x.txt"],
 })
@@ -162,9 +163,11 @@ describe("digest rendering", () => {
     expect(keptLine).toContain("…")
   })
 
-  it("lists only surviving findings", () => {
+  it("lists candidates retained in the main findings section", () => {
     expect(digest).not.toContain("refuted claim")
     expect(digest).not.toContain("dropped observation")
-    expect(digest).not.toContain("undecided observation")
+    expect(digest).toContain("tiered but unverified claim")
+    expect(digest).toContain("untiered unverified claim")
+    expect(digest).toContain("undecided observation")
   })
 })

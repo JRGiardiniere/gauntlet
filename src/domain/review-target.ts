@@ -8,6 +8,7 @@ export const ReviewTarget = Schema.TaggedUnion({
     repoRoot: Schema.String,
     // The HEAD commit the uncommitted changes are diffed against.
     headCommit: Schema.String,
+    changedFiles: Schema.Array(Schema.NonEmptyString),
     diff: Schema.String,
     warnings: Schema.Array(Schema.String),
   },
@@ -17,6 +18,7 @@ export const ReviewTarget = Schema.TaggedUnion({
     // A PR target means its head commit by definition (#15).
     headCommit: Schema.String,
     baseCommit: Schema.String,
+    changedFiles: Schema.Array(Schema.NonEmptyString),
     diff: Schema.String,
     warnings: Schema.Array(Schema.String),
   },

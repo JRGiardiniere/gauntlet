@@ -91,7 +91,9 @@ export const renderReport = (
     .map(([stage, seat]) => `${stage}: ${seat}`)
     .join(", ")
   const recipeLine = plan.recipeName === undefined
-    ? "none — no seats resolved"
+    ? seatList === ""
+      ? "none — no seats resolved"
+      : `none (${seatList})`
     : `${plan.recipeName} (${seatList})`
   const coverageGaps = dossier.coverageGaps.length === 0
     ? "none"

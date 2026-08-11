@@ -10,8 +10,16 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
+import {
+  makeScripted,
+  scriptedLayer,
+  type Scripted,
+  usageRow,
+} from "../harness/scripted.ts"
+import { FinderInvocationArtifact } from "../run/invocation-journal.ts"
 import { InvocationDirectory, runGauntlet } from "./main.ts"
 
 const git = (cwd: string, ...args: Array<string>) => {
@@ -35,17 +43,48 @@ const commitAll = (repo: string, message: string) => {
 interface Fixture {
   readonly repo: string
   readonly home: string
+  readonly content: string
   readonly runsRoot: string
 }
+
+const SHARED_PROMPT = `shared start
+repo={{REPO_ROOT}}
+files:
+{{CHANGED_FILES}}
+diff:
+{{DIFF}}
+cap={{MAX_PER_LENS}}
+shared end
+`
 
 const makeFixture = (): Fixture => {
   const root = mkdtempSync(join(tmpdir(), "gauntlet-cli-test-"))
   const repo = join(root, "repo")
   const home = join(root, "home")
+  const content = join(root, "content")
   mkdirSync(repo, { recursive: true })
   mkdirSync(home, { recursive: true })
+  mkdirSync(join(content, "lenses"), { recursive: true })
+  mkdirSync(join(content, "prompts"), { recursive: true })
+  writeFileSync(
+    join(content, "lenses", "fixture-review.md"),
+    "---\ncategory: correctness\n---\nfixture lens tail\n",
+  )
+  writeFileSync(
+    join(content, "prompts", "finder-system.md"),
+    "fixture finder system prompt\n",
+  )
+  writeFileSync(
+    join(content, "prompts", "finder-shared-block.md"),
+    SHARED_PROMPT,
+  )
   git(repo, "init")
-  return { repo, home, runsRoot: join(home, ".gauntlet", "runs") }
+  return {
+    repo,
+    home,
+    content,
+    runsRoot: join(home, ".gauntlet", "runs"),
+  }
 }
 
 const makeDirtyRepo = (): Fixture => {
@@ -56,24 +95,71 @@ const makeDirtyRepo = (): Fixture => {
   return fixture
 }
 
-const testLayers = (fixture: Fixture) =>
-  Layer.mergeAll(
-    NodeServices.layer,
-    ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-  )
+const FINDER_OUTPUT = {
+  findings: [
+    {
+      file: "alpha.txt",
+      line: 2,
+      summary: "the added line breaks empty inputs",
+      failure_scenario: "an empty input reaches the new line and throws",
+    },
+    {
+      file: "alpha.txt",
+      summary: "the name hides the value's role",
+    },
+  ],
+}
 
-const review = (fixture: Fixture) =>
-  runGauntlet(["review"]).pipe(
+const successfulScripted = (): Scripted =>
+  makeScripted({
+    sessions: [
+      {
+        prompts: [
+          {
+            events: [
+              { afterMillis: 0, kind: "message_start" },
+              {
+                afterMillis: 0,
+                kind: "emit",
+                args: FINDER_OUTPUT,
+                valid: true,
+              },
+              {
+                afterMillis: 0,
+                kind: "message_end",
+                stopReason: "toolUse",
+                usage: usageRow(),
+              },
+            ],
+            settles: "after-events",
+          },
+        ],
+      },
+    ],
+  })
+
+const review = (fixture: Fixture, scripted = successfulScripted()) => ({
+  scripted,
+  effect: runGauntlet(["review", "--lenses", "fixture-review"]).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
-    Effect.provide(testLayers(fixture)),
-  )
+    Effect.provideService(ContentDirectory, fixture.content),
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+        scriptedLayer(scripted),
+      ),
+    ),
+  ),
+})
 
-describe("gauntlet review — walking skeleton", () => {
-  it.effect("lands a complete run record for a dirty working tree", () =>
+describe("gauntlet review — single-lens tracer", () => {
+  it.effect("lands the frozen plan, invocation journal, candidates, and presentation", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
+      const run = review(fixture)
 
-      const exitCode = yield* review(fixture)
+      const exitCode = yield* run.effect
       expect(exitCode).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
@@ -91,54 +177,90 @@ describe("gauntlet review — walking skeleton", () => {
       ])
 
       const planText = yield* fs.readFileString(join(runDir, "plan.json"))
-      const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(planText)
+      const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(
+        planText,
+      )
       expect(plan.runId).toBe(runIds[0])
-      expect(plan.lenses).toEqual([])
+      expect(plan.lenses).toHaveLength(1)
+      expect(plan.lenses[0]?.name).toBe("fixture-review")
+      expect(plan.lenses[0]?.promptText).toBe("fixture lens tail")
+      expect(plan.lenses[0]?.contentHash).toMatch(/^[a-f0-9]{64}$/)
+      expect(plan.seats.finders).toBe("openai-codex/gpt-5.6-luna:low")
       expect(plan.target._tag).toBe("WorkingTree")
+      expect(plan.target.changedFiles).toEqual(["alpha.txt"])
       expect(plan.target.diff).toContain("+needle-added-line")
 
+      const journalEntries = yield* fs.readDirectory(join(runDir, "journal"))
+      expect(journalEntries).toEqual(["finder-fixture-review.json"])
+      const journalText = yield* fs.readFileString(
+        join(runDir, "journal", "finder-fixture-review.json"),
+      )
+      const journal = yield* Schema.decodeEffect(
+        Schema.fromJsonString(FinderInvocationArtifact),
+      )(journalText)
+      expect(journal.runId).toBe(plan.runId)
+      expect(journal.outcome.termination._tag).toBe("Completed")
+      expect(journal.outcome.output).toEqual(FINDER_OUTPUT)
+      expect(journal.outcome.usage.rawRows).toHaveLength(1)
+
       const dossierText = yield* fs.readFileString(join(runDir, "dossier.json"))
-      const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(dossierText)
+      const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
+        dossierText,
+      )
       expect(dossier.runId).toBe(plan.runId)
-      expect(dossier.bugClaims).toEqual([])
-      expect(dossier.observations).toEqual([])
+      expect(dossier.bugClaims).toHaveLength(1)
+      expect(dossier.bugClaims[0]?.candidate._tag).toBe("BugClaim")
+      expect(dossier.bugClaims[0]?.candidate.id).toBe("fixture-review/1")
+      expect(dossier.observations).toHaveLength(1)
+      expect(dossier.observations[0]?.candidate._tag).toBe("Observation")
+      expect(dossier.observations[0]?.candidate.id).toBe("fixture-review/2")
       expect(dossier.coverageGaps).toEqual([])
-      expect(dossier.target._tag).toBe("WorkingTree")
 
       const report = yield* fs.readFileString(join(runDir, "report.md"))
       expect(report).toContain(`# Gauntlet review ${plan.runId}`)
-      expect(report).toContain("No findings.")
-      expect(report).toContain("0 invocations")
+      expect(report).toContain("the added line breaks empty inputs")
+      expect(report).toContain("the name hides the value's role")
+      expect(report).toContain("1 invocations")
+      expect(report).toContain(
+        "Recipe: none (finders: openai-codex/gpt-5.6-luna:low)",
+      )
 
       // The diff is stored exactly once, in the plan (ADR 0006).
-      const runRecordText = planText + dossierText + report
+      const runRecordText = planText + journalText + dossierText + report
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
+
+      expect(run.scripted.configs).toHaveLength(1)
+      expect(run.scripted.configs[0]?.tools).toEqual(["read", "bash"])
+      expect(run.scripted.promptTexts[0]).toMatch(
+        /^shared start[\s\S]*shared end\n\nfixture lens tail$/,
+      )
 
       const runLog = yield* fs.readFileString(join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
     }).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("prints a bounded digest on stdout and narrates on stderr", () =>
+  it.effect("prints a bounded candidate digest on stdout and narrates on stderr", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
 
-      const exitCode = yield* review(fixture)
+      const exitCode = yield* review(fixture).effect
       expect(exitCode).toBe(0)
 
       const stdout = (yield* TestConsole.logLines).join("\n")
       const [tally = ""] = stdout.split("\n")
-      expect(tally).toContain("0 confirmed · 0 kept · 0 unverified · 0 undecided")
+      expect(tally).toContain("0 confirmed · 0 kept · 1 unverified · 1 undecided")
       expect(tally).toContain("working tree @")
       expect(tally).toContain("recipe: none")
-      // Cost and wall time belong to the tally (ADR 0006).
-      expect(tally).toMatch(/\$0\.00 · \d+s/)
+      expect(tally).toMatch(/\$0\.05 · \d+s/)
+      expect(stdout).toContain("- [unverified] alpha.txt:2")
+      expect(stdout).toContain("- [undecided] alpha.txt")
       expect(stdout).toContain(`report: ${fixture.runsRoot}`)
-      expect(stdout).toContain("report.md")
       expect(stdout).toContain("dossier.json")
       expect(stdout).not.toContain("gauntlet:")
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain("gauntlet: resolving working-tree review target")
+      expect(stderr).toContain("gauntlet: invoking finder fixture-review")
       expect(stderr).not.toContain("confirmed ·")
     }).pipe(Effect.provide(NodeServices.layer)))
 
@@ -147,7 +269,7 @@ describe("gauntlet review — walking skeleton", () => {
       const fixture = makeDirtyRepo()
       writeFileSync(join(fixture.repo, "untracked.txt"), "not in the diff\n")
 
-      const exitCode = yield* review(fixture)
+      const exitCode = yield* review(fixture).effect
       expect(exitCode).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
@@ -155,12 +277,12 @@ describe("gauntlet review — walking skeleton", () => {
       const planText = yield* fs.readFileString(
         join(fixture.runsRoot, runIds[0] ?? "", "plan.json"),
       )
-      const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(planText)
+      const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(
+        planText,
+      )
       expect(plan.target.warnings).toHaveLength(1)
       expect(plan.target.warnings[0]).toContain("untracked.txt")
 
-      // Scope degradation is never silent: the warning reaches the report
-      // header and the stderr narration, not just the machine-read plan.
       const report = yield* fs.readFileString(
         join(fixture.runsRoot, runIds[0] ?? "", "report.md"),
       )
@@ -174,15 +296,22 @@ describe("gauntlet review — walking skeleton", () => {
   it.effect("help is not a failed review: plain help exits 0, bad usage exits 1", () =>
     Effect.gen(function* () {
       const fixture = makeFixture()
-      const helpExit = yield* runGauntlet([]).pipe(
-        Effect.provideService(InvocationDirectory, fixture.repo),
-        Effect.provide(testLayers(fixture)),
+      const scripted = successfulScripted()
+      const layer = Layer.mergeAll(
+        NodeServices.layer,
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+        scriptedLayer(scripted),
       )
+      const helpExit = yield* runGauntlet([]).pipe(
+          Effect.provideService(InvocationDirectory, fixture.repo),
+          Effect.provideService(ContentDirectory, fixture.content),
+          Effect.provide(layer),
+        )
       expect(helpExit).toBe(0)
-
       const badExit = yield* runGauntlet(["not-a-subcommand"]).pipe(
         Effect.provideService(InvocationDirectory, fixture.repo),
-        Effect.provide(testLayers(fixture)),
+        Effect.provideService(ContentDirectory, fixture.content),
+        Effect.provide(layer),
       )
       expect(badExit).toBe(1)
       expect((yield* TestConsole.errorLines).join("\n")).not.toContain(
@@ -196,9 +325,8 @@ describe("gauntlet review — walking skeleton", () => {
       writeFileSync(join(fixture.repo, "alpha.txt"), "first line\n")
       commitAll(fixture.repo, "initial")
 
-      const exitCode = yield* review(fixture)
+      const exitCode = yield* review(fixture).effect
       expect(exitCode).toBe(1)
-
       expect(yield* TestConsole.logLines).toEqual([])
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "could not review — working tree has no uncommitted changes",
@@ -210,17 +338,12 @@ describe("gauntlet review — walking skeleton", () => {
 
   it.effect("exits 1 outside a git repository", () =>
     Effect.gen(function* () {
-      const root = mkdtempSync(join(tmpdir(), "gauntlet-cli-test-"))
-      const notARepo = join(root, "plain")
-      const home = join(root, "home")
-      mkdirSync(notARepo, { recursive: true })
-      mkdirSync(home, { recursive: true })
-      const fixture: Fixture = {
-        repo: notARepo,
-        home,
-        runsRoot: join(home, ".gauntlet", "runs"),
-      }
-      const exitCode = yield* review(fixture)
+      const fixture = makeFixture()
+      const plain = join(fixture.home, "plain")
+      mkdirSync(plain)
+      const outside = { ...fixture, repo: plain }
+
+      const exitCode = yield* review(outside).effect
       expect(exitCode).toBe(1)
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "could not review — not inside a git repository",
