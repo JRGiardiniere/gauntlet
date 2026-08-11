@@ -2,11 +2,16 @@ import * as Schema from "effect/Schema"
 import { Seat } from "./recipe.ts"
 import { ReviewTarget } from "./review-target.ts"
 
+export const LensName = Schema.String.check(
+  Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+)
+export type LensName = typeof LensName.Type
+
 // A lens frozen into the plan at submission: prompt text and content hash
 // travel with the run so runs are comparable exactly when hashes match
 // (ADR 0004). Version identity is derived, never maintained.
 export const FrozenLens = Schema.Struct({
-  name: Schema.NonEmptyString,
+  name: LensName,
   promptText: Schema.NonEmptyString,
   contentHash: Schema.NonEmptyString,
   // Display-only grouping for listings and report headers, never routing.

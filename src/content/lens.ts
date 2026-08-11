@@ -8,11 +8,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { Seat } from "../domain/recipe.ts"
-
-export const LensName = Schema.String.check(
-  Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
-)
-export type LensName = typeof LensName.Type
+import { LensName } from "../domain/review-plan.ts"
 
 const LensFrontmatter = Schema.Struct({
   model: Schema.optionalKey(Seat),
@@ -131,30 +127,11 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   })
 })
 
-export interface FinderContent {
-  readonly systemPrompt: string
-  readonly sharedPromptTemplate: string
-  readonly lens: LoadedLens
-}
-
-export const loadFinderContent = Effect.fn("gauntlet.lens.load_finder_content")(
+export const loadFinderLens = Effect.fn("gauntlet.lens.load_finder_lens")(
   function* (name: string) {
     const root = yield* ContentDirectory
-    const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const lensesDirectory = path.join(root, "lenses")
-    const promptsDirectory = path.join(root, "prompts")
-    const systemPath = path.join(promptsDirectory, "finder-system.md")
-    const sharedPath = path.join(promptsDirectory, "finder-shared-block.md")
-    const readPrompt = (promptPath: string) =>
-      fs.readFileString(promptPath).pipe(
-        Effect.mapError(contentLoadError(promptPath, "could not read prompt")),
-      )
-
-    const [systemPrompt, sharedPromptTemplate, lens] = yield* Effect.all(
-      [readPrompt(systemPath), readPrompt(sharedPath), loadLens(lensesDirectory, name)],
-      { concurrency: 3 },
-    )
-    return { systemPrompt, sharedPromptTemplate, lens } satisfies FinderContent
+    return yield* loadLens(lensesDirectory, name)
   },
 )
