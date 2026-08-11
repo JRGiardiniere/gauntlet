@@ -5,8 +5,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
-import * as Sink from "effect/Sink"
-import * as Stdio from "effect/Stdio"
+import * as TestConsole from "effect/testing/TestConsole"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -57,46 +56,24 @@ const makeDirtyRepo = (): Fixture => {
   return fixture
 }
 
-interface CapturedOutput {
-  readonly stdout: Array<string>
-  readonly stderr: Array<string>
-}
-
-const decodeChunk = (input: string | Uint8Array): string =>
-  typeof input === "string" ? input : new TextDecoder().decode(input)
-
-const testLayers = (fixture: Fixture, captured: CapturedOutput) =>
+const testLayers = (fixture: Fixture) =>
   Layer.mergeAll(
-    Stdio.layerTest({
-      stdout: () =>
-        Sink.forEach((input: string | Uint8Array) =>
-          Effect.sync(() => {
-            captured.stdout.push(decodeChunk(input))
-          })
-        ),
-      stderr: () =>
-        Sink.forEach((input: string | Uint8Array) =>
-          Effect.sync(() => {
-            captured.stderr.push(decodeChunk(input))
-          })
-        ),
-    }),
+    NodeServices.layer,
     ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-  ).pipe(Layer.provideMerge(NodeServices.layer))
+  )
 
-const review = (fixture: Fixture, captured: CapturedOutput) =>
+const review = (fixture: Fixture) =>
   runGauntlet(["review"]).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
-    Effect.provide(testLayers(fixture, captured)),
+    Effect.provide(testLayers(fixture)),
   )
 
 describe("gauntlet review — walking skeleton", () => {
   it.effect("lands a complete run record for a dirty working tree", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
-      const captured: CapturedOutput = { stdout: [], stderr: [] }
 
-      const exitCode = yield* review(fixture, captured)
+      const exitCode = yield* review(fixture)
       expect(exitCode).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
@@ -144,12 +121,11 @@ describe("gauntlet review — walking skeleton", () => {
   it.effect("prints a bounded digest on stdout and narrates on stderr", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
-      const captured: CapturedOutput = { stdout: [], stderr: [] }
 
-      const exitCode = yield* review(fixture, captured)
+      const exitCode = yield* review(fixture)
       expect(exitCode).toBe(0)
 
-      const stdout = captured.stdout.join("")
+      const stdout = (yield* TestConsole.logLines).join("\n")
       const [tally = ""] = stdout.split("\n")
       expect(tally).toContain("0 confirmed · 0 kept · 0 unverified · 0 undecided")
       expect(tally).toContain("working tree @")
@@ -161,7 +137,7 @@ describe("gauntlet review — walking skeleton", () => {
       expect(stdout).toContain("dossier.json")
       expect(stdout).not.toContain("gauntlet:")
 
-      const stderr = captured.stderr.join("")
+      const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain("gauntlet: resolving working-tree review target")
       expect(stderr).not.toContain("confirmed ·")
     }).pipe(Effect.provide(NodeServices.layer)))
@@ -170,9 +146,8 @@ describe("gauntlet review — walking skeleton", () => {
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
       writeFileSync(join(fixture.repo, "untracked.txt"), "not in the diff\n")
-      const captured: CapturedOutput = { stdout: [], stderr: [] }
 
-      const exitCode = yield* review(fixture, captured)
+      const exitCode = yield* review(fixture)
       expect(exitCode).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
@@ -191,28 +166,28 @@ describe("gauntlet review — walking skeleton", () => {
       )
       expect(report).toContain("- Warnings: ")
       expect(report).toContain("untracked.txt")
-      expect(captured.stderr.join("")).toContain("warning — ")
-      expect(captured.stderr.join("")).toContain("untracked.txt")
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain("warning — ")
+      expect(stderr).toContain("untracked.txt")
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("help is not a failed review: plain help exits 0, bad usage exits 1", () =>
     Effect.gen(function* () {
       const fixture = makeFixture()
-      const helpCaptured: CapturedOutput = { stdout: [], stderr: [] }
       const helpExit = yield* runGauntlet([]).pipe(
         Effect.provideService(InvocationDirectory, fixture.repo),
-        Effect.provide(testLayers(fixture, helpCaptured)),
+        Effect.provide(testLayers(fixture)),
       )
       expect(helpExit).toBe(0)
-      expect(helpCaptured.stderr.join("")).not.toContain("could not review")
 
-      const badCaptured: CapturedOutput = { stdout: [], stderr: [] }
       const badExit = yield* runGauntlet(["not-a-subcommand"]).pipe(
         Effect.provideService(InvocationDirectory, fixture.repo),
-        Effect.provide(testLayers(fixture, badCaptured)),
+        Effect.provide(testLayers(fixture)),
       )
       expect(badExit).toBe(1)
-      expect(badCaptured.stderr.join("")).not.toContain("could not review")
+      expect((yield* TestConsole.errorLines).join("\n")).not.toContain(
+        "could not review",
+      )
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("exits 1 with no run directory when the tree has nothing to review", () =>
@@ -220,13 +195,12 @@ describe("gauntlet review — walking skeleton", () => {
       const fixture = makeFixture()
       writeFileSync(join(fixture.repo, "alpha.txt"), "first line\n")
       commitAll(fixture.repo, "initial")
-      const captured: CapturedOutput = { stdout: [], stderr: [] }
 
-      const exitCode = yield* review(fixture, captured)
+      const exitCode = yield* review(fixture)
       expect(exitCode).toBe(1)
 
-      expect(captured.stdout.join("")).toBe("")
-      expect(captured.stderr.join("")).toContain(
+      expect(yield* TestConsole.logLines).toEqual([])
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "could not review — working tree has no uncommitted changes",
       )
 
@@ -246,10 +220,10 @@ describe("gauntlet review — walking skeleton", () => {
         home,
         runsRoot: join(home, ".gauntlet", "runs"),
       }
-      const captured: CapturedOutput = { stdout: [], stderr: [] }
-
-      const exitCode = yield* review(fixture, captured)
+      const exitCode = yield* review(fixture)
       expect(exitCode).toBe(1)
-      expect(captured.stderr.join("")).toContain("could not review — not inside a git repository")
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "could not review — not inside a git repository",
+      )
     }).pipe(Effect.provide(NodeServices.layer)))
 })

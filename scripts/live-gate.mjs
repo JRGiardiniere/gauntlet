@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// The single runMain boundary. Everything below stays Effect-native; the
-// exit-code contract is decided inside runGauntlet before this crossing.
+// The live gate's runMain boundary (mirrors bin/gauntlet.mjs). Everything
+// below stays Effect-native; the exit code is decided inside runLiveGate.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
-import { runGauntlet } from "../src/cli/main.ts"
+import { runLiveGate } from "../src/harness/live-gate.ts"
 
 NodeRuntime.runMain(
-  runGauntlet(process.argv.slice(2)).pipe(
+  runLiveGate(process.argv.slice(2)).pipe(
     Effect.map((exitCode) => {
       process.exitCode = exitCode
     }),

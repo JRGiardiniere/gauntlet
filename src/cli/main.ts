@@ -1,10 +1,9 @@
+import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
-import * as Stdio from "effect/Stdio"
-import * as Stream from "effect/Stream"
 import * as Command from "effect/unstable/cli/Command"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
@@ -26,26 +25,8 @@ export const InvocationDirectory = Context.Reference<string>(
   { defaultValue: () => globalThis.process.cwd() },
 )
 
-const writeStdout = Effect.fn("gauntlet.cli.write_stdout")(
-  function* (text: string) {
-    const stdio = yield* Stdio.Stdio
-    yield* Stream.run(
-      Stream.succeed(text),
-      stdio.stdout({ endOnDone: false }),
-    )
-  },
-)
-
-// Progress narration goes to stderr only; stdout stays a clean digest
-// (ADR 0005).
-const progress = Effect.fn("gauntlet.cli.progress")(
-  function* (text: string) {
-    const stdio = yield* Stdio.Stdio
-    yield* Stream.run(
-      Stream.succeed(`gauntlet: ${text}\n`),
-      stdio.stderr({ endOnDone: false }),
-    )
-  },
+const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
+  Console.error(`gauntlet: ${text}`),
 )
 
 const executeReview = Effect.fn("gauntlet.cli.execute_review")(function* () {
@@ -105,7 +86,7 @@ const executeReview = Effect.fn("gauntlet.cli.execute_review")(function* () {
         yield* writeArtifactText(paths.report, report)
         yield* Effect.log("report rendered", { path: paths.report })
 
-        yield* writeStdout(`${renderDigest(plan, dossier, accounting, paths)}\n`)
+        yield* Console.log(renderDigest(plan, dossier, accounting, paths))
       }).pipe(Effect.provide(Logger.layer([fileLogger])))
     }),
   )
