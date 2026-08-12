@@ -91,7 +91,9 @@ export const renderReport = (
   const view = viewDossier(dossier)
   const lensList = plan.lenses.length === 0
     ? "none"
-    : plan.lenses.map((lens) => `${lens.name}@${lens.contentHash}`).join(", ")
+    : plan.lenses
+      .map((lens) => `${lens.name}@${lens.contentHash} (${lens.seat})`)
+      .join(", ")
   const seatList = Object.entries(plan.seats)
     .map(([stage, seat]) => `${stage}: ${seat}`)
     .join(", ")

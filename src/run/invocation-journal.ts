@@ -5,6 +5,7 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { AgentOutcome } from "../domain/agent-outcome.ts"
+import type { Seat } from "../domain/recipe.ts"
 import type { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
 
@@ -21,6 +22,7 @@ export const InvocationArtifact = <S extends Schema.Top>(output: S) =>
 export interface FrozenFinderInvocation {
   readonly invocationKey: string
   readonly lens: FrozenLens
+  readonly seat: Seat
 }
 
 export class InvocationJournalReadError extends Data.TaggedError(
@@ -43,6 +45,7 @@ export const finderInvocationsInPlan = (
   plan.lenses.map((lens) => ({
     invocationKey: `finder-${lens.name}`,
     lens,
+    seat: lens.seat,
   }))
 
 const invocationPath = Effect.fn(

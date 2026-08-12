@@ -6,8 +6,10 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
+import * as TestClock from "effect/testing/TestClock"
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -19,6 +21,7 @@ import {
   makeScripted,
   scriptedLayer,
   type Scripted,
+  type ScriptedSession,
   usageRow,
 } from "../harness/scripted.ts"
 import { FindingsOutput } from "../harness/output-contract.ts"
@@ -60,8 +63,7 @@ const SHARED_PROMPT = `shared start
 repo={{REPO_ROOT}}
 files:
 {{CHANGED_FILES}}
-diff:
-{{DIFF}}
+{{DIFF_SECTION}}
 cap={{MAX_PER_LENS}}
 shared end
 `
@@ -86,6 +88,18 @@ const makeFixture = (): Fixture => {
   writeFileSync(
     join(content, "prompts", "finder-shared-block.md"),
     SHARED_PROMPT,
+  )
+  writeFileSync(
+    join(content, "prompts", "pool.md"),
+    "pool candidates\n{{CANDIDATES}}\n",
+  )
+  writeFileSync(
+    join(content, "prompts", "verifier.md"),
+    "verify claims\n{{SCOPE_BLOCK}}\n{{CLAIMS}}\n",
+  )
+  writeFileSync(
+    join(content, "prompts", "stage-scope-block.md"),
+    "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{DIFF_SECTION}}\nintent={{INTENT_SECTION}}\n",
   )
   git(repo, "init")
   return {
@@ -121,32 +135,48 @@ const FINDER_OUTPUT = {
   ],
 }
 
-const successfulScripted = (): Scripted =>
-  makeScripted({
-    sessions: [
+const emittingSession = (output: unknown): ScriptedSession => ({
+  prompts: [
+    {
+      events: [
+        { afterMillis: 0, kind: "message_start" },
+        {
+          afterMillis: 0,
+          kind: "emit",
+          args: output,
+          valid: true,
+        },
+        {
+          afterMillis: 0,
+          kind: "message_end",
+          stopReason: "toolUse",
+          usage: usageRow(),
+        },
+      ],
+      settles: "after-events",
+    },
+  ],
+})
+
+const successfulSession = (
+  output: FindingsOutput = FINDER_OUTPUT,
+): ScriptedSession => emittingSession(output)
+
+const successfulVerifierSession = (): ScriptedSession =>
+  emittingSession({
+    verdicts: [
       {
-        prompts: [
-          {
-            events: [
-              { afterMillis: 0, kind: "message_start" },
-              {
-                afterMillis: 0,
-                kind: "emit",
-                args: FINDER_OUTPUT,
-                valid: true,
-              },
-              {
-                afterMillis: 0,
-                kind: "message_end",
-                stopReason: "toolUse",
-                usage: usageRow(),
-              },
-            ],
-            settles: "after-events",
-          },
-        ],
+        cluster: 1,
+        verdict: "CONFIRMED",
+        severity: "P2",
+        evidence: "empty input reaches the added line and throws",
       },
     ],
+  })
+
+const successfulScripted = (): Scripted =>
+  makeScripted({
+    sessions: [successfulSession(), successfulVerifierSession()],
   })
 
 const runCommand = (
@@ -219,12 +249,17 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(plan.lenses[0]?.promptText).toBe("fixture lens tail")
       expect(plan.lenses[0]?.contentHash).toMatch(/^[a-f0-9]{64}$/)
       expect(plan.seats.finders).toBe("openai-codex/gpt-5.6-luna:low")
+      expect(plan.seats.pool).toBe("openai-codex/gpt-5.6-luna:low")
+      expect(plan.seats.verification).toBe("openai-codex/gpt-5.6-luna:low")
       expect(plan.target._tag).toBe("WorkingTree")
       expect(plan.target.changedFiles).toEqual(["alpha.txt"])
       expect(plan.target.diff).toContain("+needle-added-line")
 
       const journalEntries = yield* fs.readDirectory(join(runDir, "journal"))
-      expect(journalEntries).toEqual(["finder-fixture-review.json"])
+      expect(journalEntries.sort()).toEqual([
+        "finder-fixture-review.json",
+        "verification-bundle-1.json",
+      ])
       const journalText = yield* fs.readFileString(
         join(runDir, "journal", "finder-fixture-review.json"),
       )
@@ -244,6 +279,11 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(dossier.bugClaims).toHaveLength(1)
       expect(dossier.bugClaims[0]?.candidate._tag).toBe("BugClaim")
       expect(dossier.bugClaims[0]?.candidate.id).toBe("fixture-review/1")
+      expect(dossier.bugClaims[0]?.verdict).toEqual({
+        _tag: "Confirmed",
+        severity: "P2",
+        evidence: "empty input reaches the added line and throws",
+      })
       expect(dossier.observations).toHaveLength(1)
       expect(dossier.observations[0]?.candidate._tag).toBe("Observation")
       expect(dossier.observations[0]?.candidate.id).toBe("fixture-review/2")
@@ -253,24 +293,430 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(report).toContain(`# Gauntlet review ${plan.runId}`)
       expect(report).toContain("the added line breaks empty inputs")
       expect(report).toContain("the name hides the value's role")
-      expect(report).toContain("1 invocations")
+      expect(report).toContain("2 invocations")
       expect(report).toContain(
-        "Recipe: none (finders: openai-codex/gpt-5.6-luna:low)",
+        "Recipe: none (finders: openai-codex/gpt-5.6-luna:low, pool: openai-codex/gpt-5.6-luna:low, verification: openai-codex/gpt-5.6-luna:low)",
       )
 
       // The diff is stored exactly once, in the plan (ADR 0006).
       const runRecordText = planText + journalText + dossierText + report
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
 
-      expect(run.scripted.configs).toHaveLength(1)
+      expect(run.scripted.configs).toHaveLength(2)
+      expect(run.scripted.configs[0]?.seat).toBe(
+        "openai-codex/gpt-5.6-luna:low",
+      )
       expect(run.scripted.configs[0]?.cwd).toBe(plan.target.repoRoot)
       expect(run.scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(run.scripted.promptTexts[0]).toMatch(
         /^shared start[\s\S]*shared end\n\nfixture lens tail$/,
       )
+      expect(run.scripted.configs[1]?.tools).toEqual(["read", "bash"])
+      expect(run.scripted.promptTexts[1]).toContain("### [c1]")
+      expect(run.scripted.promptTexts[1]).toContain("claimed failure:")
 
       const runLog = yield* fs.readFileString(join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("runs emit-only Pool and one verifier per four-cluster bundle", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const findings = globalThis.Array.from({ length: 5 }, (_, index) => ({
+        file: "alpha.txt",
+        line: 2,
+        summary: `claim ${String(index + 1)}`,
+        failure_scenario: `input ${String(index + 1)} fails`,
+      }))
+      const scripted = makeScripted({
+        sessions: [
+          successfulSession({ findings }),
+          emittingSession({
+            clusters: findings.map((finding, index) => ({
+              indexes: [index + 1],
+              summary: finding.summary,
+            })),
+          }),
+          emittingSession({
+            verdicts: [
+              {
+                cluster: 1,
+                verdict: "CONFIRMED",
+                severity: "P2",
+                evidence: "claim one reproduced",
+              },
+              {
+                cluster: 2,
+                verdict: "UNVERIFIED",
+                severity: "P2",
+                evidence: "trigger depends on runtime state",
+              },
+              {
+                cluster: 3,
+                verdict: "REFUTED",
+                evidence: "the guard rejects input three",
+              },
+              {
+                cluster: 4,
+                verdict: "CONFIRMED",
+                severity: "P1",
+                evidence: "claim four reproduced",
+              },
+            ],
+          }),
+          emittingSession({
+            verdicts: [
+              {
+                cluster: 5,
+                verdict: "CONFIRMED",
+                severity: "P3",
+                evidence: "claim five reproduced",
+              },
+            ],
+          }),
+        ],
+      })
+
+      expect(yield* review(fixture, scripted).effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const runDir = join(fixture.runsRoot, runId)
+      expect((yield* fs.readDirectory(join(runDir, "journal"))).sort()).toEqual([
+        "finder-fixture-review.json",
+        "pool.json",
+        "verification-bundle-1.json",
+        "verification-bundle-2.json",
+      ])
+
+      const dossier = yield* fs.readFileString(join(runDir, "dossier.json")).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
+        "Confirmed",
+        "Unverified",
+        "Refuted",
+        "Confirmed",
+        "Confirmed",
+      ])
+      expect(dossier.coverageGaps).toEqual([])
+
+      const report = yield* fs.readFileString(join(runDir, "report.md"))
+      const findingsSection = report.split("## Appendix: refuted claims")[0] ?? ""
+      expect(findingsSection.indexOf("claim 4")).toBeLessThan(
+        findingsSection.indexOf("claim 1"),
+      )
+      expect(findingsSection.indexOf("claim 1")).toBeLessThan(
+        findingsSection.indexOf("claim 2"),
+      )
+      expect(findingsSection).toContain("`[unverified]`")
+      expect(findingsSection).not.toContain("claim 3")
+      expect(report).toContain("`[refuted]` alpha.txt:2 — claim 3")
+      expect(report).toContain("$0.20 · 4 invocations")
+
+      expect(scripted.configs).toHaveLength(4)
+      expect(scripted.configs[1]?.tools).toEqual([])
+      const verifierPrompts = scripted.promptTexts.filter((prompt) =>
+        prompt.startsWith("verify claims")
+      )
+      expect(verifierPrompts).toHaveLength(2)
+      expect(verifierPrompts.some((prompt) => prompt.includes("[c4]"))).toBe(true)
+      expect(verifierPrompts.some((prompt) => prompt.includes("[c5]"))).toBe(true)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("fails a whole verifier bundle closed when its verdict set is incomplete", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const scripted = makeScripted({
+        sessions: [
+          successfulSession({
+            findings: [
+              {
+                file: "alpha.txt",
+                line: 2,
+                summary: "first claim",
+                failure_scenario: "first input fails",
+              },
+              {
+                file: "alpha.txt",
+                line: 2,
+                summary: "second claim",
+                failure_scenario: "second input fails",
+              },
+            ],
+          }),
+          emittingSession({
+            verdicts: [
+              {
+                cluster: 1,
+                verdict: "CONFIRMED",
+                severity: "P1",
+                evidence: "only one cluster was returned",
+              },
+            ],
+          }),
+        ],
+      })
+
+      expect(yield* review(fixture, scripted).effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const dossier = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "dossier.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
+        "Unverified",
+        "Unverified",
+      ])
+      expect(dossier.coverageGaps).toEqual([
+        {
+          stage: "verification",
+          reason:
+            "verification bundle 1 did not report every cluster exactly once",
+        },
+      ])
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("loads the full shipped and project-local catalog, skips needs-spec lenses, and groups mixed seats", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-other.md"),
+        "fixture other tail\n",
+      )
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-spec.md"),
+        "---\nneeds-spec: true\n---\nfixture spec tail\n",
+      )
+      const projectLenses = join(fixture.repo, ".gauntlet", "lenses")
+      mkdirSync(projectLenses, { recursive: true })
+      writeFileSync(
+        join(projectLenses, "fixture-local.md"),
+        "---\nmodel: fixture/local-model:medium\n---\nfixture local tail\n",
+      )
+
+      const scripted = makeScripted({
+        sessions: [
+          successfulSession({ findings: [] }),
+          successfulSession({ findings: [] }),
+          successfulSession({ findings: [] }),
+        ],
+      })
+      const run = runCommand(fixture, ["review"], scripted)
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) => Queue.offer(journaled, invocationKey),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+      expect(yield* Fiber.join(fiber)).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
+        ),
+      )
+      expect(plan.lenses.map((lens) => lens.name)).toEqual([
+        "fixture-other",
+        "fixture-review",
+        "fixture-local",
+      ])
+      expect(plan.lenses.some((lens) => lens.name === "fixture-spec")).toBe(
+        false,
+      )
+      expect(run.scripted.configs).toHaveLength(3)
+      const opened = run.scripted.configs.map((config, index) => ({
+        config,
+        prompt: run.scripted.promptTexts[index] ?? "",
+      }))
+      const local = opened.find((entry) =>
+        entry.prompt.includes("fixture local tail")
+      )
+      const defaults = opened.filter((entry) =>
+        !entry.prompt.includes("fixture local tail")
+      )
+      expect(local?.config.seat).toBe("fixture/local-model:medium")
+      expect(defaults.map((entry) => entry.config.seat)).toEqual([
+        "openai-codex/gpt-5.6-luna:low",
+        "openai-codex/gpt-5.6-luna:low",
+      ])
+      expect(new Set(defaults.map((entry) => entry.config.sessionId)).size).toBe(
+        1,
+      )
+      expect(local?.config.sessionId).not.toBe(defaults[0]?.config.sessionId)
+
+      const journals = yield* fs.readDirectory(
+        join(fixture.runsRoot, runId, "journal"),
+      )
+      expect(journals.sort()).toEqual([
+        "finder-fixture-local.json",
+        "finder-fixture-other.json",
+        "finder-fixture-review.json",
+      ])
+      const report = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "report.md"),
+      )
+      expect(report).toContain("$0.15 · 3 invocations")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("shares one model cache group across thinking efforts", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-high.md"),
+        "---\nmodel: openai-codex/gpt-5.6-luna:high\n---\nfixture high tail\n",
+      )
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-high"],
+        makeScripted({
+          sessions: [
+            successfulSession({ findings: [] }),
+            successfulSession({ findings: [] }),
+          ],
+        }),
+      )
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) => Queue.offer(journaled, invocationKey),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+      expect(yield* Fiber.join(fiber)).toBe(0)
+
+      expect(run.scripted.configs.map((config) => config.seat).sort()).toEqual([
+        "openai-codex/gpt-5.6-luna:high",
+        "openai-codex/gpt-5.6-luna:low",
+      ])
+      expect(
+        new Set(run.scripted.configs.map((config) => config.sessionId)).size,
+      ).toBe(1)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-other.md"),
+        "fixture other tail\n",
+      )
+      const missingEmitPrompt = {
+        events: [
+          { afterMillis: 0, kind: "message_start" as const },
+          {
+            afterMillis: 0,
+            kind: "message_end" as const,
+            stopReason: "stop" as const,
+            usage: usageRow(),
+          },
+        ],
+        settles: "after-events" as const,
+      }
+      const scripted = makeScripted({
+        sessions: [
+          {
+            prompts: [
+              missingEmitPrompt,
+              missingEmitPrompt,
+              missingEmitPrompt,
+            ],
+          },
+          successfulSession(),
+          successfulVerifierSession(),
+        ],
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-other"],
+        scripted,
+      )
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) => Queue.offer(journaled, invocationKey),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+      expect(yield* Fiber.join(fiber)).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const dossier = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "dossier.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.coverageGaps).toEqual([
+        {
+          stage: "finders",
+          lens: "fixture-review",
+          reason: "finder emitted nothing after 2 corrective turns",
+        },
+      ])
+      expect(dossier.bugClaims).toHaveLength(1)
+      expect(dossier.observations).toHaveLength(1)
+      expect(run.scripted.configs).toHaveLength(3)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("truncates over-emitting finder output to the cap frozen in the plan", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const findings = globalThis.Array.from({ length: 8 }, (_, index) => ({
+        file: "alpha.txt",
+        line: 2,
+        summary: `candidate ${String(index + 1)}`,
+      }))
+      const run = review(
+        fixture,
+        makeScripted({ sessions: [successfulSession({ findings })] }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
+        ),
+      )
+      expect(plan.lenses[0]?.candidateCap).toBe(6)
+      const journal = yield* fs.readFileString(
+        join(
+          fixture.runsRoot,
+          runId,
+          "journal",
+          "finder-fixture-review.json",
+        ),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(FinderInvocationArtifact)),
+        ),
+      )
+      expect(journal.outcome.output?.findings).toHaveLength(6)
+      expect(journal.outcome.diagnostics).toContain(
+        "finder fixture-review emitted 8 candidates; retained the plan cap of 6",
+      )
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("prints a bounded candidate digest on stdout and narrates on stderr", () =>
@@ -282,11 +728,11 @@ describe("gauntlet review — single-lens tracer", () => {
 
       const stdout = (yield* TestConsole.logLines).join("\n")
       const [tally = ""] = stdout.split("\n")
-      expect(tally).toContain("0 confirmed · 0 kept · 1 unverified · 1 undecided")
+      expect(tally).toContain("1 confirmed · 0 kept · 0 unverified · 1 undecided")
       expect(tally).toContain("working tree @")
       expect(tally).toContain("recipe: none")
-      expect(tally).toMatch(/\$0\.05 · \d+s/)
-      expect(stdout).toContain("- [unverified] alpha.txt:2")
+      expect(tally).toMatch(/\$0\.10 · \d+s/)
+      expect(stdout).toContain("- [P2] alpha.txt:2")
       expect(stdout).toContain("- [undecided] alpha.txt")
       expect(stdout).toContain(`report: ${fixture.runsRoot}`)
       expect(stdout).toContain("dossier.json")
@@ -361,10 +807,14 @@ describe("gauntlet review — single-lens tracer", () => {
         join(fixture.content, "lenses", "fixture-review.md"),
         "changed lens content that must not be loaded\n",
       )
-      const resumed = resume(fixture, undefined)
+      const resumed = resume(
+        fixture,
+        undefined,
+        makeScripted({ sessions: [successfulVerifierSession()] }),
+      )
       const exitCode = yield* resumed.effect
       expect(exitCode).toBe(0)
-      expect(resumed.scripted.configs).toHaveLength(0)
+      expect(resumed.scripted.configs).toHaveLength(1)
 
       const dossierText = yield* fs.readFileString(join(runDir, "dossier.json"))
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
@@ -444,6 +894,45 @@ describe("gauntlet review — single-lens tracer", () => {
       const driftedResume = resume(fixture, runId, successfulScripted())
       expect(yield* driftedResume.effect).toBe(1)
       expect(driftedResume.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "working tree changed after run",
+      )
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("rechecks the working tree after a warmup before paying its followers", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-other.md"),
+        "fixture other tail\n",
+      )
+      const scripted = makeScripted({
+        sessions: [successfulSession(), successfulSession()],
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-other"],
+        scripted,
+      )
+      const journaled = yield* Queue.unbounded<string>()
+      const fiber = yield* run.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (_runId, invocationKey) =>
+            Effect.sync(() => {
+              writeFileSync(
+                join(fixture.repo, "alpha.txt"),
+                "first line\nneedle-added-line\nlater-edit\n",
+              )
+            }).pipe(Effect.andThen(Queue.offer(journaled, invocationKey))),
+        ),
+        Effect.forkChild,
+      )
+      yield* Queue.take(journaled)
+      yield* TestClock.adjust("1500 millis")
+
+      expect(yield* Fiber.join(fiber)).toBe(1)
+      expect(scripted.configs).toHaveLength(1)
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "working tree changed after run",
       )

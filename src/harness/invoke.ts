@@ -13,6 +13,7 @@ import {
   Termination,
   type Termination as TerminationType,
 } from "../domain/agent-outcome.ts"
+import type { Seat } from "../domain/recipe.ts"
 import {
   AdapterContractViolation,
   type HarnessEvent,
@@ -37,6 +38,7 @@ export interface InvocationDeadlines {
 }
 
 export interface InvokeInput<O> {
+  readonly seat: Seat
   readonly cwd: string
   readonly systemPrompt: string
   readonly prompt: string
@@ -263,6 +265,7 @@ const openCapturedSession = Effect.fn(
   const factory = yield* HarnessSessionFactory
   const session = yield* Effect.acquireRelease(
     factory.open({
+      seat: input.seat,
       cwd: input.cwd,
       systemPrompt: input.systemPrompt,
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),

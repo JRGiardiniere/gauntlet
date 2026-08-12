@@ -4,6 +4,7 @@ import type * as Effect from "effect/Effect"
 import type * as JsonSchema from "effect/JsonSchema"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
+import type { Seat } from "../domain/recipe.ts"
 
 // The adapter seam between Gauntlet and the Pi harness (ADR 0002, #4, #13).
 // `HarnessSession` deliberately mirrors Pi's literal surface — push-callback
@@ -101,6 +102,10 @@ export interface EmitToolSpec {
 }
 
 export interface SessionConfig {
+  // The invocation's resolved seat, frozen in ReviewPlan. The live adapter
+  // resolves it through Pi; the factory carries no independently configured
+  // ambient model.
+  readonly seat: Seat
   // Repository root used by every filesystem-facing tool in this session.
   readonly cwd: string
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
@@ -111,8 +116,10 @@ export interface SessionConfig {
   // group.
   readonly sessionId?: string
   readonly emitTool: EmitToolSpec
-  // The complete non-emit capability set. v1 is read-only: `read` and `bash`
-  // are recreated as custom Pi tools so their deadlines are caller-owned.
+  // The complete non-emit capability set. v1 starts unrestricted `bash` at
+  // `cwd`; prompts tell agents not to mutate the repository, but enforcing
+  // that boundary requires the later sandboxing project. These are recreated
+  // as custom Pi tools so their deadlines remain caller-owned.
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly toolTimeoutMillis: number
   readonly bashTimeoutMillis: number

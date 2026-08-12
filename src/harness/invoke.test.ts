@@ -22,6 +22,7 @@ import {
 } from "./scripted.ts"
 
 const INPUT: InvokeInput<FindingsOutput> = {
+  seat: "fixture/fixture-model:low",
   cwd: "/fixture/repo",
   systemPrompt: "finder system prompt",
   prompt: "review this diff",

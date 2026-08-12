@@ -33,13 +33,6 @@ import { withToolCallDeadline } from "./tool-deadline.ts"
 // invocation logic. Deadlines, capture, salvage, and outcome assembly live
 // above the seam and are identical under the scripted adapter.
 
-export interface LivePiConfig {
-  readonly provider: string
-  // May carry a thinking level: "gpt-5.6-luna:low". Resolved by Pi's own
-  // resolver, never hand-parsed — model ids contain colons (#4 §6).
-  readonly model: string
-}
-
 // Every listed role is checked against Pi's message role vocabulary at the
 // pinned version. `satisfies` fails the build if one stops being valid; it does
 // not prove this list is exhaustive. The closed runtime decode still turns an
@@ -177,9 +170,7 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   }
 }
 
-export const makeLivePiFactory = (
-  config: LivePiConfig,
-): HarnessSessionFactoryShape => {
+export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
   // pay N full initializations. A failed create is evicted rather than
@@ -211,14 +202,16 @@ export const makeLivePiFactory = (
             }),
         })
 
-        // Model resolution via Pi's own resolver — model ids contain colons,
-        // so `pattern:level` must be tried as a whole id before any colon
-        // splitting; a re-implementation rejects strings Pi accepts.
+        // Split only the seat's provider separator. The model portion may
+        // itself contain colons, so Pi's resolver owns model/thinking parsing.
+        const providerSeparator = session.seat.indexOf("/")
+        const provider = session.seat.slice(0, providerSeparator)
+        const modelInput = session.seat.slice(providerSeparator + 1)
         const resolved = yield* Effect.try({
           try: () =>
             resolveCliModel({
-              cliProvider: config.provider,
-              cliModel: config.model,
+              cliProvider: provider,
+              cliModel: modelInput,
               modelRuntime,
             }),
           catch: (cause) =>
@@ -238,7 +231,7 @@ export const makeLivePiFactory = (
             operation: "resolve-model",
             reason:
               resolutionError ??
-              `model not found: ${config.provider}/${config.model}`,
+              `model not found: ${session.seat}`,
           })
         }
         if (resolved.warning !== undefined) {
@@ -398,5 +391,7 @@ export const makeLivePiFactory = (
   }
 }
 
-export const livePiLayer = (config: LivePiConfig) =>
-  Layer.succeed(HarnessSessionFactory, makeLivePiFactory(config))
+export const livePiLayer = Layer.succeed(
+  HarnessSessionFactory,
+  makeLivePiFactory(),
+)

@@ -86,6 +86,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
   function* (argv: ReadonlyArray<string>) {
     const provider = argv[0] ?? "openai-codex"
     const model = argv[1] ?? "gpt-5.6-luna:low"
+    const seat = `${provider}/${model}`
 
     const document = Schema.toJsonSchemaDocument(EmitFindings.schema)
     const definitionCount = Object.keys(document.definitions ?? {}).length
@@ -109,6 +110,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
           prefix: "gauntlet-live-gate-",
         })
         return yield* invoke({
+          seat,
           cwd,
           systemPrompt: SYSTEM_PROMPT,
           prompt: PROMPT,
@@ -122,7 +124,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
             bashMillis: 600_000,
           },
         }).pipe(
-          Effect.provide(livePiLayer({ provider, model })),
+          Effect.provide(livePiLayer),
           Effect.map((outcome): GateResult => ({ outcome })),
           Effect.catchTags({
             InvocationSetupError: (error) =>

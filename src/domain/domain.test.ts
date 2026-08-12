@@ -5,7 +5,7 @@ import { AgentOutcome, Termination } from "./agent-outcome.ts"
 import { Candidate } from "./candidate.ts"
 import { DeliveryReceipt } from "./delivery-receipt.ts"
 import { Judgment } from "./judgment.ts"
-import { Seat } from "./recipe.ts"
+import { modelIdentityOfSeat, Seat } from "./recipe.ts"
 import { Verdict } from "./verdict.ts"
 import { FindingsOutput } from "../harness/output-contract.ts"
 
@@ -79,6 +79,11 @@ describe("domain model", () => {
       const rejected = yield* Effect.flip(decode("just-a-model"))
       expect(rejected._tag).toBe("SchemaError")
     }))
+
+  it("identifies a model independently of its thinking effort", () => {
+    expect(modelIdentityOfSeat("acme/luna-4:low")).toBe("acme/luna-4")
+    expect(modelIdentityOfSeat("acme/luna:4-6:high")).toBe("acme/luna:4-6")
+  })
 
   it.effect("a delivery receipt records posted or not-posted, never both", () =>
     Effect.gen(function* () {

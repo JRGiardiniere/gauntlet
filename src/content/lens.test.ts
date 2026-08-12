@@ -2,11 +2,13 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import { FrozenLens } from "../domain/review-plan.ts"
+import {
+  DEFAULT_CANDIDATE_CAP,
+  FrozenLens,
+} from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
   assembleFinderPrompt,
-  DEFAULT_CANDIDATE_CAP,
   FINDER_TOOLS,
 } from "./finder-prompt.ts"
 import { loadLens } from "./lens.ts"
@@ -81,6 +83,8 @@ describe("lens content", () => {
           name: loaded.name,
           promptText: loaded.promptText,
           contentHash: loaded.contentHash,
+          seat: "fixture/fixture-model:low",
+          needsSpec: loaded.needsSpec,
           candidateCap: DEFAULT_CANDIDATE_CAP,
         })
 
@@ -96,7 +100,7 @@ describe("lens content", () => {
           warnings: [],
         })
         const prompt = yield* assembleFinderPrompt(
-          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}",
+          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}",
           target,
           frozen,
         )
@@ -120,19 +124,23 @@ describe("finder prompt cache prefix", () => {
       const template = [
         "repo={{REPO_ROOT}}",
         "files={{CHANGED_FILES}}",
-        "diff={{DIFF}}",
+        "{{DIFF_SECTION}}",
         "cap={{MAX_PER_LENS}}",
       ].join("\n")
       const first = FrozenLens.make({
         name: "fixture-one",
         promptText: "FIRST FIXTURE TAIL",
         contentHash: "hash-one",
+        seat: "fixture/fixture-model:low",
+        needsSpec: false,
         candidateCap: 6,
       })
       const second = FrozenLens.make({
         name: "fixture-two",
         promptText: "SECOND FIXTURE TAIL",
         contentHash: "hash-two",
+        seat: "fixture/fixture-model:low",
+        needsSpec: false,
         candidateCap: 6,
       })
       const firstPrompt = yield* assembleFinderPrompt(template, target, first)
@@ -159,16 +167,73 @@ describe("finder prompt cache prefix", () => {
         name: "fixture-one",
         promptText: "FIXTURE TAIL",
         contentHash: "hash-one",
+        seat: "fixture/fixture-model:low",
+        needsSpec: false,
         candidateCap: 6,
       })
       const prompt = yield* assembleFinderPrompt(
-        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}",
+        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}",
         target,
         lens,
       )
 
       expect(prompt).toContain('+const marker = "{{MAX_PER_LENS}}"')
       expect(prompt).toContain("\n6\n\nFIXTURE TAIL")
+    }))
+
+  it.effect("keeps an override out of the shared prefix and appends spec text after the lens tail", () =>
+    Effect.gen(function* () {
+      const target = ReviewTarget.cases.WorkingTree.make({
+        repoRoot: "/fixture/repo",
+        headCommit: "abcdef",
+        changedFiles: ["src/fixture.ts"],
+        diff: "+fixture",
+        warnings: [],
+      })
+      const template = "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}"
+      const ordinary = FrozenLens.make({
+        name: "fixture-ordinary",
+        promptText: "ORDINARY TAIL",
+        contentHash: "hash-ordinary",
+        seat: "fixture/fixture-model:low",
+        needsSpec: false,
+        candidateCap: 6,
+      })
+      const expanded = FrozenLens.make({
+        name: "fixture-expanded",
+        promptText: "EXPANDED TAIL",
+        contentHash: "hash-expanded",
+        seat: "fixture/fixture-model:low",
+        needsSpec: true,
+        candidateCap: 12,
+      })
+      const ordinaryPrompt = yield* assembleFinderPrompt(
+        template,
+        target,
+        ordinary,
+      )
+      const expandedPrompt = yield* assembleFinderPrompt(
+        template,
+        target,
+        expanded,
+        "fixture requirement",
+      )
+      const ordinaryPrefix = ordinaryPrompt.slice(
+        0,
+        ordinaryPrompt.indexOf(ordinary.promptText),
+      )
+      const expandedPrefix = expandedPrompt.slice(
+        0,
+        expandedPrompt.indexOf(expanded.promptText),
+      )
+      expect(expandedPrefix).toBe(ordinaryPrefix)
+      expect(expandedPrefix).toContain("shared cap=6")
+      expect(expandedPrompt.indexOf("EXPANDED TAIL")).toBeLessThan(
+        expandedPrompt.indexOf("at most 12 findings"),
+      )
+      expect(expandedPrompt.indexOf("at most 12 findings")).toBeLessThan(
+        expandedPrompt.indexOf("fixture requirement"),
+      )
     }))
 
   it.effect("rejects every unknown placeholder shape", () =>
@@ -184,10 +249,12 @@ describe("finder prompt cache prefix", () => {
         name: "fixture-one",
         promptText: "FIXTURE TAIL",
         contentHash: "hash-one",
+        seat: "fixture/fixture-model:low",
+        needsSpec: false,
         candidateCap: 6,
       })
       const failure = yield* assembleFinderPrompt(
-        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF}}\n{{MAX_PER_LENS}}\n{{max_per_lens}}",
+        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}\n{{max_per_lens}}",
         target,
         lens,
       ).pipe(Effect.flip)
