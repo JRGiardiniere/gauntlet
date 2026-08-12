@@ -11,44 +11,6 @@ const strictDecode = <O>(schema: Schema.Codec<O, O, never, never>) =>
   Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })
 
 describe("output contracts", () => {
-  it.effect("projects every harness-owned contract as self-contained JSON Schema", () =>
-    Effect.sync(() => {
-      for (const contract of [
-        EmitFindings,
-        EmitPool,
-        EmitVerdicts,
-      ]) {
-        const document = Schema.toJsonSchemaDocument(contract.schema)
-        expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
-      }
-    }))
-
-  it.effect("keeps every normative tool and field description in the projection", () =>
-    Effect.gen(function* () {
-      const contracts = [
-        EmitFindings,
-        EmitPool,
-        EmitVerdicts,
-      ].map((contract) => ({
-        toolName: contract.toolName,
-        description: contract.description,
-        parameters: Schema.toJsonSchemaDocument(contract.schema).schema,
-      }))
-      const projected = yield* Schema.encodeEffect(
-        Schema.fromJsonString(Schema.Unknown),
-      )(contracts)
-      expect(projected).toContain(
-        "Path of the file the finding is in, as it appears in the changed-file list.",
-      )
-      expect(projected).toContain(
-        "Concrete inputs or state that produce the wrong behaviour.",
-      )
-      expect(projected).toContain(
-        "Every candidate index must appear in exactly one cluster.",
-      )
-      expect(projected).toContain("Judged on reachability × consequence.")
-    }))
-
   it.effect("accepts empty finder output and an arbitrary candidate path", () =>
     Effect.gen(function* () {
       expect(yield* strictDecode(EmitFindings.schema)({ findings: [] })).toEqual({

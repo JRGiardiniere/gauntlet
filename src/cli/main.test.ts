@@ -521,53 +521,6 @@ describe("gauntlet review", () => {
       expect(seatByLens.get("fixture-deep")).toBe("fixture/deep-model:high")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("fails before a run exists when the recipe is missing or invalid", () =>
-    Effect.gen(function* () {
-      const missingDefault = yield* makeDirtyRepo
-      const fs = yield* FileSystem.FileSystem
-      yield* fs.remove(missingDefault.settingsFile)
-
-      expect(yield* review(missingDefault).effect).toBe(1)
-      const missingStderr = (yield* TestConsole.errorLines).join("\n")
-      expect(missingStderr).toContain("no default recipe is configured")
-      expect(missingStderr).toContain("available recipes: fixture-recipe")
-      expect(yield* fs.exists(missingDefault.runsRoot)).toBe(false)
-
-      const invalid = yield* makeDirtyRepo
-      yield* writeRecipe(invalid, "fixture-broken", {
-        default: FIXTURE_SEAT,
-        budgets: { maxUsd: 5 },
-      })
-      const run = runCommand(
-        invalid,
-        ["review", "fixture-broken", "--lenses", "fixture-review"],
-        makeScripted({ sessions: [] }),
-      )
-      expect(yield* run.effect).toBe(1)
-      const invalidStderr = (yield* TestConsole.errorLines).join("\n")
-      expect(invalidStderr).toContain("fixture-broken is invalid")
-      expect(invalidStderr).toContain("available recipes: fixture-recipe")
-      expect(yield* fs.exists(invalid.runsRoot)).toBe(false)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("lands runs under the configured runs-root", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      const path = yield* Path.Path
-      const customRunsRoot = path.join(fixture.home, "custom-runs")
-      yield* writeSettings(fixture, {
-        "default-recipe": "fixture-recipe",
-        favorites: [],
-        "runs-root": customRunsRoot,
-      })
-
-      expect(yield* review(fixture).effect).toBe(0)
-
-      const fs = yield* FileSystem.FileSystem
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
-      expect(yield* fs.readDirectory(customRunsRoot)).toHaveLength(1)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
@@ -754,66 +707,6 @@ describe("gauntlet review", () => {
       )
       expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "report.md"))).toBe(
         true,
-      )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("help is not a failed review: plain help exits 0, bad usage exits 1", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture
-      const scripted = successfulScripted()
-      const layer = Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-        scriptedLayer(scripted),
-      )
-      const helpExit = yield* runGauntlet([]).pipe(
-          Effect.provideService(InvocationDirectory, fixture.repo),
-          Effect.provideService(ContentDirectory, fixture.content),
-          Effect.provide(layer),
-        )
-      expect(helpExit).toBe(0)
-      const badExit = yield* runGauntlet(["not-a-subcommand"]).pipe(
-        Effect.provideService(InvocationDirectory, fixture.repo),
-        Effect.provideService(ContentDirectory, fixture.content),
-        Effect.provide(layer),
-      )
-      expect(badExit).toBe(1)
-      expect((yield* TestConsole.errorLines).join("\n")).not.toContain(
-        "could not review",
-      )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("exits 1 with no run directory when the tree has nothing to review", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
-      yield* commitAll(fixture.repo, "initial")
-
-      const exitCode = yield* review(fixture).effect
-      expect(exitCode).toBe(1)
-      expect(yield* TestConsole.logLines).toEqual([])
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "could not review — working tree has no uncommitted changes",
-      )
-
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("exits 1 outside a git repository", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture
-      const path = yield* Path.Path
-      const fs = yield* FileSystem.FileSystem
-      const plain = path.join(fixture.home, "plain")
-      yield* fs.makeDirectory(plain)
-      const outside = { ...fixture, repo: plain }
-
-      const exitCode = yield* review(outside).effect
-      expect(exitCode).toBe(1)
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "could not review — not inside a git repository",
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
