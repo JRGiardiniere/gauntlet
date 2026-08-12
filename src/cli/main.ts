@@ -91,6 +91,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       finders: TRACER_SEAT,
       pool: TRACER_SEAT,
       verification: TRACER_SEAT,
+      judgment: TRACER_SEAT,
     },
     lenses: frozenLenses,
   })

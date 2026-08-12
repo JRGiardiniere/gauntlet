@@ -5,8 +5,10 @@ import { FrozenLens } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { formatCandidateLine } from "./candidate-line.ts"
 import {
+  assembleJudgmentPrompt,
   assembleVerifierPrompt,
   type EvaluationPromptTemplates,
+  type JudgmentPromptTemplates,
 } from "./evaluation-prompt.ts"
 import { assembleFinderPrompt } from "./finder-prompt.ts"
 
@@ -70,14 +72,36 @@ describe("evaluation prompts", () => {
         [{ index: 1, candidate: bugClaim }],
         [{ number: 1, indexes: [1], summary: bugClaim.summary }],
       )
+      const judgmentTemplates: JudgmentPromptTemplates = {
+        judge: "{{SCOPE_BLOCK}}\n{{CANDIDATES}}",
+        stageScope:
+          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{INTENT_SECTION}}",
+      }
+      const judgment = yield* assembleJudgmentPrompt(
+        judgmentTemplates,
+        target,
+        undefined,
+        [{
+          index: 1,
+          candidate: Candidate.cases.Observation.make({
+            id: "fixture/2",
+            lens: "fixture",
+            file: "README.md",
+            summary: "the name obscures the intent",
+          }),
+        }],
+      )
 
-      for (const prompt of [finder, verifier]) {
+      for (const prompt of [finder, verifier, judgment]) {
         expect(prompt).toContain("````diff\n")
         expect(prompt).toContain("\n ```\n")
         expect(prompt).toContain("\n````")
       }
       expect(verifier).toContain(
         "judge the change on its own terms, and do not assume intent you cannot see",
+      )
+      expect(judgment).toContain(
+        "[1] (fixture) README.md — the name obscures the intent",
       )
     }))
 })
