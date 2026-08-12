@@ -163,7 +163,7 @@ describe("Judgment resolution and Assembly accounting", () => {
     expect(new Set(accountedIds(resolved.observations)).size).toBe(4)
   })
 
-  it("admits a quality note only when a rating is false", () => {
+  it("admits a quality note only when a rating is false, noting the discard", () => {
     const resolved = resolveJudgment(observations, {
       decisions: [
         { ...keep(1), qualityNote: "spurious note" },
@@ -178,6 +178,8 @@ describe("Judgment resolution and Assembly accounting", () => {
       _tag: "Kept",
       qualityNote: "hard to act on",
     })
-    expect(resolved.notes).toEqual([])
+    expect(resolved.notes).toEqual([
+      "ignored quality notes on cleanly rated keeps 1",
+    ])
   })
 })

@@ -51,7 +51,7 @@ export interface ScriptedPrompt {
 }
 
 export interface ScriptedSession {
-  // Claimed by the first open whose config.sessionId ends with this suffix —
+  // Claimed by the first open whose config.sessionId contains this key —
   // lets a script address one invocation of a concurrent fan-out. Unkeyed
   // sessions are consumed in open order, as before.
   readonly forSession?: string
@@ -68,11 +68,19 @@ export interface ScriptedBehavior {
   readonly sessions: ReadonlyArray<ScriptedSession>
 }
 
+export interface RecordedPrompt {
+  // 1-based open order — pairs the prompt with configs[openIndex - 1] even
+  // when concurrent sessions interleave their prompt calls.
+  readonly openIndex: number
+  readonly sessionId: string | undefined
+  readonly text: string
+}
+
 export interface Scripted {
   readonly factory: HarnessSessionFactoryShape
   readonly log: Array<string>
   readonly configs: Array<SessionConfig>
-  readonly promptTexts: Array<string>
+  readonly prompts: Array<RecordedPrompt>
 }
 
 export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
@@ -93,7 +101,7 @@ interface PromptRequest {
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
   const configs: Array<SessionConfig> = []
-  const promptTexts: Array<string> = []
+  const prompts: Array<RecordedPrompt> = []
   let openIndex = 0
   const claimed = new Set<number>()
 
@@ -107,7 +115,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         unkeyed = unkeyed ?? index
         continue
       }
-      if (sessionId !== undefined && sessionId.endsWith(session.forSession)) {
+      if (sessionId !== undefined && sessionId.includes(session.forSession)) {
         claimed.add(index)
         return session
       }
@@ -239,7 +247,11 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           }
         },
         prompt: (text) => {
-          promptTexts.push(text)
+          prompts.push({
+            openIndex: sessionIndex,
+            sessionId: config.sessionId,
+            text,
+          })
           requestedPrompts += 1
           const promptIndex = requestedPrompts
           log.push(`prompt:${String(sessionIndex)}.${String(promptIndex)}`)
@@ -278,7 +290,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs, promptTexts }
+  return { factory: { open }, log, configs, prompts }
 }
 
 export const scriptedLayer = (

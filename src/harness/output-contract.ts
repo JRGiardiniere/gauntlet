@@ -152,8 +152,7 @@ const judgmentCore = {
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
     "The [i] label of the candidate this decision is about.",
   ),
-  reason: described(
-    Schema.NonEmptyString,
+  reason: inlineText(
     "One line. Keeps: why it is warranted AND what was checked in the tree to confirm the premise. Drops: which failure it is — false premise / disproportionate / taste, not cost / repo convention / BugClaim-path claim / no nameable payer.",
   ),
 }
@@ -183,8 +182,7 @@ const keepDecision = Schema.Struct({
     "Reading ONLY the finder's own summary, are the problem and the better shape clear enough to act on? Judge the text as written.",
   ),
   qualityNote: Schema.optionalKey(
-    described(
-      Schema.NonEmptyString,
+    inlineText(
       "Keeps only, when either rating is false: one line on what is weak.",
     ),
   ),
@@ -206,6 +204,6 @@ export interface JudgmentsOutput
 
 export const EmitJudgments = defineOutputContract(
   "emit_judgments",
-  "Report one keep/drop decision per candidate index. Call this exactly once, as your final action. Do not answer in prose instead.",
+  "Report your keep/drop decisions. Every candidate index appears exactly once: as a decision's index, or inside a keeper's merge array — a merged index gets no decision of its own. Call this exactly once, as your final action. Do not answer in prose instead.",
   JudgmentsOutput,
 )

@@ -235,6 +235,13 @@ const rejectedJudgmentSession = (): ScriptedSession => {
   return { forSession: "-judgment", prompts: [prompt, prompt, prompt] }
 }
 
+// Concurrent sessions interleave their prompt calls, so prompts are asserted
+// by the session id they were recorded against, never by global order.
+const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
+  scripted.prompts
+    .filter(({ sessionId }) => sessionId?.includes(suffix) ?? false)
+    .map(({ text }) => text)
+
 const successfulScripted = (): Scripted =>
   makeScripted({
     sessions: [
@@ -380,16 +387,18 @@ describe("gauntlet review — single-lens tracer", () => {
         "openai-codex/gpt-5.6-luna:low",
       )
       expect(run.scripted.configs[0]?.cwd).toBe(plan.target.repoRoot)
-      expect(run.scripted.configs[0]?.tools).toEqual(["read", "bash"])
-      expect(run.scripted.promptTexts[0]).toMatch(
+      for (const config of run.scripted.configs) {
+        expect(config.tools).toEqual(["read", "bash"])
+      }
+      expect(promptTextsFor(run.scripted, "-finders")[0]).toMatch(
         /^shared start[\s\S]*shared end\n\nfixture lens tail$/,
       )
-      expect(run.scripted.configs[1]?.tools).toEqual(["read", "bash"])
-      expect(run.scripted.promptTexts[1]).toContain("### [c1]")
-      expect(run.scripted.promptTexts[1]).toContain("claimed failure:")
-      expect(run.scripted.configs[2]?.tools).toEqual(["read", "bash"])
-      expect(run.scripted.promptTexts[2]).toContain("judge observations")
-      expect(run.scripted.promptTexts[2]).toContain(
+      const [verifierPrompt] = promptTextsFor(run.scripted, "-verification")
+      expect(verifierPrompt).toContain("### [c1]")
+      expect(verifierPrompt).toContain("claimed failure:")
+      const [judgmentPrompt] = promptTextsFor(run.scripted, "-judgment")
+      expect(judgmentPrompt).toContain("judge observations")
+      expect(judgmentPrompt).toContain(
         "[1] (fixture-review) alpha.txt — the name hides the value's role",
       )
 
@@ -415,6 +424,8 @@ describe("gauntlet review — single-lens tracer", () => {
               summary: finding.summary,
             })),
           }),
+          // The bundles run concurrently, so each verdict script is keyed to
+          // its bundle's session id instead of relying on open order.
           emittingSession({
             verdicts: [
               {
@@ -441,7 +452,7 @@ describe("gauntlet review — single-lens tracer", () => {
                 evidence: "claim four reproduced",
               },
             ],
-          }),
+          }, "-verification-1"),
           emittingSession({
             verdicts: [
               {
@@ -451,7 +462,7 @@ describe("gauntlet review — single-lens tracer", () => {
                 evidence: "claim five reproduced",
               },
             ],
-          }),
+          }, "-verification-2"),
         ],
       })
 
@@ -494,9 +505,9 @@ describe("gauntlet review — single-lens tracer", () => {
 
       expect(scripted.configs).toHaveLength(4)
       expect(scripted.configs[1]?.tools).toEqual([])
-      const verifierPrompts = scripted.promptTexts.filter((prompt) =>
-        prompt.startsWith("verify claims")
-      )
+      const verifierPrompts = scripted.prompts
+        .map(({ text }) => text)
+        .filter((prompt) => prompt.startsWith("verify claims"))
       expect(verifierPrompts).toHaveLength(2)
       expect(verifierPrompts.some((prompt) => prompt.includes("[c4]"))).toBe(true)
       expect(verifierPrompts.some((prompt) => prompt.includes("[c5]"))).toBe(true)
@@ -649,7 +660,8 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(run.scripted.configs).toHaveLength(3)
       const opened = run.scripted.configs.map((config, index) => ({
         config,
-        prompt: run.scripted.promptTexts[index] ?? "",
+        prompt: run.scripted.prompts
+          .find(({ openIndex }) => openIndex === index + 1)?.text ?? "",
       }))
       const local = opened.find((entry) =>
         entry.prompt.includes("fixture local tail")
