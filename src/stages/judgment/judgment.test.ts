@@ -4,10 +4,6 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
-import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import {
@@ -18,12 +14,9 @@ import {
   usageRow,
 } from "../../harness/scripted.ts"
 import { runPaths } from "../../run/run-record.ts"
+import { commitAll, makeGitFixture } from "../../test-support/git.fixture.ts"
 import { resolveWorkingTreeTarget } from "../../target/working-tree.ts"
 import { executeJudgment } from "./judgment.ts"
-
-const git = (cwd: string, ...args: Array<string>) => {
-  execFileSync("git", args, { cwd, stdio: "pipe" })
-}
 
 interface Fixture {
   readonly repo: string
@@ -32,28 +25,20 @@ interface Fixture {
 
 // The stage seam still reviews a real working tree: the target is frozen from
 // an actual dirty repo, and prompts assemble from the shipped templates.
-const makeFixture = (): Fixture => {
-  // git resolves /var → /private/var on macOS; realpath keeps the frozen
-  // target's repoRoot equal to the fixture's own paths.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "gauntlet-judgment-test-")))
-  const repo = join(root, "repo")
-  mkdirSync(repo, { recursive: true })
-  git(repo, "init")
-  writeFileSync(join(repo, "alpha.txt"), "first line\n")
-  git(repo, "add", "--all")
-  git(
-    repo,
-    "-c",
-    "user.name=gauntlet-test",
-    "-c",
-    "user.email=gauntlet-test@example.invalid",
-    "commit",
-    "--message",
-    "initial",
+const makeFixture = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const { root, repo } = yield* makeGitFixture({
+    prefix: "gauntlet-judgment-test-",
+  })
+  yield* fs.writeFileString(path.join(repo, "alpha.txt"), "first line\n")
+  yield* commitAll(repo, "initial")
+  yield* fs.writeFileString(
+    path.join(repo, "alpha.txt"),
+    "first line\nadded-line\n",
   )
-  writeFileSync(join(repo, "alpha.txt"), "first line\nadded-line\n")
-  return { repo, runsRoot: join(root, "runs") }
-}
+  return { repo, runsRoot: path.join(root, "runs") } satisfies Fixture
+})
 
 const observations = globalThis.Array.from({ length: 2 }, (_, index) =>
   Candidate.cases.Observation.make({
@@ -128,7 +113,7 @@ const runJudgment = (
 describe("Judgment stage interface", () => {
   it.effect("pays one journaled invocation against the shipped templates and resolves it", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
+      const fixture = yield* makeFixture
       const scripted = makeScripted({ sessions: [keepingSession()] })
 
       const result = yield* runJudgment(fixture, scripted)
@@ -162,16 +147,22 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain(fixture.repo)
 
       const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
       expect(
         yield* fs.exists(
-          join(fixture.runsRoot, "judgment-test-run", "journal", "judgment.json"),
+          path.join(
+            fixture.runsRoot,
+            "judgment-test-run",
+            "journal",
+            "judgment.json",
+          ),
         ),
       ).toBe(true)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("surfaces sanitized decisions as a repair coverage gap with every candidate accounted", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
+      const fixture = yield* makeFixture
       const scripted = makeScripted({
         sessions: [
           emittingSession({
@@ -203,11 +194,11 @@ describe("Judgment stage interface", () => {
         ...(judgment._tag === "Kept" ? judgment.mergedCandidateIds : []),
       ])
       expect(accounted.sort()).toEqual(["fixture/1", "fixture/2"])
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("replays the journaled outcome instead of paying a second invocation", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
+      const fixture = yield* makeFixture
       const paid = yield* runJudgment(
         fixture,
         makeScripted({ sessions: [keepingSession()] }),
@@ -218,11 +209,11 @@ describe("Judgment stage interface", () => {
 
       expect(replayed).toEqual(paid)
       expect(replayScripted.configs).toHaveLength(0)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("degrades to undecided with a coverage gap when the plan froze no judgment seat", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
+      const fixture = yield* makeFixture
       const scripted = makeScripted({ sessions: [] })
 
       const result = yield* runJudgment(fixture, scripted, true)
@@ -241,11 +232,11 @@ describe("Judgment stage interface", () => {
       expect(result.costUsd).toBe(0)
       expect(result.invocationCount).toBe(0)
       expect(scripted.configs).toHaveLength(0)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps an off-spec emit visible as undecided with the missing-output reason", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
+      const fixture = yield* makeFixture
       const scripted = makeScripted({
         sessions: [
           emittingSession(
@@ -275,5 +266,5 @@ describe("Judgment stage interface", () => {
         },
       ])
       expect(result.invocationCount).toBe(1)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

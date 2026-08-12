@@ -6,12 +6,9 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
+import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
-import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
@@ -27,28 +24,11 @@ import {
   InvocationArtifact,
   InvocationJournalCheckpoint,
 } from "../run/invocation-journal.ts"
+import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import {
   InvocationDirectory,
   runGauntlet,
 } from "./main.ts"
-
-const git = (cwd: string, ...args: Array<string>) => {
-  execFileSync("git", args, { cwd, stdio: "pipe" })
-}
-
-const commitAll = (repo: string, message: string) => {
-  git(repo, "add", "--all")
-  git(
-    repo,
-    "-c",
-    "user.name=gauntlet-test",
-    "-c",
-    "user.email=gauntlet-test@example.invalid",
-    "commit",
-    "--message",
-    message,
-  )
-}
 
 interface Fixture {
   readonly repo: string
@@ -61,16 +41,25 @@ interface Fixture {
 
 const FIXTURE_SEAT = "fixture/fixture-model:low"
 
-const writeRecipe = (fixture: Fixture, name: string, recipe: object) => {
-  writeFileSync(
-    join(fixture.recipesDirectory, `${name}.json`),
-    `${JSON.stringify(recipe)}\n`,
-  )
-}
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Json))
 
-const writeSettings = (fixture: Fixture, settings: object) => {
-  writeFileSync(fixture.settingsFile, `${JSON.stringify(settings)}\n`)
-}
+const writeRecipe = (fixture: Fixture, name: string, recipe: Schema.Json) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const json = yield* encodeJson(recipe)
+    yield* fs.writeFileString(
+      path.join(fixture.recipesDirectory, `${name}.json`),
+      `${json}\n`,
+    )
+  })
+
+const writeSettings = (fixture: Fixture, settings: Schema.Json) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const json = yield* encodeJson(settings)
+    yield* fs.writeFileString(fixture.settingsFile, `${json}\n`)
+  })
 
 const SHARED_PROMPT = `shared start
 repo={{REPO_ROOT}}
@@ -81,64 +70,68 @@ cap={{MAX_PER_LENS}}
 shared end
 `
 
-const makeFixture = (): Fixture => {
-  const root = mkdtempSync(join(tmpdir(), "gauntlet-cli-test-"))
-  const repo = join(root, "repo")
-  const home = join(root, "home")
-  const content = join(root, "content")
-  mkdirSync(repo, { recursive: true })
-  mkdirSync(home, { recursive: true })
-  mkdirSync(join(content, "lenses"), { recursive: true })
-  mkdirSync(join(content, "prompts"), { recursive: true })
-  writeFileSync(
-    join(content, "lenses", "fixture-review.md"),
+const makeFixture = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-cli-test-" })
+  const home = path.join(root, "home")
+  const content = path.join(root, "content")
+  yield* fs.makeDirectory(home, { recursive: true })
+  yield* fs.makeDirectory(path.join(content, "lenses"), { recursive: true })
+  yield* fs.makeDirectory(path.join(content, "prompts"), { recursive: true })
+  yield* fs.writeFileString(
+    path.join(content, "lenses", "fixture-review.md"),
     "---\ncategory: correctness\n---\nfixture lens tail\n",
   )
-  writeFileSync(
-    join(content, "prompts", "finder-system.md"),
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "finder-system.md"),
     "fixture finder system prompt\n",
   )
-  writeFileSync(
-    join(content, "prompts", "finder-shared-block.md"),
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "finder-shared-block.md"),
     SHARED_PROMPT,
   )
-  writeFileSync(
-    join(content, "prompts", "pool.md"),
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "pool.md"),
     "pool candidates\n{{CANDIDATES}}\n",
   )
-  writeFileSync(
-    join(content, "prompts", "verifier.md"),
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "verifier.md"),
     "verify claims\n{{SCOPE_BLOCK}}\n{{CLAIMS}}\n",
   )
-  writeFileSync(
-    join(content, "prompts", "stage-scope-block.md"),
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "stage-scope-block.md"),
     "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{DIFF_SECTION}}\nintent={{INTENT_SECTION}}\n",
   )
-  git(repo, "init")
   const fixture: Fixture = {
     repo,
     home,
     content,
-    runsRoot: join(home, ".gauntlet", "runs"),
-    recipesDirectory: join(home, ".gauntlet", "recipes"),
-    settingsFile: join(home, ".gauntlet", "settings.json"),
+    runsRoot: path.join(home, ".gauntlet", "runs"),
+    recipesDirectory: path.join(home, ".gauntlet", "recipes"),
+    settingsFile: path.join(home, ".gauntlet", "settings.json"),
   }
-  mkdirSync(fixture.recipesDirectory, { recursive: true })
-  writeRecipe(fixture, "fixture-recipe", { default: FIXTURE_SEAT })
-  writeSettings(fixture, {
+  yield* fs.makeDirectory(fixture.recipesDirectory, { recursive: true })
+  yield* writeRecipe(fixture, "fixture-recipe", { default: FIXTURE_SEAT })
+  yield* writeSettings(fixture, {
     "default-recipe": "fixture-recipe",
     favorites: [],
   })
   return fixture
-}
+})
 
-const makeDirtyRepo = (): Fixture => {
-  const fixture = makeFixture()
-  writeFileSync(join(fixture.repo, "alpha.txt"), "first line\n")
-  commitAll(fixture.repo, "initial")
-  writeFileSync(join(fixture.repo, "alpha.txt"), "first line\nneedle-added-line\n")
+const makeDirtyRepo = Effect.gen(function* () {
+  const fixture = yield* makeFixture
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
+  yield* commitAll(fixture.repo, "initial")
+  yield* fs.writeFileString(
+    path.join(fixture.repo, "alpha.txt"),
+    "first line\nneedle-added-line\n",
+  )
   return fixture
-}
+})
 
 const FinderInvocationArtifact = InvocationArtifact(FindingsOutput)
 
@@ -273,17 +266,21 @@ const resume = (
 describe("gauntlet review", () => {
   it.effect("lands the frozen plan, invocation journal, candidates, and presentation", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
-      writeFileSync(join(fixture.repo, "untracked.txt"), "not in the diff\n")
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "untracked.txt"),
+        "not in the diff\n",
+      )
       const run = review(fixture)
 
       const exitCode = yield* run.effect
       expect(exitCode).toBe(0)
 
-      const fs = yield* FileSystem.FileSystem
       const runIds = yield* fs.readDirectory(fixture.runsRoot)
       expect(runIds).toHaveLength(1)
-      const runDir = join(fixture.runsRoot, runIds[0] ?? "")
+      const runDir = path.join(fixture.runsRoot, runIds[0] ?? "")
 
       const entries = yield* fs.readDirectory(runDir)
       expect([...entries].sort()).toEqual([
@@ -294,7 +291,7 @@ describe("gauntlet review", () => {
         "run.log",
       ])
 
-      const planText = yield* fs.readFileString(join(runDir, "plan.json"))
+      const planText = yield* fs.readFileString(path.join(runDir, "plan.json"))
       const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(
         planText,
       )
@@ -314,14 +311,14 @@ describe("gauntlet review", () => {
       expect(plan.target.warnings).toHaveLength(1)
       expect(plan.target.warnings[0]).toContain("untracked.txt")
 
-      const journalEntries = yield* fs.readDirectory(join(runDir, "journal"))
+      const journalEntries = yield* fs.readDirectory(path.join(runDir, "journal"))
       expect(journalEntries.sort()).toEqual([
         "finder-fixture-review.json",
         "judgment.json",
         "verification-bundle-1.json",
       ])
       const journalText = yield* fs.readFileString(
-        join(runDir, "journal", "finder-fixture-review.json"),
+        path.join(runDir, "journal", "finder-fixture-review.json"),
       )
       const journal = yield* Schema.decodeEffect(
         Schema.fromJsonString(FinderInvocationArtifact),
@@ -331,7 +328,7 @@ describe("gauntlet review", () => {
       expect(journal.outcome.output).toEqual(FINDER_OUTPUT)
       expect(journal.outcome.usage.rawRows).toHaveLength(1)
 
-      const dossierText = yield* fs.readFileString(join(runDir, "dossier.json"))
+      const dossierText = yield* fs.readFileString(path.join(runDir, "dossier.json"))
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
         dossierText,
       )
@@ -355,7 +352,7 @@ describe("gauntlet review", () => {
       })
       expect(dossier.coverageGaps).toEqual([])
 
-      const report = yield* fs.readFileString(join(runDir, "report.md"))
+      const report = yield* fs.readFileString(path.join(runDir, "report.md"))
       expect(report).toContain(`# Gauntlet review ${plan.runId}`)
       expect(report).toContain("the added line breaks empty inputs")
       expect(report).toContain("the name hides the value's role")
@@ -383,7 +380,7 @@ describe("gauntlet review", () => {
       expect(verifierPrompt).toContain("### [c1]")
       expect(verifierPrompt).toContain("claimed failure:")
 
-      const runLog = yield* fs.readFileString(join(runDir, "run.log"))
+      const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
 
       const stdout = (yield* TestConsole.logLines).join("\n")
@@ -406,22 +403,24 @@ describe("gauntlet review", () => {
       expect(stderr).toContain("warning — ")
       expect(stderr).toContain("untracked.txt")
       expect(stderr).not.toContain("confirmed ·")
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("loads the full shipped and project-local catalog, skips needs-spec lenses, and freezes seats", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
-      writeFileSync(
-        join(fixture.content, "lenses", "fixture-spec.md"),
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-spec.md"),
         "---\nneeds-spec: true\n---\nfixture spec tail\n",
       )
-      const projectLenses = join(fixture.repo, ".gauntlet", "lenses")
-      mkdirSync(projectLenses, { recursive: true })
-      writeFileSync(
-        join(projectLenses, "fixture-local.md"),
+      const projectLenses = path.join(fixture.repo, ".gauntlet", "lenses")
+      yield* fs.makeDirectory(projectLenses, { recursive: true })
+      yield* fs.writeFileString(
+        path.join(projectLenses, "fixture-local.md"),
         "---\nfinder-class: deep\n---\nfixture local tail\n",
       )
-      writeRecipe(fixture, "fixture-recipe", {
+      yield* writeRecipe(fixture, "fixture-recipe", {
         default: FIXTURE_SEAT,
         "deep-finders": "fixture/local-model:medium",
       })
@@ -440,10 +439,9 @@ describe("gauntlet review", () => {
       )
       expect(yield* run.effect).toBe(0)
 
-      const fs = yield* FileSystem.FileSystem
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
       const plan = yield* fs.readFileString(
-        join(fixture.runsRoot, runId, "plan.json"),
+        path.join(fixture.runsRoot, runId, "plan.json"),
       ).pipe(
         Effect.flatMap(
           Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
@@ -463,24 +461,26 @@ describe("gauntlet review", () => {
       expect(seatByLens.get("fixture-local")).toBe("fixture/local-model:medium")
 
       const journals = yield* fs.readDirectory(
-        join(fixture.runsRoot, runId, "journal"),
+        path.join(fixture.runsRoot, runId, "journal"),
       )
       expect(journals.sort()).toEqual([
         "finder-fixture-local.json",
         "finder-fixture-review.json",
       ])
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
-      writeFileSync(
-        join(fixture.content, "lenses", "fixture-deep.md"),
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-deep.md"),
         "---\nfinder-class: deep\n---\nfixture deep tail\n",
       )
       // fixture-recipe stays the configured default; naming fixture-full
       // positionally must win (selection precedence, ADR 0005).
-      writeRecipe(fixture, "fixture-full", {
+      yield* writeRecipe(fixture, "fixture-full", {
         default: "fixture/default-model:low",
         finders: "fixture/finder-model:low",
         "deep-finders": "fixture/deep-model:high",
@@ -500,10 +500,9 @@ describe("gauntlet review", () => {
       )
       expect(yield* run.effect).toBe(0)
 
-      const fs = yield* FileSystem.FileSystem
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
       const plan = yield* fs.readFileString(
-        join(fixture.runsRoot, runId, "plan.json"),
+        path.join(fixture.runsRoot, runId, "plan.json"),
       ).pipe(
         Effect.flatMap(
           Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
@@ -520,22 +519,22 @@ describe("gauntlet review", () => {
       )
       expect(seatByLens.get("fixture-review")).toBe("fixture/finder-model:low")
       expect(seatByLens.get("fixture-deep")).toBe("fixture/deep-model:high")
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("fails before a run exists when the recipe is missing or invalid", () =>
     Effect.gen(function* () {
-      const missingDefault = makeDirtyRepo()
-      rmSync(missingDefault.settingsFile)
+      const missingDefault = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.remove(missingDefault.settingsFile)
 
       expect(yield* review(missingDefault).effect).toBe(1)
       const missingStderr = (yield* TestConsole.errorLines).join("\n")
       expect(missingStderr).toContain("no default recipe is configured")
       expect(missingStderr).toContain("available recipes: fixture-recipe")
-      const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(missingDefault.runsRoot)).toBe(false)
 
-      const invalid = makeDirtyRepo()
-      writeRecipe(invalid, "fixture-broken", {
+      const invalid = yield* makeDirtyRepo
+      yield* writeRecipe(invalid, "fixture-broken", {
         default: FIXTURE_SEAT,
         budgets: { maxUsd: 5 },
       })
@@ -549,13 +548,14 @@ describe("gauntlet review", () => {
       expect(invalidStderr).toContain("fixture-broken is invalid")
       expect(invalidStderr).toContain("available recipes: fixture-recipe")
       expect(yield* fs.exists(invalid.runsRoot)).toBe(false)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("lands runs under the configured runs-root", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
-      const customRunsRoot = join(fixture.home, "custom-runs")
-      writeSettings(fixture, {
+      const fixture = yield* makeDirtyRepo
+      const path = yield* Path.Path
+      const customRunsRoot = path.join(fixture.home, "custom-runs")
+      yield* writeSettings(fixture, {
         "default-recipe": "fixture-recipe",
         favorites: [],
         "runs-root": customRunsRoot,
@@ -566,16 +566,18 @@ describe("gauntlet review", () => {
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
       expect(yield* fs.readDirectory(customRunsRoot)).toHaveLength(1)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
-      writeFileSync(
-        join(fixture.content, "lenses", "fixture-other.md"),
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-other.md"),
         "---\nfinder-class: deep\n---\nfixture other tail\n",
       )
-      writeRecipe(fixture, "fixture-recipe", {
+      yield* writeRecipe(fixture, "fixture-recipe", {
         default: FIXTURE_SEAT,
         "deep-finders": "fixture/other-model:low",
       })
@@ -614,10 +616,9 @@ describe("gauntlet review", () => {
       )
       expect(yield* run.effect).toBe(0)
 
-      const fs = yield* FileSystem.FileSystem
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
       const dossier = yield* fs.readFileString(
-        join(fixture.runsRoot, runId, "dossier.json"),
+        path.join(fixture.runsRoot, runId, "dossier.json"),
       ).pipe(
         Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
       )
@@ -631,11 +632,11 @@ describe("gauntlet review", () => {
       expect(dossier.bugClaims).toHaveLength(1)
       expect(dossier.observations).toHaveLength(1)
       expect(run.scripted.configs).toHaveLength(4)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes the latest incomplete run without repaying its journaled finder", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
+      const fixture = yield* makeDirtyRepo
       const journaled = yield* Deferred.make<string>()
       const first = review(fixture)
       const fiber = yield* first.effect.pipe(
@@ -653,23 +654,24 @@ describe("gauntlet review", () => {
       yield* Fiber.interrupt(fiber)
 
       const fs = yield* FileSystem.FileSystem
-      const runDir = join(fixture.runsRoot, runId)
-      expect(yield* fs.exists(join(runDir, "plan.json"))).toBe(true)
+      const path = yield* Path.Path
+      const runDir = path.join(fixture.runsRoot, runId)
+      expect(yield* fs.exists(path.join(runDir, "plan.json"))).toBe(true)
       expect(
         yield* fs.exists(
-          join(runDir, "journal", "finder-fixture-review.json"),
+          path.join(runDir, "journal", "finder-fixture-review.json"),
         ),
       ).toBe(true)
-      expect(yield* fs.exists(join(runDir, "dossier.json"))).toBe(false)
-      expect(yield* fs.exists(join(runDir, "report.md"))).toBe(false)
+      expect(yield* fs.exists(path.join(runDir, "dossier.json"))).toBe(false)
+      expect(yield* fs.exists(path.join(runDir, "report.md"))).toBe(false)
 
-      writeFileSync(
-        join(fixture.content, "lenses", "fixture-review.md"),
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-review.md"),
         "changed lens content that must not be loaded\n",
       )
       // Recipe edits never change a resumed run: the plan froze the resolved
       // seats at submission (ADR 0005).
-      writeRecipe(fixture, "fixture-recipe", {
+      yield* writeRecipe(fixture, "fixture-recipe", {
         default: "fixture/edited-model:high",
       })
       const resumed = resume(
@@ -686,7 +688,7 @@ describe("gauntlet review", () => {
         expect(config.seat).toBe(FIXTURE_SEAT)
       }
 
-      const dossierText = yield* fs.readFileString(join(runDir, "dossier.json"))
+      const dossierText = yield* fs.readFileString(path.join(runDir, "dossier.json"))
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
         dossierText,
       )
@@ -696,25 +698,26 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "reusing finder fixture-review from journal",
       )
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses to pay a missing invocation after the working tree changes", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
+      const fixture = yield* makeDirtyRepo
       const initial = review(fixture)
       expect(yield* initial.effect).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-      const journalPath = join(
+      const journalPath = path.join(
         fixture.runsRoot,
         runId,
         "journal",
         "finder-fixture-review.json",
       )
-      renameSync(journalPath, `${journalPath}.missing`)
-      writeFileSync(
-        join(fixture.repo, "alpha.txt"),
+      yield* fs.rename(journalPath, `${journalPath}.missing`)
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
         "first line\nneedle-added-line\nlater-edit\n",
       )
 
@@ -724,22 +727,23 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "working tree changed after run",
       )
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes an already-complete run without invoking its finder", () =>
     Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
+      const fixture = yield* makeDirtyRepo
       const initial = review(fixture)
       expect(yield* initial.effect).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-      renameSync(
-        join(fixture.content, "prompts"),
-        join(fixture.content, "prompts-unavailable"),
+      yield* fs.rename(
+        path.join(fixture.content, "prompts"),
+        path.join(fixture.content, "prompts-unavailable"),
       )
-      writeFileSync(
-        join(fixture.repo, "alpha.txt"),
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
         "first line\nneedle-added-line\nlater-edit\n",
       )
       const completedResume = resume(fixture, runId)
@@ -748,14 +752,14 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         `resuming run ${runId}`,
       )
-      expect(yield* fs.exists(join(fixture.runsRoot, runId, "report.md"))).toBe(
+      expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "report.md"))).toBe(
         true,
       )
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("help is not a failed review: plain help exits 0, bad usage exits 1", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
+      const fixture = yield* makeFixture
       const scripted = successfulScripted()
       const layer = Layer.mergeAll(
         NodeServices.layer,
@@ -777,13 +781,15 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).not.toContain(
         "could not review",
       )
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("exits 1 with no run directory when the tree has nothing to review", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
-      writeFileSync(join(fixture.repo, "alpha.txt"), "first line\n")
-      commitAll(fixture.repo, "initial")
+      const fixture = yield* makeFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
+      yield* commitAll(fixture.repo, "initial")
 
       const exitCode = yield* review(fixture).effect
       expect(exitCode).toBe(1)
@@ -792,15 +798,16 @@ describe("gauntlet review", () => {
         "could not review — working tree has no uncommitted changes",
       )
 
-      const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("exits 1 outside a git repository", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
-      const plain = join(fixture.home, "plain")
-      mkdirSync(plain)
+      const fixture = yield* makeFixture
+      const path = yield* Path.Path
+      const fs = yield* FileSystem.FileSystem
+      const plain = path.join(fixture.home, "plain")
+      yield* fs.makeDirectory(plain)
       const outside = { ...fixture, repo: plain }
 
       const exitCode = yield* review(outside).effect
@@ -808,5 +815,5 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "could not review — not inside a git repository",
       )
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
