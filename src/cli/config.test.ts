@@ -32,15 +32,13 @@ const makeFixture = Effect.gen(function* () {
 })
 
 const encodeSettings = Schema.encodeEffect(Schema.fromJsonString(Settings))
-const encodeUnknownJson = Schema.encodeEffect(
-  Schema.fromJsonString(Schema.Unknown),
-)
+const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Json))
 
-const writeRecipe = (fixture: Fixture, name: string, recipe: object) =>
+const writeRecipe = (fixture: Fixture, name: string, recipe: Schema.Json) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const json = yield* encodeUnknownJson(recipe)
+    const json = yield* encodeJson(recipe)
     yield* fs.makeDirectory(fixture.recipesDirectory, { recursive: true })
     yield* fs.writeFileString(
       path.join(fixture.recipesDirectory, `${name}.json`),
@@ -55,10 +53,10 @@ const writeSettings = (fixture: Fixture, settings: Settings) =>
     yield* fs.writeFileString(fixture.settingsFile, `${json}\n`)
   })
 
-const writeUnknownJson = (fixture: Fixture, value: unknown) =>
+const writeJson = (fixture: Fixture, value: Schema.Json) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
-    const json = yield* encodeUnknownJson(value)
+    const json = yield* encodeJson(value)
     yield* fs.writeFileString(fixture.settingsFile, `${json}\n`)
   })
 
@@ -232,14 +230,14 @@ describe("gauntlet config", () => {
       yield* writeRecipe(fixture, "fixture-extra", {
         default: "fixture/fixture-model:low",
       })
-      yield* writeUnknownJson(fixture, { "default-recipe": "medium" })
+      yield* writeJson(fixture, { "default-recipe": "medium" })
       expect(yield* config(fixture)).toBe(0)
       const output = yield* stdout()
       expect(output).toContain("settings are invalid")
       expect(output).toContain("- fixture-extra —")
 
       // A directly edited duplicate favorite is malformed, not tolerated.
-      yield* writeUnknownJson(fixture, {
+      yield* writeJson(fixture, {
         "default-recipe": "fixture-extra",
         favorites: ["fixture-extra", "fixture-extra"],
       })
