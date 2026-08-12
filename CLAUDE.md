@@ -18,10 +18,14 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
   unbounded retries…) — read the rule's message, don't fight it
 - Effect pinned **exactly** (enforced); single `effect` package, unstable
   subpaths fine; no new runtime dependencies without strong cause
-- Tests sit at the highest seam: CLI command in → stdout/exit/run-dir out,
-  against the scripted HarnessSession adapter and a real temp filesystem.
+- Tests sit at the seam callers use: a Stage module's interface is a
+  sanctioned test seam; the CLI suite covers CLI-shaped contracts (exit codes,
+  stdout, run-dir layout, resume) plus a few end-to-end journeys — not every
+  Stage behavior. Scripted HarnessSession adapter and a real temp filesystem.
   TestClock never auto-advances. Fixture lenses only — never real lens names
-- `content/` is pure content (`{{PLACEHOLDER}}` slots) — code loads it, never
-  edits it; lens hashes are the run-comparability mechanism
+- Lenses are pure content per ADR-0004 (markdown, hash-frozen per run) —
+  code loads them, never edits them. Stage prompt templates may live with and
+  be owned by their Stage module; prompt text is still plain markdown with
+  `{{PLACEHOLDER}}` slots, never rewritten at runtime
 - Personal tool: no speculative safeguards. A new protection needs a measured
   or structural justification (standing directive from #8)
