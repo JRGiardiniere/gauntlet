@@ -4,14 +4,11 @@ import * as String from "effect/String"
 import { Severity } from "../domain/verdict.ts"
 
 // One immutable contract drives the model-facing tool schema and every
-// decode/persistence boundary for that output. Stage callers choose one of
-// these values; invocation mechanics remain stage-agnostic.
+// decode/persistence boundary for that output. Tool names are owned by the
+// stage that defines the contract (the normative set lives in
+// docs/spec/emit-tools.md); invocation mechanics remain stage-agnostic.
 export interface OutputContract<O> {
-  readonly toolName:
-    | "emit_findings"
-    | "emit_pool"
-    | "emit_verdicts"
-    | "emit_judgments"
+  readonly toolName: string
   readonly description: string
   readonly schema: Schema.Codec<O, O, never, never>
 }
