@@ -1,4 +1,4 @@
-# Run record & reports: the run directory is the history
+# Run record & Dossier: the run directory is the history
 
 Provenance on the old repo settled this ticket's biggest question before
 design started: its two cross-run aggregate logs (`log.jsonl`,
@@ -14,8 +14,8 @@ infrastructure.
 ~/.gauntlet/runs/<run-id>/
   plan.json          # frozen ReviewPlan: recipe seats, lens texts + hashes, target diff
   journal/*.json     # one per AgentInvocation: full AgentOutcome (ADR 0003)
-  dossier.json       # canonical semantic result
-  report.md          # rendered presentation
+  dossier.json       # complete machine-readable Dossier
+  dossier.md         # human-readable Dossier
   receipt.json       # DeliveryReceipt, when delivery was attempted
   run.log            # in-flight Effect log
 ```
@@ -50,14 +50,16 @@ output-volume and runaway protections and stay where #7 put them.
 Accounting is modular by construction: each journal file carries the raw
 usage exactly as the harness reports it — input/output tokens, cache
 read/write, cost, duration — per invocation, unaggregated. The only derived
-numbers anywhere are one report-header line
+numbers anywhere are one Dossier-header line
 (`cost $0.84 · 12 invocations · 6m 10s`) and the digest tally's cost + wall
 time. Any future cost model is a script over journal files.
 
-## The report
+## The human-readable Dossier
 
-Rendered from the Dossier alone. Consumer (#10): the agent opens it to act
-on a finding; the human reads it for the whole story.
+`dossier.md` is rendered from the machine-readable Dossier alone. Consumer
+(#10): the agent opens it to act on a finding; the human reads it for the whole
+story. Both files are representations of the same Dossier, not separate domain
+objects.
 
 - Header: target identity, recipe + seats, lens list with content hashes,
   the one cost/duration line, coverage gaps.

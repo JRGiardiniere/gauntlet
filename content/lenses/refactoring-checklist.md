@@ -1,5 +1,6 @@
 ---
 category: judgment
+finder-class: deep
 ---
 
 # Refactoring checklist

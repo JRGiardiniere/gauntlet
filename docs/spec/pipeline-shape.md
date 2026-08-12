@@ -80,7 +80,7 @@ Assembly is the deterministic aggregation of those results.
 - Severity is judged downstream (verifier/judge), never self-reported by
   finders — a finder rates its own work and has seen only its own lens.
 - Refuted claims and judge drops are not discarded: they land in the Dossier
-  and render as report appendices (ADR 0006).
+  and render as Markdown Dossier appendices (ADR 0006).
 
 ## The cache-prefix invariant (finder fan-out)
 

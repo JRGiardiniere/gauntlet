@@ -26,7 +26,7 @@ directive (#8).
 
 - When a Stage gains a deep module, the CLI assertions it supersedes are
   deleted in the same change — never kept in parallel. The CLI retains one
-  journey-level check that the Stage's output reaches the report.
+  journey-level check that the Stage's output reaches the Dossier.
 - Stage tests assert the real prompt templates structurally (placeholders
   filled, required sections present), never exact wording — a prompt edit that
   preserves structure must not break tests.

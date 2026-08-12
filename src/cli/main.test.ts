@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
 import * as TestClock from "effect/testing/TestClock"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, renameSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { ContentDirectory } from "../content/lens.ts"
@@ -57,6 +57,21 @@ interface Fixture {
   readonly home: string
   readonly content: string
   readonly runsRoot: string
+  readonly recipesDirectory: string
+  readonly settingsFile: string
+}
+
+const FIXTURE_SEAT = "fixture/fixture-model:low"
+
+const writeRecipe = (fixture: Fixture, name: string, recipe: object) => {
+  writeFileSync(
+    join(fixture.recipesDirectory, `${name}.json`),
+    `${JSON.stringify(recipe)}\n`,
+  )
+}
+
+const writeSettings = (fixture: Fixture, settings: object) => {
+  writeFileSync(fixture.settingsFile, `${JSON.stringify(settings)}\n`)
 }
 
 const SHARED_PROMPT = `shared start
@@ -102,12 +117,21 @@ const makeFixture = (): Fixture => {
     "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{DIFF_SECTION}}\nintent={{INTENT_SECTION}}\n",
   )
   git(repo, "init")
-  return {
+  const fixture: Fixture = {
     repo,
     home,
     content,
     runsRoot: join(home, ".gauntlet", "runs"),
+    recipesDirectory: join(home, ".gauntlet", "recipes"),
+    settingsFile: join(home, ".gauntlet", "settings.json"),
   }
+  mkdirSync(fixture.recipesDirectory, { recursive: true })
+  writeRecipe(fixture, "fixture-recipe", { default: FIXTURE_SEAT })
+  writeSettings(fixture, {
+    "default-recipe": "fixture-recipe",
+    favorites: [],
+  })
+  return fixture
 }
 
 const makeDirtyRepo = (): Fixture => {
@@ -256,7 +280,7 @@ const resume = (
     scripted,
   )
 
-describe("gauntlet review — single-lens tracer", () => {
+describe("gauntlet review", () => {
   it.effect("lands the frozen plan, invocation journal, candidates, and presentation", () =>
     Effect.gen(function* () {
       const fixture = makeDirtyRepo()
@@ -288,10 +312,11 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(plan.lenses[0]?.name).toBe("fixture-review")
       expect(plan.lenses[0]?.promptText).toBe("fixture lens tail")
       expect(plan.lenses[0]?.contentHash).toMatch(/^[a-f0-9]{64}$/)
-      expect(plan.seats.finders).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(plan.seats.pool).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(plan.seats.verification).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(plan.seats.judgment).toBe("openai-codex/gpt-5.6-luna:low")
+      expect(plan.recipeName).toBe("fixture-recipe")
+      expect(plan.lenses[0]?.seat).toBe(FIXTURE_SEAT)
+      expect(plan.seats.pool).toBe(FIXTURE_SEAT)
+      expect(plan.seats.verification).toBe(FIXTURE_SEAT)
+      expect(plan.seats.judgment).toBe(FIXTURE_SEAT)
       expect(plan.target._tag).toBe("WorkingTree")
       expect(plan.target.changedFiles).toEqual(["alpha.txt"])
       expect(plan.target.diff).toContain("+needle-added-line")
@@ -343,7 +368,7 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(report).toContain("the name hides the value's role")
       expect(report).toContain("3 invocations")
       expect(report).toContain(
-        "Recipe: none (finders: openai-codex/gpt-5.6-luna:low, pool: openai-codex/gpt-5.6-luna:low, verification: openai-codex/gpt-5.6-luna:low, judgment: openai-codex/gpt-5.6-luna:low)",
+        "Recipe: fixture-recipe (pool: fixture/fixture-model:low, verification: fixture/fixture-model:low, judgment: fixture/fixture-model:low)",
       )
 
       // The diff is stored exactly once, in the plan (ADR 0006).
@@ -351,9 +376,7 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
 
       expect(run.scripted.configs).toHaveLength(3)
-      expect(run.scripted.configs[0]?.seat).toBe(
-        "openai-codex/gpt-5.6-luna:low",
-      )
+      expect(run.scripted.configs[0]?.seat).toBe(FIXTURE_SEAT)
       expect(run.scripted.configs[0]?.cwd).toBe(plan.target.repoRoot)
       for (const config of run.scripted.configs) {
         expect(config.tools).toEqual(["read", "bash"])
@@ -547,8 +570,12 @@ describe("gauntlet review — single-lens tracer", () => {
       mkdirSync(projectLenses, { recursive: true })
       writeFileSync(
         join(projectLenses, "fixture-local.md"),
-        "---\nmodel: fixture/local-model:medium\n---\nfixture local tail\n",
+        "---\nfinder-class: deep\n---\nfixture local tail\n",
       )
+      writeRecipe(fixture, "fixture-recipe", {
+        default: FIXTURE_SEAT,
+        "deep-finders": "fixture/local-model:medium",
+      })
 
       const scripted = makeScripted({
         sessions: [
@@ -602,8 +629,8 @@ describe("gauntlet review — single-lens tracer", () => {
       )
       expect(local?.config.seat).toBe("fixture/local-model:medium")
       expect(defaults.map((entry) => entry.config.seat)).toEqual([
-        "openai-codex/gpt-5.6-luna:low",
-        "openai-codex/gpt-5.6-luna:low",
+        FIXTURE_SEAT,
+        FIXTURE_SEAT,
       ])
       expect(new Set(defaults.map((entry) => entry.config.sessionId)).size).toBe(
         1,
@@ -629,8 +656,12 @@ describe("gauntlet review — single-lens tracer", () => {
       const fixture = makeDirtyRepo()
       writeFileSync(
         join(fixture.content, "lenses", "fixture-high.md"),
-        "---\nmodel: openai-codex/gpt-5.6-luna:high\n---\nfixture high tail\n",
+        "---\nfinder-class: deep\n---\nfixture high tail\n",
       )
+      writeRecipe(fixture, "fixture-recipe", {
+        default: FIXTURE_SEAT,
+        "deep-finders": "fixture/fixture-model:high",
+      })
       const run = runCommand(
         fixture,
         ["review", "--lenses", "fixture-review,fixture-high"],
@@ -654,12 +685,117 @@ describe("gauntlet review — single-lens tracer", () => {
       expect(yield* Fiber.join(fiber)).toBe(0)
 
       expect(run.scripted.configs.map((config) => config.seat).sort()).toEqual([
-        "openai-codex/gpt-5.6-luna:high",
-        "openai-codex/gpt-5.6-luna:low",
+        "fixture/fixture-model:high",
+        "fixture/fixture-model:low",
       ])
       expect(
         new Set(run.scripted.configs.map((config) => config.sessionId)).size,
       ).toBe(1)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeFileSync(
+        join(fixture.content, "lenses", "fixture-deep.md"),
+        "---\nfinder-class: deep\n---\nfixture deep tail\n",
+      )
+      // fixture-recipe stays the configured default; naming fixture-full
+      // positionally must win (selection precedence, ADR 0005).
+      writeRecipe(fixture, "fixture-full", {
+        default: "fixture/default-model:low",
+        finders: "fixture/finder-model:low",
+        "deep-finders": "fixture/deep-model:high",
+        pool: "fixture/pool-model:low",
+        verification: "fixture/verify-model:low",
+        judgment: "fixture/judge-model:low",
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "fixture-full", "--lenses", "fixture-review,fixture-deep"],
+        makeScripted({
+          sessions: [
+            successfulSession({ findings: [] }),
+            successfulSession({ findings: [] }),
+          ],
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(ReviewPlan)),
+        ),
+      )
+      expect(plan.recipeName).toBe("fixture-full")
+      expect(plan.seats).toEqual({
+        pool: "fixture/pool-model:low",
+        verification: "fixture/verify-model:low",
+        judgment: "fixture/judge-model:low",
+      })
+      const seatByLens = new Map(
+        plan.lenses.map((lens) => [lens.name, lens.seat]),
+      )
+      expect(seatByLens.get("fixture-review")).toBe("fixture/finder-model:low")
+      expect(seatByLens.get("fixture-deep")).toBe("fixture/deep-model:high")
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("fails an unnamed review before a run exists when no default recipe is configured", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      rmSync(fixture.settingsFile)
+
+      const exitCode = yield* review(fixture).effect
+      expect(exitCode).toBe(1)
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain("no default recipe is configured")
+      expect(stderr).toContain("available recipes: fixture-recipe")
+
+      const fs = yield* FileSystem.FileSystem
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("fails before a run exists when the selected recipe is invalid", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      writeRecipe(fixture, "fixture-broken", {
+        default: FIXTURE_SEAT,
+        budgets: { maxUsd: 5 },
+      })
+
+      const run = runCommand(
+        fixture,
+        ["review", "fixture-broken", "--lenses", "fixture-review"],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* run.effect).toBe(1)
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain("fixture-broken is invalid")
+      expect(stderr).toContain("available recipes: fixture-recipe")
+
+      const fs = yield* FileSystem.FileSystem
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("lands runs under the configured runs-root", () =>
+    Effect.gen(function* () {
+      const fixture = makeDirtyRepo()
+      const customRunsRoot = join(fixture.home, "custom-runs")
+      writeSettings(fixture, {
+        "default-recipe": "fixture-recipe",
+        favorites: [],
+        "runs-root": customRunsRoot,
+      })
+
+      expect(yield* review(fixture).effect).toBe(0)
+
+      const fs = yield* FileSystem.FileSystem
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      expect(yield* fs.readDirectory(customRunsRoot)).toHaveLength(1)
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
@@ -789,7 +925,7 @@ describe("gauntlet review — single-lens tracer", () => {
       const [tally = ""] = stdout.split("\n")
       expect(tally).toContain("1 confirmed · 1 kept · 0 unverified · 0 undecided")
       expect(tally).toContain("working tree @")
-      expect(tally).toContain("recipe: none")
+      expect(tally).toContain("recipe: fixture-recipe")
       expect(tally).toMatch(/\$0\.15 · \d+s/)
       expect(stdout).toContain("- [P2] alpha.txt:2")
       expect(stdout).toContain(
@@ -868,6 +1004,11 @@ describe("gauntlet review — single-lens tracer", () => {
         join(fixture.content, "lenses", "fixture-review.md"),
         "changed lens content that must not be loaded\n",
       )
+      // Recipe edits never change a resumed run: the plan froze the resolved
+      // seats at submission (ADR 0005).
+      writeRecipe(fixture, "fixture-recipe", {
+        default: "fixture/edited-model:high",
+      })
       const resumed = resume(
         fixture,
         undefined,
@@ -878,6 +1019,9 @@ describe("gauntlet review — single-lens tracer", () => {
       const exitCode = yield* resumed.effect
       expect(exitCode).toBe(0)
       expect(resumed.scripted.configs).toHaveLength(2)
+      for (const config of resumed.scripted.configs) {
+        expect(config.seat).toBe(FIXTURE_SEAT)
+      }
 
       const dossierText = yield* fs.readFileString(join(runDir, "dossier.json"))
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(

@@ -4,9 +4,16 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Argument from "effect/unstable/cli/Argument"
 import * as Command from "effect/unstable/cli/Command"
 import * as Flag from "effect/unstable/cli/Flag"
+import {
+  renderAvailable,
+  resolveReviewRecipe,
+} from "../config/recipe-catalog.ts"
+import { resolveRunsRoot } from "../config/settings.ts"
 import { loadFinderLenses } from "../content/lens.ts"
+import { finderSeat, stageSeat } from "../domain/recipe.ts"
 import {
   candidateCapForLens,
   FrozenLens,
@@ -18,9 +25,9 @@ import {
   createRunDirectory,
   loadRunToResume,
   makeRunId,
-  resolveRunsRoot,
 } from "../run/run-record.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
+import { configCommand } from "./config.ts"
 
 // The directory the review was invoked from — ambient with a real default,
 // overridable in tests (which must not chdir).
@@ -33,19 +40,19 @@ export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
   readonly reason: string
 }> {}
 
-// Issue #24 owns recipes and configurable seats. This slice uses the same
-// near-zero-cost seat as the live gate so the implemented pipeline slices are
-// real without pre-implementing the recipe surface.
-const TRACER_SEAT = "openai-codex/gpt-5.6-luna:low"
-
 const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
 const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
+  recipeName: Option.Option<string>,
   selectedLensNames: ReadonlyArray<string> | undefined,
 ) {
   const startedAt = yield* DateTime.now
+  // Recipe selection fails before any Run exists (issue #24): positional
+  // recipe, otherwise the configured Default Recipe — nothing else.
+  const selected = yield* resolveReviewRecipe(recipeName)
+  yield* progress(`using recipe ${selected.name}`)
   yield* progress("resolving working-tree review target")
   const directory = yield* InvocationDirectory
   const target = yield* resolveWorkingTreeTarget(directory)
@@ -70,12 +77,15 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   const runsRoot = yield* resolveRunsRoot()
   const runId = yield* makeRunId()
   const paths = yield* createRunDirectory(runsRoot, runId)
+  // Each lens freezes its final recipe-resolved seat: the recipe maps the
+  // lens's finder class to a seat, and later recipe edits never change a
+  // resumed run (ADR 0004/0005).
   const frozenLenses = lenses.map((lens) =>
     FrozenLens.make({
       name: lens.name,
       promptText: lens.promptText,
       contentHash: lens.contentHash,
-      seat: lens.modelOverride ?? TRACER_SEAT,
+      seat: finderSeat(selected.recipe, lens.finderClass),
       needsSpec: lens.needsSpec,
       ...(lens.category === undefined
         ? {}
@@ -87,11 +97,13 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     runId,
     createdAt: DateTime.formatIso(startedAt),
     target,
+    recipeName: selected.name,
+    // Finder seats live on each frozen lens (a mixed standard/deep run has
+    // no single Finder seat); only the downstream stages are stage state.
     seats: {
-      finders: TRACER_SEAT,
-      pool: TRACER_SEAT,
-      verification: TRACER_SEAT,
-      judgment: TRACER_SEAT,
+      pool: stageSeat(selected.recipe, "pool"),
+      verification: stageSeat(selected.recipe, "verification"),
+      judgment: stageSeat(selected.recipe, "judgment"),
     },
     lenses: frozenLenses,
   })
@@ -123,6 +135,7 @@ const LATEST_RESUME_SENTINEL = "@latest"
 const executeReviewCommand = Effect.fn(
   "gauntlet.cli.execute_review_command",
 )(function* (
+  recipe: Option.Option<string>,
   lenses: Option.Option<string>,
   resume: Option.Option<string>,
 ) {
@@ -130,6 +143,11 @@ const executeReviewCommand = Effect.fn(
     if (Option.isSome(lenses)) {
       return yield* new ReviewCommandError({
         reason: "--lenses cannot be combined with --resume; the plan is frozen",
+      })
+    }
+    if (Option.isSome(recipe)) {
+      return yield* new ReviewCommandError({
+        reason: "a recipe cannot be combined with --resume; the plan is frozen",
       })
     }
     yield* resumeReview(
@@ -140,15 +158,24 @@ const executeReviewCommand = Effect.fn(
     return
   }
   if (Option.isNone(lenses)) {
-    yield* startReview(undefined)
+    yield* startReview(recipe, undefined)
     return
   }
-  yield* startReview(lenses.value.split(",").map((name) => name.trim()))
+  yield* startReview(
+    recipe,
+    lenses.value.split(",").map((name) => name.trim()),
+  )
 })
 
 const review = Command.make(
   "review",
   {
+    recipe: Argument.string("recipe").pipe(
+      Argument.optional,
+      Argument.withDescription(
+        "Named recipe from the catalog; omit to use the configured default-recipe",
+      ),
+    ),
     lenses: Flag.string("lenses").pipe(
       Flag.optional,
       Flag.withDescription("Run comma-separated named finder lenses"),
@@ -161,13 +188,14 @@ const review = Command.make(
       ),
     ),
   },
-  ({ lenses, resume }) => executeReviewCommand(lenses, resume),
+  ({ lenses, recipe, resume }) =>
+    executeReviewCommand(recipe, lenses, resume),
 ).pipe(
   Command.withDescription("Review the working tree's uncommitted changes"),
 )
 
 const gauntlet = Command.make("gauntlet").pipe(
-  Command.withSubcommands([review]),
+  Command.withSubcommands([review, configCommand]),
   Command.withDescription("Effect-native, Pi-harnessed code-review agent"),
 )
 
@@ -206,6 +234,18 @@ export const runGauntlet = (
         ),
       ReviewCommandError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
+      // Configuration failures render standalone: their reasons already name
+      // the file or recipe at fault, for review and config verbs alike.
+      SettingsError: (failure) =>
+        progress(`${failure.reason} (${failure.path})`).pipe(Effect.as(1)),
+      RecipeCatalogError: (failure) =>
+        progress(`${failure.reason} (${failure.path})`).pipe(Effect.as(1)),
+      RecipeSelectionError: (failure) =>
+        progress(
+          `could not review — ${failure.reason}${renderAvailable(failure.available)}`,
+        ).pipe(Effect.as(1)),
+      ConfigCommandError: (failure) =>
+        progress(`could not configure — ${failure.reason}`).pipe(Effect.as(1)),
       RunError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       InvocationJournalReadError: (failure) =>

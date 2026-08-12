@@ -9,9 +9,11 @@ and lens files, no plumbing. The companion specifications live in
 
 - `lenses/` — the shipped built-in lenses, in the ADR 0004 format: name from
   the filename, body is the prompt tail, frontmatter limited to an optional
-  model override, an optional `needs-spec: true` flag (skip-if-absent), and
-  an optional display-only `category` tag (groups listings and report
-  headers; never read by routing — a candidate routes by its own type).
+  `finder-class: deep` declaration (the selected recipe maps the class to a
+  seat; a lens never names a model), an optional `needs-spec: true` flag
+  (skip-if-absent), and an optional display-only `category` tag (groups
+  listings and report headers; never read by routing — a candidate routes by
+  its own type).
   Project-local lenses in `.gauntlet/lenses/` use the identical format.
 - `prompts/` — finder system prompt, and templates for the shared finder
   block, the stage scope block, and the Pool / verifier prompts.

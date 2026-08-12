@@ -33,7 +33,7 @@ describe("lens content", () => {
         const fs = yield* FileSystem.FileSystem
         const source = [
           "---",
-          "model: acme/fixture-model:low",
+          "finder-class: deep",
           "needs-spec: true",
           "category: fixture-category",
           "---",
@@ -46,12 +46,12 @@ describe("lens content", () => {
         expect(lens).toMatchObject({
           name: "fixture-lens",
           promptText: "fixture prompt body",
-          modelOverride: "acme/fixture-model:low",
+          finderClass: "deep",
           needsSpec: true,
           category: "fixture-category",
         })
         expect(lens.contentHash).toBe(
-          "bd681019abb8bcfedc0f475036bc0448f49513f21176af3733d39691e518d15c",
+          "f90519a5ed6e6a1880bdabd838a82754540b797cd8c9160bbf733914dc716edc",
         )
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
@@ -69,6 +69,29 @@ describe("lens content", () => {
         )
         expect(failure._tag).toBe("ContentLoadError")
         expect(failure.reason).toContain("not admitted: routing")
+
+        // A concrete lens seat is no longer lens anatomy (ADR 0004): the
+        // recipe maps finder classes to seats.
+        yield* fs.writeFileString(
+          `${directory}/fixture-lens.md`,
+          "---\nmodel: acme/fixture-model:low\n---\nfixture body\n",
+        )
+        const modelFailure = yield* loadLens(directory, "fixture-lens").pipe(
+          Effect.flip,
+        )
+        expect(modelFailure.reason).toContain("not admitted: model")
+
+        // Standard is represented by omission; only `deep` may be declared.
+        yield* fs.writeFileString(
+          `${directory}/fixture-lens.md`,
+          "---\nfinder-class: standard\n---\nfixture body\n",
+        )
+        const classFailure = yield* loadLens(directory, "fixture-lens").pipe(
+          Effect.flip,
+        )
+        expect(classFailure.reason).toContain(
+          "does not match the lens format",
+        )
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
 
@@ -79,6 +102,7 @@ describe("lens content", () => {
         const lensPath = `${directory}/fixture-lens.md`
         yield* fs.writeFileString(lensPath, "fixture prompt v1\n")
         const loaded = yield* loadLens(directory, "fixture-lens")
+        expect(loaded.finderClass).toBe("standard")
         const frozen = FrozenLens.make({
           name: loaded.name,
           promptText: loaded.promptText,
