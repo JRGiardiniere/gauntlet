@@ -1,4 +1,6 @@
 import * as Schema from "effect/Schema"
+import * as SchemaTransformation from "effect/SchemaTransformation"
+import * as String from "effect/String"
 import { Severity } from "../domain/verdict.ts"
 
 // One immutable contract drives the model-facing tool schema and every
@@ -27,6 +29,22 @@ const defineOutputContract = <O>(
 const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description })
 
+const canonicalizeInlineText = (value: string): string =>
+  String.trim(String.replace(/\r\n?|\n/g, " ")(value))
+
+// Model-authored text used by the line-oriented stage prompts is normalized at
+// the OutputContract seam so capture, persistence, and every consumer agree.
+const inlineText = (description: string) =>
+  described(Schema.NonEmptyString, description).pipe(
+    Schema.decodeTo(
+      Schema.NonEmptyString,
+      SchemaTransformation.transform({
+        decode: canonicalizeInlineText,
+        encode: canonicalizeInlineText,
+      }),
+    ),
+  )
+
 const oneIndexedInteger = described(
   Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
   "1-indexed line in the new version of the file. Omit only when the finding is about the change as a whole rather than a location.",
@@ -35,18 +53,15 @@ const oneIndexedInteger = described(
 export const FindingsOutput = Schema.Struct({
   findings: Schema.Array(
     Schema.Struct({
-      file: described(
-        Schema.NonEmptyString,
+      file: inlineText(
         "Path of the file the finding is in, as it appears in the changed-file list.",
       ),
       line: Schema.optionalKey(oneIndexedInteger),
-      summary: described(
-        Schema.NonEmptyString,
+      summary: inlineText(
         "One sentence stating the defect or issue.",
       ),
       failure_scenario: Schema.optionalKey(
-        described(
-          Schema.NonEmptyString,
+        inlineText(
           "Concrete inputs or state that produce the wrong behaviour. Required for any claim a reviewer could refute; omit only for judgment calls with no refutable fact.",
         ),
       ),
@@ -64,6 +79,10 @@ export const EmitFindings = defineOutputContract(
 
 const candidateIndex = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))
 
+const oneLine = Schema.NonEmptyString.check(
+  Schema.isPattern(/^(?![\s\S]*[\r\n])[\s\S]+$/),
+)
+
 export const PoolOutput = Schema.Struct({
   clusters: Schema.Array(
     Schema.Struct({
@@ -71,8 +90,7 @@ export const PoolOutput = Schema.Struct({
         Schema.NonEmptyArray(candidateIndex),
         "Candidate indexes in this cluster (1+ members).",
       ),
-      summary: described(
-        Schema.NonEmptyString,
+      summary: inlineText(
         "Canonical one-sentence statement of the defect.",
       ),
     }),
@@ -92,7 +110,7 @@ const verdictCore = {
     "The [cN] label of the cluster.",
   ),
   evidence: described(
-    Schema.NonEmptyString,
+    oneLine,
     "One line: the inputs/state and wrong output, or the line that refutes it.",
   ),
 }

@@ -1,14 +1,14 @@
 import * as Array from "effect/Array"
-import * as Option from "effect/Option"
 import type { AgentOutcome } from "../domain/agent-outcome.ts"
-import { Termination } from "../domain/agent-outcome.ts"
-import { Candidate } from "../domain/candidate.ts"
-import { Dossier } from "../domain/dossier.ts"
-import { Judgment } from "../domain/judgment.ts"
+import {
+  type BugClaim,
+  Candidate,
+  type Observation,
+} from "../domain/candidate.ts"
+import type { CoverageGap } from "../domain/dossier.ts"
 import type { FrozenLens } from "../domain/review-plan.ts"
-import type { TargetIdentity } from "../domain/review-target.ts"
-import { Verdict } from "../domain/verdict.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
+import { describeMissingOutput } from "./outcome.ts"
 
 export interface FinderResult {
   readonly lens: FrozenLens
@@ -33,48 +33,27 @@ export const enforceCandidateCap = (
   }
 }
 
-const missingOutputReason = (
-  outcome: AgentOutcome<FindingsOutput>,
-): string => {
-  const timeoutDiagnostic = Array.findLast(
-    outcome.diagnostics,
-    (diagnostic) =>
-      diagnostic.startsWith("session construction exceeded ") ||
-      diagnostic.startsWith("first response exceeded "),
-  )
-  return Termination.match(outcome.termination, {
-    Completed: () => "finder completed without a decodable emit",
-    MissingEmit: ({ correctiveTurns }) =>
-      `finder emitted nothing after ${String(correctiveTurns)} corrective turns`,
-    FirstResponseTimeout: () =>
-      Option.getOrElse(
-        timeoutDiagnostic,
-        () => "finder produced no first response",
-      ),
-    BudgetExhausted: () => "finder exhausted its invocation deadline",
-    ContextLimit: () => "finder reached its context limit",
-    ProviderFailed: () => "finder provider failed",
-    Interrupted: () => "finder was interrupted",
-  })
+export interface RoutedFinderResults {
+  readonly bugClaims: ReadonlyArray<BugClaim>
+  readonly observations: ReadonlyArray<Observation>
+  readonly coverageGaps: ReadonlyArray<CoverageGap>
 }
 
-// Finder-only Assembly preserves every retained Candidate as unverified or
-// undecided until issues #22 and #23 add the downstream evaluation paths.
-export const assembleFinderDossier = (
-  runId: string,
-  target: TargetIdentity,
+// Finders only produce and route Candidates. Verdicts, Judgments, and the
+// canonical Dossier belong to their downstream stages and final Assembly.
+export const routeFinderResults = (
   results: ReadonlyArray<FinderResult>,
-): Dossier => {
-  const bugClaims: Array<Dossier["bugClaims"][number]> = []
-  const observations: Array<Dossier["observations"][number]> = []
-  const coverageGaps: Array<Dossier["coverageGaps"][number]> = []
+): RoutedFinderResults => {
+  const bugClaims: Array<BugClaim> = []
+  const observations: Array<Observation> = []
+  const coverageGaps: Array<CoverageGap> = []
 
   for (const { lens, outcome } of results) {
     if (outcome.output === undefined) {
       coverageGaps.push({
         stage: "finders",
         lens: lens.name,
-        reason: missingOutputReason(outcome),
+        reason: describeMissingOutput("finder", outcome),
       })
       continue
     }
@@ -88,27 +67,15 @@ export const assembleFinderDossier = (
         summary: finding.summary,
       }
       if (finding.failure_scenario === undefined) {
-        observations.push({
-          candidate: Candidate.cases.Observation.make(core),
-          judgment: Judgment.cases.Undecided.make({}),
-        })
+        observations.push(Candidate.cases.Observation.make(core))
       } else {
-        bugClaims.push({
-          candidate: Candidate.cases.BugClaim.make({
-            ...core,
-            failureScenario: finding.failure_scenario,
-          }),
-          verdict: Verdict.cases.Unverified.make({}),
-        })
+        bugClaims.push(Candidate.cases.BugClaim.make({
+          ...core,
+          failureScenario: finding.failure_scenario,
+        }))
       }
     }
   }
 
-  return Dossier.make({
-    runId,
-    target,
-    bugClaims,
-    observations,
-    coverageGaps,
-  })
+  return { bugClaims, observations, coverageGaps }
 }

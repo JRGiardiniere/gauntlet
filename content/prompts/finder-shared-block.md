@@ -9,11 +9,7 @@ Repo root: {{REPO_ROOT}}
 Changed files:
 {{CHANGED_FILES}}
 
-## Diff
-
-```diff
-{{DIFF}}
-```
+{{DIFF_SECTION}}
 
 ## How to work
 
@@ -26,6 +22,8 @@ convention docs. Reading those is real work that cannot be pre-supplied, so:
 - Use `bash` to test a hypothesis when you can — typecheck, run the relevant
   test, check a value. A claim you have actually exercised is worth several you
   have only reasoned about.
+- Treat the repository as read-only. Do not edit files or run commands intended
+  to modify the working tree; the shell is not sandboxed in v1.
 - Do not re-derive anything already given above. The diff, the file list, and
   the repo root are settled facts.
 

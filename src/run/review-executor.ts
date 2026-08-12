@@ -7,11 +7,10 @@ import * as HashMap from "effect/HashMap"
 import * as Logger from "effect/Logger"
 import * as Record from "effect/Record"
 import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
 import {
-  assembleFinderDossier,
   enforceCandidateCap,
   type FinderResult,
+  routeFinderResults,
 } from "../assembly/finders.ts"
 import {
   assembleFinderPrompt,
@@ -19,31 +18,25 @@ import {
   loadFinderPromptTemplates,
 } from "../content/finder-prompt.ts"
 import { Dossier } from "../domain/dossier.ts"
+import { Judgment } from "../domain/judgment.ts"
 import { modelIdentityOfSeat } from "../domain/recipe.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import {
-  ReviewTarget,
   targetIdentityOf,
 } from "../domain/review-target.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
 import { renderDigest } from "../render/digest.ts"
 import { renderReport } from "../render/report.ts"
-import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
+import { executeBugClaimPath } from "./bug-claim-path.ts"
 import {
   executeJournaledInvocation,
   finderInvocationsInPlan,
 } from "./invocation-journal.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
-
-const TRACER_DEADLINES = {
-  overallMillis: 600_000,
-  startupMillis: 60_000,
-  firstResponseMillis: 300_000,
-  toolMillis: 120_000,
-  bashMillis: 600_000,
-} as const
+import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
+import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
 
 // Pi uses the shared session id as its provider cache partition. Each model
 // group completes one real finder before its siblings fan out, then gives the
@@ -53,24 +46,6 @@ const CACHE_SETTLE_MILLIS = 1_500
 const progress = Effect.fn("gauntlet.run_executor.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
-
-const reviewTargetEquivalence = Schema.toEquivalence(ReviewTarget)
-
-// Only missing invocations require the working tree frozen into the plan.
-const ensureWorkingTreeUnchanged = Effect.fn(
-  "gauntlet.run_executor.ensure_working_tree_unchanged",
-)(function* (plan: ReviewPlan) {
-  if (plan.target._tag !== "WorkingTree") return
-  const current = yield* resolveWorkingTreeTarget(plan.target.repoRoot)
-  if (reviewTargetEquivalence(plan.target, current)) return
-  return yield* new RunError({
-    operation: "execute-plan",
-    runId: plan.runId,
-    reason:
-      `working tree changed after run ${plan.runId} froze its review target; ` +
-      "start a new review instead of paying an invocation against mixed scope",
-  })
-})
 
 export interface ReviewExecution {
   readonly plan: ReviewPlan
@@ -119,7 +94,7 @@ export const executeReviewPlan = Effect.fn(
                 sessionId,
                 contract: EmitFindings,
                 tools: FINDER_TOOLS,
-                deadlines: TRACER_DEADLINES,
+                deadlines: REVIEW_INVOCATION_DEADLINES,
               })
               return enforceCandidateCap(invocation.lens, outcome)
             }),
@@ -226,11 +201,25 @@ export const executeReviewPlan = Effect.fn(
           })
         }
 
-        const dossier = assembleFinderDossier(
-          plan.runId,
-          targetIdentityOf(plan.target),
-          results,
-        )
+        const routed = routeFinderResults(results)
+        const bugClaimPath = yield* executeBugClaimPath({
+          plan,
+          paths,
+          bugClaims: routed.bugClaims,
+        })
+        const dossier = Dossier.make({
+          runId: plan.runId,
+          target: targetIdentityOf(plan.target),
+          bugClaims: bugClaimPath.bugClaims,
+          observations: Array.map(routed.observations, (candidate) => ({
+            candidate,
+            judgment: Judgment.cases.Undecided.make({}),
+          })),
+          coverageGaps: [
+            ...routed.coverageGaps,
+            ...bugClaimPath.coverageGaps,
+          ],
+        })
         yield* progress("assembling dossier")
         yield* writeArtifactJson(paths.dossier, Dossier, dossier)
 
@@ -240,8 +229,8 @@ export const executeReviewPlan = Effect.fn(
           costUsd: results.reduce(
             (total, result) => total + result.outcome.usage.costUsd,
             0,
-          ),
-          invocationCount: invocations.length,
+          ) + bugClaimPath.costUsd,
+          invocationCount: invocations.length + bugClaimPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
         }
         const report = renderReport(plan, dossier, accounting)

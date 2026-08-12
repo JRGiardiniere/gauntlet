@@ -116,8 +116,10 @@ export interface SessionConfig {
   // group.
   readonly sessionId?: string
   readonly emitTool: EmitToolSpec
-  // The complete non-emit capability set. v1 is read-only: `read` and `bash`
-  // are recreated as custom Pi tools so their deadlines are caller-owned.
+  // The complete non-emit capability set. v1 starts unrestricted `bash` at
+  // `cwd`; prompts tell agents not to mutate the repository, but enforcing
+  // that boundary requires the later sandboxing project. These are recreated
+  // as custom Pi tools so their deadlines remain caller-owned.
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly toolTimeoutMillis: number
   readonly bashTimeoutMillis: number
