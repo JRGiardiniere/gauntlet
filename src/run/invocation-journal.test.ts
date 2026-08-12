@@ -2,10 +2,8 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import { mkdtempSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { type AgentOutcome, Termination } from "../domain/agent-outcome.ts"
 import { type PoolOutput as PoolOutputType, PoolOutput } from "../harness/output-contract.ts"
 import {
@@ -34,9 +32,11 @@ const POOL_OUTCOME: AgentOutcome<PoolOutputType> = {
 describe("executeJournaledInvocation", () => {
   it.effect("journals a non-finder output schema and replays without re-paying", () =>
     Effect.gen(function* () {
-      const journalDirectory = mkdtempSync(
-        join(tmpdir(), "gauntlet-journal-test-"),
-      )
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const journalDirectory = yield* fs.makeTempDirectoryScoped({
+        prefix: "gauntlet-journal-test-",
+      })
       let paid = 0
       const run = executeJournaledInvocation({
         journalDirectory,
@@ -58,14 +58,13 @@ describe("executeJournaledInvocation", () => {
       expect(replay.outcome.output).toEqual(POOL_OUTCOME.output)
       expect(paid).toBe(1)
 
-      const fs = yield* FileSystem.FileSystem
       const text = yield* fs.readFileString(
-        join(journalDirectory, "pool%2Fstage.json"),
+        path.join(journalDirectory, "pool%2Fstage.json"),
       )
       const stored = yield* Schema.decodeEffect(
         Schema.fromJsonString(InvocationArtifact(PoolOutput)),
       )(text)
       expect(stored.runId).toBe("run-a")
       expect(stored.outcome.termination._tag).toBe("Completed")
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
