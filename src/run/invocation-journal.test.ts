@@ -11,8 +11,6 @@ import {
   InvocationArtifact,
 } from "./invocation-journal.ts"
 
-// CLI-seam tests own replay/corrupt/foreign behavior for the finder stage;
-// this proves only that the primitive is parameterized by stage output schema.
 const POOL_OUTCOME: AgentOutcome<PoolOutputType> = {
   termination: Termination.cases.Completed.make({}),
   output: { clusters: [{ indexes: [1], summary: "one cluster" }] },
@@ -29,6 +27,19 @@ const POOL_OUTCOME: AgentOutcome<PoolOutputType> = {
   diagnostics: [],
 }
 
+const journaled = (
+  journalDirectory: string,
+  runId: string,
+  execute: Effect.Effect<AgentOutcome<PoolOutputType>>,
+) =>
+  executeJournaledInvocation({
+    journalDirectory,
+    runId,
+    invocationKey: "pool/stage",
+    output: PoolOutput,
+    execute,
+  })
+
 describe("executeJournaledInvocation", () => {
   it.effect("journals a non-finder output schema and replays without re-paying", () =>
     Effect.gen(function* () {
@@ -38,16 +49,14 @@ describe("executeJournaledInvocation", () => {
         prefix: "gauntlet-journal-test-",
       })
       let paid = 0
-      const run = executeJournaledInvocation({
+      const run = journaled(
         journalDirectory,
-        runId: "run-a",
-        invocationKey: "pool/stage",
-        output: PoolOutput,
-        execute: Effect.sync(() => {
+        "run-a",
+        Effect.sync(() => {
           paid += 1
           return POOL_OUTCOME
         }),
-      })
+      )
 
       const first = yield* run
       expect(first.reused).toBe(false)
@@ -66,5 +75,78 @@ describe("executeJournaledInvocation", () => {
       )(text)
       expect(stored.runId).toBe("run-a")
       expect(stored.outcome.termination._tag).toBe("Completed")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("re-invokes corrupt journal files instead of adopting them", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const journalDirectory = yield* fs.makeTempDirectoryScoped({
+        prefix: "gauntlet-journal-corrupt-",
+      })
+      const artifactPath = path.join(journalDirectory, "pool%2Fstage.json")
+      yield* fs.writeFileString(artifactPath, "{not valid json\n")
+
+      let paid = 0
+      const result = yield* journaled(
+        journalDirectory,
+        "run-a",
+        Effect.sync(() => {
+          paid += 1
+          return POOL_OUTCOME
+        }),
+      )
+
+      expect(result.reused).toBe(false)
+      expect(paid).toBe(1)
+      const stored = yield* Schema.decodeEffect(
+        Schema.fromJsonString(InvocationArtifact(PoolOutput)),
+      )(yield* fs.readFileString(artifactPath))
+      expect(stored.runId).toBe("run-a")
+      expect(stored.outcome.output).toEqual(POOL_OUTCOME.output)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("re-invokes foreign journal files instead of adopting them", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const journalDirectory = yield* fs.makeTempDirectoryScoped({
+        prefix: "gauntlet-journal-foreign-",
+      })
+      const artifactPath = path.join(journalDirectory, "pool%2Fstage.json")
+      const foreign = yield* Schema.encodeEffect(
+        Schema.fromJsonString(InvocationArtifact(PoolOutput)),
+      )({
+        runId: "foreign-run",
+        invocationKey: "pool/stage",
+        outcome: POOL_OUTCOME,
+      })
+      yield* fs.writeFileString(artifactPath, `${foreign}\n`)
+
+      let paid = 0
+      const result = yield* journaled(
+        journalDirectory,
+        "run-a",
+        Effect.sync(() => {
+          paid += 1
+          return {
+            ...POOL_OUTCOME,
+            output: { clusters: [{ indexes: [2], summary: "repaid" }] },
+          }
+        }),
+      )
+
+      expect(result.reused).toBe(false)
+      expect(paid).toBe(1)
+      expect(result.outcome.output).toEqual({
+        clusters: [{ indexes: [2], summary: "repaid" }],
+      })
+      const stored = yield* Schema.decodeEffect(
+        Schema.fromJsonString(InvocationArtifact(PoolOutput)),
+      )(yield* fs.readFileString(artifactPath))
+      expect(stored.runId).toBe("run-a")
+      expect(stored.outcome.output).toEqual({
+        clusters: [{ indexes: [2], summary: "repaid" }],
+      })
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
