@@ -98,10 +98,6 @@ const makeFixture = (): Fixture => {
     "verify claims\n{{SCOPE_BLOCK}}\n{{CLAIMS}}\n",
   )
   writeFileSync(
-    join(content, "prompts", "judge.md"),
-    "judge observations\n{{SCOPE_BLOCK}}\n{{CANDIDATES}}\n",
-  )
-  writeFileSync(
     join(content, "prompts", "stage-scope-block.md"),
     "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{DIFF_SECTION}}\nintent={{INTENT_SECTION}}\n",
   )
@@ -206,34 +202,6 @@ const droppingJudgmentSession = (count: number): ScriptedSession =>
       reason: "fixture decision: no nameable payer",
     })),
   }, "-judgment")
-
-const rejectedJudgmentSession = (): ScriptedSession => {
-  const prompt = {
-    events: [
-      { afterMillis: 0, kind: "message_start" as const },
-      {
-        afterMillis: 0,
-        kind: "emit" as const,
-        args: {
-          decisions: [{
-            index: 1,
-            decision: "keep",
-            reason: "missing the required keep fields",
-          }],
-        },
-        valid: false,
-      },
-      {
-        afterMillis: 0,
-        kind: "message_end" as const,
-        stopReason: "toolUse" as const,
-        usage: usageRow(),
-      },
-    ],
-    settles: "after-events" as const,
-  }
-  return { forSession: "-judgment", prompts: [prompt, prompt, prompt] }
-}
 
 // Concurrent sessions interleave their prompt calls, so prompts are asserted
 // by the session id they were recorded against, never by global order.
@@ -396,11 +364,6 @@ describe("gauntlet review — single-lens tracer", () => {
       const [verifierPrompt] = promptTextsFor(run.scripted, "-verification")
       expect(verifierPrompt).toContain("### [c1]")
       expect(verifierPrompt).toContain("claimed failure:")
-      const [judgmentPrompt] = promptTextsFor(run.scripted, "-judgment")
-      expect(judgmentPrompt).toContain("judge observations")
-      expect(judgmentPrompt).toContain(
-        "[1] (fixture-review) alpha.txt — the name hides the value's role",
-      )
 
       const runLog = yield* fs.readFileString(join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
@@ -567,38 +530,6 @@ describe("gauntlet review — single-lens tracer", () => {
             "verification bundle 1 did not report every cluster exactly once",
         },
       ])
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.effect("keeps an off-spec Judgment visible as undecided at the CLI seam", () =>
-    Effect.gen(function* () {
-      const fixture = makeDirtyRepo()
-      const scripted = makeScripted({
-        sessions: [
-          successfulSession(),
-          successfulVerifierSession(),
-          rejectedJudgmentSession(),
-        ],
-      })
-
-      expect(yield* review(fixture, scripted).effect).toBe(0)
-
-      const fs = yield* FileSystem.FileSystem
-      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-      const runDir = join(fixture.runsRoot, runId)
-      const dossier = yield* fs.readFileString(join(runDir, "dossier.json")).pipe(
-        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
-      )
-      expect(dossier.observations[0]?.judgment._tag).toBe("Undecided")
-      expect(dossier.coverageGaps).toContainEqual({
-        stage: "judgment",
-        reason: "judgment emitted nothing after 2 corrective turns",
-      })
-
-      const report = yield* fs.readFileString(join(runDir, "report.md"))
-      expect(report).toContain("`[undecided]` alpha.txt")
-      expect(report).toContain("3 invocations")
-      expect((yield* fs.readDirectory(join(runDir, "journal"))).sort())
-        .toContain("judgment.json")
     }).pipe(Effect.provide(NodeServices.layer)))
 
   it.effect("loads the full shipped and project-local catalog, skips needs-spec lenses, and groups mixed seats", () =>

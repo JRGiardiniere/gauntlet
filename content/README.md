@@ -14,9 +14,12 @@ and lens files, no plumbing. The companion specifications live in
   headers; never read by routing — a candidate routes by its own type).
   Project-local lenses in `.gauntlet/lenses/` use the identical format.
 - `prompts/` — finder system prompt, and templates for the shared finder
-  block, the stage scope block, and the Pool / verifier / judge prompts.
+  block, the stage scope block, and the Pool / verifier prompts.
   `{{PLACEHOLDER}}` slots are filled at prompt-assembly time. Template files
   are pure prompt text — usage notes live here and in the specs, never inline.
+  A Stage module may instead own its main template next to the code that
+  assembles it (the judge prompt lives at `src/stages/judgment/judge.md`);
+  the slot format is identical.
 
 ## Template slots
 
@@ -32,7 +35,7 @@ and lens files, no plumbing. The companion specifications live in
   "(No PR description or spec was supplied — judge the change on its own
   terms, and do not assume intent you cannot see.)" and the proportionality
   sentence is kept.
-- `pool.md` / `judge.md`: `{{CANDIDATES}}` in the candidate line format
+- `pool.md` / the judge prompt: `{{CANDIDATES}}` in the candidate line format
   (`docs/spec/pipeline-shape.md`). `verifier.md`: `{{SCOPE_BLOCK}}` and
   `{{CLAIMS}}` ([cN]-labelled clusters with member lines).
 

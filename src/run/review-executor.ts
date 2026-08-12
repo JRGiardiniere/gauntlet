@@ -31,9 +31,9 @@ import {
   executeJournaledInvocation,
   finderInvocationsInPlan,
 } from "./invocation-journal.ts"
+import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
-import { executeJudgmentPath } from "./judgment-path.ts"
 import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
 
 // Pi uses the shared session id as its provider cache partition. Each model
@@ -208,7 +208,7 @@ export const executeReviewPlan = Effect.fn(
               paths,
               bugClaims: routed.bugClaims,
             }),
-            executeJudgmentPath({
+            executeJudgment({
               plan,
               paths,
               observations: routed.observations,

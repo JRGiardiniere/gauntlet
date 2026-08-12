@@ -1,24 +1,25 @@
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
-import { indexObservations, resolveJudgment } from "../assembly/judgment.ts"
-import { describeMissingOutput } from "../assembly/outcome.ts"
+import { describeMissingOutput } from "../../assembly/outcome.ts"
+import { EVALUATION_SYSTEM_PROMPT } from "../../content/evaluation-prompt.ts"
+import type { Observation } from "../../domain/candidate.ts"
+import type { Dossier } from "../../domain/dossier.ts"
+import type { ReviewPlan } from "../../domain/review-plan.ts"
+import { invoke } from "../../harness/invoke.ts"
+import { executeJournaledInvocation } from "../../run/invocation-journal.ts"
+import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
+import type { RunPaths } from "../../run/run-record.ts"
+import { ensureWorkingTreeUnchanged } from "../../run/target-consistency.ts"
+import { EmitJudgments } from "./output-contract.ts"
 import {
   assembleJudgmentPrompt,
-  EVALUATION_SYSTEM_PROMPT,
-  JUDGMENT_TOOLS,
   loadJudgmentPromptTemplates,
-} from "../content/evaluation-prompt.ts"
-import type { Observation } from "../domain/candidate.ts"
-import type { Dossier } from "../domain/dossier.ts"
-import type { ReviewPlan } from "../domain/review-plan.ts"
-import { invoke } from "../harness/invoke.ts"
-import { EmitJudgments } from "../harness/output-contract.ts"
-import { executeJournaledInvocation } from "./invocation-journal.ts"
-import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
-import type { RunPaths } from "./run-record.ts"
-import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
+} from "./prompt.ts"
+import { indexObservations, resolveJudgment } from "./resolution.ts"
 
-const progress = Effect.fn("gauntlet.judgment_path.progress")((text: string) =>
+export const JUDGMENT_TOOLS = ["read", "bash"] as const
+
+const progress = Effect.fn("gauntlet.judgment.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
@@ -27,22 +28,24 @@ const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
     ? undefined
     : `judgment output required repair: ${notes.join("; ")}`
 
-export interface JudgmentPathExecution {
+export interface JudgmentExecution {
   readonly plan: ReviewPlan
   readonly paths: RunPaths
   readonly observations: ReadonlyArray<Observation>
 }
 
-export interface JudgmentPathResult {
+export interface JudgmentResult {
   readonly observations: Dossier["observations"]
   readonly coverageGaps: Dossier["coverageGaps"]
   readonly costUsd: number
   readonly invocationCount: number
 }
 
-export const executeJudgmentPath = Effect.fn(
-  "gauntlet.judgment_path.execute",
-)(function* ({ observations, paths, plan }: JudgmentPathExecution) {
+// The Run learns Judgment only through this interface: prompt, contract,
+// resolution, and repair semantics all live behind it.
+export const executeJudgment = Effect.fn(
+  "gauntlet.judgment.execute",
+)(function* ({ observations, paths, plan }: JudgmentExecution) {
   const indexed = indexObservations(observations)
   if (indexed.length === 0) {
     return {
@@ -50,7 +53,7 @@ export const executeJudgmentPath = Effect.fn(
       coverageGaps: [],
       costUsd: 0,
       invocationCount: 0,
-    } satisfies JudgmentPathResult
+    } satisfies JudgmentResult
   }
 
   const seat = plan.seats.judgment
@@ -65,7 +68,7 @@ export const executeJudgmentPath = Effect.fn(
       }],
       costUsd: 0,
       invocationCount: 0,
-    } satisfies JudgmentPathResult
+    } satisfies JudgmentResult
   }
 
   const journaled = yield* executeJournaledInvocation({
@@ -108,5 +111,5 @@ export const executeJudgmentPath = Effect.fn(
       : [{ stage: "judgment", reason }],
     costUsd: journaled.outcome.usage.costUsd,
     invocationCount: 1,
-  } satisfies JudgmentPathResult
+  } satisfies JudgmentResult
 })
