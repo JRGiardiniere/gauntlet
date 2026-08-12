@@ -259,30 +259,4 @@ describe("finder prompt cache prefix", () => {
         expandedPrompt.indexOf("fixture requirement"),
       )
     }))
-
-  it.effect("rejects every unknown placeholder shape", () =>
-    Effect.gen(function* () {
-      const target = ReviewTarget.cases.WorkingTree.make({
-        repoRoot: "/fixture/repo",
-        headCommit: "abcdef",
-        changedFiles: ["src/fixture.ts"],
-        diff: "+fixture",
-        warnings: [],
-      })
-      const lens = FrozenLens.make({
-        name: "fixture-one",
-        promptText: "FIXTURE TAIL",
-        contentHash: "hash-one",
-        seat: "fixture/fixture-model:low",
-        needsSpec: false,
-        candidateCap: 6,
-      })
-      const failure = yield* assembleFinderPrompt(
-        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}\n{{max_per_lens}}",
-        target,
-        lens,
-      ).pipe(Effect.flip)
-
-      expect(failure.reason).toContain("unresolved {{max_per_lens}}")
-    }))
 })

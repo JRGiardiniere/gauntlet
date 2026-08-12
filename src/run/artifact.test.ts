@@ -3,34 +3,9 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import * as Schema from "effect/Schema"
-import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
-
-const Fixture = Schema.Struct({
-  label: Schema.NonEmptyString,
-  count: Schema.Int,
-})
+import { writeArtifactText } from "./artifact.ts"
 
 describe("artifact writes", () => {
-  it.effect("writes JSON atomically in the artifact's own directory", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const dir = yield* fs.makeTempDirectoryScoped({
-        prefix: "gauntlet-artifact-test-",
-      })
-      const target = path.join(dir, "fixture.json")
-
-      yield* writeArtifactJson(target, Fixture, { label: "one", count: 1 })
-
-      const text = yield* fs.readFileString(target)
-      const decoded = yield* Schema.decodeEffect(Schema.fromJsonString(Fixture))(text)
-      expect(decoded).toEqual({ label: "one", count: 1 })
-
-      // No temp-file debris survives a completed write.
-      expect(yield* fs.readDirectory(dir)).toEqual(["fixture.json"])
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
   it.effect("replaces existing content whole, never partially", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem

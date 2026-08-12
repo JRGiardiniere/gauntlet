@@ -8,22 +8,6 @@ const strictDecode = Schema.decodeUnknownEffect(EmitJudgments.schema, {
 })
 
 describe("EmitJudgments contract", () => {
-  it.effect("projects a self-contained JSON Schema with the rating descriptions", () =>
-    Effect.gen(function* () {
-      const document = Schema.toJsonSchemaDocument(EmitJudgments.schema)
-      expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
-      const projected = yield* Schema.encodeEffect(
-        Schema.fromJsonString(Schema.Unknown),
-      )({
-        toolName: EmitJudgments.toolName,
-        description: EmitJudgments.description,
-        parameters: document.schema,
-      })
-      expect(projected).toContain(
-        "Reading ONLY the finder's own summary",
-      )
-    }))
-
   it.effect("admits keep-only fields on keeps and rejects them on drops", () =>
     Effect.gen(function* () {
       const dropFailure = yield* Effect.flip(

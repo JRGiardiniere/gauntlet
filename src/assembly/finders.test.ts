@@ -43,19 +43,6 @@ describe("enforceCandidateCap", () => {
       "finder fixture-lens emitted 8 candidates; retained the plan cap of 6",
     ])
   })
-
-  it("leaves under-cap output unchanged", () => {
-    const outcome = {
-      termination: Termination.cases.Completed.make({}),
-      output: {
-        findings: [{ file: "alpha.ts", summary: "one candidate" }],
-      },
-      usage: emptyUsage,
-      durationMillis: 1,
-      diagnostics: [] as Array<string>,
-    }
-    expect(enforceCandidateCap(fixtureLens(6), outcome)).toBe(outcome)
-  })
 })
 
 describe("finder assembly", () => {

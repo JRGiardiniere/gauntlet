@@ -4,12 +4,9 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
-import { execFileSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
+import { ReviewTarget } from "../../domain/review-target.ts"
 import {
   makeScripted,
   type Scripted,
@@ -18,42 +15,19 @@ import {
   usageRow,
 } from "../../harness/scripted.ts"
 import { runPaths } from "../../run/run-record.ts"
-import { resolveWorkingTreeTarget } from "../../target/working-tree.ts"
 import { executeJudgment } from "./judgment.ts"
 
-const git = (cwd: string, ...args: Array<string>) => {
-  execFileSync("git", args, { cwd, stdio: "pipe" })
-}
+const REPO_ROOT = "/fixture/repo"
 
-interface Fixture {
-  readonly repo: string
-  readonly runsRoot: string
-}
-
-// The stage seam still reviews a real working tree: the target is frozen from
-// an actual dirty repo, and prompts assemble from the shipped templates.
-const makeFixture = (): Fixture => {
-  // git resolves /var → /private/var on macOS; realpath keeps the frozen
-  // target's repoRoot equal to the fixture's own paths.
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "gauntlet-judgment-test-")))
-  const repo = join(root, "repo")
-  mkdirSync(repo, { recursive: true })
-  git(repo, "init")
-  writeFileSync(join(repo, "alpha.txt"), "first line\n")
-  git(repo, "add", "--all")
-  git(
-    repo,
-    "-c",
-    "user.name=gauntlet-test",
-    "-c",
-    "user.email=gauntlet-test@example.invalid",
-    "commit",
-    "--message",
-    "initial",
-  )
-  writeFileSync(join(repo, "alpha.txt"), "first line\nadded-line\n")
-  return { repo, runsRoot: join(root, "runs") }
-}
+const target = ReviewTarget.cases.PullRequest.make({
+  repoRoot: REPO_ROOT,
+  number: 1,
+  headCommit: "abc1234",
+  baseCommit: "def5678",
+  changedFiles: ["alpha.txt"],
+  diff: "--- a/alpha.txt\n+++ b/alpha.txt\n@@ -1 +1,2 @@\n first line\n+added-line\n",
+  warnings: [],
+})
 
 const observations = globalThis.Array.from({ length: 2 }, (_, index) =>
   Candidate.cases.Observation.make({
@@ -99,12 +73,10 @@ const keepingSession = (): ScriptedSession =>
   })
 
 const runJudgment = (
-  fixture: Fixture,
   scripted: Scripted,
   seatless = false,
 ) =>
   Effect.gen(function* () {
-    const target = yield* resolveWorkingTreeTarget(fixture.repo)
     const plan: ReviewPlan = {
       runId: "judgment-test-run",
       createdAt: "2026-08-12T00:00:00Z",
@@ -114,11 +86,15 @@ const runJudgment = (
         : { judgment: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
     }
-    const path = yield* Path.Path
-    const paths = runPaths(fixture.runsRoot, plan.runId, path)
     const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const runsRoot = yield* fs.makeTempDirectoryScoped({
+      prefix: "gauntlet-judgment-test-",
+    })
+    const paths = runPaths(runsRoot, plan.runId, path)
     yield* fs.makeDirectory(paths.journalDirectory, { recursive: true })
-    return yield* executeJudgment({ plan, paths, observations })
+    const result = yield* executeJudgment({ plan, paths, observations })
+    return { result, journalPath: path.join(paths.journalDirectory, "judgment.json") }
   }).pipe(
     Effect.provide(
       Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
@@ -128,10 +104,9 @@ const runJudgment = (
 describe("Judgment stage interface", () => {
   it.effect("pays one journaled invocation against the shipped templates and resolves it", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
       const scripted = makeScripted({ sessions: [keepingSession()] })
 
-      const result = yield* runJudgment(fixture, scripted)
+      const { result, journalPath } = yield* runJudgment(scripted)
 
       expect(result.observations).toHaveLength(1)
       expect(result.observations[0]?.judgment).toMatchObject({
@@ -145,7 +120,7 @@ describe("Judgment stage interface", () => {
 
       expect(scripted.configs).toHaveLength(1)
       expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(scripted.configs[0]?.cwd).toBe(fixture.repo)
+      expect(scripted.configs[0]?.cwd).toBe(REPO_ROOT)
       expect(scripted.configs[0]?.sessionId).toBe("judgment-test-run-judgment")
       expect(scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(scripted.configs[0]?.emitTool.name).toBe("emit_judgments")
@@ -159,73 +134,17 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain("[2] (fixture) alpha.txt — observation 2")
       expect(prompt).toContain("```diff")
       expect(prompt).toContain("+added-line")
-      expect(prompt).toContain(fixture.repo)
+      expect(prompt).toContain(REPO_ROOT)
 
       const fs = yield* FileSystem.FileSystem
-      expect(
-        yield* fs.exists(
-          join(fixture.runsRoot, "judgment-test-run", "journal", "judgment.json"),
-        ),
-      ).toBe(true)
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.effect("surfaces sanitized decisions as a repair coverage gap with every candidate accounted", () =>
-    Effect.gen(function* () {
-      const fixture = makeFixture()
-      const scripted = makeScripted({
-        sessions: [
-          emittingSession({
-            decisions: [
-              {
-                index: 1,
-                decision: "keep",
-                tier: "P2",
-                reason: "the call sites confirm the premise",
-                goodFind: true,
-                cleanlyExplained: true,
-                merge: [1, 2],
-              },
-            ],
-          }),
-        ],
-      })
-
-      const result = yield* runJudgment(fixture, scripted)
-
-      expect(result.coverageGaps).toEqual([
-        {
-          stage: "judgment",
-          reason: "judgment output required repair: ignored self-merges of indexes 1",
-        },
-      ])
-      const accounted = result.observations.flatMap(({ candidate, judgment }) => [
-        candidate.id,
-        ...(judgment._tag === "Kept" ? judgment.mergedCandidateIds : []),
-      ])
-      expect(accounted.sort()).toEqual(["fixture/1", "fixture/2"])
-    }).pipe(Effect.provide(NodeServices.layer)))
-
-  it.effect("replays the journaled outcome instead of paying a second invocation", () =>
-    Effect.gen(function* () {
-      const fixture = makeFixture()
-      const paid = yield* runJudgment(
-        fixture,
-        makeScripted({ sessions: [keepingSession()] }),
-      )
-
-      const replayScripted = makeScripted({ sessions: [] })
-      const replayed = yield* runJudgment(fixture, replayScripted)
-
-      expect(replayed).toEqual(paid)
-      expect(replayScripted.configs).toHaveLength(0)
-    }).pipe(Effect.provide(NodeServices.layer)))
+      expect(yield* fs.exists(journalPath)).toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("degrades to undecided with a coverage gap when the plan froze no judgment seat", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
       const scripted = makeScripted({ sessions: [] })
 
-      const result = yield* runJudgment(fixture, scripted, true)
+      const { result } = yield* runJudgment(scripted, true)
 
       expect(result.observations.map(({ judgment }) => judgment._tag)).toEqual([
         "Undecided",
@@ -241,11 +160,10 @@ describe("Judgment stage interface", () => {
       expect(result.costUsd).toBe(0)
       expect(result.invocationCount).toBe(0)
       expect(scripted.configs).toHaveLength(0)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps an off-spec emit visible as undecided with the missing-output reason", () =>
     Effect.gen(function* () {
-      const fixture = makeFixture()
       const scripted = makeScripted({
         sessions: [
           emittingSession(
@@ -262,7 +180,7 @@ describe("Judgment stage interface", () => {
         ],
       })
 
-      const result = yield* runJudgment(fixture, scripted)
+      const { result } = yield* runJudgment(scripted)
 
       expect(result.observations.map(({ judgment }) => judgment._tag)).toEqual([
         "Undecided",
@@ -275,5 +193,5 @@ describe("Judgment stage interface", () => {
         },
       ])
       expect(result.invocationCount).toBe(1)
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

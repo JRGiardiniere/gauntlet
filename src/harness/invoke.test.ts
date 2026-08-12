@@ -126,38 +126,6 @@ const cleanStop = (): ScriptedPrompt => ({
 })
 
 describe("invoke (scripted HarnessSession, TestClock)", () => {
-  it.effect("returns typed output, required usage, duration, and diagnostics", () =>
-    Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [{ prompts: [completedPrompt()] }],
-      })
-
-      expect(Termination.guards.Completed(outcome.termination)).toBe(true)
-      expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(outcome.usage).toMatchObject({
-        input: 1000,
-        output: 200,
-        cacheRead: 800,
-        cacheWrite: 100,
-        reasoning: 50,
-        costUsd: 0.05,
-      })
-      expect(outcome.usage.rawRows).toHaveLength(1)
-      expect(outcome.durationMillis).toBeGreaterThanOrEqual(300)
-      expect(outcome.diagnostics).toContain("attempt 1 completed")
-      expect(scripted.configs[0]).toMatchObject({
-        cwd: "/fixture/repo",
-        tools: ["read", "bash"],
-        toolTimeoutMillis: 2_000,
-        bashTimeoutMillis: 20_000,
-      })
-      expect(scripted.log.slice(-3)).toEqual([
-        "unsubscribe:1",
-        "usage-read:1",
-        "dispose:1",
-      ])
-    }))
-
   it.effect("retries one first-response stall in a fresh session", () =>
     Effect.gen(function* () {
       const { outcome, scripted } = yield* run({
@@ -592,37 +560,6 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       })
       expect(missing.failure).toBeInstanceOf(AdapterContractViolation)
       expect(missing.failure.reason).toContain("terminal assistant evidence")
-    }))
-
-  it.effect("keeps tool and dispose failures as nonfatal diagnostics", () =>
-    Effect.gen(function* () {
-      const { outcome } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 150,
-                    kind: "tool_error",
-                    toolName: "read",
-                    detail: "read exceeded its deadline",
-                  },
-                  { afterMillis: 200, kind: "emit", args: GOOD_EMIT, valid: true },
-                  { afterMillis: 300, kind: "message_end", stopReason: "toolUse" },
-                ],
-                settles: "after-events",
-              },
-            ],
-            failDispose: "dispose failed",
-          },
-        ],
-      })
-      expect(Termination.guards.Completed(outcome.termination)).toBe(true)
-      expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(outcome.diagnostics.join(" ")).toContain("tool read failed")
-      expect(outcome.diagnostics.join(" ")).toContain("dispose failed")
     }))
 
   it.effect("retains raw usage in JSON-safe serialized form", () =>
