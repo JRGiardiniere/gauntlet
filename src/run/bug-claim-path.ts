@@ -179,7 +179,9 @@ export const executeBugClaimPath = Effect.fn(
                 cwd: plan.target.repoRoot,
                 systemPrompt: EVALUATION_SYSTEM_PROMPT,
                 prompt,
-                sessionId: `${plan.runId}-verification`,
+                // Bundles run concurrently, so a shared cache partition buys
+                // nothing; per-bundle ids keep logs and scripts attributable.
+                sessionId: `${plan.runId}-verification-${String(bundleNumber)}`,
                 contract: EmitVerdicts,
                 tools: VERIFICATION_TOOLS,
                 deadlines: REVIEW_INVOCATION_DEADLINES,

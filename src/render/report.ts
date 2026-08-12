@@ -21,10 +21,17 @@ export const describeTargetIdentity = (target: TargetIdentity): string =>
       `PR #${number} (head ${shortCommit(headCommit)})`,
   })
 
+// File paths, summaries, reasons, evidence, and failure scenarios are
+// model-authored. One finding must stay one list item, so line breaks
+// flatten to spaces — the verbatim text lives in dossier.json.
+const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim()
+
 const location = (candidate: Candidate): string =>
-  "line" in candidate && candidate.line !== undefined
-    ? `${candidate.file}:${candidate.line}`
-    : candidate.file
+  oneLine(
+    "line" in candidate && candidate.line !== undefined
+      ? `${candidate.file}:${candidate.line}`
+      : candidate.file,
+  )
 
 const findingLine = (
   candidate: Candidate,
@@ -36,11 +43,11 @@ const findingLine = (
   const tagLabel = tag === undefined ? "" : `\`[${tag}]\` `
   const detailLines = [
     ...(Candidate.guards.BugClaim(candidate)
-      ? [`Failure scenario: ${candidate.failureScenario}`]
+      ? [`Failure scenario: ${oneLine(candidate.failureScenario)}`]
       : []),
-    ...(detail === undefined ? [] : [detail]),
+    ...(detail === undefined ? [] : [oneLine(detail)]),
   ].map((line) => `\n  - ${line}`).join("")
-  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${candidate.summary} _(${candidate.lens})_${detailLines}`
+  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${candidate.lens})_${detailLines}`
 }
 
 const severityOrder: ReadonlyArray<Severity> = ["P1", "P2", "P3"]

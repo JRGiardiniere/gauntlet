@@ -51,6 +51,10 @@ export interface ScriptedPrompt {
 }
 
 export interface ScriptedSession {
+  // Claimed by the first open whose config.sessionId contains this key —
+  // lets a script address one invocation of a concurrent fan-out. Unkeyed
+  // sessions are consumed in open order, as before.
+  readonly forSession?: string
   readonly openDelayMillis?: number
   readonly failOpen?: string
   readonly prompts: ReadonlyArray<ScriptedPrompt>
@@ -64,11 +68,19 @@ export interface ScriptedBehavior {
   readonly sessions: ReadonlyArray<ScriptedSession>
 }
 
+export interface RecordedPrompt {
+  // 1-based open order — pairs the prompt with configs[openIndex - 1] even
+  // when concurrent sessions interleave their prompt calls.
+  readonly openIndex: number
+  readonly sessionId: string | undefined
+  readonly text: string
+}
+
 export interface Scripted {
   readonly factory: HarnessSessionFactoryShape
   readonly log: Array<string>
   readonly configs: Array<SessionConfig>
-  readonly promptTexts: Array<string>
+  readonly prompts: Array<RecordedPrompt>
 }
 
 export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
@@ -89,13 +101,34 @@ interface PromptRequest {
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
   const configs: Array<SessionConfig> = []
-  const promptTexts: Array<string> = []
+  const prompts: Array<RecordedPrompt> = []
   let openIndex = 0
+  const claimed = new Set<number>()
+
+  const claimSession = (
+    sessionId: string | undefined,
+  ): ScriptedSession | undefined => {
+    let unkeyed: number | undefined
+    for (const [index, session] of behavior.sessions.entries()) {
+      if (claimed.has(index)) continue
+      if (session.forSession === undefined) {
+        unkeyed = unkeyed ?? index
+        continue
+      }
+      if (sessionId !== undefined && sessionId.includes(session.forSession)) {
+        claimed.add(index)
+        return session
+      }
+    }
+    if (unkeyed === undefined) return undefined
+    claimed.add(unkeyed)
+    return behavior.sessions[unkeyed]
+  }
 
   const open: HarnessSessionFactoryShape["open"] = (config) =>
     Effect.gen(function* () {
       const sessionIndex = openIndex + 1
-      const behaviorForSession = behavior.sessions[openIndex]
+      const behaviorForSession = claimSession(config.sessionId)
       openIndex += 1
       log.push(`open:${String(sessionIndex)}`)
       configs.push(config)
@@ -214,7 +247,11 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           }
         },
         prompt: (text) => {
-          promptTexts.push(text)
+          prompts.push({
+            openIndex: sessionIndex,
+            sessionId: config.sessionId,
+            text,
+          })
           requestedPrompts += 1
           const promptIndex = requestedPrompts
           log.push(`prompt:${String(sessionIndex)}.${String(promptIndex)}`)
@@ -253,7 +290,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs, promptTexts }
+  return { factory: { open }, log, configs, prompts }
 }
 
 export const scriptedLayer = (

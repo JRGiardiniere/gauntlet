@@ -1,0 +1,81 @@
+import { describe, expect, it } from "@effect/vitest"
+import { Candidate } from "../domain/candidate.ts"
+import { Judgment } from "../domain/judgment.ts"
+import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
+import { ReviewTarget } from "../domain/review-target.ts"
+import { Verdict } from "../domain/verdict.ts"
+import { assembleDossier } from "./dossier.ts"
+
+const target = ReviewTarget.cases.WorkingTree.make({
+  repoRoot: "/fixture",
+  headCommit: "abcdef0",
+  changedFiles: ["src/fixture.ts"],
+  diff: "+change",
+  warnings: [],
+})
+
+const plan = ReviewPlan.make({
+  runId: "run-fixture",
+  createdAt: "2026-08-11T00:00:00.000Z",
+  target,
+  seats: {},
+  lenses: [
+    FrozenLens.make({
+      name: "fixture",
+      promptText: "fixture prompt",
+      contentHash: "fixture-hash",
+      seat: "fixture/model:low",
+      needsSpec: false,
+      candidateCap: 6,
+    }),
+  ],
+})
+
+describe("Dossier Assembly", () => {
+  it("joins every semantic partition and every coverage gap without filtering", () => {
+    const bugClaim = Candidate.cases.BugClaim.make({
+      id: "fixture/1",
+      lens: "fixture",
+      file: "src/fixture.ts",
+      summary: "claim",
+      failureScenario: "input fails",
+    })
+    const observation = Candidate.cases.Observation.make({
+      id: "fixture/2",
+      lens: "fixture",
+      file: "src/fixture.ts",
+      summary: "observation",
+    })
+
+    const dossier = assembleDossier({
+      plan,
+      finderCoverageGaps: [{
+        stage: "finders",
+        lens: "fixture",
+        reason: "finder coverage gap",
+      }],
+      bugClaimPath: {
+        bugClaims: [{
+          candidate: bugClaim,
+          verdict: Verdict.cases.Refuted.make({ evidence: "guarded" }),
+        }],
+        coverageGaps: [{ stage: "verification", reason: "verifier gap" }],
+      },
+      judgmentPath: {
+        observations: [{
+          candidate: observation,
+          judgment: Judgment.cases.Dropped.make({ reason: "taste, not cost" }),
+        }],
+        coverageGaps: [{ stage: "judgment", reason: "judge gap" }],
+      },
+    })
+
+    expect(dossier.bugClaims).toHaveLength(1)
+    expect(dossier.observations).toHaveLength(1)
+    expect(dossier.coverageGaps.map(({ stage }) => stage)).toEqual([
+      "finders",
+      "verification",
+      "judgment",
+    ])
+  })
+})

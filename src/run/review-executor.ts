@@ -7,6 +7,7 @@ import * as HashMap from "effect/HashMap"
 import * as Logger from "effect/Logger"
 import * as Record from "effect/Record"
 import * as Result from "effect/Result"
+import { assembleDossier } from "../assembly/dossier.ts"
 import {
   enforceCandidateCap,
   type FinderResult,
@@ -18,12 +19,8 @@ import {
   loadFinderPromptTemplates,
 } from "../content/finder-prompt.ts"
 import { Dossier } from "../domain/dossier.ts"
-import { Judgment } from "../domain/judgment.ts"
 import { modelIdentityOfSeat } from "../domain/recipe.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import {
-  targetIdentityOf,
-} from "../domain/review-target.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
 import { renderDigest } from "../render/digest.ts"
@@ -36,6 +33,7 @@ import {
 } from "./invocation-journal.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
+import { executeJudgmentPath } from "./judgment-path.ts"
 import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
 
 // Pi uses the shared session id as its provider cache partition. Each model
@@ -202,23 +200,27 @@ export const executeReviewPlan = Effect.fn(
         }
 
         const routed = routeFinderResults(results)
-        const bugClaimPath = yield* executeBugClaimPath({
-          plan,
-          paths,
-          bugClaims: routed.bugClaims,
-        })
-        const dossier = Dossier.make({
-          runId: plan.runId,
-          target: targetIdentityOf(plan.target),
-          bugClaims: bugClaimPath.bugClaims,
-          observations: Array.map(routed.observations, (candidate) => ({
-            candidate,
-            judgment: Judgment.cases.Undecided.make({}),
-          })),
-          coverageGaps: [
-            ...routed.coverageGaps,
-            ...bugClaimPath.coverageGaps,
+        // The two evaluation paths share no state until Assembly joins them.
+        const [bugClaimPath, judgmentPath] = yield* Effect.all(
+          [
+            executeBugClaimPath({
+              plan,
+              paths,
+              bugClaims: routed.bugClaims,
+            }),
+            executeJudgmentPath({
+              plan,
+              paths,
+              observations: routed.observations,
+            }),
           ],
+          { concurrency: 2 },
+        )
+        const dossier = assembleDossier({
+          plan,
+          finderCoverageGaps: routed.coverageGaps,
+          bugClaimPath,
+          judgmentPath,
         })
         yield* progress("assembling dossier")
         yield* writeArtifactJson(paths.dossier, Dossier, dossier)
@@ -229,8 +231,11 @@ export const executeReviewPlan = Effect.fn(
           costUsd: results.reduce(
             (total, result) => total + result.outcome.usage.costUsd,
             0,
-          ) + bugClaimPath.costUsd,
-          invocationCount: invocations.length + bugClaimPath.invocationCount,
+          ) + bugClaimPath.costUsd + judgmentPath.costUsd,
+          invocationCount:
+            invocations.length +
+            bugClaimPath.invocationCount +
+            judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
         }
         const report = renderReport(plan, dossier, accounting)

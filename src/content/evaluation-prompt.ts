@@ -8,6 +8,7 @@ import type {
   IndexedBugClaim,
   NumberedPoolCluster,
 } from "../assembly/pool.ts"
+import type { IndexedObservation } from "../assembly/judgment.ts"
 import type { ReviewTarget } from "../domain/review-target.ts"
 import { formatCandidateLine } from "./candidate-line.ts"
 import { ContentDirectory, ContentLoadError } from "./lens.ts"
@@ -19,6 +20,7 @@ import {
 
 export const POOL_TOOLS = [] as const
 export const VERIFICATION_TOOLS = ["read", "bash"] as const
+export const JUDGMENT_TOOLS = ["read", "bash"] as const
 
 export const EVALUATION_SYSTEM_PROMPT =
   "You are a stage in a code-review pipeline. Follow the supplied stage instructions and finish by calling the required emit tool."
@@ -32,14 +34,19 @@ export interface EvaluationPromptTemplates {
   readonly stageScope: string
 }
 
-export const loadEvaluationPromptTemplates = Effect.fn(
-  "gauntlet.evaluation_prompt.load_templates",
+export interface JudgmentPromptTemplates {
+  readonly judge: string
+  readonly stageScope: string
+}
+
+const promptReader = Effect.fn(
+  "gauntlet.evaluation_prompt.prompt_reader",
 )(function* () {
   const root = yield* ContentDirectory
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const promptsDirectory = path.join(root, "prompts")
-  const readPrompt = (name: string) => {
+  return (name: string) => {
     const promptPath = path.join(promptsDirectory, name)
     return fs.readFileString(promptPath).pipe(
       Effect.mapError((cause) =>
@@ -50,7 +57,12 @@ export const loadEvaluationPromptTemplates = Effect.fn(
         })),
     )
   }
+})
 
+export const loadEvaluationPromptTemplates = Effect.fn(
+  "gauntlet.evaluation_prompt.load_templates",
+)(function* () {
+  const readPrompt = yield* promptReader()
   const [pool, verifier, stageScope] = yield* Effect.all(
     [
       readPrompt("pool.md"),
@@ -60,6 +72,17 @@ export const loadEvaluationPromptTemplates = Effect.fn(
     { concurrency: 3 },
   )
   return { pool, verifier, stageScope } satisfies EvaluationPromptTemplates
+})
+
+export const loadJudgmentPromptTemplates = Effect.fn(
+  "gauntlet.evaluation_prompt.load_judgment_templates",
+)(function* () {
+  const readPrompt = yield* promptReader()
+  const [judge, stageScope] = yield* Effect.all(
+    [readPrompt("judge.md"), readPrompt("stage-scope-block.md")],
+    { concurrency: 2 },
+  )
+  return { judge, stageScope } satisfies JudgmentPromptTemplates
 })
 
 export const assemblePoolPrompt = (
@@ -88,6 +111,24 @@ const verifierClaims = (
   }).join("\n\n")
 }
 
+const assembleStageScope = (
+  template: string,
+  target: ReviewTarget,
+  specText: string | undefined,
+): Effect.Effect<string, PromptAssemblyError> =>
+  renderPromptTemplate("stage scope", template, [
+    ["REPO_ROOT", target.repoRoot],
+    [
+      "CHANGED_FILES",
+      Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
+    ],
+    [
+      "DIFF_SECTION",
+      `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
+    ],
+    ["INTENT_SECTION", specText ?? NO_INTENT_SECTION],
+  ])
+
 export const assembleVerifierPrompt = (
   templates: EvaluationPromptTemplates,
   target: ReviewTarget,
@@ -96,20 +137,23 @@ export const assembleVerifierPrompt = (
   bundle: ReadonlyArray<NumberedPoolCluster>,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
-    const scope = yield* renderPromptTemplate("stage scope", templates.stageScope, [
-      ["REPO_ROOT", target.repoRoot],
-      [
-        "CHANGED_FILES",
-        Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
-      ],
-      [
-        "DIFF_SECTION",
-        `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
-      ],
-      ["INTENT_SECTION", specText ?? NO_INTENT_SECTION],
-    ])
+    const scope = yield* assembleStageScope(templates.stageScope, target, specText)
     return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],
       ["CLAIMS", verifierClaims(bundle, claims)],
+    ])
+  })
+
+export const assembleJudgmentPrompt = (
+  templates: JudgmentPromptTemplates,
+  target: ReviewTarget,
+  specText: string | undefined,
+  observations: ReadonlyArray<IndexedObservation>,
+): Effect.Effect<string, PromptAssemblyError> =>
+  Effect.gen(function* () {
+    const scope = yield* assembleStageScope(templates.stageScope, target, specText)
+    return yield* renderPromptTemplate("judge", templates.judge, [
+      ["SCOPE_BLOCK", scope],
+      ["CANDIDATES", Array.map(observations, formatCandidateLine).join("\n")],
     ])
   })
