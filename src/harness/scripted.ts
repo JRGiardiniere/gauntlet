@@ -51,6 +51,10 @@ export interface ScriptedPrompt {
 }
 
 export interface ScriptedSession {
+  // Claimed by the first open whose config.sessionId ends with this suffix —
+  // lets a script address one invocation of a concurrent fan-out. Unkeyed
+  // sessions are consumed in open order, as before.
+  readonly forSession?: string
   readonly openDelayMillis?: number
   readonly failOpen?: string
   readonly prompts: ReadonlyArray<ScriptedPrompt>
@@ -91,11 +95,32 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const configs: Array<SessionConfig> = []
   const promptTexts: Array<string> = []
   let openIndex = 0
+  const claimed = new Set<number>()
+
+  const claimSession = (
+    sessionId: string | undefined,
+  ): ScriptedSession | undefined => {
+    let unkeyed: number | undefined
+    for (const [index, session] of behavior.sessions.entries()) {
+      if (claimed.has(index)) continue
+      if (session.forSession === undefined) {
+        unkeyed = unkeyed ?? index
+        continue
+      }
+      if (sessionId !== undefined && sessionId.endsWith(session.forSession)) {
+        claimed.add(index)
+        return session
+      }
+    }
+    if (unkeyed === undefined) return undefined
+    claimed.add(unkeyed)
+    return behavior.sessions[unkeyed]
+  }
 
   const open: HarnessSessionFactoryShape["open"] = (config) =>
     Effect.gen(function* () {
       const sessionIndex = openIndex + 1
-      const behaviorForSession = behavior.sessions[openIndex]
+      const behaviorForSession = claimSession(config.sessionId)
       openIndex += 1
       log.push(`open:${String(sessionIndex)}`)
       configs.push(config)

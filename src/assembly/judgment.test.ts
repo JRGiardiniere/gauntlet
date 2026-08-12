@@ -27,6 +27,12 @@ const keep = (
   ...(merge === undefined ? {} : { merge }),
 })
 
+const drop = (index: number) => ({
+  index,
+  decision: "drop" as const,
+  reason: "repo convention",
+})
+
 const accountedIds = (
   resolved: ReturnType<typeof resolveJudgment>["observations"],
 ) =>
@@ -37,13 +43,20 @@ const accountedIds = (
       : []),
   ])
 
+const expectFullAccounting = (
+  resolved: ReturnType<typeof resolveJudgment>,
+) => {
+  expect(accountedIds(resolved.observations).sort()).toEqual(
+    observations.map(({ candidate }) => candidate.id).sort(),
+  )
+}
+
 describe("Judgment resolution and Assembly accounting", () => {
   it("sanitizes self-merges without poisoning valid siblings", () => {
     const resolved = resolveJudgment(observations, {
       decisions: [keep(1, [1, 2])],
     })
 
-    expect(resolved.selfMergeIndexes).toEqual([1])
     expect(resolved.observations.map(({ candidate }) => candidate.id)).toEqual([
       "fixture/1",
       "fixture/3",
@@ -53,53 +66,118 @@ describe("Judgment resolution and Assembly accounting", () => {
       _tag: "Kept",
       mergedCandidateIds: ["fixture/2"],
     })
-    expect(accountedIds(resolved.observations).sort()).toEqual(
-      observations.map(({ candidate }) => candidate.id).sort(),
-    )
+    expect(resolved.notes).toEqual([
+      "ignored self-merges of indexes 1",
+      "retained undecided indexes 3, 4",
+    ])
+    expectFullAccounting(resolved)
   })
 
-  it("lets neither an unknown keeper nor a removed keeper hide candidates", () => {
+  it("ignores unknown keepers and unknown merge targets", () => {
     const resolved = resolveJudgment(observations, {
-      decisions: [
-        keep(999, [2, 4]),
-        keep(3, [4]),
-        keep(4, [1, 2]),
-      ],
+      decisions: [keep(999, [2]), keep(1, [2, 998]), drop(3), drop(4)],
     })
 
-    expect(resolved.unknownIndexes).toEqual([999])
-    expect(resolved.removedKeeperIndexes).toEqual([4])
     expect(resolved.observations.map(({ candidate }) => candidate.id)).toEqual([
       "fixture/1",
-      "fixture/2",
       "fixture/3",
+      "fixture/4",
     ])
-    expect(resolved.observations[2]?.judgment).toMatchObject({
+    expect(resolved.notes).toEqual([
+      "ignored decisions for unknown indexes 999",
+      "ignored merges of unknown indexes 998",
+    ])
+    expectFullAccounting(resolved)
+  })
+
+  it("never lets a merge claim override an explicit decision", () => {
+    const resolved = resolveJudgment(observations, {
+      decisions: [keep(1, [2, 3]), drop(2), keep(3)],
+    })
+
+    expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
+      "Kept",
+      "Dropped",
+      "Kept",
+      "Undecided",
+    ])
+    expect(resolved.observations[0]?.judgment).toMatchObject({
+      _tag: "Kept",
+      mergedCandidateIds: [],
+    })
+    expect(resolved.notes).toEqual([
+      "ignored merges of explicitly decided indexes 2, 3",
+      "retained undecided indexes 4",
+    ])
+    expectFullAccounting(resolved)
+  })
+
+  it("fails conflicting decisions closed to undecided", () => {
+    const resolved = resolveJudgment(observations, {
+      decisions: [keep(1, [2]), drop(1), drop(2), keep(3), keep(4)],
+    })
+
+    expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
+      "Undecided",
+      "Dropped",
+      "Kept",
+      "Kept",
+    ])
+    expect(resolved.notes).toEqual([
+      "retained conflicting decisions as undecided for indexes 1",
+    ])
+    expectFullAccounting(resolved)
+  })
+
+  it("awards a contested merge target to the first keeper that claimed it", () => {
+    const resolved = resolveJudgment(observations, {
+      decisions: [keep(1, [3]), keep(2, [3, 4])],
+    })
+
+    expect(resolved.observations[0]?.judgment).toMatchObject({
+      _tag: "Kept",
+      mergedCandidateIds: ["fixture/3"],
+    })
+    expect(resolved.observations[1]?.judgment).toMatchObject({
       _tag: "Kept",
       mergedCandidateIds: ["fixture/4"],
     })
-    expect(accountedIds(resolved.observations).sort()).toEqual(
-      observations.map(({ candidate }) => candidate.id).sort(),
-    )
+    expect(resolved.notes).toEqual([
+      "ignored competing merge claims for indexes 3",
+    ])
+    expectFullAccounting(resolved)
   })
 
   it("accounts for missing decisions exactly once as undecided", () => {
     const resolved = resolveJudgment(observations, {
-      decisions: [
-        keep(1, [2]),
-        { index: 3, decision: "drop", reason: "repo convention" },
-      ],
+      decisions: [keep(1, [2]), drop(3)],
     })
 
-    expect(resolved.undecidedIndexes).toEqual([4])
     expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
       "Kept",
       "Dropped",
       "Undecided",
     ])
-    expect(accountedIds(resolved.observations).sort()).toEqual(
-      observations.map(({ candidate }) => candidate.id).sort(),
-    )
+    expect(resolved.notes).toEqual(["retained undecided indexes 4"])
+    expectFullAccounting(resolved)
     expect(new Set(accountedIds(resolved.observations)).size).toBe(4)
+  })
+
+  it("admits a quality note only when a rating is false", () => {
+    const resolved = resolveJudgment(observations, {
+      decisions: [
+        { ...keep(1), qualityNote: "spurious note" },
+        { ...keep(2), cleanlyExplained: false, qualityNote: "hard to act on" },
+        drop(3),
+        drop(4),
+      ],
+    })
+
+    expect(resolved.observations[0]?.judgment).not.toHaveProperty("qualityNote")
+    expect(resolved.observations[1]?.judgment).toMatchObject({
+      _tag: "Kept",
+      qualityNote: "hard to act on",
+    })
+    expect(resolved.notes).toEqual([])
   })
 })

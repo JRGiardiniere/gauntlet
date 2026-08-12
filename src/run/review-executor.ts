@@ -200,16 +200,22 @@ export const executeReviewPlan = Effect.fn(
         }
 
         const routed = routeFinderResults(results)
-        const bugClaimPath = yield* executeBugClaimPath({
-          plan,
-          paths,
-          bugClaims: routed.bugClaims,
-        })
-        const judgmentPath = yield* executeJudgmentPath({
-          plan,
-          paths,
-          observations: routed.observations,
-        })
+        // The two evaluation paths share no state until Assembly joins them.
+        const [bugClaimPath, judgmentPath] = yield* Effect.all(
+          [
+            executeBugClaimPath({
+              plan,
+              paths,
+              bugClaims: routed.bugClaims,
+            }),
+            executeJudgmentPath({
+              plan,
+              paths,
+              observations: routed.observations,
+            }),
+          ],
+          { concurrency: 2 },
+        )
         const dossier = assembleDossier({
           plan,
           finderCoverageGaps: routed.coverageGaps,

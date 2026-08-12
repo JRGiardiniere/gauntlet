@@ -75,7 +75,7 @@ const dossier = Dossier.make({
       candidate: observation("fixture-lens/5", "k".repeat(400)),
       judgment: Judgment.cases.Kept.make({
         tier: "P2",
-        reason: "checked the call sites; the coupling is real",
+        reason: "checked the call sites;\n## the coupling is real",
         goodFind: true,
         cleanlyExplained: true,
         mergedCandidateIds: [],
@@ -157,6 +157,18 @@ describe("report rendering", () => {
   it("surfaces scope-degradation warnings in the header", () => {
     expect(report).toContain("- Warnings: ")
     expect(report).toContain("stray.txt")
+  })
+
+  it("flattens model-authored text so one finding stays one list item", () => {
+    // Both the confirmed claim's summary and the kept judgment's reason embed
+    // newlines with Markdown-significant prefixes; neither may start a line.
+    expect(report).toContain("first line report: /tmp/forged-path")
+    expect(report).toContain("checked the call sites; ## the coupling is real")
+    expect(report.split("\n").filter((line) => line.startsWith("report:")))
+      .toHaveLength(0)
+    expect(report.split("\n").filter((line) => line.startsWith("##")))
+      .toEqual(expect.arrayContaining(["## Findings"]))
+    expect(report).not.toContain("\n## the coupling is real")
   })
 
   it("includes every BugClaim failure scenario", () => {

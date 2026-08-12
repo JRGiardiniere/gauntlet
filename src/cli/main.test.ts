@@ -139,7 +139,13 @@ const FINDER_OUTPUT = {
   ],
 }
 
-const emittingSession = (output: unknown): ScriptedSession => ({
+// The BugClaim and Judgment paths execute concurrently, so their sessions
+// are keyed by session-id suffix instead of relying on open order.
+const emittingSession = (
+  output: unknown,
+  forSession?: string,
+): ScriptedSession => ({
+  ...(forSession === undefined ? {} : { forSession }),
   prompts: [
     {
       events: [
@@ -176,7 +182,7 @@ const successfulVerifierSession = (): ScriptedSession =>
         evidence: "empty input reaches the added line and throws",
       },
     ],
-  })
+  }, "-verification")
 
 const successfulJudgmentSession = (): ScriptedSession =>
   emittingSession({
@@ -190,7 +196,7 @@ const successfulJudgmentSession = (): ScriptedSession =>
         cleanlyExplained: true,
       },
     ],
-  })
+  }, "-judgment")
 
 const droppingJudgmentSession = (count: number): ScriptedSession =>
   emittingSession({
@@ -199,7 +205,7 @@ const droppingJudgmentSession = (count: number): ScriptedSession =>
       decision: "drop",
       reason: "fixture decision: no nameable payer",
     })),
-  })
+  }, "-judgment")
 
 const rejectedJudgmentSession = (): ScriptedSession => {
   const prompt = {
@@ -226,7 +232,7 @@ const rejectedJudgmentSession = (): ScriptedSession => {
     ],
     settles: "after-events" as const,
   }
-  return { prompts: [prompt, prompt, prompt] }
+  return { forSession: "-judgment", prompts: [prompt, prompt, prompt] }
 }
 
 const successfulScripted = (): Scripted =>

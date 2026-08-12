@@ -1,10 +1,6 @@
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
-import {
-  indexObservations,
-  resolveJudgment,
-  type JudgmentRepair,
-} from "../assembly/judgment.ts"
+import { indexObservations, resolveJudgment } from "../assembly/judgment.ts"
 import { describeMissingOutput } from "../assembly/outcome.ts"
 import {
   assembleJudgmentPrompt,
@@ -26,31 +22,10 @@ const progress = Effect.fn("gauntlet.judgment_path.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
-const repairReason = (repair: JudgmentRepair): string | undefined => {
-  const details = [
-    ...(repair.unknownIndexes.length === 0
-      ? []
-      : [`ignored unknown decisions ${repair.unknownIndexes.join(", ")}`]),
-    ...(repair.duplicateIndexes.length === 0
-      ? []
-      : [`used the last duplicate decisions ${repair.duplicateIndexes.join(", ")}`]),
-    ...(repair.selfMergeIndexes.length === 0
-      ? []
-      : [`ignored self-merges ${repair.selfMergeIndexes.join(", ")}`]),
-    ...(repair.unknownMergeIndexes.length === 0
-      ? []
-      : [`ignored unknown merge targets ${repair.unknownMergeIndexes.join(", ")}`]),
-    ...(repair.removedKeeperIndexes.length === 0
-      ? []
-      : [`ignored merges from removed keepers ${repair.removedKeeperIndexes.join(", ")}`]),
-    ...(repair.undecidedIndexes.length === 0
-      ? []
-      : [`retained undecided indexes ${repair.undecidedIndexes.join(", ")}`]),
-  ]
-  return details.length === 0
+const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
+  notes.length === 0
     ? undefined
-    : `judgment output required repair: ${details.join("; ")}`
-}
+    : `judgment output required repair: ${notes.join("; ")}`
 
 export interface JudgmentPathExecution {
   readonly plan: ReviewPlan
@@ -93,7 +68,6 @@ export const executeJudgmentPath = Effect.fn(
     } satisfies JudgmentPathResult
   }
 
-  const templates = yield* Effect.cached(loadJudgmentPromptTemplates())
   const journaled = yield* executeJournaledInvocation({
     journalDirectory: paths.journalDirectory,
     runId: plan.runId,
@@ -101,7 +75,7 @@ export const executeJudgmentPath = Effect.fn(
     output: EmitJudgments.schema,
     execute: Effect.gen(function* () {
       yield* ensureWorkingTreeUnchanged(plan)
-      const promptTemplates = yield* templates
+      const promptTemplates = yield* loadJudgmentPromptTemplates()
       const prompt = yield* assembleJudgmentPrompt(
         promptTemplates,
         plan.target,
@@ -126,7 +100,7 @@ export const executeJudgmentPath = Effect.fn(
   const repair = resolveJudgment(indexed, journaled.outcome.output)
   const reason = journaled.outcome.output === undefined
     ? describeMissingOutput("judgment", journaled.outcome)
-    : repairReason(repair)
+    : repairReason(repair.notes)
   return {
     observations: repair.observations,
     coverageGaps: reason === undefined

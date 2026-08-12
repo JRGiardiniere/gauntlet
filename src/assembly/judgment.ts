@@ -14,16 +14,10 @@ export interface IndexedObservation {
 }
 
 type ReportedJudgment = JudgmentsOutput["decisions"][number]
-type ReportedKeep = Extract<ReportedJudgment, { readonly decision: "keep" }>
 
-export interface JudgmentRepair {
+export interface JudgmentResolution {
   readonly observations: Dossier["observations"]
-  readonly unknownIndexes: ReadonlyArray<number>
-  readonly duplicateIndexes: ReadonlyArray<number>
-  readonly selfMergeIndexes: ReadonlyArray<number>
-  readonly unknownMergeIndexes: ReadonlyArray<number>
-  readonly removedKeeperIndexes: ReadonlyArray<number>
-  readonly undecidedIndexes: ReadonlyArray<number>
+  readonly notes: ReadonlyArray<string>
 }
 
 export const indexObservations = (
@@ -34,143 +28,141 @@ export const indexObservations = (
     candidate,
   }))
 
-const lastDecisionsByIndex = (
-  decisions: ReadonlyArray<ReportedJudgment>,
-): HashMap.HashMap<number, ReportedJudgment> =>
-  HashMap.fromIterable(
-    Array.map(decisions, (decision) => [decision.index, decision] as const),
-  )
+const note = (
+  label: string,
+  indexes: ReadonlyArray<number>,
+): ReadonlyArray<string> =>
+  indexes.length === 0 ? [] : [`${label} ${indexes.join(", ")}`]
 
-// Judgment merge claims are advisory model output. Resolve them against the
-// paid Observation set so a self-merge, unknown keeper, or keeper that another
-// merge removes cannot hide a candidate (docs/spec/pipeline-shape.md).
+// Judgment output is advisory model text resolved against the paid
+// Observation set. Three precedence rules keep every index accounted for
+// exactly once: an index's own decision always beats a merge claim on it,
+// conflicting decisions fail closed to undecided, and the first keeper to
+// claim a merge target wins. Every discarded claim surfaces as a note
+// (docs/spec/pipeline-shape.md).
 export const resolveJudgment = (
   observations: ReadonlyArray<IndexedObservation>,
   output: JudgmentsOutput | undefined,
-): JudgmentRepair => {
-  const decisions = output?.decisions ?? []
+): JudgmentResolution => {
   const validIndexes = HashSet.fromIterable(
     Array.map(observations, ({ index }) => index),
   )
-  const byIndex = lastDecisionsByIndex(decisions)
-  const unknownIndexes = Array.filterMap(decisions, (decision) =>
-    HashSet.has(validIndexes, decision.index)
-      ? Result.fail(undefined)
-      : Result.succeed(decision.index)
+  const [unknown, known] = Array.partition(
+    output?.decisions ?? [],
+    (decision) =>
+      HashSet.has(validIndexes, decision.index)
+        ? Result.succeed(decision)
+        : Result.fail(decision),
   )
-  let seen = HashSet.empty<number>()
-  const duplicateIndexes = Array.filterMap(decisions, (decision) => {
-    if (HashSet.has(seen, decision.index)) {
-      return Result.succeed(decision.index)
-    }
-    seen = HashSet.add(seen, decision.index)
-    return Result.fail(undefined)
-  })
 
-  const keepDecisions: ReadonlyArray<ReportedKeep> = Array.filter(
-    Array.fromIterable(HashMap.values(byIndex)),
-    (decision): decision is ReportedKeep =>
-      decision.decision === "keep" &&
-      HashSet.has(validIndexes, decision.index),
-  )
+  let decided = HashMap.empty<number, ReportedJudgment>()
+  let conflicted = HashSet.empty<number>()
+  const conflictedIndexes: Array<number> = []
+  for (const decision of known) {
+    if (HashSet.has(conflicted, decision.index)) continue
+    if (HashMap.has(decided, decision.index)) {
+      conflicted = HashSet.add(conflicted, decision.index)
+      conflictedIndexes.push(decision.index)
+      decided = HashMap.remove(decided, decision.index)
+    } else {
+      decided = HashMap.set(decided, decision.index, decision)
+    }
+  }
+
   const selfMergeIndexes: Array<number> = []
-  const unknownMergeIndexes: Array<number> = []
-  let tentativelyMerged = HashSet.empty<number>()
-  for (const decision of keepDecisions) {
-    for (const index of decision.merge ?? []) {
-      if (index === decision.index) {
-        selfMergeIndexes.push(index)
-      } else if (!HashSet.has(validIndexes, index)) {
-        unknownMergeIndexes.push(index)
-      } else {
-        tentativelyMerged = HashSet.add(tentativelyMerged, index)
-      }
-    }
-  }
-
-  const emittedKeepers = HashSet.fromIterable(
-    Array.filterMap(keepDecisions, (decision) =>
-      HashSet.has(tentativelyMerged, decision.index)
-        ? Result.fail(undefined)
-        : Result.succeed(decision.index)
-    ),
-  )
-  const removedKeeperIndexes = Array.filterMap(keepDecisions, (decision) =>
-    HashSet.has(emittedKeepers, decision.index) || decision.merge === undefined
-      ? Result.fail(undefined)
-      : Result.succeed(decision.index)
-  )
-
+  const unknownTargetIndexes: Array<number> = []
+  const decidedTargetIndexes: Array<number> = []
+  const contestedTargetIndexes: Array<number> = []
   let mergedInto = HashMap.empty<number, number>()
-  for (const decision of keepDecisions) {
-    if (!HashSet.has(emittedKeepers, decision.index)) continue
-    for (const index of decision.merge ?? []) {
-      if (index !== decision.index && HashSet.has(validIndexes, index)) {
-        mergedInto = HashMap.set(mergedInto, index, decision.index)
+  for (const decision of known) {
+    if (decision.decision !== "keep") continue
+    if (HashSet.has(conflicted, decision.index)) continue
+    for (const target of decision.merge ?? []) {
+      if (target === decision.index) {
+        selfMergeIndexes.push(target)
+      } else if (!HashSet.has(validIndexes, target)) {
+        unknownTargetIndexes.push(target)
+      } else if (
+        HashMap.has(decided, target) || HashSet.has(conflicted, target)
+      ) {
+        decidedTargetIndexes.push(target)
+      } else if (HashMap.has(mergedInto, target)) {
+        contestedTargetIndexes.push(target)
+      } else {
+        mergedInto = HashMap.set(mergedInto, target, decision.index)
       }
     }
   }
 
-  let acceptedMerges = HashMap.empty<number, ReadonlyArray<string>>()
-  for (const observation of observations) {
-    const keeper = HashMap.get(mergedInto, observation.index)
+  let mergedIds = HashMap.empty<number, ReadonlyArray<string>>()
+  for (const { candidate, index } of observations) {
+    const keeper = HashMap.get(mergedInto, index)
     if (Option.isNone(keeper)) continue
-    acceptedMerges = HashMap.modifyAt(acceptedMerges, keeper.value, (ids) =>
-      Option.some([...Option.getOrElse(ids, () => []), observation.candidate.id])
-    )
+    mergedIds = HashMap.modifyAt(mergedIds, keeper.value, (ids) =>
+      Option.some([...Option.getOrElse(ids, () => []), candidate.id]))
   }
 
   const undecidedIndexes: Array<number> = []
-  const resolved = Array.reduce(
+  const resolved = Array.flatMap(
     observations,
-    [] as Array<Dossier["observations"][number]>,
-    (judged, { candidate, index }) => {
-      if (HashMap.has(mergedInto, index)) return judged
-      const decision = HashMap.get(byIndex, index)
+    ({ candidate, index }): Dossier["observations"] => {
+      if (HashMap.has(mergedInto, index)) return []
+      const decision = HashMap.get(decided, index)
       if (Option.isNone(decision)) {
-        undecidedIndexes.push(index)
-        judged.push({
-          candidate,
-          judgment: Judgment.cases.Undecided.make({}),
-        })
-        return judged
+        if (!HashSet.has(conflicted, index)) undecidedIndexes.push(index)
+        return [{ candidate, judgment: Judgment.cases.Undecided.make({}) }]
       }
       if (decision.value.decision === "drop") {
-        judged.push({
+        return [{
           candidate,
           judgment: Judgment.cases.Dropped.make({
             reason: decision.value.reason,
           }),
-        })
-        return judged
+        }]
       }
-      judged.push({
+      const { cleanlyExplained, goodFind, qualityNote } = decision.value
+      return [{
         candidate,
         judgment: Judgment.cases.Kept.make({
           tier: decision.value.tier,
           reason: decision.value.reason,
-          goodFind: decision.value.goodFind,
-          cleanlyExplained: decision.value.cleanlyExplained,
-          ...(decision.value.qualityNote === undefined
-            ? {}
-            : { qualityNote: decision.value.qualityNote }),
+          goodFind,
+          cleanlyExplained,
+          // The contract admits a quality note only when a rating is false.
+          ...(qualityNote !== undefined && !(goodFind && cleanlyExplained)
+            ? { qualityNote }
+            : {}),
           mergedCandidateIds: Option.getOrElse(
-            HashMap.get(acceptedMerges, index),
+            HashMap.get(mergedIds, index),
             () => [],
           ),
         }),
-      })
-      return judged
+      }]
     },
   )
 
   return {
     observations: resolved,
-    unknownIndexes,
-    duplicateIndexes,
-    selfMergeIndexes,
-    unknownMergeIndexes,
-    removedKeeperIndexes,
-    undecidedIndexes,
+    notes: [
+      ...note(
+        "ignored decisions for unknown indexes",
+        Array.map(unknown, ({ index }) => index),
+      ),
+      ...note(
+        "retained conflicting decisions as undecided for indexes",
+        conflictedIndexes,
+      ),
+      ...note("ignored self-merges of indexes", selfMergeIndexes),
+      ...note("ignored merges of unknown indexes", unknownTargetIndexes),
+      ...note(
+        "ignored merges of explicitly decided indexes",
+        decidedTargetIndexes,
+      ),
+      ...note(
+        "ignored competing merge claims for indexes",
+        contestedTargetIndexes,
+      ),
+      ...note("retained undecided indexes", undecidedIndexes),
+    ],
   }
 }
