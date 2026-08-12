@@ -2,12 +2,13 @@ import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { Recipe, RecipeName } from "../domain/recipe.ts"
-import { recipesDirectory } from "./settings.ts"
+import { loadSettings, recipesDirectory } from "./settings.ts"
 
 // One invalid Recipe never disables the catalog: listing carries it as an
 // entry with its path and Schema error; only selecting it fails (ADR 0005).
@@ -129,31 +130,82 @@ export const availableRecipeNames = (
     (entry) => entry.name,
   )
 
-// Select one named recipe for a review: an absent or invalid recipe fails
-// here, before any Run is created, and names what is available instead.
+// Select one named recipe from an already listed catalog: an absent or
+// invalid recipe fails and names what is available instead. Callers
+// validating several names load the catalog once and reuse it.
+export const selectRecipeFrom = (
+  entries: ReadonlyArray<CatalogEntry>,
+  name: string,
+): Effect.Effect<ValidRecipeEntry, RecipeSelectionError> => {
+  const available = availableRecipeNames(entries)
+  if (!Schema.is(RecipeName)(name)) {
+    return Effect.fail(
+      new RecipeSelectionError({
+        reason: `recipe name is not lowercase-kebab-case: ${name}`,
+        available,
+      }),
+    )
+  }
+  const entry = entries.find((candidate) => candidate.name === name)
+  if (entry === undefined) {
+    return Effect.fail(
+      new RecipeSelectionError({
+        reason: `recipe does not exist: ${name}`,
+        available,
+      }),
+    )
+  }
+  if (entry._tag === "InvalidRecipe") {
+    return Effect.fail(
+      new RecipeSelectionError({
+        reason: `recipe ${name} is invalid (${entry.path}): ${entry.error}`,
+        available,
+      }),
+    )
+  }
+  return Effect.succeed(entry)
+}
+
+// Select one named recipe for a review: failure happens here, before any Run
+// is created.
 export const selectRecipe = Effect.fn("gauntlet.recipe_catalog.select")(
   function* (name: string) {
     const entries = yield* listRecipes()
-    const available = availableRecipeNames(entries)
-    if (!Schema.is(RecipeName)(name)) {
-      return yield* new RecipeSelectionError({
-        reason: `recipe name is not lowercase-kebab-case: ${name}`,
-        available,
-      })
-    }
-    const entry = entries.find((candidate) => candidate.name === name)
-    if (entry === undefined) {
-      return yield* new RecipeSelectionError({
-        reason: `recipe does not exist: ${name}`,
-        available,
-      })
-    }
-    if (entry._tag === "InvalidRecipe") {
-      return yield* new RecipeSelectionError({
-        reason: `recipe ${name} is invalid (${entry.path}): ${entry.error}`,
-        available,
-      })
-    }
-    return entry
+    return yield* selectRecipeFrom(entries, name)
   },
 )
+
+// Review-side selection: positional recipe, otherwise the configured Default
+// Recipe — nothing else selects one, and failing lists what exists (ADR 0005).
+export const resolveReviewRecipe = Effect.fn(
+  "gauntlet.recipe_catalog.resolve_review",
+)(function* (positional: Option.Option<string>) {
+  if (Option.isSome(positional)) {
+    return yield* selectRecipe(positional.value)
+  }
+  const settings = yield* loadSettings()
+  if (Option.isNone(settings)) {
+    const entries = yield* listRecipes()
+    return yield* new RecipeSelectionError({
+      reason:
+        "no default recipe is configured — pass a recipe (`gauntlet review <recipe>`) or run `gauntlet config init`",
+      available: availableRecipeNames(entries),
+    })
+  }
+  const name = settings.value["default-recipe"]
+  return yield* selectRecipe(name).pipe(
+    Effect.catchTag("RecipeSelectionError", (failure) =>
+      new RecipeSelectionError({
+        reason: `configured default-recipe is unusable — ${failure.reason}`,
+        available: failure.available,
+      })),
+  )
+})
+
+// Renders a RecipeSelectionError's `available` payload for error messages.
+export const renderAvailable = (
+  available: ReadonlyArray<string>,
+): string =>
+  available.length === 0
+    ? "; the recipe catalog is empty"
+    : `; available recipes: ${available.join(", ")}`

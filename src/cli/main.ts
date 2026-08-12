@@ -7,6 +7,10 @@ import * as Option from "effect/Option"
 import * as Argument from "effect/unstable/cli/Argument"
 import * as Command from "effect/unstable/cli/Command"
 import * as Flag from "effect/unstable/cli/Flag"
+import {
+  renderAvailable,
+  resolveReviewRecipe,
+} from "../config/recipe-catalog.ts"
 import { resolveRunsRoot } from "../config/settings.ts"
 import { loadFinderLenses } from "../content/lens.ts"
 import { finderSeat, stageSeat } from "../domain/recipe.ts"
@@ -23,11 +27,7 @@ import {
   makeRunId,
 } from "../run/run-record.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
-import {
-  configCommand,
-  renderAvailable,
-  resolveReviewRecipe,
-} from "./config.ts"
+import { configCommand } from "./config.ts"
 
 // The directory the review was invoked from — ambient with a real default,
 // overridable in tests (which must not chdir).
@@ -98,8 +98,9 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     createdAt: DateTime.formatIso(startedAt),
     target,
     recipeName: selected.name,
+    // Finder seats live on each frozen lens (a mixed standard/deep run has
+    // no single Finder seat); only the downstream stages are stage state.
     seats: {
-      finders: finderSeat(selected.recipe, "standard"),
       pool: stageSeat(selected.recipe, "pool"),
       verification: stageSeat(selected.recipe, "verification"),
       judgment: stageSeat(selected.recipe, "judgment"),

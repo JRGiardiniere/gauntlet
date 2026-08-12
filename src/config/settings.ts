@@ -18,7 +18,9 @@ export const RunsRoot = Schema.String.check(Schema.isPattern(/^\//))
 // Recipe and ordered Favorites are settings metadata, never recipe anatomy.
 export const Settings = Schema.Struct({
   "default-recipe": RecipeName,
-  favorites: Schema.Array(RecipeName),
+  // Ordered and distinct: `config set` enforces distinctness up front, and
+  // the check keeps a directly edited duplicate from decoding as valid.
+  favorites: Schema.Array(RecipeName).check(Schema.isUnique()),
   "runs-root": Schema.optionalKey(RunsRoot),
 })
 export type Settings = typeof Settings.Type

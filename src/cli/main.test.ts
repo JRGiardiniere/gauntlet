@@ -314,7 +314,6 @@ describe("gauntlet review", () => {
       expect(plan.lenses[0]?.contentHash).toMatch(/^[a-f0-9]{64}$/)
       expect(plan.recipeName).toBe("fixture-recipe")
       expect(plan.lenses[0]?.seat).toBe(FIXTURE_SEAT)
-      expect(plan.seats.finders).toBe(FIXTURE_SEAT)
       expect(plan.seats.pool).toBe(FIXTURE_SEAT)
       expect(plan.seats.verification).toBe(FIXTURE_SEAT)
       expect(plan.seats.judgment).toBe(FIXTURE_SEAT)
@@ -369,7 +368,7 @@ describe("gauntlet review", () => {
       expect(report).toContain("the name hides the value's role")
       expect(report).toContain("3 invocations")
       expect(report).toContain(
-        "Recipe: fixture-recipe (finders: fixture/fixture-model:low, pool: fixture/fixture-model:low, verification: fixture/fixture-model:low, judgment: fixture/fixture-model:low)",
+        "Recipe: fixture-recipe (pool: fixture/fixture-model:low, verification: fixture/fixture-model:low, judgment: fixture/fixture-model:low)",
       )
 
       // The diff is stored exactly once, in the plan (ADR 0006).
@@ -734,7 +733,6 @@ describe("gauntlet review", () => {
       )
       expect(plan.recipeName).toBe("fixture-full")
       expect(plan.seats).toEqual({
-        finders: "fixture/finder-model:low",
         pool: "fixture/pool-model:low",
         verification: "fixture/verify-model:low",
         judgment: "fixture/judge-model:low",

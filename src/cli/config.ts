@@ -10,11 +10,11 @@ import * as Argument from "effect/unstable/cli/Argument"
 import * as Command from "effect/unstable/cli/Command"
 import { Recipe, type RecipeName } from "../domain/recipe.ts"
 import {
-  availableRecipeNames,
   type CatalogEntry,
   listRecipes,
-  RecipeSelectionError,
-  selectRecipe,
+  type RecipeSelectionError,
+  renderAvailable,
+  selectRecipeFrom,
 } from "../config/recipe-catalog.ts"
 import {
   defaultRunsRoot,
@@ -100,19 +100,13 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   })
   lines.push(`runs root: ${runsRoot ?? (yield* defaultRunsRoot())}`)
 
-  const defaultRecipe = Option.match(settings, {
-    onNone: () => undefined,
-    onSome: (value) => value["default-recipe"],
-  })
   const byName = new Map(entries.map((entry) => [entry.name, entry]))
 
   if (Option.isSome(settings)) {
+    const defaultRecipe = settings.value["default-recipe"]
     const favorites = settings.value.favorites
     const missing = favorites.filter((name) => !byName.has(name))
-    if (
-      defaultRecipe !== undefined &&
-      byName.get(defaultRecipe)?._tag !== "ValidRecipe"
-    ) {
+    if (byName.get(defaultRecipe)?._tag !== "ValidRecipe") {
       lines.push(
         `warning: default-recipe ${defaultRecipe} does not name an available valid recipe`,
       )
@@ -120,15 +114,17 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
     if (missing.length > 0) {
       lines.push(`warning: favorites name missing recipes: ${missing.join(", ")}`)
     }
-    const present = favorites.filter((name) => byName.has(name))
+    const present = favorites.flatMap((name) => {
+      const entry = byName.get(name)
+      return entry === undefined ? [] : [entry]
+    })
     if (present.length > 0) {
       lines.push("", "favorites:")
-      for (const name of present) {
-        const entry = byName.get(name)
-        if (entry !== undefined) lines.push(describeEntry(entry, defaultRecipe))
+      for (const entry of present) {
+        lines.push(describeEntry(entry, defaultRecipe))
       }
     }
-    const favoriteSet = new Set(present)
+    const favoriteSet = new Set(present.map((entry) => entry.name))
     const remaining = entries.filter((entry) => !favoriteSet.has(entry.name))
     lines.push("", "recipes:")
     if (remaining.length === 0) lines.push("- none")
@@ -141,7 +137,7 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
       lines.push("- none (run `gauntlet config init`)")
     }
     for (const entry of entries) {
-      lines.push(describeEntry(entry, defaultRecipe))
+      lines.push(describeEntry(entry, undefined))
     }
   }
   yield* Console.log(lines.join("\n"))
@@ -206,7 +202,9 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const settings = yield* loadSettings().pipe(
     Effect.mapError((failure) =>
       new ConfigCommandError({
-        reason: `${failure.reason} (${failure.path}) — fix or delete settings.json, then rerun init`,
+        // Deleting settings.json would leave the existing catalog in a
+        // partial state init also refuses, so only fixing is advised.
+        reason: `${failure.reason} (${failure.path}) — fix settings.json, then rerun init`,
       })),
   )
   const defaultRecipe = Option.map(settings, (value) => value["default-recipe"])
@@ -281,6 +279,13 @@ const noSuchKey = (verb: string, key: string) =>
     reason: `unknown settings key for config ${verb}: ${key} (keys: ${SETTINGS_KEYS})`,
   })
 
+// Selection failures inside config verbs render as configuration failures —
+// the shared RecipeSelectionError handler says "could not review".
+const asConfigError = (failure: RecipeSelectionError) =>
+  new ConfigCommandError({
+    reason: `${failure.reason}${renderAvailable(failure.available)}`,
+  })
+
 const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
   key: string,
   values: ReadonlyArray<string>,
@@ -291,7 +296,10 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
       const name = yield* requireExactlyOne(key, values)
       // Selection validates availability: a dangling default would make every
       // unnamed review fail later, so it is rejected here.
-      const entry = yield* selectRecipe(name)
+      const entries = yield* listRecipes()
+      const entry = yield* selectRecipeFrom(entries, name).pipe(
+        Effect.catchTag("RecipeSelectionError", asConfigError),
+      )
       yield* writeSettings({ ...settings, "default-recipe": entry.name })
       yield* Console.log(`default-recipe = ${entry.name}`)
       return
@@ -308,9 +316,14 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
           reason: `favorites must be distinct: ${values.join(", ")}`,
         })
       }
+      const entries = yield* listRecipes()
       const names = yield* Effect.forEach(
         values,
-        (name) => selectRecipe(name).pipe(Effect.map((entry) => entry.name)),
+        (name) =>
+          selectRecipeFrom(entries, name).pipe(
+            Effect.map((entry) => entry.name),
+            Effect.catchTag("RecipeSelectionError", asConfigError),
+          ),
         { concurrency: 1 },
       )
       yield* writeSettings({ ...settings, favorites: names })
@@ -397,37 +410,3 @@ export const configCommand = Command.make(
     "Print the settings path, recipe catalog, and all recipes",
   ),
 )
-
-// Review-side selection: positional recipe, otherwise the configured Default
-// Recipe — nothing else selects one, and failing lists what exists (ADR 0005).
-export const resolveReviewRecipe = Effect.fn(
-  "gauntlet.cli.resolve_review_recipe",
-)(function* (positional: Option.Option<string>) {
-  if (Option.isSome(positional)) {
-    return yield* selectRecipe(positional.value)
-  }
-  const settings = yield* loadSettings()
-  if (Option.isNone(settings)) {
-    const entries = yield* listRecipes()
-    return yield* new RecipeSelectionError({
-      reason:
-        "no default recipe is configured — pass a recipe (`gauntlet review <recipe>`) or run `gauntlet config init`",
-      available: availableRecipeNames(entries),
-    })
-  }
-  const name = settings.value["default-recipe"]
-  return yield* selectRecipe(name).pipe(
-    Effect.catchTag("RecipeSelectionError", (failure) =>
-      new RecipeSelectionError({
-        reason: `configured default-recipe is unusable — ${failure.reason}`,
-        available: failure.available,
-      })),
-  )
-})
-
-export const renderAvailable = (
-  available: ReadonlyArray<string>,
-): string =>
-  available.length === 0
-    ? "; the recipe catalog is empty"
-    : `; available recipes: ${available.join(", ")}`

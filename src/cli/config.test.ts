@@ -132,7 +132,7 @@ describe("gauntlet config init", () => {
       // Settings malformed.
       writeFileSync(fixture.settingsFile, "{not json\n")
       expect(yield* config(fixture, "init")).toBe(1)
-      expect(yield* stderr()).toContain("fix or delete settings.json")
+      expect(yield* stderr()).toContain("fix settings.json, then rerun init")
       expect(yield* fs.readFileString(fixture.settingsFile)).toBe("{not json\n")
     }).pipe(Effect.provide(NodeServices.layer)))
 })
@@ -215,6 +215,19 @@ describe("gauntlet config", () => {
       const output = yield* stdout()
       expect(output).toContain("settings are invalid")
       expect(output).toContain("- fixture-extra —")
+
+      // A directly edited duplicate favorite is malformed, not tolerated.
+      writeFileSync(
+        fixture.settingsFile,
+        `${
+          JSON.stringify({
+            "default-recipe": "fixture-extra",
+            favorites: ["fixture-extra", "fixture-extra"],
+          })
+        }\n`,
+      )
+      expect(yield* config(fixture)).toBe(0)
+      expect(yield* stdout()).toContain("settings are invalid")
     }).pipe(Effect.provide(NodeServices.layer)))
 })
 
@@ -228,7 +241,13 @@ describe("gauntlet config set/unset", () => {
       expect((yield* readSettings(fixture))["default-recipe"]).toBe("high")
 
       expect(yield* config(fixture, "set", "default-recipe", "missing")).toBe(1)
-      expect(yield* stderr()).toContain("recipe does not exist: missing")
+      const failure = yield* stderr()
+      // A failed config verb renders as configuration, never as a review.
+      expect(failure).toContain(
+        "could not configure — recipe does not exist: missing",
+      )
+      expect(failure).toContain("available recipes: high, low, medium, quick")
+      expect(failure).not.toContain("could not review")
       expect((yield* readSettings(fixture))["default-recipe"]).toBe("high")
 
       expect(yield* config(fixture, "unset", "default-recipe")).toBe(1)
