@@ -10,11 +10,14 @@ import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
-import { Seat } from "../domain/recipe.ts"
+import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
 
+// A lens is standard by omission or opts into exactly `deep`; arbitrary
+// classes and concrete seats are invalid — the recipe maps the class to a
+// seat, the lens never chooses a provider or model (ADR 0004).
 const LensFrontmatter = Schema.Struct({
-  model: Schema.optionalKey(Seat),
+  "finder-class": Schema.optionalKey(Schema.Literals(["deep"])),
   "needs-spec": Schema.optionalKey(Schema.Boolean),
   category: Schema.optionalKey(Schema.NonEmptyString),
 })
@@ -23,7 +26,7 @@ export const LoadedLens = Schema.Struct({
   name: LensName,
   promptText: Schema.NonEmptyString,
   contentHash: Schema.NonEmptyString,
-  modelOverride: Schema.optionalKey(Seat),
+  finderClass: FinderClass,
   needsSpec: Schema.Boolean,
   category: Schema.optionalKey(Schema.NonEmptyString),
 })
@@ -67,7 +70,7 @@ const decodeLensSource = (
       try: () => parseFrontmatter(source),
       catch: contentLoadError(path, "frontmatter is not valid YAML"),
     })
-    const allowed = new Set(["model", "needs-spec", "category"])
+    const allowed = new Set(["finder-class", "needs-spec", "category"])
     for (const key of Object.keys(parsed.frontmatter)) {
       if (!allowed.has(key)) {
         return yield* new ContentLoadError({
@@ -120,9 +123,7 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
     name: lensName,
     promptText,
     contentHash: Encoding.encodeHex(digest),
-    ...(frontmatter.model === undefined
-      ? {}
-      : { modelOverride: frontmatter.model }),
+    finderClass: frontmatter["finder-class"] ?? "standard",
     needsSpec: frontmatter["needs-spec"] ?? false,
     ...(frontmatter.category === undefined
       ? {}

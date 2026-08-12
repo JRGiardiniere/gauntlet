@@ -1,4 +1,3 @@
-import * as Config from "effect/Config"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -52,17 +51,6 @@ export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunP
     runLog: path.join(root, "run.log"),
   }
 }
-
-// Runs land under <home>/.gauntlet/runs until the runs-root setting exists
-// (#24). Read via Config so tests point HOME at a temp directory instead of
-// mutating the environment.
-export const resolveRunsRoot = Effect.fn("gauntlet.run_record.resolve_runs_root")(
-  function* () {
-    const path = yield* Path.Path
-    const home = yield* Config.string("HOME")
-    return path.join(home, ".gauntlet", "runs")
-  },
-)
 
 export const makeRunId = Effect.fn("gauntlet.run_record.make_run_id")(
   function* () {

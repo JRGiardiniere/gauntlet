@@ -26,13 +26,32 @@ destination is not part of the plan.
 _Avoid_: configuration snapshot, settings, options
 
 **Recipe**:
-A named model selection as pure content: one small file in
-`~/.gauntlet/recipes/` naming a seat per stage (`provider/model:effort`) —
-seats only, never budgets or cost limits. Name from the filename, chosen positionally at invocation; built-ins
-ship as the same files and one loader reads all. Favorites and the default
-recipe are settings metadata, never recipe anatomy. The ReviewPlan freezes the
-resolved seats at submission.
+A named model selection as user-owned content in the Recipe Catalog. It names
+one Default Seat plus optional Stage-specific Seat overrides — seats only,
+never budgets or cost limits. Favorites and the Default Recipe are settings
+metadata, never recipe anatomy. The ReviewPlan freezes the resolved Seats at
+submission.
 _Avoid_: preset, tier, model config
+
+**Seat**:
+One concrete provider, model, and inference-effort assignment for an
+AgentInvocation, written `provider/model:effort`.
+_Avoid_: model (omits provider and effort), model config
+
+**Default Seat**:
+The Seat a Recipe applies to every seated Stage for which it does not name an
+override.
+_Avoid_: base seat, default model, fallback seat
+
+**Recipe Catalog**:
+The user's complete collection of available Recipes. Every Recipe has the same
+status; Gauntlet does not distinguish app-owned, built-in, and custom Recipes.
+_Avoid_: recipe database, built-in recipes, app recipes, user recipes
+
+**Default Recipe**:
+The one Recipe selected for a review when the caller does not name one. It is
+a user preference that points to a Recipe, never part of that Recipe.
+_Avoid_: default, fallback recipe, default model
 
 **Candidate**:
 One finder-produced claim awaiting evaluation, with a stable identity. A tagged
@@ -56,14 +75,20 @@ _Avoid_: subjective candidate, nit, suggestion
 **Lens**:
 One finder's point of view, as pure content: a named prompt (a markdown file,
 shipped with Gauntlet or project-local, one shared format) with frontmatter
-limited to an optional model override, an optional needs-spec flag
+limited to an optional `deep` Finder Class, an optional needs-spec flag
 (skip-if-absent), and an optional display-only category tag (grouping in
-listings and reports, never routing). A lens carries no routing, caps, or
-schema — its candidates
-route by their own type, not by the lens that produced them. The ReviewPlan
-freezes each lens's prompt text and content hash at submission.
+listings and Dossier renderings, never routing). A Lens never names a concrete Seat and
+carries no routing, caps, or schema — its Candidates route by their own type,
+not by the Lens that produced them. The ReviewPlan freezes each Lens's prompt
+text, content hash, and Recipe-resolved Seat at submission.
 _Avoid_: bug lens / subjective lens (lenses are not typed by path), role,
 angle, finder (that's the invocation, not the prompt)
+
+**Finder Class**:
+A stable statement of how much Finder reasoning a Lens needs: `standard` by
+default or `deep` by explicit declaration. The selected Recipe maps the class
+to a concrete Seat; the Lens never chooses a provider or model.
+_Avoid_: finder role, smart model, low model, model override
 
 **Run**:
 The durable, resumable execution of one review. The only thing that "runs" —
@@ -112,9 +137,9 @@ _Avoid_: clusterer, deduper
 **Dossier**:
 The canonical, complete semantic result of one review: findings, refutations,
 drops with reasons, coverage gaps, and target identity. A Run produces one
-Dossier; presentation renders it; delivery posts it.
-_Avoid_: ReviewHandoff, review result, report (that's the rendered form),
-assessment
+Dossier with machine-readable and human-readable representations; delivery
+posts the human-readable representation.
+_Avoid_: ReviewHandoff, review result, report, assessment
 
 **Coverage gap**:
 A lens or stage whose work is missing from the Dossier — visible data on the
