@@ -61,6 +61,9 @@ candidates with lens, location, and claimed failure.
 
 ## Assembly policy
 
+Each Stage enforces its own accounting and sanitization at its result seam;
+Assembly is the deterministic aggregation of those results.
+
 - Every candidate index is accounted for exactly once across keep / merge /
   drop (Judgment) or appears in exactly one cluster (Pool). The stage output
   decoders are strict — one off-spec field fails the stage result so the

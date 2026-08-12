@@ -4,19 +4,16 @@ import * as String from "effect/String"
 import { Severity } from "../domain/verdict.ts"
 
 // One immutable contract drives the model-facing tool schema and every
-// decode/persistence boundary for that output. Stage callers choose one of
-// these values; invocation mechanics remain stage-agnostic.
+// decode/persistence boundary for that output. Tool names are owned by the
+// stage that defines the contract (the normative set lives in
+// docs/spec/emit-tools.md); invocation mechanics remain stage-agnostic.
 export interface OutputContract<O> {
-  readonly toolName:
-    | "emit_findings"
-    | "emit_pool"
-    | "emit_verdicts"
-    | "emit_judgments"
+  readonly toolName: string
   readonly description: string
   readonly schema: Schema.Codec<O, O, never, never>
 }
 
-const defineOutputContract = <O>(
+export const defineOutputContract = <O>(
   toolName: OutputContract<O>["toolName"],
   description: string,
   schema: Schema.Codec<O, O, never, never>,
@@ -26,7 +23,7 @@ const defineOutputContract = <O>(
   schema,
 })
 
-const described = <S extends Schema.Top>(schema: S, description: string) =>
+export const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description })
 
 const canonicalizeInlineText = (value: string): string =>
@@ -34,7 +31,7 @@ const canonicalizeInlineText = (value: string): string =>
 
 // Model-authored text used by the line-oriented stage prompts is normalized at
 // the OutputContract seam so capture, persistence, and every consumer agree.
-const inlineText = (description: string) =>
+export const inlineText = (description: string) =>
   described(Schema.NonEmptyString, description).pipe(
     Schema.decodeTo(
       Schema.NonEmptyString,
@@ -145,65 +142,4 @@ export const EmitVerdicts = defineOutputContract(
   "emit_verdicts",
   "Report one verdict per cluster in this verifier bundle. Call this exactly once, as your final action. Do not answer in prose instead.",
   VerdictsOutput,
-)
-
-const judgmentCore = {
-  index: described(
-    Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
-    "The [i] label of the candidate this decision is about.",
-  ),
-  reason: inlineText(
-    "One line. Keeps: why it is warranted AND what was checked in the tree to confirm the premise. Drops: which failure it is — false premise / disproportionate / taste, not cost / repo convention / BugClaim-path claim / no nameable payer.",
-  ),
-}
-
-const keepDecision = Schema.Struct({
-  ...judgmentCore,
-  decision: described(
-    Schema.Literal("keep"),
-    "`keep` = warranted criticism worth reporting; `drop` = not worth the author's time.",
-  ),
-  tier: described(
-    Severity,
-    "`P1` | `P2` | `P3`. Required when keep, omitted when drop — a dropped candidate has no tier at all; \"not actually a problem\" is a drop with a reason, never a severity.",
-  ),
-  merge: Schema.optionalKey(
-    described(
-      Schema.Array(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
-      "Indexes of duplicate candidates folded into this kept one — same root observation arriving at two altitudes. Merge duplicates, not themes.",
-    ),
-  ),
-  goodFind: described(
-    Schema.Boolean,
-    "Was this genuinely worth catching, as opposed to merely admissible? Admissible but obvious is `false`.",
-  ),
-  cleanlyExplained: described(
-    Schema.Boolean,
-    "Reading ONLY the finder's own summary, are the problem and the better shape clear enough to act on? Judge the text as written.",
-  ),
-  qualityNote: Schema.optionalKey(
-    inlineText(
-      "Keeps only, when either rating is false: one line on what is weak.",
-    ),
-  ),
-})
-
-const dropDecision = Schema.Struct({
-  ...judgmentCore,
-  decision: described(
-    Schema.Literal("drop"),
-    "`keep` = warranted criticism worth reporting; `drop` = not worth the author's time.",
-  ),
-})
-
-export const JudgmentsOutput = Schema.Struct({
-  decisions: Schema.Array(Schema.Union([keepDecision, dropDecision])),
-})
-export interface JudgmentsOutput
-  extends Schema.Schema.Type<typeof JudgmentsOutput> {}
-
-export const EmitJudgments = defineOutputContract(
-  "emit_judgments",
-  "Report your keep/drop decisions. Every candidate index appears exactly once: as a decision's index, or inside a keeper's merge array — a merged index gets no decision of its own. Call this exactly once, as your final action. Do not answer in prose instead.",
-  JudgmentsOutput,
 )

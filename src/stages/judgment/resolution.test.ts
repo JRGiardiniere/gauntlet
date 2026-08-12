@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
-import { Candidate } from "../domain/candidate.ts"
-import { Judgment } from "../domain/judgment.ts"
-import { indexObservations, resolveJudgment } from "./judgment.ts"
+import { Candidate } from "../../domain/candidate.ts"
+import { Judgment } from "../../domain/judgment.ts"
+import { indexObservations, resolveJudgment } from "./resolution.ts"
 
 const observations = indexObservations(
   Array.makeBy(4, (index) =>

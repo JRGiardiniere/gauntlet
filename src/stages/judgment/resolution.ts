@@ -3,10 +3,10 @@ import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
-import type { Observation } from "../domain/candidate.ts"
-import type { Dossier } from "../domain/dossier.ts"
-import { Judgment } from "../domain/judgment.ts"
-import type { JudgmentsOutput } from "../harness/output-contract.ts"
+import type { Observation } from "../../domain/candidate.ts"
+import type { Dossier } from "../../domain/dossier.ts"
+import { Judgment } from "../../domain/judgment.ts"
+import type { JudgmentsOutput } from "./output-contract.ts"
 
 export interface IndexedObservation {
   readonly index: number
