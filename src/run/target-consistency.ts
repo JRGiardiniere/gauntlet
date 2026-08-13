@@ -4,10 +4,13 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
-import { RunError } from "./run-record.ts"
 
 const reviewTargetEquivalence = Schema.toEquivalence(ReviewTarget)
 
+// The sole target comparison: resume must not replay a journal against a
+// change the developer has since altered. In-flight invocations need no
+// per-call check — they read the Run's frozen snapshot worktree, not the
+// live checkout (#56).
 export const liveTargetMatchesPlan = Effect.fn(
   "gauntlet.run_executor.live_target_matches_plan",
 )(function* (plan: ReviewPlan) {
@@ -17,21 +20,4 @@ export const liveTargetMatchesPlan = Effect.fn(
       : resolvePullRequestTarget(plan.target.repoRoot, plan.target.number)
   )
   return reviewTargetEquivalence(plan.target, current)
-})
-
-// A journal hit is already bound to the frozen plan. Only an invocation that
-// will read the repository again needs the working-tree consistency check.
-export const ensureWorkingTreeUnchanged = Effect.fn(
-  "gauntlet.run_executor.ensure_working_tree_unchanged",
-)(function* (plan: ReviewPlan) {
-  if (plan.target._tag !== "WorkingTree") return
-  const current = yield* resolveWorkingTreeTarget(plan.target.repoRoot)
-  if (reviewTargetEquivalence(plan.target, current)) return
-  return yield* new RunError({
-    operation: "execute-plan",
-    runId: plan.runId,
-    reason:
-      `working tree changed after run ${plan.runId} froze its review target; ` +
-      "start a new review instead of paying an invocation against mixed scope",
-  })
 })

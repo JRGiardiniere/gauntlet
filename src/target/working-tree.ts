@@ -41,6 +41,28 @@ const explainUntrackedFile = (reason: string) =>
 // dropped from the digest set and named in a scope-degradation warning.
 const UNTRACKED_SIZE_CAP = FileSystem.MiB(10)
 
+// Gitlink entries in NUL-separated `ls-files --stage` or `ls-tree -r` output.
+// Both formats lead with the mode and put the path after the first tab.
+export const gitlinkPaths = (out: string): ReadonlyArray<string> =>
+  out
+    .split("\0")
+    .filter((entry) => entry.startsWith("160000 "))
+    .flatMap((entry) => {
+      const tab = entry.indexOf("\t")
+      return tab === -1 ? [] : [entry.slice(tab + 1)]
+    })
+
+// The review snapshot never materializes submodule contents — agents see an
+// unpopulated gitlink directory, so the degraded scope must be named (#56).
+export const submoduleWarning = (
+  paths: ReadonlyArray<string>,
+): ReadonlyArray<string> =>
+  paths.length === 0 ? [] : [
+    `${String(paths.length)} submodule(s) whose contents are not included in the review: ${
+      paths.join(", ")
+    }`,
+  ]
+
 const digestBytes = Effect.fn(
   "gauntlet.working_tree.digest_bytes",
 )(function* (bytes: Uint8Array, relativePath: string) {
@@ -108,18 +130,30 @@ export const resolveWorkingTreeTarget = Effect.fn(
   )
   // Diff against the resolved hash, not symbolic HEAD — a commit landing
   // between the two commands must not desynchronize identity and diff.
-  const [diff, changedFiles, untracked] = yield* Effect.all(
+  // --no-renames keeps both sides of a rename in changedFiles (the snapshot
+  // must delete the old path) and makes the list independent of diff.renames.
+  const [diff, changedFiles, untracked, submodules] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", headCommit]).pipe(
         explainGit("could not diff the working tree against HEAD"),
       ),
-      runGit(repoRoot, ["diff", "--name-only", "-z", headCommit]).pipe(
+      runGit(repoRoot, [
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        headCommit,
+      ]).pipe(
         explainGit("could not list changed files"),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "-z", "--others", "--exclude-standard"]).pipe(
         explainGit("could not list untracked files"),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+      ),
+      runGit(repoRoot, ["ls-files", "-z", "--stage"]).pipe(
+        explainGit("could not list tracked files"),
+        Effect.map(gitlinkPaths),
       ),
     ],
     { concurrency: 2 },
@@ -160,6 +194,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
         oversized.join(", ")
       }`,
     ]),
+    ...submoduleWarning(submodules),
   ]
 
   return ReviewTarget.cases.WorkingTree.make({

@@ -17,7 +17,6 @@ import {
   wallSeconds,
 } from "../../run/progress-text.ts"
 import type { RunPaths } from "../../run/run-record.ts"
-import { ensureWorkingTreeUnchanged } from "../../run/target-consistency.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
   assembleJudgmentPrompt,
@@ -92,7 +91,6 @@ export const executeJudgment = Effect.fn(
     invocationKey: "judgment",
     output: EmitJudgments.schema,
     execute: Effect.gen(function* () {
-      yield* ensureWorkingTreeUnchanged(plan)
       const promptTemplates = yield* loadJudgmentPromptTemplates()
       const prompt = yield* assembleJudgmentPrompt(
         promptTemplates,
