@@ -28,10 +28,11 @@ Dossier lives on disk.
    ```
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
-   it could not review.
-5. **Relay.** Paste the stdout digest verbatim. Then: local delivery → link
-   `dossier.md` from the digest paths; PR destination → say the review was
-   delivered as a comment on the PR.
+   it could not review, or a PR comment failed after the review landed.
+5. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
+   local delivery → link `dossier.md` from the digest paths. A PR destination
+   that posted (stderr `posted <url>`) → say the review was delivered as a
+   comment on the PR.
 
 ## Dossier
 

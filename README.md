@@ -7,7 +7,9 @@ gauntlet on medium.")
 [#15](https://github.com/JRGiardiniere/gauntlet/issues/15). Invoking-agent
 skill: [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — copy or
 symlink that folder into `~/.agents/skills/` to invoke from other
-repositories. Claude Code can symlink from `.claude/skills/` later.
+repositories. The skill assumes `gauntlet` is on `PATH`; from this checkout
+that is `node bin/gauntlet.mjs` until the package bin is linked. Claude Code
+can symlink from `.claude/skills/` later.
 
 ## Commands
 
