@@ -68,7 +68,7 @@ export const renderDigest = (
     tally,
     ...surviving,
     "",
-    `report: ${paths.report}`,
-    `dossier: ${paths.dossier}`,
+    `dossier.md: ${paths.dossierMarkdown}`,
+    `dossier.json: ${paths.dossier}`,
   ].join("\n")
 }

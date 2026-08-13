@@ -10,17 +10,25 @@ ticketed as [#16–#26](https://github.com/JRGiardiniere/gauntlet/issues?q=is%3A
 ## Commands
 
 ```
-gauntlet review [recipe] [--lenses a,b] [--resume [run-id]]
+gauntlet review [recipe] [--pr N] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
+gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
 gauntlet config set <key> <value...>
 gauntlet config unset <key>
 ```
 
-- `review` runs the pipeline to completion on the working tree's uncommitted
-  changes. A positional recipe selects a named recipe from the catalog;
-  omitting it selects the configured `default-recipe`. Nothing else selects a
-  recipe — if neither resolves, the review fails and lists what is available.
+- `review` runs the pipeline to completion. The default target is the working
+  tree's uncommitted changes; `--pr N` reviews that pull request's range. A
+  positional recipe selects a named recipe from the catalog; omitting it
+  selects the configured `default-recipe`. Nothing else selects a recipe —
+  if neither resolves, the review fails and lists what is available.
+  `--destination` defaults to `local` (run directory + bounded digest). `pr`
+  keeps those local outputs and also posts `dossier.md`; it requires `--pr`.
+- `deliver` posts an already-completed pull-request run's `dossier.md` as a
+  single PR comment. A working-tree run has no PR destination and is refused.
+  Re-delivering a Posted receipt is a no-op that returns the existing comment
+  URL; a NotPosted attempt may be retried.
 - `config` prints the settings path, the recipe catalog path, the effective
   runs root, and every recipe — favorites in configured order first, the rest
   alphabetically, invalid files marked with their Schema error. This is where

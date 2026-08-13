@@ -9,6 +9,7 @@ import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
 import { Settings } from "../config/settings.ts"
 import { Recipe } from "../domain/recipe.ts"
+import { unusedGitHubLayer } from "../github/github.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { runGauntlet } from "./main.ts"
 
@@ -47,6 +48,7 @@ const config = (fixture: Fixture, ...argv: Array<string>) =>
         NodeServices.layer,
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         scriptedLayer(makeScripted({ sessions: [] })),
+        unusedGitHubLayer,
       ),
     ),
   )

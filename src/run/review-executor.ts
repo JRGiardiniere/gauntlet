@@ -239,8 +239,8 @@ export const executeReviewPlan = Effect.fn(
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
         }
         const report = renderReport(plan, dossier, accounting)
-        yield* writeArtifactText(paths.report, report)
-        yield* Effect.log("report rendered", { path: paths.report })
+        yield* writeArtifactText(paths.dossierMarkdown, report)
+        yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
 
         yield* Console.log(renderDigest(plan, dossier, accounting, paths))
       }).pipe(Effect.provide(Logger.layer([fileLogger])))

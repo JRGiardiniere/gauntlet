@@ -16,7 +16,7 @@ export interface RunPaths {
   readonly plan: string
   readonly journalDirectory: string
   readonly dossier: string
-  readonly report: string
+  readonly dossierMarkdown: string
   readonly receipt: string
   readonly runLog: string
 }
@@ -46,7 +46,7 @@ export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunP
     plan: path.join(root, "plan.json"),
     journalDirectory: path.join(root, "journal"),
     dossier: path.join(root, "dossier.json"),
-    report: path.join(root, "report.md"),
+    dossierMarkdown: path.join(root, "dossier.md"),
     receipt: path.join(root, "receipt.json"),
     runLog: path.join(root, "run.log"),
   }
@@ -94,10 +94,10 @@ const loadPlanOption = Effect.fn("gauntlet.run_record.load_plan_option")(
 
 const runIsComplete = Effect.fn("gauntlet.run_record.is_complete")(
   function* (paths: RunPaths, runId: string) {
-    const [dossierSource, reportSource] = yield* Effect.all(
+    const [dossierSource, markdownSource] = yield* Effect.all(
       [
         readOptionalArtifactText(paths.dossier),
-        readOptionalArtifactText(paths.report),
+        readOptionalArtifactText(paths.dossierMarkdown),
       ],
       { concurrency: 2 },
     )
@@ -105,7 +105,7 @@ const runIsComplete = Effect.fn("gauntlet.run_record.is_complete")(
       Option.filter((value) => value.runId === runId),
     )
     return Option.isSome(dossier) &&
-      Option.exists(reportSource, (report) => report.length > 0)
+      Option.exists(markdownSource, (markdown) => markdown.length > 0)
   },
 )
 
@@ -122,7 +122,7 @@ const runError = (
     ...(cause === undefined ? {} : { cause }),
   })
 
-const loadSpecificRun = Effect.fn("gauntlet.run_record.load_specific_run")(
+export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
   function* (runsRoot: string, requestedRunId: string) {
     const runId = yield* Schema.decodeEffect(RunIdPathSegment)(
       requestedRunId,
@@ -230,6 +230,6 @@ export const loadRunToResume = Effect.fn(
 )(function* (runsRoot: string, requestedRunId: Option.Option<string>) {
   return yield* Option.match(requestedRunId, {
     onNone: () => loadLatestIncompleteRun(runsRoot),
-    onSome: (runId) => loadSpecificRun(runsRoot, runId),
+    onSome: (runId) => loadRun(runsRoot, runId),
   })
 })

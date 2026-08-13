@@ -1,7 +1,12 @@
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { ReviewTarget } from "../domain/review-target.ts"
-import { type GitCommandError, runGit } from "./git.ts"
+import {
+  chompLine,
+  describeGitFailure,
+  type GitCommandError,
+  runGit,
+} from "./git.ts"
 
 // The working tree cannot yield a ReviewTarget at all — not a repo, no HEAD
 // to diff against, or nothing changed. "Could not review", exit 1.
@@ -12,20 +17,13 @@ export class TargetUnresolvable extends Data.TaggedError("TargetUnresolvable")<{
 
 const explainGit = (reason: string) =>
 <A, R>(self: Effect.Effect<A, GitCommandError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
-  Effect.catchTag(self, "GitCommandError", (cause) => {
-    // exitCode undefined = git itself never ran (missing binary, spawn
-    // failure) — a different truth than the command-specific reason.
-    const explained = cause.exitCode === undefined
-      ? `git could not run: ${String(cause.cause)}`
-      : cause.stderr.trim() === ""
-      ? reason
-      : `${reason}: ${cause.stderr.trim()}`
-    return Effect.fail(new TargetUnresolvable({ reason: explained, cause }))
-  })
-
-// rev-parse output is one line terminated by \n. Strip exactly that newline —
-// trim() would also eat whitespace that is legally part of the path.
-const chompLine = (out: string) => out.replace(/\n$/, "")
+  Effect.catchTag(self, "GitCommandError", (cause) =>
+    Effect.fail(
+      new TargetUnresolvable({
+        reason: describeGitFailure(reason, cause),
+        cause,
+      }),
+    ))
 
 // Resolves the default target: uncommitted changes vs HEAD, diff frozen at
 // submission (ADR 0005 — explicit aiming, the working tree is the

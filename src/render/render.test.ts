@@ -117,7 +117,7 @@ const paths: RunPaths = {
   plan: "/runs/run-fixture/plan.json",
   journalDirectory: "/runs/run-fixture/journal",
   dossier: "/runs/run-fixture/dossier.json",
-  report: "/runs/run-fixture/report.md",
+  dossierMarkdown: "/runs/run-fixture/dossier.md",
   receipt: "/runs/run-fixture/receipt.json",
   runLog: "/runs/run-fixture/run.log",
 }
@@ -194,8 +194,10 @@ describe("digest rendering", () => {
 
   it("keeps candidate text from breaking the line-oriented contract", () => {
     // The confirmed claim's location and summary both embed a newline plus a
-    // forged "report:" prefix; flattened, exactly one real report line survives.
-    expect(lines.filter((line) => line.startsWith("report: "))).toHaveLength(1)
+    // forged "report:" prefix; flattened, it cannot mint a digest path line.
+    expect(lines.filter((line) => line.startsWith("dossier.md: "))).toHaveLength(
+      1,
+    )
     expect(digest).toContain(
       "src/alpha.ts report: /tmp/forged-location:3",
     )

@@ -12,6 +12,7 @@ import * as TestConsole from "effect/testing/TestConsole"
 import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
+import { unusedGitHubLayer } from "../github/github.ts"
 import {
   makeScripted,
   scriptedLayer,
@@ -240,6 +241,7 @@ const runCommand = (
         NodeServices.layer,
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         scriptedLayer(scripted),
+        unusedGitHubLayer,
       ),
     ),
   ),
@@ -285,9 +287,9 @@ describe("gauntlet review", () => {
       const entries = yield* fs.readDirectory(runDir)
       expect([...entries].sort()).toEqual([
         "dossier.json",
+        "dossier.md",
         "journal",
         "plan.json",
-        "report.md",
         "run.log",
       ])
 
@@ -352,7 +354,7 @@ describe("gauntlet review", () => {
       })
       expect(dossier.coverageGaps).toEqual([])
 
-      const report = yield* fs.readFileString(path.join(runDir, "report.md"))
+      const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
       expect(report).toContain(`# Gauntlet review ${plan.runId}`)
       expect(report).toContain("the added line breaks empty inputs")
       expect(report).toContain("the name hides the value's role")
@@ -393,7 +395,7 @@ describe("gauntlet review", () => {
       expect(stdout).toContain(
         "- [P2] alpha.txt — the name hides the value's role",
       )
-      expect(stdout).toContain(`report: ${fixture.runsRoot}`)
+      expect(stdout).toContain(`dossier.md: ${fixture.runsRoot}`)
       expect(stdout).toContain("dossier.json")
       expect(stdout).not.toContain("gauntlet:")
 
@@ -616,7 +618,7 @@ describe("gauntlet review", () => {
         ),
       ).toBe(true)
       expect(yield* fs.exists(path.join(runDir, "dossier.json"))).toBe(false)
-      expect(yield* fs.exists(path.join(runDir, "report.md"))).toBe(false)
+      expect(yield* fs.exists(path.join(runDir, "dossier.md"))).toBe(false)
 
       yield* fs.writeFileString(
         path.join(fixture.content, "lenses", "fixture-review.md"),
@@ -705,7 +707,7 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         `resuming run ${runId}`,
       )
-      expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "report.md"))).toBe(
+      expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "dossier.md"))).toBe(
         true,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
