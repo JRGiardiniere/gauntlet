@@ -94,7 +94,12 @@ const runJudgment = (
     })
     const paths = runPaths(runsRoot, plan.runId, path)
     yield* fs.makeDirectory(paths.journalDirectory, { recursive: true })
-    const result = yield* executeJudgment({ plan, paths, observations })
+    const result = yield* executeJudgment({
+      plan,
+      paths,
+      reviewWorkingDirectory: REPO_ROOT,
+      observations,
+    })
     return { result, journalPath: path.join(paths.journalDirectory, "judgment.json") }
   }).pipe(
     Effect.provide(

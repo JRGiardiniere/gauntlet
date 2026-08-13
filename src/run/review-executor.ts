@@ -41,6 +41,7 @@ import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
+import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 
 // Pi uses the shared session id as its provider cache partition. Each model
 // group completes one real finder before its siblings fan out, then gives the
@@ -65,6 +66,9 @@ export const executeReviewPlan = Effect.fn(
   yield* Effect.scoped(
     Effect.gen(function* () {
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
+      const reviewWorkingDirectory = yield* acquireReviewWorkingDirectory(
+        plan.target,
+      )
       yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
         const templates = yield* Effect.cached(loadFinderPromptTemplates())
@@ -92,7 +96,7 @@ export const executeReviewPlan = Effect.fn(
               yield* progress(`invoking finder ${invocation.lens.name}`)
               const outcome = yield* invoke({
                 seat: invocation.seat,
-                cwd: plan.target.repoRoot,
+                cwd: reviewWorkingDirectory,
                 systemPrompt: promptTemplates.systemPrompt,
                 prompt,
                 sessionId,
@@ -228,11 +232,13 @@ export const executeReviewPlan = Effect.fn(
             executeBugClaimPath({
               plan,
               paths,
+              reviewWorkingDirectory,
               bugClaims: routed.bugClaims,
             }),
             executeJudgment({
               plan,
               paths,
+              reviewWorkingDirectory,
               observations: routed.observations,
             }),
           ],

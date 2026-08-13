@@ -39,6 +39,7 @@ const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
 export interface JudgmentExecution {
   readonly plan: ReviewPlan
   readonly paths: RunPaths
+  readonly reviewWorkingDirectory: string
   readonly observations: ReadonlyArray<Observation>
 }
 
@@ -53,7 +54,12 @@ export interface JudgmentResult {
 // resolution, and repair semantics all live behind it.
 export const executeJudgment = Effect.fn(
   "gauntlet.judgment.execute",
-)(function* ({ observations, paths, plan }: JudgmentExecution) {
+)(function* ({
+  observations,
+  paths,
+  plan,
+  reviewWorkingDirectory,
+}: JudgmentExecution) {
   const indexed = indexObservations(observations)
   if (indexed.length === 0) {
     yield* progress(`skipping Judgment (${counted(0, "Observation")})`)
@@ -97,7 +103,7 @@ export const executeJudgment = Effect.fn(
       yield* progress("invoking Judgment")
       return yield* invoke({
         seat,
-        cwd: plan.target.repoRoot,
+        cwd: reviewWorkingDirectory,
         systemPrompt: EVALUATION_SYSTEM_PROMPT,
         prompt,
         sessionId: `${plan.runId}-judgment`,
