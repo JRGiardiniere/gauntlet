@@ -23,9 +23,6 @@ export const VERIFICATION_TOOLS = ["read", "bash"] as const
 export const EVALUATION_SYSTEM_PROMPT =
   "You are a stage in a code-review pipeline. Follow the supplied stage instructions and finish by calling the required emit tool."
 
-const NO_INTENT_SECTION =
-  "(No PR description or spec was supplied — judge the change on its own terms, and do not assume intent you cannot see.)"
-
 export interface EvaluationPromptTemplates {
   readonly pool: string
   readonly verifier: string
@@ -106,7 +103,6 @@ export const assembleStageScope = (
   template: string,
   target: ReviewTarget,
   reviewRoot: string,
-  specText: string | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   renderPromptTemplate("stage scope", template, [
     ["REPO_ROOT", reviewRoot],
@@ -118,14 +114,12 @@ export const assembleStageScope = (
       "DIFF_SECTION",
       `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
     ],
-    ["INTENT_SECTION", specText ?? NO_INTENT_SECTION],
   ])
 
 export const assembleVerifierPrompt = (
   templates: EvaluationPromptTemplates,
   target: ReviewTarget,
   reviewRoot: string,
-  specText: string | undefined,
   claims: ReadonlyArray<IndexedBugClaim>,
   bundle: ReadonlyArray<NumberedPoolCluster>,
 ): Effect.Effect<string, PromptAssemblyError> =>
@@ -134,7 +128,6 @@ export const assembleVerifierPrompt = (
       templates.stageScope,
       target,
       reviewRoot,
-      specText,
     )
     return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],

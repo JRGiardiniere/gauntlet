@@ -12,7 +12,7 @@ infrastructure.
 
 ```
 ~/.gauntlet/runs/<run-id>/
-  plan.json          # frozen ReviewPlan: recipe seats, lens texts + hashes, target diff
+  plan.json          # frozen ReviewPlan: recipe seats, lens texts, target diff
   journal/*.json     # one per AgentInvocation: full AgentOutcome (ADR 0003)
   dossier.json       # complete machine-readable Dossier
   dossier.md         # human-readable Dossier
@@ -33,7 +33,7 @@ ADR 0003 designed out.
 
 No log.jsonl, no corpus file, no SQLite, no index. The run directories are
 the history: each is schema-stable and self-contained, carrying strictly more
-than the old aggregate lines did (seats, lens hashes, per-invocation usage,
+than the old aggregate lines did (seats, lens texts, per-invocation usage,
 verdicts). "Bench later" means a ~20-line script that globs `runs/*/` and
 decodes `plan.json` + `dossier.json` + `journal/*.json` — written the day a
 reader actually exists.
@@ -63,7 +63,7 @@ accounting store. Any future cost model is a script over journal files.
 story. Both files are representations of the same Dossier, not separate domain
 objects.
 
-- Header: target identity, recipe + seats, lens list with content hashes,
+- Header: target identity, recipe + seats, lens list with seats,
   the one cost/duration line, coverage gaps.
 - Findings grouped by tier, each with evidence (confirmed BugClaims) or
   keep-reason (kept Observations).

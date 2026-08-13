@@ -16,16 +16,13 @@ const target = ReviewTarget.cases.WorkingTree.make({
 
 const plan = ReviewPlan.make({
   runId: "run-fixture",
-  createdAt: "2026-08-11T00:00:00.000Z",
   target,
   seats: {},
   lenses: [
     FrozenLens.make({
       name: "fixture",
       promptText: "fixture prompt",
-      contentHash: "fixture-hash",
       seat: "fixture/model:low",
-      needsSpec: false,
       candidateCap: 6,
     }),
   ],

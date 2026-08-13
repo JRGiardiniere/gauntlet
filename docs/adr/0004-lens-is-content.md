@@ -19,20 +19,19 @@ editing every preset. We decided none of that is lens anatomy:
   both stable classes to concrete Seats, so a Lens cannot pin a model that
   silently becomes stale. There is no arbitrary role→model matrix and no
   concrete per-Lens Seat override.
-- **Applicability** is planning: a lens may declare it needs the spec text;
-  when absent, the lens is skipped — not an error, not a coverage gap.
 
 What remains **is** the lens: a name and a prompt. Lenses are markdown files
 in one format — name from the filename, body is the prompt, frontmatter
-limited to optional `finder-class: deep`, the needs-spec flag, and a
-display-only `category` tag (amended per #12: groups lens listings and Dossier
-headers for the human reader; never read by routing, which stays on the
-candidate's own type). `finder-class` affects only Recipe Seat resolution and
-admits exactly `deep`; standard is represented by omission. Built-ins
-ship inside Gauntlet; a project drops the same format in its own lens
-directory; one loader reads both. Caps, routing, schemas, and tool sets are
-banned from lens files by design — reintroducing them rebuilds the old
-anatomy.
+limited to optional `finder-class: deep` and a display-only `category` tag
+(amended per #12: groups lens listings for the human reader; never read by
+routing, which stays on the candidate's own type; amended per #52:
+`category` is live catalog metadata, never a FrozenLens field — so it cannot
+appear in a Dossier, which renders from the frozen plan).
+`finder-class` affects only Recipe Seat resolution and admits exactly
+`deep`; standard is represented by omission. Built-ins ship inside Gauntlet;
+a project drops the same format in its own lens directory; one loader reads
+both. Caps, routing, schemas, and tool sets are banned from lens files by
+design — reintroducing them rebuilds the old anatomy.
 
 The shipped `subjective` and `refactoring-checklist` Lenses opt into `deep`:
 both evaluate design taste rather than running a bounded correctness sweep.
@@ -40,13 +39,13 @@ Every other shipped Lens is standard. Category does not imply Finder Class —
 future Lenses opt into `deep` individually when their reasoning demand earns
 it.
 
-Version identity is derived, never maintained: at submission the ReviewPlan
-freezes each lens's prompt text and records its content hash
-(`angle-b@3f9a2c71`), which surfaces in logs and the Dossier. Editing a prompt
-changes the next run's hash automatically; runs are comparable exactly when
-their lens hashes match. Git history complements this for shipped lenses but
-cannot record what text an actual run used — the frozen text and hash travel
-with the run.
+Version identity is the frozen prompt text, never a separately stored digest
+(amended per #52): at submission the ReviewPlan freezes each lens's prompt
+text (`content-frozen per run`). Editing a prompt changes the next run's
+frozen tail; a resumed run replays the exact stored text. A display
+fingerprint, if ever wanted, is computed at render time. Git history
+complements this for shipped lenses but cannot record what text an actual
+run used — the frozen text travels with the run.
 
 ## Consequences
 
@@ -58,5 +57,5 @@ with the run.
 - A finder's emit schema keeps `failure_scenario` optional — that optionality
   is the routing discriminator, not sloppiness.
 - Editing a lens file changes review behavior without a code review; the
-  frozen text + hash on every run is the accepted mitigation for a personal
+  frozen text on every run is the accepted mitigation for a personal
   tool.

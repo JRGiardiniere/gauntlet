@@ -49,7 +49,6 @@ export const assembleJudgmentPrompt = (
   templates: JudgmentPromptTemplates,
   target: ReviewTarget,
   reviewRoot: string,
-  specText: string | undefined,
   observations: ReadonlyArray<IndexedObservation>,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
@@ -57,7 +56,6 @@ export const assembleJudgmentPrompt = (
       templates.stageScope,
       target,
       reviewRoot,
-      specText,
     )
     return yield* renderPromptTemplate("judge", templates.judge, [
       ["SCOPE_BLOCK", scope],

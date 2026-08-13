@@ -98,7 +98,6 @@ export const executeJudgment = Effect.fn(
         promptTemplates,
         plan.target,
         reviewWorkingDirectory,
-        plan.specText,
         indexed,
       )
       yield* progress("invoking Judgment")

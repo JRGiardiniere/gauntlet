@@ -21,6 +21,10 @@ gauntlet config unset <key>
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
   (skip-what-exists per ADR 0003), defaulting to the latest incomplete run.
+  It reuses completed paid work when the target is byte-identical, under the
+  currently installed shared prompts, schemas, tools, and pipeline code
+  (amended per #52). A changed target reports resume unavailable and starts
+  a new review.
 - `deliver` posts an already-completed run's Dossier to the PR — #8's
   "run directory is the backstop" made actionable, never re-paying a review.
 - `config set` and `config unset` explicitly manage the standing choices in
@@ -84,8 +88,8 @@ Selection precedence is exactly: a Recipe named positionally, otherwise the
 configured Default Recipe. If neither resolves, review fails and lists the
 available Recipes. Environment variables, flags, and a hidden built-in
 fallback do not select a Recipe. The ReviewPlan freezes the resolved seats at
-submission (#6), so editing a Recipe never changes an in-flight or resumed
-Run.
+submission (#6), so editing a Recipe never changes an in-flight run or a
+resumed run whose target is unchanged (amended per #52).
 
 `config set default-recipe` accepts only an available valid Recipe and
 `config unset default-recipe` is rejected. Unsetting `favorites` restores an

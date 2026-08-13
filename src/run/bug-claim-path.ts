@@ -201,7 +201,6 @@ export const executeBugClaimPath = Effect.fn(
                 promptTemplates,
                 plan.target,
                 reviewWorkingDirectory,
-                plan.specText,
                 claims,
                 bundle,
               )

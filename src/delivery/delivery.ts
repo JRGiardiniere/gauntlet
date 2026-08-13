@@ -10,7 +10,7 @@ import {
   readOptionalArtifactText,
   writeArtifactJson,
 } from "../run/artifact.ts"
-import type { ResumableRun } from "../run/run-record.ts"
+import type { LoadedRun } from "../run/run-record.ts"
 import { fitPostedDossier } from "./comment-body.ts"
 
 export class DeliveryError extends Data.TaggedError("DeliveryError")<{
@@ -59,7 +59,7 @@ export const requirePullRequestTarget = (
     )
 
 const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
-  function* (paths: ResumableRun["paths"], runId: string) {
+  function* (paths: LoadedRun["paths"], runId: string) {
     const source = yield* readDeliveryArtifact(
       paths.receipt,
       runId,
@@ -88,7 +88,7 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
 )
 
 const requireMarkdown = Effect.fn("gauntlet.delivery.require_markdown")(
-  function* (paths: ResumableRun["paths"], runId: string) {
+  function* (paths: LoadedRun["paths"], runId: string) {
     const source = yield* readDeliveryArtifact(
       paths.dossierMarkdown,
       runId,
@@ -110,7 +110,7 @@ const requireMarkdown = Effect.fn("gauntlet.delivery.require_markdown")(
 // NotPosted and never touches the review artifacts (ADR 0005, ADR 0006).
 export const deliverCompletedRun = Effect.fn(
   "gauntlet.delivery.deliver_completed_run",
-)(function* (loaded: ResumableRun) {
+)(function* (loaded: LoadedRun) {
   const { paths, plan } = loaded
   const target = yield* requirePullRequestTarget(plan)
   const existing = yield* loadReceipt(paths, plan.runId)

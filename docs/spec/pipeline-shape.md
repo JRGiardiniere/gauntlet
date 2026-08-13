@@ -88,6 +88,5 @@ Provider prefix caching only engages when the prompt is byte-identical from
 the first token to the point of divergence. So: shared block first, lens tail
 last, always — nothing lens-specific (no label, no index, no run id, no
 timestamp) may appear before the tail, and every finder in a fan-out carries a
-byte-identical tool set. Anything a lens `needs-spec` pulls in (the spec text)
-is appended after the tail. Warmup/fan-out sequencing, session-key sharing,
+byte-identical tool set. Warmup/fan-out sequencing, session-key sharing,
 and cache diagnostics are adapter mechanics (ADR 0002), not review shape.

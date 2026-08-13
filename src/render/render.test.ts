@@ -95,16 +95,13 @@ const dossier = Dossier.make({
 
 const plan = ReviewPlan.make({
   runId: "run-fixture",
-  createdAt: "2026-08-10T00:00:00.000Z",
   target,
   seats: { judgment: "fixture/default-model:low" },
   lenses: [
     FrozenLens.make({
       name: "fixture-lens",
       promptText: "fixture tail",
-      contentHash: "fixture-hash",
       seat: "fixture/override-model:high",
-      needsSpec: false,
       candidateCap: 6,
     }),
   ],
@@ -178,7 +175,7 @@ describe("dossier markdown rendering", () => {
 
   it("shows the effective seat frozen onto each lens", () => {
     expect(markdown).toContain(
-      "fixture-lens@fixture-hash (fixture/override-model:high)",
+      "fixture-lens (fixture/override-model:high)",
     )
   })
 })

@@ -21,9 +21,15 @@ export interface RunPaths {
   readonly runLog: string
 }
 
-export interface ResumableRun {
+export interface LoadedRun {
   readonly paths: RunPaths
   readonly plan: ReviewPlan
+}
+
+// Resume additionally needs to know whether unpaid work remains: a complete
+// run replays from its artifacts without paying for anything.
+export interface ResumableRun extends LoadedRun {
+  readonly complete: boolean
 }
 
 export class RunError extends Data.TaggedError("RunError")<{
@@ -165,7 +171,16 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
         runId,
       )
     }
-    return { paths, plan } satisfies ResumableRun
+    const complete = yield* runIsComplete(paths, runId).pipe(
+      Effect.mapError((cause) =>
+        runError(
+          "load-plan",
+          `could not inspect completion artifacts for run ${runId}`,
+          runId,
+          cause,
+        )),
+    )
+    return { paths, plan, complete } satisfies ResumableRun
   },
 )
 
@@ -215,7 +230,9 @@ const loadLatestIncompleteRun = Effect.fn(
           cause,
         )),
     )
-    if (!complete) return { paths, plan: plan.value } satisfies ResumableRun
+    if (!complete) {
+      return { paths, plan: plan.value, complete } satisfies ResumableRun
+    }
   }
 
   return yield* runError(

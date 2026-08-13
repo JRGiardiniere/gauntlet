@@ -81,7 +81,6 @@ const runJudgment = (
   Effect.gen(function* () {
     const plan: ReviewPlan = {
       runId: "judgment-test-run",
-      createdAt: "2026-08-12T00:00:00Z",
       target,
       seats: seatless
         ? {}

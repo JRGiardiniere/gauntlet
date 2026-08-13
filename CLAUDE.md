@@ -23,7 +23,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
   stdout, run-dir layout, resume) plus a few end-to-end journeys — not every
   Stage behavior. Scripted HarnessSession adapter and a real temp filesystem.
   TestClock never auto-advances. Fixture lenses only — never real lens names
-- Lenses are pure content per ADR-0004 (markdown, hash-frozen per run) —
+- Lenses are pure content per ADR-0004 (markdown, content-frozen per run) —
   code loads them, never edits them. Stage prompt templates may live with and
   be owned by their Stage module; prompt text is still plain markdown with
   `{{PLACEHOLDER}}` slots, never rewritten at runtime

@@ -11,10 +11,3 @@ Treat the repository as read-only. Do not edit files or run commands intended
 to modify the working tree; the shell is not sandboxed in v1.
 
 {{DIFF_SECTION}}
-
-## What this change is for
-
-{{INTENT_SECTION}}
-
-Weigh proportionality against THIS intent. A criticism can be right about the
-codebase and still misaddressed to a change that never set out to fix it.

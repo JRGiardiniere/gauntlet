@@ -56,7 +56,6 @@ export const assembleFinderPrompt = (
   target: ReviewTarget,
   reviewRoot: string,
   lens: FrozenLens,
-  specText?: string,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const shared = yield* renderPromptTemplate(
@@ -80,14 +79,6 @@ export const assembleFinderPrompt = (
       lensSections.push(
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
       )
-    }
-    if (lens.needsSpec) {
-      if (specText === undefined) {
-        return yield* new PromptAssemblyError({
-          reason: `lens ${lens.name} needs spec text but none is frozen in the review plan`,
-        })
-      }
-      lensSections.push(`## Originating spec\n\n${specText}`)
     }
     return `${shared}\n\n${lensSections.join("\n\n")}`
   })
