@@ -164,6 +164,7 @@ describe("working-tree review working directory", () => {
       yield* fs.writeFile(inRepo("bin.dat"), new Uint8Array([0, 1, 2, 3]))
       yield* fs.writeFileString(inRepo("script.sh"), "#!/bin/sh\n")
       yield* fs.symlink("alpha.txt", inRepo("linky"))
+      yield* fs.writeFileString(inRepo("reshaped"), "was a file\n")
       yield* fs.writeFileString(inRepo(".gitignore"), "ignored.txt\n")
       yield* commitAll(repo, "base")
 
@@ -183,6 +184,10 @@ describe("working-tree review working directory", () => {
       yield* fs.writeFileString(inRepo("stray.txt"), "untracked payload\n")
       yield* fs.symlink("alpha.txt", inRepo("stray-link"))
       yield* fs.writeFileString(inRepo("ignored.txt"), "invisible\n")
+      // Tracked file replaced by a plain directory holding untracked files.
+      yield* fs.remove(inRepo("reshaped"))
+      yield* fs.makeDirectory(inRepo("reshaped"))
+      yield* fs.writeFileString(inRepo("reshaped/child.txt"), "dir child\n")
 
       const target = yield* resolveWorkingTreeTarget(repo)
       expect(ReviewTarget.guards.WorkingTree(target)).toBe(true)
@@ -221,6 +226,12 @@ describe("working-tree review working directory", () => {
           )
           expect(yield* fs.readLink(inSnapshot("stray-link"))).toBe("alpha.txt")
           expect(yield* fs.exists(inSnapshot("ignored.txt"))).toBe(false)
+          expect((yield* fs.stat(inSnapshot("reshaped"))).type).toBe(
+            "Directory",
+          )
+          expect(
+            yield* fs.readFileString(inSnapshot("reshaped/child.txt")),
+          ).toBe("dir child\n")
 
           // Edits and new commits in the developer's repo after acquisition
           // are invisible to the Run already in flight.

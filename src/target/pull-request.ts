@@ -6,13 +6,11 @@ import {
   chompLine,
   describeGitFailure,
   type GitCommandError,
-  runGit,
-} from "./git.ts"
-import {
   gitlinkPaths,
+  runGit,
   submoduleWarning,
-  TargetUnresolvable,
-} from "./working-tree.ts"
+} from "./git.ts"
+import { TargetUnresolvable } from "./working-tree.ts"
 
 const explainGit = (reason: string) =>
 <A, R>(self: Effect.Effect<A, GitCommandError, R>): Effect.Effect<A, TargetUnresolvable, R> =>

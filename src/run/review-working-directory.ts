@@ -35,9 +35,21 @@ const syncPathFromCheckout = Effect.fn(
     return yield* fs.remove(destination, { force: true })
   }
   const info = yield* fs.stat(source)
-  // A changed path that is a directory is a gitlink bump — the snapshot
-  // keeps the unpopulated directory the checkout of the head commit created.
-  if (info.type !== "File") return
+  // A changed path that is a directory is either a gitlink bump — the
+  // checkout of the head commit already holds the unpopulated directory —
+  // or a tracked file replaced by a plain directory, where the stale file
+  // must go so the deletion lands and untracked children can be copied
+  // beneath it.
+  if (info.type !== "File") {
+    const destinationInfo = yield* fs.stat(destination).pipe(Effect.option)
+    if (
+      Option.isSome(destinationInfo) &&
+      destinationInfo.value.type !== "Directory"
+    ) {
+      yield* fs.remove(destination, { force: true })
+    }
+    return
+  }
   yield* fs.remove(destination, { force: true })
   yield* fs.makeDirectory(path.dirname(destination), { recursive: true })
   yield* fs.copyFile(source, destination)

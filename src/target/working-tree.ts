@@ -10,7 +10,9 @@ import {
   chompLine,
   describeGitFailure,
   type GitCommandError,
+  gitlinkPaths,
   runGit,
+  submoduleWarning,
 } from "./git.ts"
 
 // The working tree cannot yield a ReviewTarget at all — not a repo, no HEAD
@@ -40,28 +42,6 @@ const explainUntrackedFile = (reason: string) =>
 // Git already governs tracked files. Untracked files larger than this are
 // dropped from the digest set and named in a scope-degradation warning.
 const UNTRACKED_SIZE_CAP = FileSystem.MiB(10)
-
-// Gitlink entries in NUL-separated `ls-files --stage` or `ls-tree -r` output.
-// Both formats lead with the mode and put the path after the first tab.
-export const gitlinkPaths = (out: string): ReadonlyArray<string> =>
-  out
-    .split("\0")
-    .filter((entry) => entry.startsWith("160000 "))
-    .flatMap((entry) => {
-      const tab = entry.indexOf("\t")
-      return tab === -1 ? [] : [entry.slice(tab + 1)]
-    })
-
-// The review snapshot never materializes submodule contents — agents see an
-// unpopulated gitlink directory, so the degraded scope must be named (#56).
-export const submoduleWarning = (
-  paths: ReadonlyArray<string>,
-): ReadonlyArray<string> =>
-  paths.length === 0 ? [] : [
-    `${String(paths.length)} submodule(s) whose contents are not included in the review: ${
-      paths.join(", ")
-    }`,
-  ]
 
 const digestBytes = Effect.fn(
   "gauntlet.working_tree.digest_bytes",
