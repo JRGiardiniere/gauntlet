@@ -13,6 +13,11 @@ import {
 } from "../config/recipe-catalog.ts"
 import { resolveRunsRoot } from "../config/settings.ts"
 import { loadFinderLenses } from "../content/lens.ts"
+import {
+  deliverCompletedRun,
+  DeliveryError,
+  requirePullRequestTarget,
+} from "../delivery/delivery.ts"
 import { finderSeat, stageSeat } from "../domain/recipe.ts"
 import {
   candidateCapForLens,
@@ -23,9 +28,12 @@ import { writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
 import {
   createRunDirectory,
+  loadRun,
   loadRunToResume,
   makeRunId,
+  type ResumableRun,
 } from "../run/run-record.ts"
+import { resolvePullRequestTarget } from "../target/pull-request.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
 
@@ -44,18 +52,43 @@ const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
+type Destination = "local" | "pr"
+
+const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
+  destination: Destination,
+  loaded: ResumableRun,
+) {
+  if (destination !== "pr") return
+  const receipt = yield* deliverCompletedRun(loaded)
+  yield* progress(`posted ${receipt.url}`)
+})
+
 const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   recipeName: Option.Option<string>,
   selectedLensNames: ReadonlyArray<string> | undefined,
+  pr: Option.Option<number>,
+  destination: Destination,
 ) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(recipeName)
   yield* progress(`using recipe ${selected.name}`)
-  yield* progress("resolving working-tree review target")
   const directory = yield* InvocationDirectory
-  const target = yield* resolveWorkingTreeTarget(directory)
+  const target = yield* Option.match(pr, {
+    onNone: () => {
+      return Effect.gen(function* () {
+        yield* progress("resolving working-tree review target")
+        return yield* resolveWorkingTreeTarget(directory)
+      })
+    },
+    onSome: (number) => {
+      return Effect.gen(function* () {
+        yield* progress(`resolving PR #${String(number)} review target`)
+        return yield* resolvePullRequestTarget(directory, number)
+      })
+    },
+  })
   // Scope degradation is never silent (spec #16): each warning is narrated
   // as it is discovered, in addition to landing on the plan and report.
   for (const warning of target.warnings) {
@@ -115,19 +148,25 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     paths,
     startedAt,
   })
+  yield* maybeDeliver(destination, { plan, paths })
 })
 
 const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
   requestedRunId: Option.Option<string>,
+  destination: Destination,
 ) {
   const runsRoot = yield* resolveRunsRoot()
   const resumable = yield* loadRunToResume(runsRoot, requestedRunId)
   yield* progress(`resuming run ${resumable.plan.runId}`)
+  if (destination === "pr") {
+    yield* requirePullRequestTarget(resumable.plan)
+  }
   const startedAt = yield* DateTime.now
   yield* executeReviewPlan({
     ...resumable,
     startedAt,
   })
+  yield* maybeDeliver(destination, resumable)
 })
 
 const LATEST_RESUME_SENTINEL = "@latest"
@@ -138,6 +177,8 @@ const executeReviewCommand = Effect.fn(
   recipe: Option.Option<string>,
   lenses: Option.Option<string>,
   resume: Option.Option<string>,
+  pr: Option.Option<number>,
+  destination: Destination,
 ) {
   if (Option.isSome(resume)) {
     if (Option.isSome(lenses)) {
@@ -150,20 +191,33 @@ const executeReviewCommand = Effect.fn(
         reason: "a recipe cannot be combined with --resume; the plan is frozen",
       })
     }
+    if (Option.isSome(pr)) {
+      return yield* new ReviewCommandError({
+        reason: "--pr cannot be combined with --resume; the plan is frozen",
+      })
+    }
     yield* resumeReview(
       resume.value === LATEST_RESUME_SENTINEL
         ? Option.none()
         : Option.some(resume.value),
+      destination,
     )
     return
   }
+  if (destination === "pr" && Option.isNone(pr)) {
+    return yield* new ReviewCommandError({
+      reason: "--destination pr requires --pr",
+    })
+  }
   if (Option.isNone(lenses)) {
-    yield* startReview(recipe, undefined)
+    yield* startReview(recipe, undefined, pr, destination)
     return
   }
   yield* startReview(
     recipe,
     lenses.value.split(",").map((name) => name.trim()),
+    pr,
+    destination,
   )
 })
 
@@ -174,6 +228,16 @@ const review = Command.make(
       Argument.optional,
       Argument.withDescription(
         "Named recipe from the catalog; omit to use the configured default-recipe",
+      ),
+    ),
+    pr: Flag.integer("pr").pipe(
+      Flag.optional,
+      Flag.withDescription("Review that pull request's range"),
+    ),
+    destination: Flag.choice("destination", ["local", "pr"]).pipe(
+      Flag.withDefault("local"),
+      Flag.withDescription(
+        "local writes the run directory and digest; pr also posts dossier.md",
       ),
     ),
     lenses: Flag.string("lenses").pipe(
@@ -188,14 +252,47 @@ const review = Command.make(
       ),
     ),
   },
-  ({ lenses, recipe, resume }) =>
-    executeReviewCommand(recipe, lenses, resume),
+  ({ destination, lenses, pr, recipe, resume }) =>
+    executeReviewCommand(recipe, lenses, resume, pr, destination),
 ).pipe(
-  Command.withDescription("Review the working tree's uncommitted changes"),
+  Command.withDescription(
+    "Review the working tree or a named pull request",
+  ),
+)
+
+const executeDeliverCommand = Effect.fn(
+  "gauntlet.cli.execute_deliver_command",
+)(function* (runId: string) {
+  const runsRoot = yield* resolveRunsRoot()
+  const loaded = yield* loadRun(runsRoot, runId).pipe(
+    Effect.mapError((cause) =>
+      new DeliveryError({
+        operation: "load",
+        reason: cause.reason,
+        runId,
+        cause,
+      })),
+  )
+  const receipt = yield* deliverCompletedRun(loaded)
+  yield* Console.log(receipt.url)
+})
+
+const deliver = Command.make(
+  "deliver",
+  {
+    runId: Argument.string("run-id").pipe(
+      Argument.withDescription("Completed run to post"),
+    ),
+  },
+  ({ runId }) => executeDeliverCommand(runId),
+).pipe(
+  Command.withDescription(
+    "Post a completed pull-request run's dossier.md as a PR comment",
+  ),
 )
 
 const gauntlet = Command.make("gauntlet").pipe(
-  Command.withSubcommands([review, configCommand]),
+  Command.withSubcommands([review, deliver, configCommand]),
   Command.withDescription("Effect-native, Pi-harnessed code-review agent"),
 )
 
@@ -234,6 +331,12 @@ export const runGauntlet = (
         ),
       ReviewCommandError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
+      DeliveryError: (failure) =>
+        progress(
+          failure.operation === "post" && failure.runId !== undefined
+            ? `could not deliver — ${failure.reason}; retry with gauntlet deliver ${failure.runId}`
+            : `could not deliver — ${failure.reason}`,
+        ).pipe(Effect.as(1)),
       // Configuration failures render standalone: their reasons already name
       // the file or recipe at fault, for review and config verbs alike.
       SettingsError: (failure) =>

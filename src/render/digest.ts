@@ -2,7 +2,7 @@ import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import { viewDossier } from "./dossier-view.ts"
-import type { RunAccounting } from "./report.ts"
+import type { RunAccounting } from "./dossier-markdown.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const shortCommit = (commit: string) => commit.slice(0, 7)
@@ -68,7 +68,7 @@ export const renderDigest = (
     tally,
     ...surviving,
     "",
-    `report: ${paths.report}`,
-    `dossier: ${paths.dossier}`,
+    `dossier.md: ${paths.dossierMarkdown}`,
+    `dossier.json: ${paths.dossier}`,
   ].join("\n")
 }

@@ -10,11 +10,26 @@ export class GitCommandError extends Data.TaggedError("GitCommandError")<{
   readonly cause: unknown
 }> {}
 
+// rev-parse and friends terminate with a single newline. Strip exactly that
+// — trim() would also eat whitespace that is legally part of a path.
+export const chompLine = (out: string) => out.replace(/\n$/, "")
+
+export const describeGitFailure = (
+  reason: string,
+  cause: GitCommandError,
+): string =>
+  cause.exitCode === undefined
+    ? `git could not run: ${String(cause.cause)}`
+    : cause.stderr.trim() === ""
+    ? reason
+    : `${reason}: ${cause.stderr.trim()}`
+
 // The repository is selected by cwd alone. Git hooks export GIT_DIR,
 // GIT_WORK_TREE, and friends into the environment, and those silently
 // OVERRIDE cwd — a review launched from a hook would target the hook's repo.
 // Unset them for the child (same list as vitest.setup.ts guards for tests).
-const scrubbedGitEnv: Record<string, undefined> = {
+// Shared with gh (which shells out to git) and the git test fixture.
+export const scrubbedGitEnv: Record<string, undefined> = {
   GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
   GIT_CEILING_DIRECTORIES: undefined,
   GIT_COMMON_DIR: undefined,

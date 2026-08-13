@@ -24,7 +24,7 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
 import { renderDigest } from "../render/digest.ts"
-import { renderReport } from "../render/report.ts"
+import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
 import { executeBugClaimPath } from "./bug-claim-path.ts"
 import {
@@ -238,9 +238,9 @@ export const executeReviewPlan = Effect.fn(
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
         }
-        const report = renderReport(plan, dossier, accounting)
-        yield* writeArtifactText(paths.report, report)
-        yield* Effect.log("report rendered", { path: paths.report })
+        const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
+        yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
+        yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
 
         yield* Console.log(renderDigest(plan, dossier, accounting, paths))
       }).pipe(Effect.provide(Logger.layer([fileLogger])))

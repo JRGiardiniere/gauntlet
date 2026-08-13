@@ -4,6 +4,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import { scrubbedGitEnv } from "../target/git.ts"
 
 export class FixtureGitError extends Data.TaggedError("FixtureGitError")<{
   readonly args: ReadonlyArray<string>
@@ -19,17 +20,6 @@ export interface GitFixture {
 // Same GIT_* override list as production runGit: hooks export these and
 // they silently replace cwd. The fixture spawns git through ChildProcess
 // directly, never the production wrapper.
-const scrubbedGitEnv: Record<string, undefined> = {
-  GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
-  GIT_CEILING_DIRECTORIES: undefined,
-  GIT_COMMON_DIR: undefined,
-  GIT_DIR: undefined,
-  GIT_INDEX_FILE: undefined,
-  GIT_OBJECT_DIRECTORY: undefined,
-  GIT_PREFIX: undefined,
-  GIT_QUARANTINE_PATH: undefined,
-  GIT_WORK_TREE: undefined,
-}
 
 const git = (cwd: string, args: ReadonlyArray<string>) =>
   Effect.scoped(

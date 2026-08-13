@@ -90,7 +90,7 @@ const renderAppendix = (lines: ReadonlyArray<string>): string =>
 
 // Rendered from the Dossier alone plus the frozen plan's header facts —
 // deterministic presentation, no model calls (ADR 0006).
-export const renderReport = (
+export const renderDossierMarkdown = (
   plan: ReviewPlan,
   dossier: Dossier,
   accounting: RunAccounting,

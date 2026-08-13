@@ -6,7 +6,7 @@ import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 import { renderDigest } from "./digest.ts"
-import { renderReport } from "./report.ts"
+import { renderDossierMarkdown } from "./dossier-markdown.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (
@@ -117,16 +117,16 @@ const paths: RunPaths = {
   plan: "/runs/run-fixture/plan.json",
   journalDirectory: "/runs/run-fixture/journal",
   dossier: "/runs/run-fixture/dossier.json",
-  report: "/runs/run-fixture/report.md",
+  dossierMarkdown: "/runs/run-fixture/dossier.md",
   receipt: "/runs/run-fixture/receipt.json",
   runLog: "/runs/run-fixture/run.log",
 }
 
-describe("report rendering", () => {
-  const report = renderReport(plan, dossier, accounting)
+describe("dossier markdown rendering", () => {
+  const markdown = renderDossierMarkdown(plan, dossier, accounting)
 
   it("orders findings by tier with unverified and undecided tagged in the main section", () => {
-    const findings = report.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
     const confirmedAt = findings.indexOf("first line")
     const keptAt = findings.indexOf("kkkk")
     const tieredUnverifiedAt = findings.indexOf("tiered but unverified claim")
@@ -146,38 +146,38 @@ describe("report rendering", () => {
   })
 
   it("keeps refuted claims and dropped observations as appendices", () => {
-    expect(report).toContain("## Appendix: refuted claims")
-    expect(report).toContain("refuted claim")
-    expect(report).toContain("guarded two lines above")
-    expect(report).toContain("## Appendix: dropped observations")
-    expect(report).toContain("dropped observation")
-    expect(report).toContain("style preference only")
+    expect(markdown).toContain("## Appendix: refuted claims")
+    expect(markdown).toContain("refuted claim")
+    expect(markdown).toContain("guarded two lines above")
+    expect(markdown).toContain("## Appendix: dropped observations")
+    expect(markdown).toContain("dropped observation")
+    expect(markdown).toContain("style preference only")
   })
 
   it("surfaces scope-degradation warnings in the header", () => {
-    expect(report).toContain("- Warnings: ")
-    expect(report).toContain("stray.txt")
+    expect(markdown).toContain("- Warnings: ")
+    expect(markdown).toContain("stray.txt")
   })
 
   it("flattens model-authored text so one finding stays one list item", () => {
     // Both the confirmed claim's summary and the kept judgment's reason embed
     // newlines with Markdown-significant prefixes; neither may start a line.
-    expect(report).toContain("first line report: /tmp/forged-path")
-    expect(report).toContain("checked the call sites; ## the coupling is real")
-    expect(report.split("\n").filter((line) => line.startsWith("report:")))
+    expect(markdown).toContain("first line report: /tmp/forged-path")
+    expect(markdown).toContain("checked the call sites; ## the coupling is real")
+    expect(markdown.split("\n").filter((line) => line.startsWith("report:")))
       .toHaveLength(0)
-    expect(report.split("\n").filter((line) => line.startsWith("##")))
+    expect(markdown.split("\n").filter((line) => line.startsWith("##")))
       .toEqual(expect.arrayContaining(["## Findings"]))
-    expect(report).not.toContain("\n## the coupling is real")
+    expect(markdown).not.toContain("\n## the coupling is real")
   })
 
   it("includes every BugClaim failure scenario", () => {
-    expect(report.match(/Failure scenario: input of length zero loops forever/g))
+    expect(markdown.match(/Failure scenario: input of length zero loops forever/g))
       .toHaveLength(dossier.bugClaims.length)
   })
 
   it("shows the effective seat frozen onto each lens", () => {
-    expect(report).toContain(
+    expect(markdown).toContain(
       "fixture-lens@fixture-hash (fixture/override-model:high)",
     )
   })
@@ -194,8 +194,10 @@ describe("digest rendering", () => {
 
   it("keeps candidate text from breaking the line-oriented contract", () => {
     // The confirmed claim's location and summary both embed a newline plus a
-    // forged "report:" prefix; flattened, exactly one real report line survives.
-    expect(lines.filter((line) => line.startsWith("report: "))).toHaveLength(1)
+    // forged "report:" prefix; flattened, it cannot mint a digest path line.
+    expect(lines.filter((line) => line.startsWith("dossier.md: "))).toHaveLength(
+      1,
+    )
     expect(digest).toContain(
       "src/alpha.ts report: /tmp/forged-location:3",
     )
