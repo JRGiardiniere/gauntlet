@@ -1,10 +1,8 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
 import * as Context from "effect/Context"
-import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
 import * as FileSystem from "effect/FileSystem"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
@@ -15,19 +13,17 @@ import { LensName } from "../domain/review-plan.ts"
 
 // A lens is standard by omission or opts into exactly `deep`; arbitrary
 // classes and concrete seats are invalid — the recipe maps the class to a
-// seat, the lens never chooses a provider or model (ADR 0004).
+// seat, the lens never chooses a provider or model (ADR 0004). Category is
+// live catalog metadata, never frozen into the plan (#52).
 const LensFrontmatter = Schema.Struct({
   "finder-class": Schema.optionalKey(Schema.Literals(["deep"])),
-  "needs-spec": Schema.optionalKey(Schema.Boolean),
   category: Schema.optionalKey(Schema.NonEmptyString),
 })
 
 export const LoadedLens = Schema.Struct({
   name: LensName,
   promptText: Schema.NonEmptyString,
-  contentHash: Schema.NonEmptyString,
   finderClass: FinderClass,
-  needsSpec: Schema.Boolean,
   category: Schema.optionalKey(Schema.NonEmptyString),
 })
 export interface LoadedLens extends Schema.Schema.Type<typeof LoadedLens> {}
@@ -70,7 +66,7 @@ const decodeLensSource = (
       try: () => parseFrontmatter(source),
       catch: contentLoadError(path, "frontmatter is not valid YAML"),
     })
-    const allowed = new Set(["finder-class", "needs-spec", "category"])
+    const allowed = new Set(["finder-class", "category"])
     for (const key of Object.keys(parsed.frontmatter)) {
       if (!allowed.has(key)) {
         return yield* new ContentLoadError({
@@ -111,20 +107,11 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
     Effect.mapError(contentLoadError(lensPath, "could not read lens")),
   )
   const { frontmatter, promptText } = yield* decodeLensSource(lensPath, source)
-  const crypto = yield* Crypto.Crypto
-  const digest = yield* crypto.digest(
-    "SHA-256",
-    new TextEncoder().encode(source),
-  ).pipe(
-    Effect.mapError(contentLoadError(lensPath, "could not hash lens content")),
-  )
 
   return LoadedLens.make({
     name: lensName,
     promptText,
-    contentHash: Encoding.encodeHex(digest),
     finderClass: frontmatter["finder-class"] ?? "standard",
-    needsSpec: frontmatter["needs-spec"] ?? false,
     ...(frontmatter.category === undefined
       ? {}
       : { category: frontmatter.category }),
@@ -171,14 +158,12 @@ const loadLensDirectory = Effect.fn("gauntlet.lens.load_directory")(
 export interface FinderLensQuery {
   readonly repoRoot: string
   readonly names?: ReadonlyArray<string>
-  readonly specText?: string
 }
 
 // Shipped and project-local lenses are ordinary directories using the same
-// loader and format. Selection happens after the combined catalog is decoded;
-// a needs-spec lens is applicability-filtered rather than reported as a gap.
+// loader and format. Selection happens after the combined catalog is decoded.
 export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
-  function* ({ names, repoRoot, specText }: FinderLensQuery) {
+  function* ({ names, repoRoot }: FinderLensQuery) {
     const contentRoot = yield* ContentDirectory
     const path = yield* Path.Path
     const shippedDirectory = path.join(contentRoot, "lenses")
@@ -222,7 +207,6 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
           reason: `selected lens does not exist: ${name}`,
         })
       }
-      if (lens.needsSpec && specText === undefined) continue
       selected.push(lens)
     }
     return selected

@@ -21,7 +21,8 @@ invocation uses, not the invocation itself)
 **ReviewPlan**:
 The fully resolved instructions governing one review — semantics-and-spend
 fields only (lenses, models/recipes, caps, tool capabilities) —
-persisted once at submission so a resumed Run is the same review. Delivery
+persisted once at submission; resume reuses completed paid work when the
+target is unchanged, under the currently installed code. Delivery
 destination is not part of the plan.
 _Avoid_: configuration snapshot, settings, options
 
@@ -75,12 +76,12 @@ _Avoid_: subjective candidate, nit, suggestion
 **Lens**:
 One finder's point of view, as pure content: a named prompt (a markdown file,
 shipped with Gauntlet or project-local, one shared format) with frontmatter
-limited to an optional `deep` Finder Class, an optional needs-spec flag
-(skip-if-absent), and an optional display-only category tag (grouping in
-listings and Dossier renderings, never routing). A Lens never names a concrete Seat and
-carries no routing, caps, or schema — its Candidates route by their own type,
-not by the Lens that produced them. The ReviewPlan freezes each Lens's prompt
-text, content hash, and Recipe-resolved Seat at submission.
+limited to an optional `deep` Finder Class and an optional display-only
+category tag (grouping in listings and Dossier renderings, never routing).
+A Lens never names a concrete Seat and carries no routing, caps, or schema —
+its Candidates route by their own type, not by the Lens that produced them.
+The ReviewPlan freezes each Lens's prompt text and Recipe-resolved Seat at
+submission.
 _Avoid_: bug lens / subjective lens (lenses are not typed by path), role,
 angle, finder (that's the invocation, not the prompt)
 

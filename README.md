@@ -29,6 +29,8 @@ gauntlet config unset <key>
   if neither resolves, the review fails and lists what is available.
   `--destination` defaults to `local` (run directory + bounded digest). `pr`
   keeps those local outputs and also posts `dossier.md`; it requires `--pr`.
+  `--resume` reuses completed paid work when the target is unchanged, under
+  the currently installed code; a changed target starts a new review.
 - `deliver` posts an already-completed pull-request run's `dossier.md` as a
   single PR comment. A working-tree run has no PR destination and is refused.
   Re-delivering a Posted receipt is a no-op that returns the existing comment
@@ -88,7 +90,9 @@ class to a seat — standard finders through `finders` then `default`, deep
 finders through `deep-finders`, then `finders`, then `default`. Other seated
 stages resolve through their named override then `default`. The ReviewPlan
 freezes every resolved seat at submission, so recipe edits never change an
-in-flight or resumed run.
+in-flight run or a resumed run whose target is unchanged. Resume reuses
+completed paid work when the target is unchanged, under the currently
+installed code; a changed target starts a new review.
 
 ## Toolchain
 

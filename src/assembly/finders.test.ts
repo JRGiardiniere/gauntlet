@@ -17,9 +17,7 @@ const fixtureLens = (candidateCap = 6) =>
   FrozenLens.make({
     name: "fixture-lens",
     promptText: "fixture tail",
-    contentHash: "fixture-hash",
     seat: "fixture/fixture-model:low",
-    needsSpec: false,
     candidateCap,
   })
 

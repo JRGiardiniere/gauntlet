@@ -1,15 +1,21 @@
 # Durability is a hand-rolled artifact journal of per-invocation files; no detachment
 
 Gauntlet's durability requirement is narrow: a crashed or interrupted Run,
-re-run, must reuse completed paid work and never repay a finished model call.
-We decided the mechanism is a **hand-rolled artifact journal**: every
-AgentInvocation writes its AgentOutcome as one plain JSON file in the run
-directory (temp file + rename, so a write cannot half-happen), and the journal
-doubles as the inter-stage protocol — the next stage's input *is* the previous
-stage's files. Resume is one loop: for each invocation the frozen ReviewPlan
-enumerates, a file that decodes and carries this Run's `runId` is reused;
-anything else re-runs. Deterministic stages (Assembly, presentation) are free
-to re-run and are never treated as paid work.
+re-run while the ReviewTarget is byte-identical, must reuse completed paid
+work and never repay a finished model call. Resume is crash recovery, not
+time travel — "the process died minutes ago, pick it up." A changed target
+is the staleness detector: resume reports that it is unavailable and starts
+a new review; the abandoned run directory stays under existing retention.
+Shared prompts, schemas, tools, deadlines, and pipeline code come from the
+currently installed application. We decided the mechanism is a **hand-rolled
+artifact journal**: every AgentInvocation writes its AgentOutcome as one
+plain JSON file in the run directory (temp file + rename, so a write cannot
+half-happen), and the journal doubles as the inter-stage protocol — the next
+stage's input *is* the previous stage's files. Resume is one loop: for each
+invocation the frozen ReviewPlan enumerates, a file that decodes and carries
+this Run's `runId` is reused; anything else re-runs. Deterministic stages
+(Assembly, presentation) are free to re-run and are never treated as paid
+work.
 
 Effect's durable-execution stack (`effect/unstable/workflow` + `cluster` +
 SQLite) was researched (#3) and rejected: the local single-runner + SQLite path

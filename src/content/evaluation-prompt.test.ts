@@ -53,9 +53,7 @@ describe("evaluation prompts", () => {
         FrozenLens.make({
           name: "fixture",
           promptText: "fixture lens",
-          contentHash: "fixture-hash",
           seat: "fixture/model:low",
-          needsSpec: false,
           candidateCap: 6,
         }),
       )
@@ -63,13 +61,12 @@ describe("evaluation prompts", () => {
         pool: "{{CANDIDATES}}",
         verifier: "{{SCOPE_BLOCK}}\n{{CLAIMS}}",
         stageScope:
-          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{INTENT_SECTION}}",
+          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}",
       }
       const verifier = yield* assembleVerifierPrompt(
         templates,
         target,
         reviewRoot,
-        undefined,
         [{ index: 1, candidate: bugClaim }],
         [{ number: 1, indexes: [1], summary: bugClaim.summary }],
       )
@@ -80,8 +77,5 @@ describe("evaluation prompts", () => {
         expect(prompt).toContain("\n ```\n")
         expect(prompt).toContain("\n````")
       }
-      expect(verifier).toContain(
-        "judge the change on its own terms, and do not assume intent you cannot see",
-      )
     }))
 })

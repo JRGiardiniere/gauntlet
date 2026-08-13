@@ -45,16 +45,13 @@ const workingTreeTarget = ReviewTarget.cases.WorkingTree.make({
 const planFor = (target: ReviewTarget, runId = "run-fixture") =>
   ReviewPlan.make({
     runId,
-    createdAt: "2026-08-12T00:00:00.000Z",
     target,
     seats: {},
     lenses: [
       FrozenLens.make({
         name: "fixture-lens",
         promptText: "fixture tail",
-        contentHash: "fixture-hash",
         seat: "fixture/fixture-model:low",
-        needsSpec: false,
         candidateCap: 6,
       }),
     ],

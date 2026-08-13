@@ -99,7 +99,7 @@ export const renderDossierMarkdown = (
   const lensList = plan.lenses.length === 0
     ? "none"
     : plan.lenses
-      .map((lens) => `${lens.name}@${lens.contentHash} (${lens.seat})`)
+      .map((lens) => `${lens.name} (${lens.seat})`)
       .join(", ")
   const seatList = Object.entries(plan.seats)
     .map(([stage, seat]) => `${stage}: ${seat}`)

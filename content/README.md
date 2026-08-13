@@ -10,10 +10,9 @@ and lens files, no plumbing. The companion specifications live in
 - `lenses/` — the shipped built-in lenses, in the ADR 0004 format: name from
   the filename, body is the prompt tail, frontmatter limited to an optional
   `finder-class: deep` declaration (the selected recipe maps the class to a
-  seat; a lens never names a model), an optional `needs-spec: true` flag
-  (skip-if-absent), and an optional display-only `category` tag (groups
-  listings and report headers; never read by routing — a candidate routes by
-  its own type).
+  seat; a lens never names a model) and an optional display-only `category`
+  tag (live catalog metadata; never frozen into the plan, never read by
+  routing — a candidate routes by its own type).
   Project-local lenses in `.gauntlet/lenses/` use the identical format.
 - `prompts/` — finder system prompt, and templates for the shared finder
   block, the stage scope block, and the Pool / verifier prompts.
@@ -28,15 +27,11 @@ and lens files, no plumbing. The companion specifications live in
 - `finder-shared-block.md`: `{{REPO_ROOT}}`, `{{CHANGED_FILES}}` (one `- path`
   per line), `{{DIFF_SECTION}}`, `{{MAX_PER_LENS}}`. The diff section uses a
   fence longer than any backtick run in the diff. The assembled finder prompt
-  is system prompt + shared block + lens tail (+ cap override + spec text, when
+  is system prompt + shared block + lens tail (+ cap override, when
   applicable) — see the cache-prefix invariant in `docs/spec/pipeline-shape.md`.
 - `stage-scope-block.md`: shared by verifier and judge. `{{DIFF_SECTION}}` is
   either the inline fenced diff or a pointer to the diff file stored with the
-  plan (ADR 0006 stores it exactly once). `{{INTENT_SECTION}}` is the PR
-  title/description and/or spec text; when neither exists it is replaced by:
-  "(No PR description or spec was supplied — judge the change on its own
-  terms, and do not assume intent you cannot see.)" and the proportionality
-  sentence is kept.
+  plan (ADR 0006 stores it exactly once).
 - `pool.md` / the judge prompt: `{{CANDIDATES}}` in the candidate line format
   (`docs/spec/pipeline-shape.md`). `verifier.md`: `{{SCOPE_BLOCK}}` and
   `{{CLAIMS}}` ([cN]-labelled clusters with member lines).
@@ -60,7 +55,7 @@ files don't):
 | angle-F | presentation-environment |
 | cleanup | cleanup |
 | cleanup-v2 (absence section) | absence |
-| spec | spec-conformance |
+| spec | spec-conformance (removed, #52) |
 | subjective | subjective |
 
 Deliberate changes made during the port:
@@ -103,5 +98,9 @@ review skill):
   standards (CONTRIBUTING.md, CODING_STANDARDS.md, style guides) alongside
   CLAUDE.md files, and skips anything tooling already enforces.
 - **`category` frontmatter** — every shipped lens carries a display-only
-  category (`correctness` / `cleanup` / `spec` / `judgment`); ADR 0004 and
-  CONTEXT.md amended accordingly.
+  category (`correctness` / `cleanup` / `judgment`); ADR 0004 and
+  CONTEXT.md amended accordingly. It is live catalog metadata, not a
+  FrozenLens field (#52).
+- **`spec-conformance` removed** (#52) — the shipped `needs-spec` lens and
+  frontmatter flag had no reachable CLI path. Reintroduce with a real
+  spec-ingress design.

@@ -24,6 +24,7 @@ import {
   FrozenLens,
   ReviewPlan,
 } from "../domain/review-plan.ts"
+import { ReviewTarget } from "../domain/review-target.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
 import {
@@ -33,6 +34,7 @@ import {
   makeRunId,
   type ResumableRun,
 } from "../run/run-record.ts"
+import { liveTargetMatchesPlan } from "../run/target-consistency.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
@@ -117,18 +119,12 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     FrozenLens.make({
       name: lens.name,
       promptText: lens.promptText,
-      contentHash: lens.contentHash,
       seat: finderSeat(selected.recipe, lens.finderClass),
-      needsSpec: lens.needsSpec,
-      ...(lens.category === undefined
-        ? {}
-        : { category: lens.category }),
       candidateCap: candidateCapForLens(lens.name),
     }))
 
   const plan = ReviewPlan.make({
     runId,
-    createdAt: DateTime.formatIso(startedAt),
     target,
     recipeName: selected.name,
     // Finder seats live on each frozen lens (a mixed standard/deep run has
@@ -157,6 +153,20 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
 ) {
   const runsRoot = yield* resolveRunsRoot()
   const resumable = yield* loadRunToResume(runsRoot, requestedRunId)
+  const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
+  if (!targetUnchanged) {
+    yield* progress("resume unavailable, running a new review")
+    const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
+      ? Option.some(resumable.plan.target.number)
+      : Option.none()
+    yield* startReview(Option.none(), undefined, pr, destination).pipe(
+      Effect.provideService(
+        InvocationDirectory,
+        resumable.plan.target.repoRoot,
+      ),
+    )
+    return
+  }
   yield* progress(`resuming run ${resumable.plan.runId}`)
   if (destination === "pr") {
     yield* requirePullRequestTarget(resumable.plan)
@@ -248,7 +258,7 @@ const review = Command.make(
       Flag.optional,
       Flag.withMetavar("[run-id]"),
       Flag.withDescription(
-        "Resume a run; omit run-id to select the latest incomplete run",
+        "Resume a run when the target is unchanged; omit run-id to select the latest incomplete run. A changed target starts a new review.",
       ),
     ),
   },

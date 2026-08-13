@@ -27,14 +27,13 @@ const withFixtureDirectory = <A, E, R>(
   )
 
 describe("lens content", () => {
-  it.effect("loads the three admitted frontmatter fields and hashes exact content", () =>
+  it.effect("loads the admitted frontmatter fields", () =>
     withFixtureDirectory((directory) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
         const source = [
           "---",
           "finder-class: deep",
-          "needs-spec: true",
           "category: fixture-category",
           "---",
           "fixture prompt body",
@@ -47,12 +46,8 @@ describe("lens content", () => {
           name: "fixture-lens",
           promptText: "fixture prompt body",
           finderClass: "deep",
-          needsSpec: true,
           category: "fixture-category",
         })
-        expect(lens.contentHash).toBe(
-          "f90519a5ed6e6a1880bdabd838a82754540b797cd8c9160bbf733914dc716edc",
-        )
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
 
@@ -92,10 +87,19 @@ describe("lens content", () => {
         expect(classFailure.reason).toContain(
           "does not match the lens format",
         )
+
+        yield* fs.writeFileString(
+          `${directory}/fixture-lens.md`,
+          "---\nneeds-spec: true\n---\nfixture body\n",
+        )
+        const specFailure = yield* loadLens(directory, "fixture-lens").pipe(
+          Effect.flip,
+        )
+        expect(specFailure.reason).toContain("not admitted: needs-spec")
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
 
-  it.effect("freezes prompt text and hash before later lens-file edits", () =>
+  it.effect("freezes prompt text before later lens-file edits", () =>
     withFixtureDirectory((directory) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
@@ -106,15 +110,13 @@ describe("lens content", () => {
         const frozen = FrozenLens.make({
           name: loaded.name,
           promptText: loaded.promptText,
-          contentHash: loaded.contentHash,
           seat: "fixture/fixture-model:low",
-          needsSpec: loaded.needsSpec,
           candidateCap: DEFAULT_CANDIDATE_CAP,
         })
 
         yield* fs.writeFileString(lensPath, "fixture prompt v2\n")
         const reloaded = yield* loadLens(directory, "fixture-lens")
-        expect(reloaded.contentHash).not.toBe(frozen.contentHash)
+        expect(reloaded.promptText).not.toBe(frozen.promptText)
 
         const target = ReviewTarget.cases.WorkingTree.make({
           repoRoot: "/fixture/repo",
@@ -155,17 +157,13 @@ describe("finder prompt cache prefix", () => {
       const first = FrozenLens.make({
         name: "fixture-one",
         promptText: "FIRST FIXTURE TAIL",
-        contentHash: "hash-one",
         seat: "fixture/fixture-model:low",
-        needsSpec: false,
         candidateCap: 6,
       })
       const second = FrozenLens.make({
         name: "fixture-two",
         promptText: "SECOND FIXTURE TAIL",
-        contentHash: "hash-two",
         seat: "fixture/fixture-model:low",
-        needsSpec: false,
         candidateCap: 6,
       })
       const firstPrompt = yield* assembleFinderPrompt(
@@ -201,9 +199,7 @@ describe("finder prompt cache prefix", () => {
       const lens = FrozenLens.make({
         name: "fixture-one",
         promptText: "FIXTURE TAIL",
-        contentHash: "hash-one",
         seat: "fixture/fixture-model:low",
-        needsSpec: false,
         candidateCap: 6,
       })
       const prompt = yield* assembleFinderPrompt(
@@ -217,7 +213,7 @@ describe("finder prompt cache prefix", () => {
       expect(prompt).toContain("\n6\n\nFIXTURE TAIL")
     }))
 
-  it.effect("keeps an override out of the shared prefix and appends spec text after the lens tail", () =>
+  it.effect("keeps an override out of the shared prefix", () =>
     Effect.gen(function* () {
       const target = ReviewTarget.cases.WorkingTree.make({
         repoRoot: "/fixture/repo",
@@ -230,17 +226,13 @@ describe("finder prompt cache prefix", () => {
       const ordinary = FrozenLens.make({
         name: "fixture-ordinary",
         promptText: "ORDINARY TAIL",
-        contentHash: "hash-ordinary",
         seat: "fixture/fixture-model:low",
-        needsSpec: false,
         candidateCap: 6,
       })
       const expanded = FrozenLens.make({
         name: "fixture-expanded",
         promptText: "EXPANDED TAIL",
-        contentHash: "hash-expanded",
         seat: "fixture/fixture-model:low",
-        needsSpec: true,
         candidateCap: 12,
       })
       const ordinaryPrompt = yield* assembleFinderPrompt(
@@ -254,7 +246,6 @@ describe("finder prompt cache prefix", () => {
         target,
         target.repoRoot,
         expanded,
-        "fixture requirement",
       )
       const ordinaryPrefix = ordinaryPrompt.slice(
         0,
@@ -268,9 +259,6 @@ describe("finder prompt cache prefix", () => {
       expect(expandedPrefix).toContain("shared cap=6")
       expect(expandedPrompt.indexOf("EXPANDED TAIL")).toBeLessThan(
         expandedPrompt.indexOf("at most 12 findings"),
-      )
-      expect(expandedPrompt.indexOf("at most 12 findings")).toBeLessThan(
-        expandedPrompt.indexOf("fixture requirement"),
       )
     }))
 })
