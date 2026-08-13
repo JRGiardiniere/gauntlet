@@ -86,9 +86,18 @@ const domainVerdict = (reported: ReportedVerdict): Verdict => {
 // clusters; every affected paid claim remains explicitly Unverified.
 export const resolveVerification = (
   claims: ReadonlyArray<IndexedBugClaim>,
+  clusters: ReadonlyArray<NumberedPoolCluster>,
   results: ReadonlyArray<VerificationResult>,
 ): ResolvedVerification => {
   let byClaim = HashMap.empty<number, Verdict>()
+  // The repaired Pool output places every paid claim in exactly one cluster;
+  // a claim that escaped placement stands alone under its own index.
+  let clusterOfClaim = HashMap.empty<number, number>()
+  for (const cluster of clusters) {
+    for (const index of cluster.indexes) {
+      clusterOfClaim = HashMap.set(clusterOfClaim, index, cluster.number)
+    }
+  }
   const coverageGaps: Array<Dossier["coverageGaps"][number]> = []
 
   for (const result of results) {
@@ -113,6 +122,10 @@ export const resolveVerification = (
   return {
     bugClaims: Array.map(claims, ({ candidate, index }) => ({
       candidate,
+      cluster: Option.getOrElse(
+        HashMap.get(clusterOfClaim, index),
+        () => index,
+      ),
       verdict: Option.getOrElse(
         HashMap.get(byClaim, index),
         () => Verdict.cases.Unverified.make({}),

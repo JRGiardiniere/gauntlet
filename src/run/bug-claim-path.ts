@@ -164,7 +164,8 @@ export const executeBugClaimPath = Effect.fn(
     yield* progress(`skipping Pool (${counted(claims.length, "BugClaim")})`)
   }
 
-  const bundles = bundlePoolClusters(numberPoolClusters(repair.clusters))
+  const clusters = numberPoolClusters(repair.clusters)
+  const bundles = bundlePoolClusters(clusters)
   if (poolStartedAt !== undefined) {
     yield* progress(
       `${counted(bundles.length, "bundle")} → Verification`,
@@ -239,7 +240,7 @@ export const executeBugClaimPath = Effect.fn(
     )
   }
 
-  const resolved = resolveVerification(claims, verificationResults)
+  const resolved = resolveVerification(claims, clusters, verificationResults)
   for (const gap of resolved.coverageGaps) {
     yield* progress(coverageGapLine(gap))
   }

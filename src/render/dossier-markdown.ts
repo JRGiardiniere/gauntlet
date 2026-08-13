@@ -33,21 +33,32 @@ const location = (candidate: Candidate): string =>
       : candidate.file,
   )
 
+// Cluster-mates render as one finding, so a finding can carry several lenses.
+const attribution = (lenses: ReadonlyArray<string>): string =>
+  lenses.length > 1 ? `found by: ${lenses.join(", ")}` : lenses.join(", ")
+
+// One explanation per finding: the evaluated framing when a verdict or judgment
+// supplied one, otherwise the claim's own failure scenario. Both would restate
+// the same thing; the verbatim pair lives in dossier.json.
+const explanation = (
+  candidate: Candidate,
+  detail: string | undefined,
+): string | undefined =>
+  detail ??
+    (Candidate.guards.BugClaim(candidate) ? candidate.failureScenario : undefined)
+
 const findingLine = (
   candidate: Candidate,
+  lenses: ReadonlyArray<string>,
   tier: Severity | undefined,
   tag: string | undefined,
   detail: string | undefined,
 ): string => {
   const tierLabel = tier === undefined ? "" : `**[${tier}]** `
   const tagLabel = tag === undefined ? "" : `\`[${tag}]\` `
-  const detailLines = [
-    ...(Candidate.guards.BugClaim(candidate)
-      ? [`Failure scenario: ${oneLine(candidate.failureScenario)}`]
-      : []),
-    ...(detail === undefined ? [] : [oneLine(detail)]),
-  ].map((line) => `\n  - ${line}`).join("")
-  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${candidate.lens})_${detailLines}`
+  const explained = explanation(candidate, detail)
+  const detailLine = explained === undefined ? "" : `\n  - ${oneLine(explained)}`
+  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}`
 }
 
 const severityOrder: ReadonlyArray<Severity> = ["P1", "P2", "P3"]
@@ -60,27 +71,41 @@ const renderFindings = (view: DossierView): string => {
   for (const tier of severityOrder) {
     for (const entry of view.confirmed) {
       if (entry.verdict.severity === tier) {
-        lines.push(findingLine(entry.candidate, tier, undefined, entry.verdict.evidence))
+        lines.push(
+          findingLine(entry.candidate, entry.lenses, tier, undefined, entry.verdict.evidence),
+        )
       }
     }
     for (const entry of view.kept) {
       if (entry.judgment.tier === tier) {
-        lines.push(findingLine(entry.candidate, tier, undefined, entry.judgment.reason))
+        lines.push(
+          findingLine(
+            entry.candidate,
+            [entry.candidate.lens],
+            tier,
+            undefined,
+            entry.judgment.reason,
+          ),
+        )
       }
     }
     for (const entry of view.unverified) {
       if (entry.verdict.severity === tier) {
-        lines.push(findingLine(entry.candidate, tier, "unverified", entry.verdict.evidence))
+        lines.push(
+          findingLine(entry.candidate, entry.lenses, tier, "unverified", entry.verdict.evidence),
+        )
       }
     }
   }
   for (const entry of view.unverified) {
     if (entry.verdict.severity === undefined) {
-      lines.push(findingLine(entry.candidate, undefined, "unverified", entry.verdict.evidence))
+      lines.push(
+        findingLine(entry.candidate, entry.lenses, undefined, "unverified", entry.verdict.evidence),
+      )
     }
   }
   for (const candidate of view.undecided) {
-    lines.push(findingLine(candidate, undefined, "undecided", undefined))
+    lines.push(findingLine(candidate, [candidate.lens], undefined, "undecided", undefined))
   }
   return lines.length === 0 ? "No findings." : lines.join("\n")
 }
@@ -122,10 +147,16 @@ export const renderDossierMarkdown = (
     : plan.target.warnings.join("; ")
 
   const refutedLines = view.refuted.map((entry) =>
-    findingLine(entry.candidate, undefined, "refuted", entry.verdict.evidence)
+    findingLine(entry.candidate, entry.lenses, undefined, "refuted", entry.verdict.evidence)
   )
   const droppedLines = view.dropped.map((entry) =>
-    findingLine(entry.candidate, undefined, "dropped", entry.judgment.reason)
+    findingLine(
+      entry.candidate,
+      [entry.candidate.lens],
+      undefined,
+      "dropped",
+      entry.judgment.reason,
+    )
   )
 
   return [

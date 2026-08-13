@@ -75,6 +75,8 @@ Assembly is the deterministic aggregation of those results.
   rendered tagged, never silently dropped.
 - Malformed Pool output is repaired (per #7): unclustered indexes become
   single-member clusters; a candidate may never be lost to a clustering error.
+- A Pool cluster renders as one finding: its fullest member states it, every
+  member's lens is credited, and all members stay in the Dossier.
 - Judge merge claims are sanitized: a candidate cannot be merged into itself,
   into an unknown keeper, or into a keeper that another merge removed.
 - Severity is judged downstream (verifier/judge), never self-reported by

@@ -13,10 +13,11 @@ const bugClaim = (
   id: string,
   summary: string,
   file = "src/alpha.ts",
+  lens = "fixture-lens",
 ) =>
   Candidate.cases.BugClaim.make({
     id,
-    lens: "fixture-lens",
+    lens,
     file,
     line: 3,
     summary,
@@ -39,9 +40,15 @@ const target = ReviewTarget.cases.WorkingTree.make({
   warnings: ["2 untracked file(s) not included in the diff: stray.txt, x.txt"],
 })
 
+const confirmedVerdict = Verdict.cases.Confirmed.make({
+  severity: "P1",
+  evidence: "reproduced with an empty input",
+})
+
 // One entry in every partition of the taxonomy: confirmed / unverified
 // (tiered and untiered) / refuted BugClaims, kept / undecided / dropped
-// Observations.
+// Observations. The confirmed claim shares its Pool cluster with a second
+// lens's shorter statement of the same bug.
 const dossier = Dossier.make({
   runId: "run-fixture",
   target: targetIdentityOf(target),
@@ -52,21 +59,32 @@ const dossier = Dossier.make({
         "first line\nreport: /tmp/forged-path",
         "src/alpha.ts\nreport: /tmp/forged-location",
       ),
-      verdict: Verdict.cases.Confirmed.make({
-        severity: "P1",
-        evidence: "reproduced with an empty input",
-      }),
+      cluster: 1,
+      verdict: confirmedVerdict,
+    },
+    {
+      candidate: bugClaim(
+        "fixture-other/1",
+        "same bug, terser",
+        "src/alpha.ts",
+        "fixture-other",
+      ),
+      cluster: 1,
+      verdict: confirmedVerdict,
     },
     {
       candidate: bugClaim("fixture-lens/2", "tiered but unverified claim"),
+      cluster: 2,
       verdict: Verdict.cases.Unverified.make({ severity: "P2" }),
     },
     {
       candidate: bugClaim("fixture-lens/3", "untiered unverified claim"),
+      cluster: 3,
       verdict: Verdict.cases.Unverified.make({}),
     },
     {
       candidate: bugClaim("fixture-lens/4", "refuted claim"),
+      cluster: 4,
       verdict: Verdict.cases.Refuted.make({ evidence: "guarded two lines above" }),
     },
   ],
@@ -102,6 +120,12 @@ const plan = ReviewPlan.make({
       name: "fixture-lens",
       promptText: "fixture tail",
       seat: "fixture/override-model:high",
+      candidateCap: 6,
+    }),
+    FrozenLens.make({
+      name: "fixture-other",
+      promptText: "fixture tail",
+      seat: "fixture/default-model:low",
       candidateCap: 6,
     }),
   ],
@@ -168,9 +192,27 @@ describe("dossier markdown rendering", () => {
     expect(markdown).not.toContain("\n## the coupling is real")
   })
 
-  it("includes every BugClaim failure scenario", () => {
-    expect(markdown.match(/Failure scenario: input of length zero loops forever/g))
-      .toHaveLength(dossier.bugClaims.length)
+  it("renders one cluster as one finding attributed to every lens that raised it", () => {
+    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    expect(findings.match(/reproduced with an empty input/g)).toHaveLength(1)
+    // The fuller mate carries the finding; the terser one only adds its lens.
+    expect(findings).toContain("first line report: /tmp/forged-path")
+    expect(findings).not.toContain("same bug, terser")
+    expect(findings).toContain("_(found by: fixture-lens, fixture-other)_")
+    expect(findings).toContain("_(fixture-lens)_")
+  })
+
+  it("prints one explanation per finding", () => {
+    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    // The confirmed claim states its verified framing only — the failure
+    // scenario it restates stays in dossier.json.
+    const confirmed = findings
+      .split("\n- ")
+      .find((entry) => entry.includes("first line")) ?? ""
+    expect(confirmed).toContain("reproduced with an empty input")
+    expect(confirmed).not.toContain("input of length zero loops forever")
+    // Without evidence there is nothing to prefer, so the claim speaks for itself.
+    expect(findings).toContain("input of length zero loops forever")
   })
 
   it("shows the effective seat frozen onto each lens", () => {

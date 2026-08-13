@@ -16,6 +16,10 @@ export type CoverageGap = typeof CoverageGap.Type
 
 export const EvaluatedBugClaim = Schema.Struct({
   candidate: BugClaim,
+  // The Pool cluster this claim was verified in. Cluster-mates are duplicate
+  // claims of one another and share a single verdict; presentation renders a
+  // cluster as one finding while every mate stays here.
+  cluster: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
   verdict: Verdict,
 })
 export type EvaluatedBugClaim = typeof EvaluatedBugClaim.Type

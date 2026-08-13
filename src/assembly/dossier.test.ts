@@ -54,6 +54,7 @@ describe("Dossier Assembly", () => {
       bugClaimPath: {
         bugClaims: [{
           candidate: bugClaim,
+          cluster: 1,
           verdict: Verdict.cases.Refuted.make({ evidence: "guarded" }),
         }],
         coverageGaps: [{ stage: "verification", reason: "verifier gap" }],

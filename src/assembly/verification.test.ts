@@ -41,7 +41,7 @@ describe("resolveVerification", () => {
   it("maps CONFIRMED, UNVERIFIED, and REFUTED onto domain verdicts", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
     const clusters = numberPoolClusters(singletonClusters(claims))
-    const resolved = resolveVerification(claims, [
+    const resolved = resolveVerification(claims, clusters, [
       {
         bundleNumber: 1,
         clusters,
@@ -83,10 +83,44 @@ describe("resolveVerification", () => {
     expect(resolved.coverageGaps).toEqual([])
   })
 
+  it("carries the Pool cluster onto every one of its claims", () => {
+    const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
+    const clusters = numberPoolClusters([
+      { indexes: [1, 3], summary: "one bug, two lenses" },
+      { indexes: [2], summary: "summary two" },
+    ])
+    const resolved = resolveVerification(claims, clusters, [
+      {
+        bundleNumber: 1,
+        clusters,
+        outcome: completed([
+          {
+            cluster: 1,
+            verdict: "CONFIRMED",
+            severity: "P1",
+            evidence: "reproduced on empty input",
+          },
+          {
+            cluster: 2,
+            verdict: "REFUTED",
+            evidence: "the guard rejects the input",
+          },
+        ]),
+      },
+    ])
+
+    expect(resolved.bugClaims.map(({ cluster }) => cluster)).toEqual([1, 2, 1])
+    expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
+      "Confirmed",
+      "Refuted",
+      "Confirmed",
+    ])
+  })
+
   it("treats Unverified as a first-class verdict, not an absence", () => {
     const claims = indexBugClaims([claim("one")])
     const clusters = numberPoolClusters(singletonClusters(claims))
-    const resolved = resolveVerification(claims, [
+    const resolved = resolveVerification(claims, clusters, [
       {
         bundleNumber: 1,
         clusters,
@@ -113,7 +147,7 @@ describe("resolveVerification", () => {
   it("fails a whole bundle closed when its verdict set is incomplete", () => {
     const claims = indexBugClaims([claim("one"), claim("two")])
     const clusters = numberPoolClusters(singletonClusters(claims))
-    const resolved = resolveVerification(claims, [
+    const resolved = resolveVerification(claims, clusters, [
       {
         bundleNumber: 1,
         clusters,
