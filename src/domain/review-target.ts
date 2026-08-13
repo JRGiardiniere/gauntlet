@@ -3,6 +3,16 @@ import * as Schema from "effect/Schema"
 // The exact change under review, carrying its frozen diff and any
 // scope-degradation warnings acquired with it (CONTEXT.md). The diff is
 // stored exactly once — here, inside the frozen plan (ADR 0006).
+
+// Content identity of one included untracked file. Digests are hashes, never
+// file bytes — resume compares these, and the run directory must not store
+// snapshot contents.
+export const UntrackedFileDigest = Schema.Struct({
+  path: Schema.NonEmptyString,
+  digest: Schema.NonEmptyString,
+})
+export type UntrackedFileDigest = typeof UntrackedFileDigest.Type
+
 export const ReviewTarget = Schema.TaggedUnion({
   WorkingTree: {
     repoRoot: Schema.String,
@@ -10,6 +20,10 @@ export const ReviewTarget = Schema.TaggedUnion({
     headCommit: Schema.String,
     changedFiles: Schema.Array(Schema.NonEmptyString),
     diff: Schema.String,
+    // Included non-ignored untracked files (≤10MB), hashed at freeze so
+    // content drift is visible to the resume identity check. Oversized and
+    // ignored paths are omitted here and named only in warnings, if at all.
+    untrackedFiles: Schema.Array(UntrackedFileDigest),
     warnings: Schema.Array(Schema.String),
   },
   PullRequest: {

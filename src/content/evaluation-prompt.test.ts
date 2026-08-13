@@ -15,6 +15,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
   headCommit: "abcdef",
   changedFiles: ["README.md"],
   diff: "@@ -1 +1 @@\n context\n ```\n+changed",
+  untrackedFiles: [],
   warnings: [],
 })
 const reviewRoot = "/fixture/review-worktree"
