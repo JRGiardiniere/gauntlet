@@ -73,6 +73,8 @@ in-flight or resumed run.
 ## Toolchain
 
 - pnpm + TypeScript 7 (tsgo), Node ≥ 23.6
+- GitHub CLI (`gh`), installed and authenticated — required for `review --pr`,
+  `--destination pr`, and `deliver`
 - `effect` / `@effect/platform-node` / `@effect/vitest` pinned **exactly** to
   `4.0.0-beta.106` (enforced by `scripts/check-effect-pin.mjs`)
 - `pnpm lint` — the house-style gate: oxlint baseline + the `gauntlet` custom

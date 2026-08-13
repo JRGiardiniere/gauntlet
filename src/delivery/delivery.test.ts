@@ -34,6 +34,14 @@ const prTarget = ReviewTarget.cases.PullRequest.make({
   warnings: [],
 })
 
+const workingTreeTarget = ReviewTarget.cases.WorkingTree.make({
+  repoRoot: "/fixture/repo",
+  headCommit: "abc1234",
+  changedFiles: ["src/alpha.ts"],
+  diff: "+needle",
+  warnings: [],
+})
+
 const planFor = (target: ReviewTarget, runId = "run-fixture") =>
   ReviewPlan.make({
     runId,
@@ -319,5 +327,65 @@ describe("deliverCompletedRun", () => {
           reason: "permission denied",
         }),
       )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("refuses a working-tree run before posting", () =>
+    Effect.gen(function* () {
+      const root = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) =>
+          fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
+        ),
+      )
+      const loaded = yield* writeCompletedRun(
+        root,
+        workingTreeTarget,
+        markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
+      )
+      const script: ScriptedGitHub = {
+        posts: [],
+        failPost: undefined,
+        url: "https://github.com/example/repo/pull/7#issuecomment-1",
+      }
+
+      const failed = yield* deliverCompletedRun(loaded).pipe(
+        Effect.provide(scriptedGitHub(script)),
+        Effect.flip,
+      )
+
+      expect(failed).toBeInstanceOf(DeliveryError)
+      expect(failed.operation).toBe("load")
+      expect(failed.reason).toContain("working-tree review")
+      expect(script.posts).toHaveLength(0)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("maps an unreadable receipt to DeliveryError", () =>
+    Effect.gen(function* () {
+      const root = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) =>
+          fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
+        ),
+      )
+      const loaded = yield* writeCompletedRun(
+        root,
+        prTarget,
+        markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
+      )
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.makeDirectory(loaded.paths.receipt)
+      const script: ScriptedGitHub = {
+        posts: [],
+        failPost: undefined,
+        url: "https://github.com/example/repo/pull/7#issuecomment-1",
+      }
+
+      const failed = yield* deliverCompletedRun(loaded).pipe(
+        Effect.provide(scriptedGitHub(script)),
+        Effect.flip,
+      )
+
+      expect(failed).toBeInstanceOf(DeliveryError)
+      expect(failed.operation).toBe("load")
+      expect(failed.reason).toContain("delivery receipt")
+      expect(script.posts).toHaveLength(0)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

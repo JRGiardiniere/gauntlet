@@ -7,6 +7,7 @@ import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
+import { scrubbedGitEnv } from "../target/git.ts"
 
 export class GitHubError extends Data.TaggedError("GitHubError")<{
   readonly operation: "view" | "post"
@@ -62,20 +63,6 @@ export const unusedGitHubLayer = gitHubLayer({
 })
 
 const decodeView = Schema.decodeUnknownEffect(Schema.fromJsonString(PullRequestView))
-
-// Same GIT_* scrub as runGit: gh shells out to git, and hook-exported GIT_DIR
-// would silently retarget the repository.
-const scrubbedGitEnv: Record<string, undefined> = {
-  GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
-  GIT_CEILING_DIRECTORIES: undefined,
-  GIT_COMMON_DIR: undefined,
-  GIT_DIR: undefined,
-  GIT_INDEX_FILE: undefined,
-  GIT_OBJECT_DIRECTORY: undefined,
-  GIT_PREFIX: undefined,
-  GIT_QUARANTINE_PATH: undefined,
-  GIT_WORK_TREE: undefined,
-}
 
 const lastNonEmptyLine = (text: string): string => {
   const lines = text.split("\n").map((line) => line.trim()).filter((line) =>

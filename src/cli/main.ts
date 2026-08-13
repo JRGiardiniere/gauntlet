@@ -13,7 +13,11 @@ import {
 } from "../config/recipe-catalog.ts"
 import { resolveRunsRoot } from "../config/settings.ts"
 import { loadFinderLenses } from "../content/lens.ts"
-import { deliverCompletedRun, DeliveryError } from "../delivery/delivery.ts"
+import {
+  deliverCompletedRun,
+  DeliveryError,
+  requirePullRequestTarget,
+} from "../delivery/delivery.ts"
 import { finderSeat, stageSeat } from "../domain/recipe.ts"
 import {
   candidateCapForLens,
@@ -154,6 +158,9 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
   const runsRoot = yield* resolveRunsRoot()
   const resumable = yield* loadRunToResume(runsRoot, requestedRunId)
   yield* progress(`resuming run ${resumable.plan.runId}`)
+  if (destination === "pr") {
+    yield* requirePullRequestTarget(resumable.plan)
+  }
   const startedAt = yield* DateTime.now
   yield* executeReviewPlan({
     ...resumable,
@@ -325,7 +332,11 @@ export const runGauntlet = (
       ReviewCommandError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       DeliveryError: (failure) =>
-        progress(`could not deliver — ${failure.reason}`).pipe(Effect.as(1)),
+        progress(
+          failure.operation === "post" && failure.runId !== undefined
+            ? `could not deliver — ${failure.reason}; retry with gauntlet deliver ${failure.runId}`
+            : `could not deliver — ${failure.reason}`,
+        ).pipe(Effect.as(1)),
       // Configuration failures render standalone: their reasons already name
       // the file or recipe at fault, for review and config verbs alike.
       SettingsError: (failure) =>

@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import { DeliveryReceipt } from "../domain/delivery-receipt.ts"
+import type { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { GitHub } from "../github/github.ts"
 import {
@@ -23,9 +24,47 @@ const decodeReceipt = Schema.decodeUnknownEffect(
   Schema.fromJsonString(DeliveryReceipt),
 )
 
+const readDeliveryArtifact = (
+  path: string,
+  runId: string,
+  what: string,
+) =>
+  readOptionalArtifactText(path).pipe(
+    Effect.mapError((cause) =>
+      new DeliveryError({
+        operation: "load",
+        reason: `could not read ${what} for run ${runId}`,
+        runId,
+        cause,
+      })),
+  )
+
+// Destination is not in the frozen plan (ADR 0005). Callers that would
+// otherwise pay remaining invocations must refuse a working-tree run first.
+export const requirePullRequestTarget = (
+  plan: ReviewPlan,
+): Effect.Effect<
+  Extract<ReviewTarget, { readonly _tag: "PullRequest" }>,
+  DeliveryError
+> =>
+  ReviewTarget.guards.PullRequest(plan.target)
+    ? Effect.succeed(plan.target)
+    : Effect.fail(
+      new DeliveryError({
+        operation: "load",
+        reason:
+          `run ${plan.runId} is a working-tree review and has no pull-request destination`,
+        runId: plan.runId,
+      }),
+    )
+
 const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
   function* (paths: ResumableRun["paths"], runId: string) {
-    const source = yield* readOptionalArtifactText(paths.receipt)
+    const source = yield* readDeliveryArtifact(
+      paths.receipt,
+      runId,
+      "delivery receipt",
+    )
     if (Option.isNone(source)) return Option.none<DeliveryReceipt>()
     const receipt = yield* decodeReceipt(source.value).pipe(
       Effect.mapError((cause) =>
@@ -50,7 +89,11 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
 
 const requireMarkdown = Effect.fn("gauntlet.delivery.require_markdown")(
   function* (paths: ResumableRun["paths"], runId: string) {
-    const source = yield* readOptionalArtifactText(paths.dossierMarkdown)
+    const source = yield* readDeliveryArtifact(
+      paths.dossierMarkdown,
+      runId,
+      "dossier.md",
+    )
     if (Option.isNone(source) || source.value.length === 0) {
       return yield* new DeliveryError({
         operation: "load",
@@ -69,14 +112,7 @@ export const deliverCompletedRun = Effect.fn(
   "gauntlet.delivery.deliver_completed_run",
 )(function* (loaded: ResumableRun) {
   const { paths, plan } = loaded
-  if (!ReviewTarget.guards.PullRequest(plan.target)) {
-    return yield* new DeliveryError({
-      operation: "load",
-      reason:
-        `run ${plan.runId} is a working-tree review and has no pull-request destination`,
-      runId: plan.runId,
-    })
-  }
+  const target = yield* requirePullRequestTarget(plan)
   const existing = yield* loadReceipt(paths, plan.runId)
   if (Option.isSome(existing) && DeliveryReceipt.guards.Posted(existing.value)) {
     return existing.value
@@ -86,8 +122,8 @@ export const deliverCompletedRun = Effect.fn(
   const fitted = fitPostedDossier(markdown)
   const github = yield* GitHub
   const posted = yield* github.postComment(
-    plan.target.repoRoot,
-    plan.target.number,
+    target.repoRoot,
+    target.number,
     fitted.body,
   ).pipe(
     Effect.map((result) =>
