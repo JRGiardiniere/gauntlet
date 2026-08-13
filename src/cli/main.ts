@@ -32,7 +32,7 @@ import {
   loadRun,
   loadRunToResume,
   makeRunId,
-  type ResumableRun,
+  type LoadedRun,
 } from "../run/run-record.ts"
 import { liveTargetMatchesPlan } from "../run/target-consistency.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
@@ -58,7 +58,7 @@ type Destination = "local" | "pr"
 
 const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
   destination: Destination,
-  loaded: ResumableRun,
+  loaded: LoadedRun,
 ) {
   if (destination !== "pr") return
   const receipt = yield* deliverCompletedRun(loaded)
@@ -153,24 +153,35 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
 ) {
   const runsRoot = yield* resolveRunsRoot()
   const resumable = yield* loadRunToResume(runsRoot, requestedRunId)
-  const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
-  if (!targetUnchanged) {
-    yield* progress("resume unavailable, running a new review")
-    const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
-      ? Option.some(resumable.plan.target.number)
-      : Option.none()
-    yield* startReview(Option.none(), undefined, pr, destination).pipe(
-      Effect.provideService(
-        InvocationDirectory,
-        resumable.plan.target.repoRoot,
-      ),
-    )
-    return
-  }
-  yield* progress(`resuming run ${resumable.plan.runId}`)
+  // The destination guard runs before any paid work: a working-tree run has
+  // no PR destination whether it replays or falls back to a new review.
   if (destination === "pr") {
     yield* requirePullRequestTarget(resumable.plan)
   }
+  // A complete run replays from its artifacts and never reads the repository
+  // again, so only unpaid work needs the changed-target check.
+  if (!resumable.complete) {
+    const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
+    if (!targetUnchanged) {
+      yield* progress("resume unavailable, running a new review")
+      const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
+        ? Option.some(resumable.plan.target.number)
+        : Option.none()
+      yield* startReview(
+        Option.fromNullishOr(resumable.plan.recipeName),
+        undefined,
+        pr,
+        destination,
+      ).pipe(
+        Effect.provideService(
+          InvocationDirectory,
+          resumable.plan.target.repoRoot,
+        ),
+      )
+      return
+    }
+  }
+  yield* progress(`resuming run ${resumable.plan.runId}`)
   const startedAt = yield* DateTime.now
   yield* executeReviewPlan({
     ...resumable,

@@ -42,11 +42,12 @@ describe("lens content", () => {
         yield* fs.writeFileString(`${directory}/fixture-lens.md`, source)
 
         const lens = yield* loadLens(directory, "fixture-lens")
-        expect(lens).toMatchObject({
+        // `category` is admitted (validated above by loading successfully)
+        // but not surfaced — it has no consumer until a lens listing exists.
+        expect(lens).toEqual({
           name: "fixture-lens",
           promptText: "fixture prompt body",
           finderClass: "deep",
-          category: "fixture-category",
         })
       }),
     ).pipe(Effect.provide(NodeServices.layer)))

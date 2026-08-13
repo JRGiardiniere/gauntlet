@@ -687,19 +687,45 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("starts a new review when resume finds a changed target", () =>
+  it.effect("starts a new review under the frozen recipe when resume finds a changed target", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
-      const initial = review(fixture)
-      expect(yield* initial.effect).toBe(0)
+      yield* writeRecipe(fixture, "fixture-alt", { default: FIXTURE_SEAT })
+      const journaled = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "fixture-alt", "--lenses", "fixture-review"],
+        successfulScripted(),
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (runId) =>
+            Deferred.succeed(journaled, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      const runId = yield* Deferred.await(journaled)
+      yield* Fiber.interrupt(fiber)
 
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
       yield* fs.writeFileString(
         path.join(fixture.repo, "alpha.txt"),
         "first line\nneedle-added-line\nlater-edit\n",
       )
+
+      // The destination guard fires before the fallback pays anything: a
+      // working-tree run has no PR destination, changed target or not.
+      const refused = runCommand(
+        fixture,
+        ["review", "--resume", runId, "--destination", "pr"],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* refused.effect).toBe(1)
+      expect(refused.scripted.configs).toHaveLength(0)
 
       const driftedResume = resume(fixture, runId, successfulScripted())
       expect(yield* driftedResume.effect).toBe(0)
@@ -707,6 +733,17 @@ describe("gauntlet review", () => {
       const runIds = yield* fs.readDirectory(fixture.runsRoot)
       expect(runIds).toHaveLength(2)
       expect(runIds).toContain(runId)
+
+      // The replacement review keeps the abandoned plan's recipe rather than
+      // silently reverting to the configured default.
+      const replacementId = runIds.find((id) => id !== runId) ?? ""
+      const planText = yield* fs.readFileString(
+        path.join(fixture.runsRoot, replacementId, "plan.json"),
+      )
+      const plan = yield* Schema.decodeEffect(
+        Schema.fromJsonString(ReviewPlan),
+      )(planText)
+      expect(plan.recipeName).toBe("fixture-alt")
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "resume unavailable, running a new review",
       )
@@ -724,6 +761,12 @@ describe("gauntlet review", () => {
       yield* fs.rename(
         path.join(fixture.content, "prompts"),
         path.join(fixture.content, "prompts-unavailable"),
+      )
+      // A complete run replays free even after the tree changes: the
+      // changed-target check only protects unpaid repository reads.
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nlater-edit\n",
       )
       const completedResume = resume(fixture, runId)
       expect(yield* completedResume.effect).toBe(0)

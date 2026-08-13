@@ -77,7 +77,7 @@ _Avoid_: subjective candidate, nit, suggestion
 One finder's point of view, as pure content: a named prompt (a markdown file,
 shipped with Gauntlet or project-local, one shared format) with frontmatter
 limited to an optional `deep` Finder Class and an optional display-only
-category tag (grouping in listings and Dossier renderings, never routing).
+category tag (grouping in listings, never routing).
 A Lens never names a concrete Seat and carries no routing, caps, or schema —
 its Candidates route by their own type, not by the Lens that produced them.
 The ReviewPlan freezes each Lens's prompt text and Recipe-resolved Seat at

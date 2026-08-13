@@ -23,10 +23,11 @@ editing every preset. We decided none of that is lens anatomy:
 What remains **is** the lens: a name and a prompt. Lenses are markdown files
 in one format — name from the filename, body is the prompt, frontmatter
 limited to optional `finder-class: deep` and a display-only `category` tag
-(amended per #12: groups lens listings and Dossier headers for the human
-reader; never read by routing, which stays on the candidate's own type;
-amended per #52: `category` is live catalog metadata, never a FrozenLens
-field). `finder-class` affects only Recipe Seat resolution and admits exactly
+(amended per #12: groups lens listings for the human reader; never read by
+routing, which stays on the candidate's own type; amended per #52:
+`category` is live catalog metadata, never a FrozenLens field — so it cannot
+appear in a Dossier, which renders from the frozen plan).
+`finder-class` affects only Recipe Seat resolution and admits exactly
 `deep`; standard is represented by omission. Built-ins ship inside Gauntlet;
 a project drops the same format in its own lens directory; one loader reads
 both. Caps, routing, schemas, and tool sets are banned from lens files by

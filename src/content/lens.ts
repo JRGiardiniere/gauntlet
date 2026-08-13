@@ -13,8 +13,9 @@ import { LensName } from "../domain/review-plan.ts"
 
 // A lens is standard by omission or opts into exactly `deep`; arbitrary
 // classes and concrete seats are invalid — the recipe maps the class to a
-// seat, the lens never chooses a provider or model (ADR 0004). Category is
-// live catalog metadata, never frozen into the plan (#52).
+// seat, the lens never chooses a provider or model (ADR 0004). `category`
+// is validated but not surfaced: it groups future lens listings and has no
+// consumer today.
 const LensFrontmatter = Schema.Struct({
   "finder-class": Schema.optionalKey(Schema.Literals(["deep"])),
   category: Schema.optionalKey(Schema.NonEmptyString),
@@ -24,7 +25,6 @@ export const LoadedLens = Schema.Struct({
   name: LensName,
   promptText: Schema.NonEmptyString,
   finderClass: FinderClass,
-  category: Schema.optionalKey(Schema.NonEmptyString),
 })
 export interface LoadedLens extends Schema.Schema.Type<typeof LoadedLens> {}
 
@@ -112,9 +112,6 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
     name: lensName,
     promptText,
     finderClass: frontmatter["finder-class"] ?? "standard",
-    ...(frontmatter.category === undefined
-      ? {}
-      : { category: frontmatter.category }),
   })
 })
 
