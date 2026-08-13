@@ -3,9 +3,13 @@
 Effect-v4-native, Pi-harnessed, model-agnostic code-review agent. ("Run the
 gauntlet on medium.")
 
-**Status: implementation.** The decision-complete spec is
-[#15](https://github.com/JRGiardiniere/gauntlet/issues/15); implementation is
-ticketed as [#16–#26](https://github.com/JRGiardiniere/gauntlet/issues?q=is%3Aissue+label%3Aready-for-agent).
+**Status: v1.** Spec is
+[#15](https://github.com/JRGiardiniere/gauntlet/issues/15). Invoking-agent
+skill: [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — copy or
+symlink that folder into `~/.agents/skills/` to invoke from other
+repositories. The skill assumes `gauntlet` is on `PATH`; from this checkout
+that is `node bin/gauntlet.mjs` until the package bin is linked. Claude Code
+can symlink from `.claude/skills/` later.
 
 ## Commands
 
@@ -41,6 +45,22 @@ gauntlet config unset <key>
   `default-recipe` (must name an available valid recipe; cannot be unset),
   `favorites` (ordered, distinct, replaced as a whole), and `runs-root`
   (absolute or `~/` path; unset restores `~/.gauntlet/runs`).
+
+## Dossier
+
+A Run always writes local artifacts under the runs root (`~/.gauntlet/runs/`
+unless `runs-root` says otherwise). Delivery to a PR is additive.
+
+- **stdout** — a bounded markdown digest: one tally line, one line per
+  surviving finding, then paths to the Dossier files. Relay it verbatim;
+  do not parse it as the review.
+- **`dossier.md`** — the human-readable Dossier. Read it for review detail.
+  `--destination pr` and `deliver` post this file as a single PR comment.
+- **`dossier.json`** — the machine-readable Dossier. Parse it from disk,
+  never from stdout.
+
+Exit 0 means a review was produced (zero findings included). Exit 1 means
+it could not review or delivery failed. Findings never affect the exit code.
 
 ## Recipes
 
@@ -86,6 +106,8 @@ in-flight or resumed run.
 
 ## Docs
 
+- [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — universal
+  invoking-agent skill
 - `docs/effect-house-style.md`, `docs/effect-v4-patterns.md` — house style +
   patterns, imported from cloudflare-hub (see the provenance banners for
   beta.90 → beta.106 deltas)
