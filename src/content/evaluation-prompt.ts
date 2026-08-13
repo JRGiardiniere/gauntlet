@@ -105,10 +105,11 @@ const verifierClaims = (
 export const assembleStageScope = (
   template: string,
   target: ReviewTarget,
+  reviewRoot: string,
   specText: string | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   renderPromptTemplate("stage scope", template, [
-    ["REPO_ROOT", target.repoRoot],
+    ["REPO_ROOT", reviewRoot],
     [
       "CHANGED_FILES",
       Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
@@ -123,12 +124,18 @@ export const assembleStageScope = (
 export const assembleVerifierPrompt = (
   templates: EvaluationPromptTemplates,
   target: ReviewTarget,
+  reviewRoot: string,
   specText: string | undefined,
   claims: ReadonlyArray<IndexedBugClaim>,
   bundle: ReadonlyArray<NumberedPoolCluster>,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
-    const scope = yield* assembleStageScope(templates.stageScope, target, specText)
+    const scope = yield* assembleStageScope(
+      templates.stageScope,
+      target,
+      reviewRoot,
+      specText,
+    )
     return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],
       ["CLAIMS", verifierClaims(bundle, claims)],

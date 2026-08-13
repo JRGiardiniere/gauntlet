@@ -200,6 +200,7 @@ export const executeBugClaimPath = Effect.fn(
               const prompt = yield* assembleVerifierPrompt(
                 promptTemplates,
                 plan.target,
+                reviewWorkingDirectory,
                 plan.specText,
                 claims,
                 bundle,

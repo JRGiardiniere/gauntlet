@@ -68,6 +68,7 @@ export const executeReviewPlan = Effect.fn(
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
       const reviewWorkingDirectory = yield* acquireReviewWorkingDirectory(
         plan.target,
+        plan.runId,
       )
       yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
@@ -90,6 +91,7 @@ export const executeReviewPlan = Effect.fn(
               const prompt = yield* assembleFinderPrompt(
                 promptTemplates.sharedPromptTemplate,
                 plan.target,
+                reviewWorkingDirectory,
                 invocation.lens,
                 plan.specText,
               )

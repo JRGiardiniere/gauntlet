@@ -19,6 +19,7 @@ import { runPaths } from "../../run/run-record.ts"
 import { executeJudgment } from "./judgment.ts"
 
 const REPO_ROOT = "/fixture/repo"
+const REVIEW_ROOT = "/fixture/review-worktree"
 
 const target = ReviewTarget.cases.PullRequest.make({
   repoRoot: REPO_ROOT,
@@ -97,7 +98,7 @@ const runJudgment = (
     const result = yield* executeJudgment({
       plan,
       paths,
-      reviewWorkingDirectory: REPO_ROOT,
+      reviewWorkingDirectory: REVIEW_ROOT,
       observations,
     })
     return { result, journalPath: path.join(paths.journalDirectory, "judgment.json") }
@@ -126,7 +127,7 @@ describe("Judgment stage interface", () => {
 
       expect(scripted.configs).toHaveLength(1)
       expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(scripted.configs[0]?.cwd).toBe(REPO_ROOT)
+      expect(scripted.configs[0]?.cwd).toBe(REVIEW_ROOT)
       expect(scripted.configs[0]?.sessionId).toBe("judgment-test-run-judgment")
       expect(scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(scripted.configs[0]?.emitTool.name).toBe("emit_judgments")
@@ -140,7 +141,8 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain("[2] (fixture) alpha.txt — observation 2")
       expect(prompt).toContain("```diff")
       expect(prompt).toContain("+added-line")
-      expect(prompt).toContain(REPO_ROOT)
+      expect(prompt).toContain(REVIEW_ROOT)
+      expect(prompt).not.toContain(REPO_ROOT)
 
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(journalPath)).toBe(true)

@@ -2,7 +2,8 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import type { ReviewTarget } from "../domain/review-target.ts"
-import { runGit } from "../target/git.ts"
+import { describeGitFailure, runGit } from "../target/git.ts"
+import { RunError } from "./run-record.ts"
 
 // Filesystem-facing agent tools must observe the frozen ReviewTarget. A
 // WorkingTree target already names the live checkout whose consistency is
@@ -10,7 +11,7 @@ import { runGit } from "../target/git.ts"
 // worktree at its frozen head commit (#47).
 export const acquireReviewWorkingDirectory = Effect.fn(
   "gauntlet.review_working_directory.acquire",
-)(function* (target: ReviewTarget) {
+)(function* (target: ReviewTarget, runId: string) {
   if (target._tag === "WorkingTree") return target.repoRoot
 
   const fs = yield* FileSystem.FileSystem
@@ -26,7 +27,19 @@ export const acquireReviewWorkingDirectory = Effect.fn(
       "--detach",
       directory,
       target.headCommit,
-    ]),
+    ]).pipe(
+      Effect.mapError((cause) =>
+        new RunError({
+          operation: "execute-plan",
+          reason: describeGitFailure(
+            `could not create review worktree for PR #${String(target.number)}`,
+            cause,
+          ),
+          runId,
+          cause,
+        })
+      ),
+    ),
     () =>
       runGit(target.repoRoot, [
         "worktree",

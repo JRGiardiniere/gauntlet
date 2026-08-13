@@ -9,6 +9,9 @@ import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
+import { RunError } from "./run-record.ts"
+
+const RUN_ID = "review-working-directory-test"
 
 const worktreeCount = (porcelain: string): number =>
   porcelain.split("\n").filter((line) => line.startsWith("worktree ")).length
@@ -62,7 +65,7 @@ describe("PR review working directory", () => {
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          reviewDirectory = yield* acquireReviewWorkingDirectory(target)
+          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID)
           expect(reviewDirectory).not.toBe(repo)
           expect(
             chompLine(yield* runGit(reviewDirectory, ["rev-parse", "HEAD"])),
@@ -89,7 +92,7 @@ describe("PR review working directory", () => {
 
       const reason = yield* Effect.scoped(
         Effect.gen(function* () {
-          reviewDirectory = yield* acquireReviewWorkingDirectory(target)
+          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID)
           return yield* Effect.fail("fixture failure")
         }),
       ).pipe(Effect.flip)
@@ -106,7 +109,7 @@ describe("PR review working directory", () => {
       const ready = yield* Deferred.make<string>()
       const fiber = yield* Effect.scoped(
         Effect.gen(function* () {
-          const directory = yield* acquireReviewWorkingDirectory(target)
+          const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID)
           yield* Deferred.succeed(ready, directory)
           return yield* Effect.never
         }),
@@ -118,5 +121,29 @@ describe("PR review working directory", () => {
       yield* Fiber.interrupt(fiber)
       expect(yield* fs.exists(reviewDirectory)).toBe(false)
       expect(yield* countWorktrees(repo)).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reports worktree creation failures with Git's reason", () =>
+    Effect.gen(function* () {
+      const { target } = yield* makeMismatchedPullRequestTarget
+      const missingCommit = "0000000000000000000000000000000000000000"
+      const missingTarget = ReviewTarget.cases.PullRequest.make({
+        ...target,
+        headCommit: missingCommit,
+      })
+
+      const failure = yield* acquireReviewWorkingDirectory(
+        missingTarget,
+        RUN_ID,
+      ).pipe(Effect.flip)
+
+      expect(failure).toBeInstanceOf(RunError)
+      if (failure._tag !== "RunError") return
+      expect(failure.operation).toBe("execute-plan")
+      expect(failure.runId).toBe(RUN_ID)
+      expect(failure.reason).toContain(
+        `could not create review worktree for PR #${String(target.number)}`,
+      )
+      expect(failure.reason).toContain(missingCommit)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

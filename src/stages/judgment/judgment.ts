@@ -97,6 +97,7 @@ export const executeJudgment = Effect.fn(
       const prompt = yield* assembleJudgmentPrompt(
         promptTemplates,
         plan.target,
+        reviewWorkingDirectory,
         plan.specText,
         indexed,
       )
