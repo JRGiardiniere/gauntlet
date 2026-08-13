@@ -1,4 +1,3 @@
-import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
 // The exact change under review, carrying its frozen diff and any
@@ -24,11 +23,7 @@ export const ReviewTarget = Schema.TaggedUnion({
     // Included non-ignored untracked files (≤10MB), hashed at freeze so
     // content drift is visible to the resume identity check. Oversized and
     // ignored paths are omitted here and named only in warnings, if at all.
-    // Missing on plans frozen before this field existed; decode as empty so
-    // those runs still load.
-    untrackedFiles: Schema.Array(UntrackedFileDigest).pipe(
-      Schema.withDecodingDefaultKey(Effect.succeed([])),
-    ),
+    untrackedFiles: Schema.Array(UntrackedFileDigest),
     warnings: Schema.Array(Schema.String),
   },
   PullRequest: {
