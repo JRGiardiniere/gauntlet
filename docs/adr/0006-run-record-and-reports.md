@@ -49,10 +49,12 @@ output-volume and runaway protections and stay where #7 put them.
 
 Accounting is modular by construction: each journal file carries the raw
 usage exactly as the harness reports it — input/output tokens, cache
-read/write, cost, duration — per invocation, unaggregated. The only derived
-numbers anywhere are one Dossier-header line
+read/write, cost, duration — per invocation, unaggregated. Derived totals
+live in two durable places: one Dossier-header line
 (`cost $0.84 · 12 invocations · 6m 10s`) and the digest tally's cost + wall
-time. Any future cost model is a script over journal files.
+time. Live stderr may echo duration and cost already present on an
+AgentOutcome, plus stage wall time, as progress narration — not a third
+accounting store. Any future cost model is a script over journal files.
 
 ## The human-readable Dossier
 

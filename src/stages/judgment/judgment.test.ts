@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
+import * as TestConsole from "effect/testing/TestConsole"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
@@ -138,6 +139,13 @@ describe("Judgment stage interface", () => {
 
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(journalPath)).toBe(true)
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain("gauntlet: invoking Judgment")
+      expect(stderr).toContain("gauntlet: Judgment done — 0s · $0.05")
+      expect(stderr).toContain(
+        "gauntlet: Judgment finished — 1 kept · 0 dropped · 0 undecided · 0s",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("degrades to undecided with a coverage gap when the plan froze no judgment seat", () =>
@@ -160,6 +168,11 @@ describe("Judgment stage interface", () => {
       expect(result.costUsd).toBe(0)
       expect(result.invocationCount).toBe(0)
       expect(scripted.configs).toHaveLength(0)
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "gauntlet: coverage gap — judgment has no seat frozen in the review plan; retained every observation as undecided",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps an off-spec emit visible as undecided with the missing-output reason", () =>
@@ -193,5 +206,10 @@ describe("Judgment stage interface", () => {
         },
       ])
       expect(result.invocationCount).toBe(1)
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "gauntlet: coverage gap — judgment emitted nothing after 2 corrective turns",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
