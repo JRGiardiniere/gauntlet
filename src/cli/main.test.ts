@@ -402,9 +402,30 @@ describe("gauntlet review", () => {
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain("gauntlet: resolving working-tree review target")
       expect(stderr).toContain("gauntlet: invoking finder fixture-review")
+      expect(stderr).toContain(
+        "gauntlet: finder fixture-review done — 2 candidates · 0s · $0.05",
+      )
+      expect(stderr).toContain("gauntlet: Finders finished — 0s")
+      expect(stderr).toContain(
+        "gauntlet: 1 BugClaim → Verification · 1 Observation → Judgment",
+      )
+      expect(stderr).toContain("gauntlet: skipping Pool (1 BugClaim)")
+      expect(stderr).toContain("gauntlet: invoking Verification bundle 1")
+      expect(stderr).toContain(
+        "gauntlet: Verification bundle 1 done — 0s · $0.05",
+      )
+      expect(stderr).toContain(
+        "gauntlet: Verification finished — 1 confirmed · 0 refuted · 0 unverified · 0s",
+      )
+      expect(stderr).toContain("gauntlet: invoking Judgment")
+      expect(stderr).toContain("gauntlet: Judgment done — 0s · $0.05")
+      expect(stderr).toContain(
+        "gauntlet: Judgment finished — 1 kept · 0 dropped · 0 undecided · 0s",
+      )
       expect(stderr).toContain("warning — ")
       expect(stderr).toContain("untracked.txt")
-      expect(stderr).not.toContain("confirmed ·")
+      // Digest tally stays on stdout; stage counts use a different shape.
+      expect(stderr).not.toMatch(/\d+ confirmed · \d+ kept ·/)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("loads the full shipped and project-local catalog, skips needs-spec lenses, and freezes seats", () =>
@@ -469,6 +490,14 @@ describe("gauntlet review", () => {
         "finder-fixture-local.json",
         "finder-fixture-review.json",
       ])
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "gauntlet: 0 BugClaims → Verification · 0 Observations → Judgment",
+      )
+      expect(stderr).toContain("gauntlet: skipping Pool (0 BugClaims)")
+      expect(stderr).toContain("gauntlet: skipping Verification (0 BugClaims)")
+      expect(stderr).toContain("gauntlet: skipping Judgment (0 Observations)")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>
@@ -587,6 +616,14 @@ describe("gauntlet review", () => {
       expect(dossier.bugClaims).toHaveLength(1)
       expect(dossier.observations).toHaveLength(1)
       expect(run.scripted.configs).toHaveLength(4)
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit",
+      )
+      expect(stderr).toContain(
+        "gauntlet: coverage gap (fixture-review) — finder emitted nothing after 2 corrective turns",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes the latest incomplete run without repaying its journaled finder", () =>
@@ -652,6 +689,9 @@ describe("gauntlet review", () => {
       )
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "reusing finder fixture-review from journal",
+      )
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "gauntlet: finder fixture-review done — 2 candidates · 0s · $0.05",
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

@@ -35,23 +35,35 @@ export interface DossierView {
   readonly dropped: ReadonlyArray<DroppedObservation>
 }
 
-export const viewDossier = (dossier: Dossier): DossierView => ({
-  confirmed: dossier.bugClaims.flatMap(({ candidate, verdict }) =>
+export const viewBugClaims = (
+  bugClaims: Dossier["bugClaims"],
+): Pick<DossierView, "confirmed" | "unverified" | "refuted"> => ({
+  confirmed: bugClaims.flatMap(({ candidate, verdict }) =>
     Verdict.guards.Confirmed(verdict) ? [{ candidate, verdict }] : []
   ),
-  unverified: dossier.bugClaims.flatMap(({ candidate, verdict }) =>
+  unverified: bugClaims.flatMap(({ candidate, verdict }) =>
     Verdict.guards.Unverified(verdict) ? [{ candidate, verdict }] : []
   ),
-  refuted: dossier.bugClaims.flatMap(({ candidate, verdict }) =>
+  refuted: bugClaims.flatMap(({ candidate, verdict }) =>
     Verdict.guards.Refuted(verdict) ? [{ candidate, verdict }] : []
   ),
-  kept: dossier.observations.flatMap(({ candidate, judgment }) =>
+})
+
+export const viewObservations = (
+  observations: Dossier["observations"],
+): Pick<DossierView, "kept" | "undecided" | "dropped"> => ({
+  kept: observations.flatMap(({ candidate, judgment }) =>
     Judgment.guards.Kept(judgment) ? [{ candidate, judgment }] : []
   ),
-  undecided: dossier.observations.flatMap(({ candidate, judgment }) =>
+  undecided: observations.flatMap(({ candidate, judgment }) =>
     Judgment.guards.Undecided(judgment) ? [candidate] : []
   ),
-  dropped: dossier.observations.flatMap(({ candidate, judgment }) =>
+  dropped: observations.flatMap(({ candidate, judgment }) =>
     Judgment.guards.Dropped(judgment) ? [{ candidate, judgment }] : []
   ),
+})
+
+export const viewDossier = (dossier: Dossier): DossierView => ({
+  ...viewBugClaims(dossier.bugClaims),
+  ...viewObservations(dossier.observations),
 })

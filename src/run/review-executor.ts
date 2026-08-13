@@ -31,6 +31,12 @@ import {
   executeJournaledInvocation,
   finderInvocationsInPlan,
 } from "./invocation-journal.ts"
+import {
+  counted,
+  coverageGapLine,
+  invocationTrail,
+  wallSeconds,
+} from "./progress-text.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
@@ -97,6 +103,9 @@ export const executeReviewPlan = Effect.fn(
               return enforceCandidateCap(invocation.lens, outcome)
             }),
           })
+          const outcome = journaled.reused
+            ? enforceCandidateCap(invocation.lens, journaled.outcome)
+            : journaled.outcome
           if (journaled.reused) {
             yield* progress(
               `reusing finder ${invocation.lens.name} from journal`,
@@ -109,9 +118,12 @@ export const executeReviewPlan = Effect.fn(
               invocationKey: invocation.invocationKey,
             })
           }
+          yield* progress(
+            `finder ${invocation.lens.name} done — ${counted(outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
+          )
           return {
             invocation,
-            outcome: enforceCandidateCap(invocation.lens, journaled.outcome),
+            outcome,
             reused: journaled.reused,
           }
         })
@@ -133,6 +145,7 @@ export const executeReviewPlan = Effect.fn(
           Array.groupBy(invocations, (invocation) =>
             modelIdentityOfSeat(invocation.seat)),
         )
+        const findersStartedAt = yield* DateTime.now
         const groupResults = yield* Effect.forEach(
           groups,
           (group, groupIndex) =>
@@ -199,7 +212,16 @@ export const executeReviewPlan = Effect.fn(
           })
         }
 
+        yield* progress(
+          `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
+        )
         const routed = routeFinderResults(results)
+        for (const gap of routed.coverageGaps) {
+          yield* progress(coverageGapLine(gap))
+        }
+        yield* progress(
+          `${counted(routed.bugClaims.length, "BugClaim")} → Verification · ${counted(routed.observations.length, "Observation")} → Judgment`,
+        )
         // The two evaluation paths share no state until Assembly joins them.
         const [bugClaimPath, judgmentPath] = yield* Effect.all(
           [
