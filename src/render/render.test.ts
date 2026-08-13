@@ -37,6 +37,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
   headCommit: "abcdef0123456789",
   changedFiles: ["src/alpha.ts", "src/beta.ts"],
   diff: "+needle",
+  untrackedFiles: [],
   warnings: ["2 untracked file(s) not included in the diff: stray.txt, x.txt"],
 })
 

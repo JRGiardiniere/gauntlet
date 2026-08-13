@@ -12,6 +12,7 @@ import * as TestConsole from "effect/testing/TestConsole"
 import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
+import { ReviewTarget } from "../domain/review-target.ts"
 import { unusedGitHubLayer } from "../github/github.ts"
 import {
   makeScripted,
@@ -307,8 +308,13 @@ describe("gauntlet review", () => {
       expect(plan.seats.verification).toBe(FIXTURE_SEAT)
       expect(plan.seats.judgment).toBe(FIXTURE_SEAT)
       expect(plan.target._tag).toBe("WorkingTree")
+      expect(ReviewTarget.guards.WorkingTree(plan.target)).toBe(true)
+      if (!ReviewTarget.guards.WorkingTree(plan.target)) return
       expect(plan.target.changedFiles).toEqual(["alpha.txt"])
       expect(plan.target.diff).toContain("+needle-added-line")
+      expect(plan.target.untrackedFiles).toHaveLength(1)
+      expect(plan.target.untrackedFiles[0]?.path).toBe("untracked.txt")
+      expect(plan.target.untrackedFiles[0]?.digest).toMatch(/^[a-f0-9]{64}$/)
       expect(plan.target.warnings).toHaveLength(1)
       expect(plan.target.warnings[0]).toContain("untracked.txt")
 
@@ -364,9 +370,11 @@ describe("gauntlet review", () => {
       expect(report).toContain("- Warnings: ")
       expect(report).toContain("untracked.txt")
 
-      // The diff is stored exactly once, in the plan (ADR 0006).
+      // The diff is stored exactly once, in the plan (ADR 0006). Untracked
+      // file bytes are not persisted anywhere in the run directory.
       const runRecordText = planText + journalText + dossierText + report
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
+      expect(runRecordText).not.toContain("not in the diff")
 
       expect(run.scripted.configs).toHaveLength(3)
       expect(run.scripted.configs[0]?.seat).toBe(FIXTURE_SEAT)
@@ -744,6 +752,49 @@ describe("gauntlet review", () => {
         Schema.fromJsonString(ReviewPlan),
       )(planText)
       expect(plan.recipeName).toBe("fixture-alt")
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "resume unavailable, running a new review",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("starts a new review when only untracked file contents changed", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "stray.txt"),
+        "original-untracked\n",
+      )
+      const journaled = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review"],
+        successfulScripted(),
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (runId) =>
+            Deferred.succeed(journaled, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      const runId = yield* Deferred.await(journaled)
+      yield* Fiber.interrupt(fiber)
+
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "stray.txt"),
+        "edited-untracked\n",
+      )
+
+      const driftedResume = resume(fixture, runId, successfulScripted())
+      expect(yield* driftedResume.effect).toBe(0)
+      expect(driftedResume.scripted.configs).toHaveLength(3)
+      const runIds = yield* fs.readDirectory(fixture.runsRoot)
+      expect(runIds).toHaveLength(2)
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "resume unavailable, running a new review",
       )

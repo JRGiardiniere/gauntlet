@@ -39,6 +39,7 @@ const workingTreeTarget = ReviewTarget.cases.WorkingTree.make({
   headCommit: "abc1234",
   changedFiles: ["src/alpha.ts"],
   diff: "+needle",
+  untrackedFiles: [],
   warnings: [],
 })
 

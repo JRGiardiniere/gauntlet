@@ -124,6 +124,7 @@ describe("lens content", () => {
           headCommit: "abcdef",
           changedFiles: ["src/fixture.ts"],
           diff: "+fixture contains {{MODEL_AUTHORED_TOKEN}}",
+          untrackedFiles: [],
           warnings: [],
         })
         const prompt = yield* assembleFinderPrompt(
@@ -147,6 +148,7 @@ describe("finder prompt cache prefix", () => {
         headCommit: "abcdef",
         changedFiles: ["src/fixture.ts"],
         diff: "+fixture",
+        untrackedFiles: [],
         warnings: [],
       })
       const template = [
@@ -195,6 +197,7 @@ describe("finder prompt cache prefix", () => {
         headCommit: "abcdef",
         changedFiles: ["src/fixture.ts"],
         diff: '+const marker = "{{MAX_PER_LENS}}"',
+        untrackedFiles: [],
         warnings: [],
       })
       const lens = FrozenLens.make({
@@ -221,6 +224,7 @@ describe("finder prompt cache prefix", () => {
         headCommit: "abcdef",
         changedFiles: ["src/fixture.ts"],
         diff: "+fixture",
+        untrackedFiles: [],
         warnings: [],
       })
       const template = "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}"

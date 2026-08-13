@@ -11,6 +11,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
   headCommit: "abcdef0",
   changedFiles: ["src/fixture.ts"],
   diff: "+change",
+  untrackedFiles: [],
   warnings: [],
 })
 
