@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Candidate } from "./candidate.ts"
 import { modelIdentityOfSeat, Seat } from "./recipe.ts"
+import { ReviewTarget } from "./review-target.ts"
 
 describe("domain model", () => {
   it.effect("a candidate self-classifies by failure-scenario presence", () =>
@@ -47,4 +48,19 @@ describe("domain model", () => {
     expect(modelIdentityOfSeat("acme/luna-4:low")).toBe("acme/luna-4")
     expect(modelIdentityOfSeat("acme/luna:4-6:high")).toBe("acme/luna:4-6")
   })
+
+  it.effect("decodes a working-tree target frozen before untrackedFile digests", () =>
+    Effect.gen(function* () {
+      const target = yield* Schema.decodeEffect(ReviewTarget)({
+        _tag: "WorkingTree",
+        repoRoot: "/fixture",
+        headCommit: "abcdef0",
+        changedFiles: ["src/fixture.ts"],
+        diff: "+change",
+        warnings: [],
+      })
+      expect(ReviewTarget.guards.WorkingTree(target)).toBe(true)
+      if (!ReviewTarget.guards.WorkingTree(target)) return
+      expect(target.untrackedFiles).toEqual([])
+    }))
 })

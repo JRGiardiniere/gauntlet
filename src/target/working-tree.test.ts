@@ -118,4 +118,26 @@ describe("resolveWorkingTreeTarget", () => {
         "1 untracked file(s) exceed 10MB and are excluded from the review: huge.bin",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("does not abort on untracked symlinks or nested repositories", () =>
+    Effect.gen(function* () {
+      const repo = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.symlink(
+        "missing-target",
+        path.join(repo, "dangling"),
+      )
+      const nested = path.join(repo, "nested")
+      yield* fs.makeDirectory(nested)
+      yield* runGit(nested, ["init"])
+
+      const target = yield* resolveWorkingTreeTarget(repo)
+      expect(target.untrackedFiles.map((file) => file.path)).toEqual([
+        "dangling",
+      ])
+      expect(target.untrackedFiles[0]?.digest).toMatch(/^[a-f0-9]{64}$/)
+      expect(target.warnings[0]).toContain("dangling")
+      expect(target.warnings[0]).toContain("nested")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

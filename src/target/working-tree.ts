@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto"
+import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as Encoding from "effect/Encoding"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
@@ -39,8 +41,15 @@ const explainUntrackedFile = (reason: string) =>
 // dropped from the digest set and named in a scope-degradation warning.
 const UNTRACKED_SIZE_CAP = FileSystem.MiB(10)
 
-const sha256Hex = (bytes: Uint8Array): string =>
-  createHash("sha256").update(bytes).digest("hex")
+const digestBytes = Effect.fn(
+  "gauntlet.working_tree.digest_bytes",
+)(function* (bytes: Uint8Array, relativePath: string) {
+  const crypto = yield* Crypto.Crypto
+  const digest = yield* crypto.digest("SHA-256", bytes).pipe(
+    explainUntrackedFile(`could not digest untracked file ${relativePath}`),
+  )
+  return Encoding.encodeHex(digest)
+})
 
 const inspectUntrackedFile = Effect.fn(
   "gauntlet.working_tree.inspect_untracked_file",
@@ -48,16 +57,36 @@ const inspectUntrackedFile = Effect.fn(
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const absolutePath = path.join(repoRoot, relativePath)
+  // stat follows symlinks; readLink first so a dangling or directory-target
+  // link hashes as itself instead of aborting resolution.
+  const linkTarget = yield* fs.readLink(absolutePath).pipe(Effect.option)
+  if (Option.isSome(linkTarget)) {
+    return {
+      kind: "included" as const,
+      path: relativePath,
+      digest: yield* digestBytes(
+        new TextEncoder().encode(linkTarget.value),
+        relativePath,
+      ),
+    }
+  }
   const info = yield* fs.stat(absolutePath).pipe(
     explainUntrackedFile(`could not inspect untracked file ${relativePath}`),
   )
+  if (info.type !== "File") {
+    return { kind: "named" as const, path: relativePath }
+  }
   if (info.size > UNTRACKED_SIZE_CAP) {
-    return { path: relativePath, digest: undefined }
+    return { kind: "oversized" as const, path: relativePath }
   }
   const bytes = yield* fs.readFile(absolutePath).pipe(
     explainUntrackedFile(`could not read untracked file ${relativePath}`),
   )
-  return { path: relativePath, digest: sha256Hex(bytes) }
+  return {
+    kind: "included" as const,
+    path: relativePath,
+    digest: yield* digestBytes(bytes, relativePath),
+  }
 })
 
 // Resolves the default target: uncommitted changes vs HEAD, diff frozen at
@@ -111,17 +140,20 @@ export const resolveWorkingTreeTarget = Effect.fn(
     { concurrency: 4 },
   )
   const untrackedFiles = inspections.flatMap((file) =>
-    file.digest === undefined ? [] : [{ path: file.path, digest: file.digest }]
+    file.kind === "included"
+      ? [{ path: file.path, digest: file.digest }]
+      : []
+  )
+  const named = inspections.flatMap((file) =>
+    file.kind === "oversized" ? [] : [file.path]
   )
   const oversized = inspections.flatMap((file) =>
-    file.digest === undefined ? [file.path] : []
+    file.kind === "oversized" ? [file.path] : []
   )
 
   const warnings = [
-    ...(untrackedFiles.length === 0 ? [] : [
-      `${untrackedFiles.length} untracked file(s) not included in the diff: ${
-        untrackedFiles.map((file) => file.path).join(", ")
-      }`,
+    ...(named.length === 0 ? [] : [
+      `${named.length} untracked file(s) not included in the diff: ${named.join(", ")}`,
     ]),
     ...(oversized.length === 0 ? [] : [
       `${oversized.length} untracked file(s) exceed 10MB and are excluded from the review: ${
