@@ -17,6 +17,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
   diff: "@@ -1 +1 @@\n context\n ```\n+changed",
   warnings: [],
 })
+const reviewRoot = "/fixture/review-worktree"
 
 const bugClaim = Candidate.cases.BugClaim.make({
   id: "fixture/1",
@@ -48,6 +49,7 @@ describe("evaluation prompts", () => {
       const finder = yield* assembleFinderPrompt(
         "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\ncap={{MAX_PER_LENS}}",
         target,
+        reviewRoot,
         FrozenLens.make({
           name: "fixture",
           promptText: "fixture lens",
@@ -66,11 +68,14 @@ describe("evaluation prompts", () => {
       const verifier = yield* assembleVerifierPrompt(
         templates,
         target,
+        reviewRoot,
         undefined,
         [{ index: 1, candidate: bugClaim }],
         [{ number: 1, indexes: [1], summary: bugClaim.summary }],
       )
       for (const prompt of [finder, verifier]) {
+        expect(prompt).toContain(reviewRoot)
+        expect(prompt).not.toContain(target.repoRoot)
         expect(prompt).toContain("````diff\n")
         expect(prompt).toContain("\n ```\n")
         expect(prompt).toContain("\n````")

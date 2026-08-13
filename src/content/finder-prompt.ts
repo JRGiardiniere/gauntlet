@@ -54,6 +54,7 @@ export const loadFinderPromptTemplates = Effect.fn(
 export const assembleFinderPrompt = (
   template: string,
   target: ReviewTarget,
+  reviewRoot: string,
   lens: FrozenLens,
   specText?: string,
 ): Effect.Effect<string, PromptAssemblyError> =>
@@ -62,7 +63,7 @@ export const assembleFinderPrompt = (
       "finder shared-block",
       template,
       [
-        ["REPO_ROOT", target.repoRoot],
+        ["REPO_ROOT", reviewRoot],
         [
           "CHANGED_FILES",
           target.changedFiles.map((file) => `- ${file}`).join("\n"),

@@ -74,6 +74,7 @@ const repairedPoolReason = (repair: PoolRepair): string | undefined => {
 export interface BugClaimPathExecution {
   readonly plan: ReviewPlan
   readonly paths: RunPaths
+  readonly reviewWorkingDirectory: string
   readonly bugClaims: ReadonlyArray<BugClaim>
 }
 
@@ -86,7 +87,12 @@ export interface BugClaimPathResult {
 
 export const executeBugClaimPath = Effect.fn(
   "gauntlet.bug_claim_path.execute",
-)(function* ({ bugClaims, paths, plan }: BugClaimPathExecution) {
+)(function* ({
+  bugClaims,
+  paths,
+  plan,
+  reviewWorkingDirectory,
+}: BugClaimPathExecution) {
   const claims = indexBugClaims(bugClaims)
   if (claims.length === 0) {
     yield* progress(`skipping Pool (${counted(0, "BugClaim")})`)
@@ -127,7 +133,7 @@ export const executeBugClaimPath = Effect.fn(
           yield* progress("invoking Pool")
           return yield* invoke({
             seat,
-            cwd: plan.target.repoRoot,
+            cwd: reviewWorkingDirectory,
             systemPrompt: EVALUATION_SYSTEM_PROMPT,
             prompt,
             sessionId: `${plan.runId}-pool`,
@@ -194,6 +200,7 @@ export const executeBugClaimPath = Effect.fn(
               const prompt = yield* assembleVerifierPrompt(
                 promptTemplates,
                 plan.target,
+                reviewWorkingDirectory,
                 plan.specText,
                 claims,
                 bundle,
@@ -203,7 +210,7 @@ export const executeBugClaimPath = Effect.fn(
               )
               return yield* invoke({
                 seat: verificationSeat,
-                cwd: plan.target.repoRoot,
+                cwd: reviewWorkingDirectory,
                 systemPrompt: EVALUATION_SYSTEM_PROMPT,
                 prompt,
                 // Bundles run concurrently, so a shared cache partition buys

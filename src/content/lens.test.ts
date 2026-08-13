@@ -126,6 +126,7 @@ describe("lens content", () => {
         const prompt = yield* assembleFinderPrompt(
           "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}",
           target,
+          target.repoRoot,
           frozen,
         )
         expect(prompt).toContain("fixture prompt v1")
@@ -167,8 +168,18 @@ describe("finder prompt cache prefix", () => {
         needsSpec: false,
         candidateCap: 6,
       })
-      const firstPrompt = yield* assembleFinderPrompt(template, target, first)
-      const secondPrompt = yield* assembleFinderPrompt(template, target, second)
+      const firstPrompt = yield* assembleFinderPrompt(
+        template,
+        target,
+        target.repoRoot,
+        first,
+      )
+      const secondPrompt = yield* assembleFinderPrompt(
+        template,
+        target,
+        target.repoRoot,
+        second,
+      )
       const firstPrefix = firstPrompt.slice(0, firstPrompt.indexOf(first.promptText))
       const secondPrefix = secondPrompt.slice(0, secondPrompt.indexOf(second.promptText))
 
@@ -198,6 +209,7 @@ describe("finder prompt cache prefix", () => {
       const prompt = yield* assembleFinderPrompt(
         "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{MAX_PER_LENS}}",
         target,
+        target.repoRoot,
         lens,
       )
 
@@ -234,11 +246,13 @@ describe("finder prompt cache prefix", () => {
       const ordinaryPrompt = yield* assembleFinderPrompt(
         template,
         target,
+        target.repoRoot,
         ordinary,
       )
       const expandedPrompt = yield* assembleFinderPrompt(
         template,
         target,
+        target.repoRoot,
         expanded,
         "fixture requirement",
       )
