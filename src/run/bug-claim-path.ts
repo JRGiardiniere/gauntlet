@@ -39,7 +39,6 @@ import {
   wallSeconds,
 } from "./progress-text.ts"
 import type { RunPaths } from "./run-record.ts"
-import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
 
 const progress = Effect.fn("gauntlet.bug_claim_path.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -196,7 +195,6 @@ export const executeBugClaimPath = Effect.fn(
             invocationKey,
             output: EmitVerdicts.schema,
             execute: Effect.gen(function* () {
-              yield* ensureWorkingTreeUnchanged(plan)
               const promptTemplates = yield* templates
               const prompt = yield* assembleVerifierPrompt(
                 promptTemplates,

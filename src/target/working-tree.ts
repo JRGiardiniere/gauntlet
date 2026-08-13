@@ -10,7 +10,9 @@ import {
   chompLine,
   describeGitFailure,
   type GitCommandError,
+  gitlinkPaths,
   runGit,
+  submoduleWarning,
 } from "./git.ts"
 
 // The working tree cannot yield a ReviewTarget at all — not a repo, no HEAD
@@ -108,18 +110,30 @@ export const resolveWorkingTreeTarget = Effect.fn(
   )
   // Diff against the resolved hash, not symbolic HEAD — a commit landing
   // between the two commands must not desynchronize identity and diff.
-  const [diff, changedFiles, untracked] = yield* Effect.all(
+  // --no-renames keeps both sides of a rename in changedFiles (the snapshot
+  // must delete the old path) and makes the list independent of diff.renames.
+  const [diff, changedFiles, untracked, submodules] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", headCommit]).pipe(
         explainGit("could not diff the working tree against HEAD"),
       ),
-      runGit(repoRoot, ["diff", "--name-only", "-z", headCommit]).pipe(
+      runGit(repoRoot, [
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        headCommit,
+      ]).pipe(
         explainGit("could not list changed files"),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "-z", "--others", "--exclude-standard"]).pipe(
         explainGit("could not list untracked files"),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+      ),
+      runGit(repoRoot, ["ls-files", "-z", "--stage"]).pipe(
+        explainGit("could not list tracked files"),
+        Effect.map(gitlinkPaths),
       ),
     ],
     { concurrency: 2 },
@@ -160,6 +174,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
         oversized.join(", ")
       }`,
     ]),
+    ...submoduleWarning(submodules),
   ]
 
   return ReviewTarget.cases.WorkingTree.make({

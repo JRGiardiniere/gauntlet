@@ -6,7 +6,9 @@ import {
   chompLine,
   describeGitFailure,
   type GitCommandError,
+  gitlinkPaths,
   runGit,
+  submoduleWarning,
 } from "./git.ts"
 import { TargetUnresolvable } from "./working-tree.ts"
 
@@ -102,7 +104,7 @@ export const resolvePullRequestTarget = Effect.fn(
       explainGit(`could not resolve merge-base for PR #${String(number)}`),
       Effect.map(chompLine),
     )
-  const [diff, changedFiles] = yield* Effect.all(
+  const [diff, changedFiles, submodules] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(
         explainGit(`could not diff PR #${String(number)}`),
@@ -110,6 +112,10 @@ export const resolvePullRequestTarget = Effect.fn(
       runGit(repoRoot, ["diff", "--name-only", "-z", baseCommit, headCommit]).pipe(
         explainGit(`could not list changed files for PR #${String(number)}`),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+      ),
+      runGit(repoRoot, ["ls-tree", "-r", "-z", headCommit]).pipe(
+        explainGit(`could not list the tree of PR #${String(number)}`),
+        Effect.map(gitlinkPaths),
       ),
     ],
     { concurrency: 2 },
@@ -129,6 +135,6 @@ export const resolvePullRequestTarget = Effect.fn(
     baseCommit,
     changedFiles,
     diff,
-    warnings: [],
+    warnings: submoduleWarning(submodules),
   })
 })

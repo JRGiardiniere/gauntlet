@@ -378,8 +378,12 @@ describe("gauntlet review", () => {
 
       expect(run.scripted.configs).toHaveLength(3)
       expect(run.scripted.configs[0]?.seat).toBe(FIXTURE_SEAT)
-      expect(run.scripted.configs[0]?.cwd).toBe(plan.target.repoRoot)
+      // Every invocation reads the Run's one frozen snapshot worktree, never
+      // the developer's live checkout (#56).
+      expect(run.scripted.configs[0]?.cwd).not.toBe(plan.target.repoRoot)
+      expect(run.scripted.configs[0]?.cwd.endsWith("worktree")).toBe(true)
       for (const config of run.scripted.configs) {
+        expect(config.cwd).toBe(run.scripted.configs[0]?.cwd)
         expect(config.tools).toEqual(["read", "bash"])
       }
       expect(promptTextsFor(run.scripted, "-finders")[0]).toMatch(

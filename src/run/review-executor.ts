@@ -40,7 +40,6 @@ import {
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
-import { ensureWorkingTreeUnchanged } from "./target-consistency.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 
 // Pi uses the shared session id as its provider cache partition. Each model
@@ -86,7 +85,6 @@ export const executeReviewPlan = Effect.fn(
             invocationKey: invocation.invocationKey,
             output: EmitFindings.schema,
             execute: Effect.gen(function* () {
-              yield* ensureWorkingTreeUnchanged(plan)
               const promptTemplates = yield* templates
               const prompt = yield* assembleFinderPrompt(
                 promptTemplates.sharedPromptTemplate,
