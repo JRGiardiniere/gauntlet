@@ -11,6 +11,30 @@ const strictDecode = <O>(schema: Schema.Codec<O, O, never, never>) =>
   Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })
 
 describe("output contracts", () => {
+  // A projection regression degrades agent output quietly — no real run fails
+  // loudly — so this tripwire survives the instantly-loud cull. It only fires
+  // on a deliberate Effect bump (the pin is exact) or a contract edit.
+  it.effect("projects each contract self-contained with its normative descriptions intact", () =>
+    Effect.gen(function* () {
+      const sentinels = [
+        [EmitFindings, "as it appears in the changed-file list"],
+        [EmitPool, "must appear in exactly one cluster"],
+        [EmitVerdicts, "reachability × consequence"],
+      ] as const
+      for (const [contract, sentinel] of sentinels) {
+        const document = Schema.toJsonSchemaDocument(contract.schema)
+        expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
+        const projected = yield* Schema.encodeEffect(
+          Schema.fromJsonString(Schema.Unknown),
+        )({
+          toolName: contract.toolName,
+          description: contract.description,
+          parameters: document.schema,
+        })
+        expect(projected).toContain(sentinel)
+      }
+    }))
+
   it.effect("accepts empty finder output and an arbitrary candidate path", () =>
     Effect.gen(function* () {
       expect(yield* strictDecode(EmitFindings.schema)({ findings: [] })).toEqual({

@@ -38,3 +38,6 @@ directive (#8).
 - A new edge-case test needs the same justification as a new safeguard: if a
   run-directory artifact would already surface the failure, prefer the
   artifact.
+- Amended by ADR 0008: the happy-path clause above applies to quiet surfaces
+  only. Behavior whose regression fails loudly at the terminal on the next
+  real use keeps no test — the next run is the test.
