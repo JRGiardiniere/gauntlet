@@ -215,8 +215,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       }
 
       // The live adapter always mounts a ReviewWorkspace for filesystem
-      // sessions. This adapter does the same only when a script actually
-      // inspects, so invocation-unit tests with a fake cwd stay cheap.
+      // sessions. This adapter does the same only when a script declares a
+      // tool event, so invocation-unit tests with a fake cwd stay cheap.
       const workspace = scriptInspectsWorkspace(behaviorForSession)
         ? yield* Effect.tryPromise({
             try: () => makeReviewWorkspace(config.cwd),
@@ -289,6 +289,13 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                 break
               }
               case "tool": {
+                yield* Effect.sync(() => {
+                  fire({
+                    type: "tool_execution_start",
+                    toolName: step.toolName,
+                    args: step.args,
+                  })
+                })
                 const recorded = workspace === undefined ||
                     !config.tools.includes(step.toolName)
                   ? {
@@ -310,11 +317,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     args: step.args,
                     isError: recorded.isError,
                     text: recorded.text,
-                  })
-                  fire({
-                    type: "tool_execution_start",
-                    toolName: step.toolName,
-                    args: step.args,
                   })
                   fire({
                     type: "tool_execution_end",
