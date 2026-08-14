@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { BugClaim, Observation } from "./candidate.ts"
 import { Judgment } from "./judgment.ts"
@@ -30,6 +31,17 @@ export const JudgedObservation = Schema.Struct({
 })
 export type JudgedObservation = typeof JudgedObservation.Type
 
+// Verification's optional advice to run named existing repository tests
+// (CONTEXT.md). One per recommending Pool cluster, associated with the stable
+// id of every cluster-mate — never once per duplicate claim. Downstream
+// advice only: it never changes a Verdict, and Gauntlet never runs the tests.
+export const TestSuggestion = Schema.Struct({
+  tests: Schema.NonEmptyArray(Schema.NonEmptyString),
+  reason: Schema.NonEmptyString,
+  bugClaimIds: Schema.NonEmptyArray(Schema.NonEmptyString),
+})
+export type TestSuggestion = typeof TestSuggestion.Type
+
 // The canonical, complete semantic result of one review (CONTEXT.md).
 // Refutations live in bugClaims as Refuted verdicts and drops in
 // observations as Dropped judgments — every candidate is accounted for
@@ -38,6 +50,11 @@ export const Dossier = Schema.Struct({
   runId: Schema.NonEmptyString,
   target: TargetIdentity,
   bugClaims: Schema.Array(EvaluatedBugClaim),
+  // Decoding default: dossier.json artifacts written before TestSuggestions
+  // existed lack the key, and resume's completeness check decodes them.
+  testSuggestions: Schema.Array(TestSuggestion).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
   observations: Schema.Array(JudgedObservation),
   coverageGaps: Schema.Array(CoverageGap),
 })

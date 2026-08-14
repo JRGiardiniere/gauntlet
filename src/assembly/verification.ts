@@ -23,6 +23,7 @@ export interface VerificationResult {
 
 export interface ResolvedVerification {
   readonly bugClaims: Dossier["bugClaims"]
+  readonly testSuggestions: Dossier["testSuggestions"]
   readonly coverageGaps: Dossier["coverageGaps"]
 }
 
@@ -64,6 +65,38 @@ const validateVerdicts = (
   return Result.succeed(byCluster)
 }
 
+// The wire schema keeps the optional suggestion content-loose so a bad
+// suggestion can never fail-close a bundle's verdicts. Validation happens
+// here: an invalid suggestion is dropped with a diagnostic while every
+// verdict stands.
+const validTestSuggestion = (
+  result: VerificationResult,
+  reported: ReportedVerdict,
+): Result.Result<
+  Option.Option<{ tests: Array.NonEmptyArray<string>; reason: string }>,
+  string
+> => {
+  const suggestion = reported.test_suggestion
+  if (suggestion === undefined) return Result.succeed(Option.none())
+  const where =
+    `verification bundle ${String(result.bundleNumber)} cluster ${String(reported.cluster)}`
+  if (reported.verdict === "REFUTED") {
+    return Result.fail(
+      `${where} attached a test suggestion to a refuted cluster; dropped it`,
+    )
+  }
+  const tests = (suggestion.tests ?? [])
+    .map((test) => test.replace(/\s+/g, " ").trim())
+    .filter((test) => test !== "")
+  const reason = (suggestion.reason ?? "").replace(/\s+/g, " ").trim()
+  if (!Array.isArrayNonEmpty(tests) || reason === "") {
+    return Result.fail(
+      `${where} returned a test suggestion without tests or a reason; dropped it`,
+    )
+  }
+  return Result.succeed(Option.some({ tests, reason }))
+}
+
 const domainVerdict = (reported: ReportedVerdict): Verdict => {
   switch (reported.verdict) {
     case "CONFIRMED":
@@ -98,7 +131,11 @@ export const resolveVerification = (
       clusterOfClaim = HashMap.set(clusterOfClaim, index, cluster.number)
     }
   }
+  const idOfIndex = HashMap.fromIterable(
+    Array.map(claims, ({ candidate, index }) => [index, candidate.id] as const),
+  )
   const coverageGaps: Array<Dossier["coverageGaps"][number]> = []
+  const testSuggestions: Array<Dossier["testSuggestions"][number]> = []
 
   for (const result of results) {
     const validated = validateVerdicts(result)
@@ -116,6 +153,18 @@ export const resolveVerification = (
       for (const index of cluster.indexes) {
         byClaim = HashMap.set(byClaim, index, verdict)
       }
+      // One suggestion per recommending cluster, associated with every
+      // cluster-mate's stable id — never once per duplicate claim.
+      const suggestion = validTestSuggestion(result, reported.value)
+      if (Result.isFailure(suggestion)) {
+        coverageGaps.push({ stage: "verification", reason: suggestion.failure })
+      } else if (Option.isSome(suggestion.success)) {
+        const bugClaimIds = Array.filterMap(cluster.indexes, (index) =>
+          Result.fromOption(HashMap.get(idOfIndex, index), () => undefined))
+        if (Array.isArrayNonEmpty(bugClaimIds)) {
+          testSuggestions.push({ ...suggestion.success.value, bugClaimIds })
+        }
+      }
     }
   }
 
@@ -131,6 +180,7 @@ export const resolveVerification = (
         () => Verdict.cases.Unverified.make({}),
       ),
     })),
+    testSuggestions,
     coverageGaps,
   }
 }

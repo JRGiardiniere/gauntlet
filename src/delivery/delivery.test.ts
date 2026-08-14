@@ -63,6 +63,7 @@ const dossierFor = (target: ReviewTarget, runId = "run-fixture") =>
     runId,
     target: targetIdentityOf(target),
     bugClaims: [],
+    testSuggestions: [],
     observations: [],
     coverageGaps: [],
   })

@@ -1,5 +1,5 @@
 import { Candidate } from "../domain/candidate.ts"
-import type { Dossier } from "../domain/dossier.ts"
+import type { Dossier, TestSuggestion } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import type { Severity } from "../domain/verdict.ts"
@@ -53,26 +53,53 @@ const findingLine = (
   tier: Severity | undefined,
   tag: string | undefined,
   detail: string | undefined,
+  suggestion?: TestSuggestion,
 ): string => {
   const tierLabel = tier === undefined ? "" : `**[${tier}]** `
   const tagLabel = tag === undefined ? "" : `\`[${tag}]\` `
   const explained = explanation(candidate, detail)
   const detailLine = explained === undefined ? "" : `\n  - ${oneLine(explained)}`
-  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}`
+  // A TestSuggestion stays next to the claim it serves, so the reason for
+  // running a test remains visible with the finding's context.
+  const suggestionLine = suggestion === undefined
+    ? ""
+    : `\n  - suggested tests: ${suggestion.tests.map(oneLine).join(", ")} — ${oneLine(suggestion.reason)}`
+  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}${suggestionLine}`
 }
 
 const severityOrder: ReadonlyArray<Severity> = ["P1", "P2", "P3"]
 
+// Every cluster-mate's stable id maps to its cluster's suggestion, so the
+// lookup works from whichever mate presentation chose to render.
+const suggestionByClaimId = (
+  suggestions: Dossier["testSuggestions"],
+): ReadonlyMap<string, TestSuggestion> =>
+  new Map(
+    suggestions.flatMap((suggestion) =>
+      suggestion.bugClaimIds.map((id) => [id, suggestion] as const)
+    ),
+  )
+
 // Findings by tier: confirmed/kept first within their tier, then
 // unverified/undecided tagged in the main section — first-class, never
 // banished to an appendix (ADR 0006).
-const renderFindings = (view: DossierView): string => {
+const renderFindings = (
+  view: DossierView,
+  suggestionFor: ReadonlyMap<string, TestSuggestion>,
+): string => {
   const lines: Array<string> = []
   for (const tier of severityOrder) {
     for (const entry of view.confirmed) {
       if (entry.verdict.severity === tier) {
         lines.push(
-          findingLine(entry.candidate, entry.lenses, tier, undefined, entry.verdict.evidence),
+          findingLine(
+            entry.candidate,
+            entry.lenses,
+            tier,
+            undefined,
+            entry.verdict.evidence,
+            suggestionFor.get(entry.candidate.id),
+          ),
         )
       }
     }
@@ -92,7 +119,14 @@ const renderFindings = (view: DossierView): string => {
     for (const entry of view.unverified) {
       if (entry.verdict.severity === tier) {
         lines.push(
-          findingLine(entry.candidate, entry.lenses, tier, "unverified", entry.verdict.evidence),
+          findingLine(
+            entry.candidate,
+            entry.lenses,
+            tier,
+            "unverified",
+            entry.verdict.evidence,
+            suggestionFor.get(entry.candidate.id),
+          ),
         )
       }
     }
@@ -100,7 +134,14 @@ const renderFindings = (view: DossierView): string => {
   for (const entry of view.unverified) {
     if (entry.verdict.severity === undefined) {
       lines.push(
-        findingLine(entry.candidate, entry.lenses, undefined, "unverified", entry.verdict.evidence),
+        findingLine(
+          entry.candidate,
+          entry.lenses,
+          undefined,
+          "unverified",
+          entry.verdict.evidence,
+          suggestionFor.get(entry.candidate.id),
+        ),
       )
     }
   }
@@ -171,7 +212,7 @@ export const renderDossierMarkdown = (
     "",
     "## Findings",
     "",
-    renderFindings(view),
+    renderFindings(view, suggestionByClaimId(dossier.testSuggestions)),
     "",
     "## Appendix: refuted claims",
     "",
