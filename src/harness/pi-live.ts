@@ -302,26 +302,26 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
             // one interpreter per session, discarded with it. Pi's non-tool
             // plumbing below (resource loader, session manager) keeps the
             // real snapshot path — host-side only, never model-visible.
+            // The workspace exists exactly when the session requested any
+            // filesystem tool; a tool-less session never pays for an overlay
+            // or interpreter.
             const workspace = session.tools.length === 0
               ? undefined
               : await makeReviewWorkspace(session.cwd)
             const customTools = [
-              ...(workspace !== undefined && session.tools.includes("read")
-                ? [
-                    withToolCallDeadline(
-                      workspace.readTool,
-                      session.toolTimeoutMillis,
-                    ),
-                  ]
-                : []),
-              ...(workspace !== undefined && session.tools.includes("bash")
-                ? [
-                    withToolCallDeadline(
-                      workspace.bashTool,
-                      session.bashTimeoutMillis,
-                    ),
-                  ]
-                : []),
+              ...(workspace === undefined
+                ? []
+                : session.tools.map((tool) =>
+                    tool === "read"
+                      ? withToolCallDeadline(
+                          workspace.readTool,
+                          session.toolTimeoutMillis,
+                        )
+                      : withToolCallDeadline(
+                          workspace.bashTool,
+                          session.bashTimeoutMillis,
+                        ),
+                  )),
               withToolCallDeadline(
                 emitToolDefinition,
                 session.toolTimeoutMillis,
