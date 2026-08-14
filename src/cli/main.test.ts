@@ -385,11 +385,6 @@ describe("gauntlet review", () => {
       for (const config of run.scripted.configs) {
         expect(config.cwd).toBe(run.scripted.configs[0]?.cwd)
         expect(config.tools).toEqual(["read", "bash"])
-        // Finders inspect through the confined ReviewWorkspace; the
-        // evaluation stages stay host-backed until #58.
-        expect(config.filesystem).toBe(
-          config.sessionId?.includes("-finders") ? "workspace" : "host",
-        )
       }
       const [finderPrompt = ""] = promptTextsFor(run.scripted, "-finders")
       expect(finderPrompt).toMatch(
@@ -401,9 +396,18 @@ describe("gauntlet review", () => {
       expect(finderPrompt).not.toContain(
         run.scripted.configs[0]?.cwd ?? "worktree path missing",
       )
-      const [verifierPrompt] = promptTextsFor(run.scripted, "-verification")
+      const [verifierPrompt = ""] = promptTextsFor(run.scripted, "-verification")
       expect(verifierPrompt).toContain("### [c1]")
       expect(verifierPrompt).toContain("claimed failure:")
+      // The evaluation prompts show the same stable virtual root as the
+      // finder prompt, never the host snapshot layout (#58).
+      const [judgmentPrompt = ""] = promptTextsFor(run.scripted, "-judgment")
+      for (const stagePrompt of [verifierPrompt, judgmentPrompt]) {
+        expect(stagePrompt).toContain("repo=/repo")
+        expect(stagePrompt).not.toContain(
+          run.scripted.configs[0]?.cwd ?? "worktree path missing",
+        )
+      }
 
       const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)

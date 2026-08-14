@@ -16,6 +16,7 @@ import {
   usageRow,
 } from "../../harness/scripted.ts"
 import { runPaths } from "../../run/run-record.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { executeJudgment } from "./judgment.ts"
 
 const REPO_ROOT = "/fixture/repo"
@@ -127,8 +128,6 @@ describe("Judgment stage interface", () => {
       expect(scripted.configs).toHaveLength(1)
       expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
       expect(scripted.configs[0]?.cwd).toBe(REVIEW_ROOT)
-      // Judgment stays host-backed until #58 migrates the evaluation stages.
-      expect(scripted.configs[0]?.filesystem).toBe("host")
       expect(scripted.configs[0]?.sessionId).toBe("judgment-test-run-judgment")
       expect(scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(scripted.configs[0]?.emitTool.name).toBe("emit_judgments")
@@ -142,7 +141,9 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain("[2] (fixture) alpha.txt — observation 2")
       expect(prompt).toContain("```diff")
       expect(prompt).toContain("+added-line")
-      expect(prompt).toContain(REVIEW_ROOT)
+      // The prompt shows the stable virtual root, never a host path (#58).
+      expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
+      expect(prompt).not.toContain(REVIEW_ROOT)
       expect(prompt).not.toContain(REPO_ROOT)
 
       const fs = yield* FileSystem.FileSystem

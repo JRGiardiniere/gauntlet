@@ -21,7 +21,6 @@ import {
   HarnessSessionFactory,
   type InvocationFailure,
   InvocationSetupError,
-  type SessionConfig,
   type StopReason,
   UsageRow,
 } from "./harness-session.ts"
@@ -41,7 +40,6 @@ export interface InvocationDeadlines {
 export interface InvokeInput<O> {
   readonly seat: Seat
   readonly cwd: string
-  readonly filesystem: SessionConfig["filesystem"]
   readonly systemPrompt: string
   readonly prompt: string
   readonly sessionId?: string
@@ -269,7 +267,6 @@ const openCapturedSession = Effect.fn(
     factory.open({
       seat: input.seat,
       cwd: input.cwd,
-      filesystem: input.filesystem,
       systemPrompt: input.systemPrompt,
       ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
       emitTool: {

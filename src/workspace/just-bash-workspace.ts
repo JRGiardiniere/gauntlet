@@ -90,8 +90,8 @@ const guardWorkspacePath = (absolutePath: string): void => {
 // Pi bump cannot drift a duplicated contract. Path resolution runs against
 // the virtual root; confinement holds because every operation goes through
 // the overlay, which rejects paths outside it.
-// The widening cast is the same SDK-seam erasure pi-live applies to the
-// host-backed factories: it drops Pi's per-tool parameter generics only.
+// The widening cast drops Pi's per-tool parameter generics only — the same
+// erasure pi-live's customTools option applies at the non-generic SDK seam.
 const makeReadTool = (fs: OverlayFs): ToolDefinition =>
   createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
     operations: {

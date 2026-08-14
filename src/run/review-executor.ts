@@ -87,9 +87,8 @@ export const executeReviewPlan = Effect.fn(
             output: EmitFindings.schema,
             execute: Effect.gen(function* () {
               const promptTemplates = yield* templates
-              // Finders inspect through the confined ReviewWorkspace (#57):
-              // the prompt shows the stable virtual root, while cwd carries
-              // the host snapshot path the adapter mounts the overlay on.
+              // The prompt shows the stable virtual root the tools expose;
+              // cwd carries the host snapshot path the overlay mounts on.
               const prompt = yield* assembleFinderPrompt(
                 promptTemplates.sharedPromptTemplate,
                 plan.target,
@@ -100,7 +99,6 @@ export const executeReviewPlan = Effect.fn(
               const outcome = yield* invoke({
                 seat: invocation.seat,
                 cwd: reviewWorkingDirectory,
-                filesystem: "workspace",
                 systemPrompt: promptTemplates.systemPrompt,
                 prompt,
                 sessionId,

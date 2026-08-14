@@ -17,6 +17,7 @@ import {
   wallSeconds,
 } from "../../run/progress-text.ts"
 import type { RunPaths } from "../../run/run-record.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
   assembleJudgmentPrompt,
@@ -92,18 +93,18 @@ export const executeJudgment = Effect.fn(
     output: EmitJudgments.schema,
     execute: Effect.gen(function* () {
       const promptTemplates = yield* loadJudgmentPromptTemplates()
+      // The prompt shows the stable virtual root the tools expose; cwd
+      // carries the host snapshot path the overlay mounts on.
       const prompt = yield* assembleJudgmentPrompt(
         promptTemplates,
         plan.target,
-        reviewWorkingDirectory,
+        REVIEW_WORKSPACE_ROOT,
         indexed,
       )
       yield* progress("invoking Judgment")
       return yield* invoke({
         seat,
         cwd: reviewWorkingDirectory,
-        // Host-backed until #58 migrates the evaluation stages.
-        filesystem: "host",
         systemPrompt: EVALUATION_SYSTEM_PROMPT,
         prompt,
         sessionId: `${plan.runId}-judgment`,
