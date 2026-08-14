@@ -284,6 +284,16 @@ describe("ReviewWorkspace", () => {
         expect(result.text, target).not.toContain("host-only-credential")
         expect(result.text, target).not.toContain(snapshot)
       }
+      // `~` expands against the HOST home directory inside Pi's path
+      // normalization before the overlay sees it; the error must not
+      // disclose that host path.
+      const tilde = yield* read(workspace, { path: "~/.ssh/config" })
+      expect(tilde.isError).toBe(true)
+      const hostHome = process.env["HOME"]
+      if (hostHome !== undefined) {
+        expect(tilde.text).not.toContain(hostHome)
+      }
+
       // The host worktree's administrative entry is untouched.
       expect(yield* fs.exists(path.join(snapshot, ".git"))).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(layer)))
@@ -442,6 +452,15 @@ describe("ReviewWorkspace", () => {
         })
         expect(overflow.isError).toBe(true)
         expect(overflow.text).toContain("Invalid timeout")
+
+        // A model-supplied timeout reports as a timeout even when the
+        // interpreter honors the abort by resolving with exit code 124.
+        const modelTimeout = yield* execTool(workspace.bashTool, {
+          command: "sleep 5",
+          timeout: 0.05,
+        })
+        expect(modelTimeout.isError).toBe(true)
+        expect(modelTimeout.text).toContain("timed out after 0.05 seconds")
 
         // The tool deadline stays caller-owned and bounds a stuck command.
         const deadlined = withToolCallDeadline(workspace.bashTool, 200)

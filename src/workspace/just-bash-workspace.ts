@@ -69,6 +69,21 @@ const detectImageMimeType = (absolutePath: string): Promise<string | null> => {
   return Promise.resolve(mimeType)
 }
 
+// Pi's path normalization expands `~` against the HOST home directory
+// before any operation sees the path. Reject everything outside the
+// virtual root here, without echoing the path: the expanded form is a
+// host path that must never reach model-visible output.
+const guardWorkspacePath = (absolutePath: string): void => {
+  if (
+    absolutePath !== REVIEW_WORKSPACE_ROOT &&
+    !absolutePath.startsWith(`${REVIEW_WORKSPACE_ROOT}/`)
+  ) {
+    throw new WorkspaceToolError({
+      message: `Path is outside the workspace root ${REVIEW_WORKSPACE_ROOT}`,
+    })
+  }
+}
+
 // Pi's own read tool — contract, truncation, continuation notices, image
 // attachments — parameterized over the invocation's overlay instead of the
 // host filesystem, so reads observe this invocation's scratch writes and a
@@ -80,9 +95,12 @@ const detectImageMimeType = (absolutePath: string): Promise<string | null> => {
 const makeReadTool = (fs: OverlayFs): ToolDefinition =>
   createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
     operations: {
-      readFile: async (absolutePath) =>
-        Buffer.from(await fs.readFileBuffer(absolutePath)),
+      readFile: async (absolutePath) => {
+        guardWorkspacePath(absolutePath)
+        return Buffer.from(await fs.readFileBuffer(absolutePath))
+      },
       access: async (absolutePath) => {
+        guardWorkspacePath(absolutePath)
         await fs.stat(absolutePath)
       },
       detectImageMimeType,
@@ -103,7 +121,7 @@ const combinedOutput = (stdout: string, stderr: string): string => {
 const makeBashTool = (bash: Bash): ToolDefinition => ({
   name: "bash",
   label: "bash",
-  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands producing more than ${formatSize(DEFAULT_MAX_BYTES)} of output fail — narrow with head, grep, or -l style flags and retry. Optionally provide a timeout in seconds.`,
+  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
   parameters: {
     type: "object",
     properties: {
@@ -127,7 +145,8 @@ const makeBashTool = (bash: Bash): ToolDefinition => ({
             "Invalid timeout: must be a positive number of seconds at most 2147483",
         })
       }
-      timeoutSignal = AbortSignal.timeout(timeout * 1000)
+      // Rounded: AbortSignal.timeout rejects non-integer delays.
+      timeoutSignal = AbortSignal.timeout(Math.round(timeout * 1000))
     }
     const signals = [signal, timeoutSignal].filter(
       (candidate) => candidate !== undefined,
@@ -146,8 +165,12 @@ const makeBashTool = (bash: Bash): ToolDefinition => ({
     const outputText = combinedOutput(result.stdout, result.stderr) ||
       "(no output)"
     if (result.exitCode !== 0) {
+      // The interpreter may honor the abort by resolving with exit 124
+      // instead of rejecting; report that as the timeout it is.
       throw new WorkspaceToolError({
-        message: `${outputText}\n\nCommand exited with code ${String(result.exitCode)}`,
+        message: timeoutSignal?.aborted === true
+          ? `Command timed out after ${String(timeout)} seconds`
+          : `${outputText}\n\nCommand exited with code ${String(result.exitCode)}`,
       })
     }
     return {
@@ -180,6 +203,12 @@ export const makeReviewWorkspace = async (
     // canonicalize-and-validate gates: a target outside the root is still
     // rejected, not followed.
     allowSymlinks: true,
+    // The 10MiB per-file default makes a larger tracked file invisible in
+    // a misleading way — bash reports "No such file or directory", which a
+    // finder could read as the file being absent. 64MiB covers real
+    // generated/vendored files; a backing read is transient, so this cap
+    // (not maxMemoryBytes, which counts only copied files) bounds it.
+    maxFileReadSize: 64 * 1024 * 1024,
     ...(options?.maxOverlayMemoryBytes === undefined
       ? {}
       : { maxMemoryBytes: options.maxOverlayMemoryBytes }),
