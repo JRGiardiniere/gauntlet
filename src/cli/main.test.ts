@@ -385,9 +385,21 @@ describe("gauntlet review", () => {
       for (const config of run.scripted.configs) {
         expect(config.cwd).toBe(run.scripted.configs[0]?.cwd)
         expect(config.tools).toEqual(["read", "bash"])
+        // Finders inspect through the confined ReviewWorkspace; the
+        // evaluation stages stay host-backed until #58.
+        expect(config.filesystem).toBe(
+          config.sessionId?.includes("-finders") ? "workspace" : "host",
+        )
       }
-      expect(promptTextsFor(run.scripted, "-finders")[0]).toMatch(
+      const [finderPrompt = ""] = promptTextsFor(run.scripted, "-finders")
+      expect(finderPrompt).toMatch(
         /^shared start[\s\S]*shared end\n\nfixture lens tail$/,
+      )
+      // The finder prompt shows the stable virtual root, never the host
+      // snapshot layout (#57).
+      expect(finderPrompt).toContain("repo=/repo")
+      expect(finderPrompt).not.toContain(
+        run.scripted.configs[0]?.cwd ?? "worktree path missing",
       )
       const [verifierPrompt] = promptTextsFor(run.scripted, "-verification")
       expect(verifierPrompt).toContain("### [c1]")

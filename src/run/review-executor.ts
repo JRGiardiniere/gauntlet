@@ -41,6 +41,7 @@ import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
 // Pi uses the shared session id as its provider cache partition. Each model
 // group completes one real finder before its siblings fan out, then gives the
@@ -86,16 +87,20 @@ export const executeReviewPlan = Effect.fn(
             output: EmitFindings.schema,
             execute: Effect.gen(function* () {
               const promptTemplates = yield* templates
+              // Finders inspect through the confined ReviewWorkspace (#57):
+              // the prompt shows the stable virtual root, while cwd carries
+              // the host snapshot path the adapter mounts the overlay on.
               const prompt = yield* assembleFinderPrompt(
                 promptTemplates.sharedPromptTemplate,
                 plan.target,
-                reviewWorkingDirectory,
+                REVIEW_WORKSPACE_ROOT,
                 invocation.lens,
               )
               yield* progress(`invoking finder ${invocation.lens.name}`)
               const outcome = yield* invoke({
                 seat: invocation.seat,
                 cwd: reviewWorkingDirectory,
+                filesystem: "workspace",
                 systemPrompt: promptTemplates.systemPrompt,
                 prompt,
                 sessionId,

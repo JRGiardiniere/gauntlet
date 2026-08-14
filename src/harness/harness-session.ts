@@ -106,8 +106,18 @@ export interface SessionConfig {
   // resolves it through Pi; the factory carries no independently configured
   // ambient model.
   readonly seat: Seat
-  // Repository root used by every filesystem-facing tool in this session.
+  // Host path of the Run's frozen snapshot worktree. Every filesystem-facing
+  // tool observes it — directly ("host") or through a confined overlay
+  // ("workspace") — and Pi's non-tool plumbing (resource loader, session
+  // manager) keeps the real path either way; it is never model-visible.
   readonly cwd: string
+  // Which backing the filesystem-facing tools get. "workspace": the adapter
+  // acquires a per-invocation ReviewWorkspace over cwd, so tools see the
+  // stable virtual root and writes stay in a disposable overlay. "host":
+  // Pi's stock host-backed tools. Coexistence window for #57 — Finders run
+  // "workspace", Verification and Judgment stay "host" until #58 migrates
+  // them and deletes this field.
+  readonly filesystem: "host" | "workspace"
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
   // string as "use the stock prompt" (#4 §2).
   readonly systemPrompt: string
@@ -116,10 +126,9 @@ export interface SessionConfig {
   // group.
   readonly sessionId?: string
   readonly emitTool: EmitToolSpec
-  // The complete non-emit capability set. v1 starts unrestricted `bash` at
-  // `cwd`; prompts tell agents not to mutate the repository, but enforcing
-  // that boundary requires the later sandboxing project. These are recreated
-  // as custom Pi tools so their deadlines remain caller-owned.
+  // The complete non-emit capability set — which tools the session gets;
+  // `filesystem` selects their backing. These are recreated as custom Pi
+  // tools so their deadlines remain caller-owned.
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly toolTimeoutMillis: number
   readonly bashTimeoutMillis: number
