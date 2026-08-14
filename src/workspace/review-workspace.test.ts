@@ -24,6 +24,12 @@ export const total = add(1, 2)
 `
 const NOTES = "alpha beta\ngamma delta\n"
 
+// A valid 1x1 PNG, small enough to skip Pi's auto-resize path.
+const ONE_PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+)
+
 const execTool = (
   tool: ReviewWorkspace["bashTool"],
   args: unknown,
@@ -83,6 +89,10 @@ const makeSnapshotFixture = Effect.gen(function* () {
     "b".repeat(262144),
   )
   yield* fs.writeFileString(path.join(repo, "notes.md"), NOTES)
+  yield* fs.writeFile(
+    path.join(repo, "data", "pixel.png"),
+    new Uint8Array(ONE_PIXEL_PNG),
+  )
   // A repository-contained symlink (must keep working) and one escaping the
   // root (must not dereference).
   yield* fs.symlink("src/app.ts", path.join(repo, "linked.txt"))
@@ -203,6 +213,14 @@ describe("ReviewWorkspace", () => {
       const missing = yield* read(workspace, { path: "src/missing.ts" })
       expect(missing.isError).toBe(true)
       expect(missing.text).not.toContain(snapshot)
+
+      // Image reads keep Pi's attachment contract through the overlay.
+      const image = yield* Effect.promise(() =>
+        workspace.readTool
+          .execute("workspace-test", { path: "data/pixel.png" } as never, undefined, undefined, undefined as never)
+          .then((result) => result.content.map((entry) => entry.type)),
+      )
+      expect(image).toEqual(["text", "image"])
     }).pipe(Effect.scoped, Effect.provide(layer)))
 
   it.effect("offers no git, host execution, network, or package manager", () =>
@@ -415,6 +433,15 @@ describe("ReviewWorkspace", () => {
           expect(result.text, label).toMatch(expects)
           expect(result.text, label).not.toContain(snapshot)
         }
+
+        // A timeout past Node's 2^31-1ms timer ceiling is rejected up front
+        // instead of overflowing into an immediate abort.
+        const overflow = yield* execTool(workspace.bashTool, {
+          command: "pwd",
+          timeout: 3_000_000,
+        })
+        expect(overflow.isError).toBe(true)
+        expect(overflow.text).toContain("Invalid timeout")
 
         // The tool deadline stays caller-owned and bounds a stuck command.
         const deadlined = withToolCallDeadline(workspace.bashTool, 200)

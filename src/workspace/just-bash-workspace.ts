@@ -1,9 +1,8 @@
 import {
+  createReadToolDefinition,
   DEFAULT_MAX_BYTES,
-  DEFAULT_MAX_LINES,
   formatSize,
   type ToolDefinition,
-  truncateHead,
 } from "@earendil-works/pi-coding-agent"
 import * as Data from "effect/Data"
 import { Bash, type BashOptions, OverlayFs } from "just-bash"
@@ -49,96 +48,46 @@ export class WorkspaceToolError extends Data.TaggedError(
 const failureMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause)
 
-interface ReadArgs {
-  readonly path: string
-  readonly offset?: number
-  readonly limit?: number
+// Pi's stock read tool advertises image attachments for these extensions.
+// Its default detector sniffs host files; this one maps extensions so
+// detection stays overlay-pure. A mislabeled file degrades gracefully:
+// Pi's image processing fails and returns a textual note.
+const IMAGE_MIME_TYPES = new Map<string, string>([
+  [".png", "image/png"],
+  [".jpg", "image/jpeg"],
+  [".jpeg", "image/jpeg"],
+  [".gif", "image/gif"],
+  [".webp", "image/webp"],
+  [".bmp", "image/bmp"],
+])
+
+const detectImageMimeType = (absolutePath: string): Promise<string | null> => {
+  const dot = absolutePath.lastIndexOf(".")
+  const mimeType = dot === -1
+    ? null
+    : IMAGE_MIME_TYPES.get(absolutePath.slice(dot).toLowerCase()) ?? null
+  return Promise.resolve(mimeType)
 }
 
-// Mirrors Pi's stock read-tool result contract for text files — the model
-// already knows that shape — resolving through the shared overlay instead of
-// the host, so reads observe this invocation's scratch writes.
-const makeReadTool = (fs: OverlayFs): ToolDefinition => ({
-  name: "read",
-  label: "read",
-  description: `Read the contents of a file. Output is truncated to ${String(DEFAULT_MAX_LINES)} lines or ${String(DEFAULT_MAX_BYTES / 1024)}KB (whichever is hit first). Use offset/limit for large files. When you need the full file, continue with offset until complete.`,
-  parameters: {
-    type: "object",
-    properties: {
-      path: {
-        type: "string",
-        description: "Path to the file to read (relative or absolute)",
+// Pi's own read tool — contract, truncation, continuation notices, image
+// attachments — parameterized over the invocation's overlay instead of the
+// host filesystem, so reads observe this invocation's scratch writes and a
+// Pi bump cannot drift a duplicated contract. Path resolution runs against
+// the virtual root; confinement holds because every operation goes through
+// the overlay, which rejects paths outside it.
+// The widening cast is the same SDK-seam erasure pi-live applies to the
+// host-backed factories: it drops Pi's per-tool parameter generics only.
+const makeReadTool = (fs: OverlayFs): ToolDefinition =>
+  createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
+    operations: {
+      readFile: async (absolutePath) =>
+        Buffer.from(await fs.readFileBuffer(absolutePath)),
+      access: async (absolutePath) => {
+        await fs.stat(absolutePath)
       },
-      offset: {
-        type: "number",
-        description: "Line number to start reading from (1-indexed)",
-      },
-      limit: {
-        type: "number",
-        description: "Maximum number of lines to read",
-      },
+      detectImageMimeType,
     },
-    required: ["path"],
-  } as unknown as ToolDefinition["parameters"],
-  execute: async (_toolCallId, args, signal) => {
-    const { limit, offset, path } = args as ReadArgs
-    if (signal?.aborted) {
-      throw new WorkspaceToolError({ message: "Operation aborted" })
-    }
-    const resolved = fs.resolvePath(REVIEW_WORKSPACE_ROOT, path)
-    const textContent = await fs.readFile(resolved).catch((cause: unknown) => {
-      throw new WorkspaceToolError({ message: failureMessage(cause) })
-    })
-
-    const allLines = textContent.split("\n")
-    const startLine = offset === undefined ? 0 : Math.max(0, offset - 1)
-    const startLineDisplay = startLine + 1
-    if (startLine >= allLines.length) {
-      throw new WorkspaceToolError({
-        message: `Offset ${String(offset)} is beyond end of file (${String(allLines.length)} lines total)`,
-      })
-    }
-
-    let selectedContent: string
-    let userLimitedLines: number | undefined
-    if (limit === undefined) {
-      selectedContent = allLines.slice(startLine).join("\n")
-    } else {
-      const endLine = Math.min(startLine + limit, allLines.length)
-      selectedContent = allLines.slice(startLine, endLine).join("\n")
-      userLimitedLines = endLine - startLine
-    }
-
-    const truncation = truncateHead(selectedContent)
-    let outputText: string
-    let details: { truncation: typeof truncation } | undefined
-    if (truncation.firstLineExceedsLimit) {
-      outputText = `[Line ${String(startLineDisplay)} exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${String(startLineDisplay)}p' ${path} | head -c ${String(DEFAULT_MAX_BYTES)}]`
-      details = { truncation }
-    } else if (truncation.truncated) {
-      const endLineDisplay = startLineDisplay + truncation.outputLines - 1
-      const nextOffset = endLineDisplay + 1
-      const limitNote = truncation.truncatedBy === "lines"
-        ? ""
-        : ` (${formatSize(DEFAULT_MAX_BYTES)} limit)`
-      outputText = `${truncation.content}\n\n[Showing lines ${String(startLineDisplay)}-${String(endLineDisplay)} of ${String(allLines.length)}${limitNote}. Use offset=${String(nextOffset)} to continue.]`
-      details = { truncation }
-    } else if (
-      userLimitedLines !== undefined &&
-      startLine + userLimitedLines < allLines.length
-    ) {
-      const remaining = allLines.length - (startLine + userLimitedLines)
-      const nextOffset = startLine + userLimitedLines + 1
-      outputText = `${truncation.content}\n\n[${String(remaining)} more lines in file. Use offset=${String(nextOffset)} to continue.]`
-    } else {
-      outputText = truncation.content
-    }
-    return {
-      content: [{ type: "text", text: outputText }],
-      details,
-    }
-  },
-})
+  }) as unknown as ToolDefinition
 
 interface BashArgs {
   readonly command: string
@@ -170,9 +119,12 @@ const makeBashTool = (bash: Bash): ToolDefinition => ({
     const { command, timeout } = args as BashArgs
     let timeoutSignal: AbortSignal | undefined
     if (timeout !== undefined) {
-      if (!Number.isFinite(timeout) || timeout <= 0) {
+      // The upper bound guards Node's 2^31-1ms timer ceiling: a delay past
+      // it overflows and fires the abort immediately instead of later.
+      if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483) {
         throw new WorkspaceToolError({
-          message: "Invalid timeout: must be a finite number of seconds",
+          message:
+            "Invalid timeout: must be a positive number of seconds at most 2147483",
         })
       }
       timeoutSignal = AbortSignal.timeout(timeout * 1000)

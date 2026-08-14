@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
   type HarnessEvent,
   type HarnessSession,
@@ -356,7 +357,14 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
                 : { id: session.sessionId },
             )
             const created = await createAgentSession({
-              cwd: session.cwd,
+              // Model-visible: Pi prints this as "Current working directory"
+              // in its system prompt. A workspace session must show the
+              // virtual root the tools actually expose, never the host
+              // snapshot path. Host-side plumbing (resource loader, session
+              // manager) keeps the real path above.
+              cwd: session.filesystem === "workspace"
+                ? REVIEW_WORKSPACE_ROOT
+                : session.cwd,
               model,
               modelRuntime,
               ...(resolved.thinkingLevel === undefined
