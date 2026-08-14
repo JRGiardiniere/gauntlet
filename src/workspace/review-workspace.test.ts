@@ -263,11 +263,16 @@ describe("ReviewWorkspace", () => {
         "cat escape-link",
         `cat ${REVIEW_WORKSPACE_ROOT}/.git`,
         `ls ${REVIEW_WORKSPACE_ROOT}/.git`,
+        // Case aliases reach the same host file on a case-insensitive
+        // backing filesystem; each carries its own tombstone.
+        "cat .GIT",
+        "cat .Git",
       ]) {
         const result = yield* bash(workspace, command)
         expect(result.isError, command).toBe(true)
         expect(result.text, command).not.toContain("host-only-credential")
         expect(result.text, command).not.toContain(snapshot)
+        expect(result.text, command).not.toContain("gitdir")
       }
       const listing = yield* bash(workspace, `ls -a ${REVIEW_WORKSPACE_ROOT}`)
       expect(listing.isError).toBe(false)
@@ -278,11 +283,13 @@ describe("ReviewWorkspace", () => {
         "../outside-secret.txt",
         "escape-link",
         ".git",
+        ".GIT",
       ]) {
         const result = yield* read(workspace, { path: target })
         expect(result.isError, target).toBe(true)
         expect(result.text, target).not.toContain("host-only-credential")
         expect(result.text, target).not.toContain(snapshot)
+        expect(result.text, target).not.toContain("gitdir")
       }
       // `~` expands against the HOST home directory inside Pi's path
       // normalization before the overlay sees it; the error must not

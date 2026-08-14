@@ -180,6 +180,18 @@ const makeBashTool = (bash: Bash): ToolDefinition => ({
   },
 })
 
+// ".git" spelled in every letter case: the 2^3 combinations of g/i/t.
+const GIT_ENTRY_CASE_ALIASES = [
+  ".git",
+  ".giT",
+  ".gIt",
+  ".gIT",
+  ".Git",
+  ".GiT",
+  ".GIt",
+  ".GIT",
+]
+
 export interface ReviewWorkspaceOptions {
   // Capability-test seam for the copy-on-write memory cap. Production
   // accepts the library default (1 GiB); exhausting that in a test would
@@ -215,8 +227,16 @@ export const makeReviewWorkspace = async (
   })
   // The snapshot is a git worktree whose `.git` administrative entry names
   // the host git directory. Tombstone it in the overlay: the deletion lives
-  // in memory, the host file is untouched, and no guest tool can read it.
-  await fs.rm(`${REVIEW_WORKSPACE_ROOT}/.git`, { recursive: true, force: true })
+  // in memory and the host file is untouched. Tombstones are recorded per
+  // virtual path while the backing filesystem may be case-insensitive
+  // (macOS default), where `.GIT` reaches the same host file — so every
+  // case alias gets its own tombstone.
+  for (const alias of GIT_ENTRY_CASE_ALIASES) {
+    await fs.rm(`${REVIEW_WORKSPACE_ROOT}/${alias}`, {
+      recursive: true,
+      force: true,
+    })
+  }
   const bash = new Bash({
     fs,
     cwd: REVIEW_WORKSPACE_ROOT,

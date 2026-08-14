@@ -22,8 +22,9 @@ invocation uses, not the invocation itself)
 The confined repository view exposed to filesystem-capable AgentInvocations —
 per invocation, a copy-on-write overlay on the Run's frozen snapshot behind a
 stable virtual root, owning both filesystem-facing model tools. Writes are
-invocation-local disposable scratch; the snapshot and the host stay
-unreachable.
+invocation-local disposable scratch; the snapshot stays unmodified, and the
+host is out of reach by capability reduction — no guest git, host processes,
+or network — not by hardened isolation against a hostile repository.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 

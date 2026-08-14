@@ -114,9 +114,8 @@ export interface SessionConfig {
   // Which backing the filesystem-facing tools get. "workspace": the adapter
   // acquires a per-invocation ReviewWorkspace over cwd, so tools see the
   // stable virtual root and writes stay in a disposable overlay. "host":
-  // Pi's stock host-backed tools. Coexistence window for #57 — Finders run
-  // "workspace", Verification and Judgment stay "host" until #58 migrates
-  // them and deletes this field.
+  // Pi's stock host-backed tools. Finders run "workspace"; every other
+  // stage runs "host".
   readonly filesystem: "host" | "workspace"
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
   // string as "use the stock prompt" (#4 §2).
