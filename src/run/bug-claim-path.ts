@@ -133,6 +133,8 @@ export const executeBugClaimPath = Effect.fn(
           return yield* invoke({
             seat,
             cwd: reviewWorkingDirectory,
+            // Host-backed until #58 migrates the evaluation stages.
+            filesystem: "host",
             systemPrompt: EVALUATION_SYSTEM_PROMPT,
             prompt,
             sessionId: `${plan.runId}-pool`,
@@ -209,6 +211,8 @@ export const executeBugClaimPath = Effect.fn(
               return yield* invoke({
                 seat: verificationSeat,
                 cwd: reviewWorkingDirectory,
+                // Host-backed until #58 migrates the evaluation stages.
+                filesystem: "host",
                 systemPrompt: EVALUATION_SYSTEM_PROMPT,
                 prompt,
                 // Bundles run concurrently, so a shared cache partition buys

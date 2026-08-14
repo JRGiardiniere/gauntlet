@@ -18,6 +18,16 @@ are invocations too (paid, metered, deadlined), with a trivial output contract.
 _Avoid_: agent run, agent call, session (a session is the harness resource an
 invocation uses, not the invocation itself)
 
+**ReviewWorkspace**:
+The confined repository view exposed to filesystem-capable AgentInvocations —
+per invocation, a copy-on-write overlay on the Run's frozen snapshot behind a
+stable virtual root, owning both filesystem-facing model tools. Writes are
+invocation-local disposable scratch; the snapshot stays unmodified, and the
+host is out of reach by capability reduction — no guest git, host processes,
+or network — not by hardened isolation against a hostile repository.
+_Avoid_: sandbox (a future project-execution environment has a materially
+different trust and capability boundary), jail, container
+
 **ReviewPlan**:
 The fully resolved instructions governing one review — semantics-and-spend
 fields only (lenses, models/recipes, caps, tool capabilities) —

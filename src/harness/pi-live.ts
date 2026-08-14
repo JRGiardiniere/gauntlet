@@ -15,6 +15,8 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
   type HarnessEvent,
   type HarnessSession,
@@ -296,11 +298,40 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
               },
             }
 
+            // Per-invocation isolation falls out of per-open construction:
+            // one overlay and one interpreter per session, discarded with
+            // it. Pi's non-tool plumbing below (resource loader, session
+            // manager) keeps the real snapshot path — host-side only, never
+            // model-visible.
+            // The widening cast erases Pi's per-tool parameter generics so
+            // both backings share one shape; customTools below re-erases
+            // them anyway at the non-generic SDK option.
+            const filesystemTools: {
+              read: ToolDefinition
+              bash: ToolDefinition
+            } =
+              session.filesystem === "workspace" &&
+              (session.tools.includes("read") ||
+                session.tools.includes("bash"))
+                ? await makeReviewWorkspace(session.cwd).then(
+                    (workspace) => ({
+                      read: workspace.readTool,
+                      bash: workspace.bashTool,
+                    }),
+                  )
+                : {
+                    read: createReadToolDefinition(
+                      session.cwd,
+                    ) as unknown as ToolDefinition,
+                    bash: createBashToolDefinition(
+                      session.cwd,
+                    ) as unknown as ToolDefinition,
+                  }
             const customTools = [
               ...(session.tools.includes("read")
                 ? [
                     withToolCallDeadline(
-                      createReadToolDefinition(session.cwd),
+                      filesystemTools.read,
                       session.toolTimeoutMillis,
                     ),
                   ]
@@ -308,7 +339,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
               ...(session.tools.includes("bash")
                 ? [
                     withToolCallDeadline(
-                      createBashToolDefinition(session.cwd),
+                      filesystemTools.bash,
                       session.bashTimeoutMillis,
                     ),
                   ]
@@ -326,7 +357,14 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
                 : { id: session.sessionId },
             )
             const created = await createAgentSession({
-              cwd: session.cwd,
+              // Model-visible: Pi prints this as "Current working directory"
+              // in its system prompt. A workspace session must show the
+              // virtual root the tools actually expose, never the host
+              // snapshot path. Host-side plumbing (resource loader, session
+              // manager) keeps the real path above.
+              cwd: session.filesystem === "workspace"
+                ? REVIEW_WORKSPACE_ROOT
+                : session.cwd,
               model,
               modelRuntime,
               ...(resolved.thinkingLevel === undefined

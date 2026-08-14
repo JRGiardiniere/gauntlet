@@ -102,6 +102,8 @@ export const executeJudgment = Effect.fn(
       return yield* invoke({
         seat,
         cwd: reviewWorkingDirectory,
+        // Host-backed until #58 migrates the evaluation stages.
+        filesystem: "host",
         systemPrompt: EVALUATION_SYSTEM_PROMPT,
         prompt,
         sessionId: `${plan.runId}-judgment`,
