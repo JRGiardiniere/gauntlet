@@ -58,6 +58,11 @@ describe("Dossier Assembly", () => {
           cluster: 1,
           verdict: Verdict.cases.Refuted.make({ evidence: "guarded" }),
         }],
+        testSuggestions: [{
+          tests: ["src/fixture.test.ts"],
+          reason: "covers the failing input",
+          bugClaimIds: ["fixture/1"],
+        }],
         coverageGaps: [{ stage: "verification", reason: "verifier gap" }],
       },
       judgmentPath: {
@@ -70,6 +75,7 @@ describe("Dossier Assembly", () => {
     })
 
     expect(dossier.bugClaims).toHaveLength(1)
+    expect(dossier.testSuggestions).toHaveLength(1)
     expect(dossier.observations).toHaveLength(1)
     expect(dossier.coverageGaps.map(({ stage }) => stage)).toEqual([
       "finders",

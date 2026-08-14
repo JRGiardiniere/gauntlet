@@ -55,6 +55,13 @@ Call this exactly once, as your final action. Do not answer in prose instead."
 | `verdict` | enum | yes | `CONFIRMED` \| `UNVERIFIED` \| `REFUTED` — see the ladder in the verifier prompt. |
 | `severity` | enum | for confirmed/unverified | `P1` \| `P2` \| `P3`. Judged on reachability × consequence. |
 | `evidence` | string | yes | One line: the inputs/state and wrong output, or the line that refutes it. |
+| `test_suggestion` | object | no | Optional, CONFIRMED/UNVERIFIED only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help. `tests` (string[], 1+): existing repository test areas, files, classes, or suites — never generated test source or shell commands. `reason` (string): one concise reason these existing tests are relevant to the claim. |
+
+`test_suggestion` is the one exception to the strict decoder policy: its schema
+is deliberately content-loose so a malformed suggestion can never fail-close a
+bundle's verdicts. Deterministic Verification resolution validates it —
+non-empty tests and reason, CONFIRMED/UNVERIFIED only — and drops an invalid
+suggestion with a diagnostic while every verdict stands.
 
 ## `emit_judgments` — Judgment
 

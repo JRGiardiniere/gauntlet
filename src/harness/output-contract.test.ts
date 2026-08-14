@@ -20,6 +20,7 @@ describe("output contracts", () => {
         [EmitFindings, "as it appears in the changed-file list"],
         [EmitPool, "must appear in exactly one cluster"],
         [EmitVerdicts, "reachability × consequence"],
+        [EmitVerdicts, "Never generated test source or shell commands"],
       ] as const
       for (const [contract, sentinel] of sentinels) {
         const document = Schema.toJsonSchemaDocument(contract.schema)
@@ -135,6 +136,35 @@ describe("output contracts", () => {
         ],
       })
       expect(refuted.verdicts).toHaveLength(1)
+    }))
+
+  // Content-loose by design: a malformed suggestion must reach deterministic
+  // resolution (which drops it with a diagnostic) instead of the decoder
+  // fail-closing the bundle's verdicts.
+  it.effect("decodes any shaped test suggestion, even semantically invalid ones", () =>
+    Effect.gen(function* () {
+      const decode = strictDecode(EmitVerdicts.schema)
+      const suggested = yield* decode({
+        verdicts: [
+          {
+            cluster: 1,
+            verdict: "CONFIRMED",
+            severity: "P1",
+            evidence: "reproduced",
+            test_suggestion: {
+              tests: ["src/a.test.ts"],
+              reason: "covers the boundary",
+            },
+          },
+          {
+            cluster: 2,
+            verdict: "REFUTED",
+            evidence: "guard rejects it",
+            test_suggestion: { tests: [], reason: "" },
+          },
+        ],
+      })
+      expect(suggested.verdicts).toHaveLength(2)
     }))
 
   it.effect("requires non-empty pool clusters", () =>

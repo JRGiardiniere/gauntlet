@@ -31,4 +31,11 @@ defect that is hard to spot is not thereby severe, and an obvious one is not
 thereby trivial. P1: wrong behavior on a realistic path, should block merge.
 P2: real defect, bounded blast radius. P3: real but minor.
 
+Where running an existing repository test would materially increase confidence
+in a CONFIRMED or UNVERIFIED verdict, attach a `test_suggestion` to that
+verdict: name the existing test areas, files, classes, or suites and give one
+concise reason they are relevant to the claim. Never write test source, spell
+out shell commands, or attach a suggestion to a REFUTED verdict. Most verdicts
+need none.
+
 Return one verdict per [cN] cluster label, each exactly once.

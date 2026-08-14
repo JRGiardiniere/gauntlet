@@ -101,6 +101,30 @@ export const EmitPool = defineOutputContract(
   PoolOutput,
 )
 
+// Deliberately content-loose: a malformed suggestion must never fail-close
+// the bundle's verdicts, so deterministic resolution validates contents
+// (non-empty tests and reason, CONFIRMED/UNVERIFIED only) and drops bad
+// suggestions with a diagnostic instead of the decoder rejecting them.
+// A factory, not a shared instance: both union branches carry the field, and
+// a shared object schema would be hoisted into JSON-schema definitions,
+// breaking the self-contained tool projection.
+const testSuggestion = () =>
+  Schema.optionalKey(
+    described(
+      Schema.Struct({
+        tests: described(
+          Schema.Array(Schema.String),
+          "Existing repository test areas, files, classes, or suites (1+) whose execution would materially increase confidence in this verdict. Never generated test source or shell commands.",
+        ),
+        reason: described(
+          Schema.String,
+          "One concise reason these existing tests are relevant to the claim.",
+        ),
+      }),
+      "Optional, CONFIRMED/UNVERIFIED only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help.",
+    ),
+  )
+
 const verdictCore = {
   cluster: described(
     Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
@@ -122,6 +146,7 @@ const reportedVerdict = Schema.Struct({
     Severity,
     "`P1` | `P2` | `P3`. Judged on reachability × consequence.",
   ),
+  test_suggestion: testSuggestion(),
 })
 
 const refutedVerdict = Schema.Struct({
@@ -130,6 +155,9 @@ const refutedVerdict = Schema.Struct({
     Schema.Literal("REFUTED"),
     "`CONFIRMED` | `UNVERIFIED` | `REFUTED` — see the ladder in the verifier prompt.",
   ),
+  // Accepted by the decoder so a stray suggestion cannot fail-close the
+  // bundle; resolution rejects it with a diagnostic.
+  test_suggestion: testSuggestion(),
 })
 
 export const VerdictsOutput = Schema.Struct({

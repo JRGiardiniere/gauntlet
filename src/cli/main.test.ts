@@ -194,6 +194,10 @@ const successfulVerifierSession = (): ScriptedSession =>
         verdict: "CONFIRMED",
         severity: "P2",
         evidence: "empty input reaches the added line and throws",
+        test_suggestion: {
+          tests: ["the alpha input suite"],
+          reason: "it exercises empty inputs against the added line",
+        },
       },
     ],
   }, "-verification")
@@ -348,6 +352,13 @@ describe("gauntlet review", () => {
         severity: "P2",
         evidence: "empty input reaches the added line and throws",
       })
+      expect(dossier.testSuggestions).toEqual([
+        {
+          tests: ["the alpha input suite"],
+          reason: "it exercises empty inputs against the added line",
+          bugClaimIds: ["fixture-review/1"],
+        },
+      ])
       expect(dossier.observations).toHaveLength(1)
       expect(dossier.observations[0]?.candidate._tag).toBe("Observation")
       expect(dossier.observations[0]?.candidate.id).toBe("fixture-review/2")
@@ -362,6 +373,9 @@ describe("gauntlet review", () => {
       const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
       expect(report).toContain(`# Gauntlet review ${plan.runId}`)
       expect(report).toContain("the added line breaks empty inputs")
+      expect(report).toContain(
+        "suggested tests: the alpha input suite — it exercises empty inputs against the added line",
+      )
       expect(report).toContain("the name hides the value's role")
       expect(report).toContain("3 invocations")
       expect(report).toContain(

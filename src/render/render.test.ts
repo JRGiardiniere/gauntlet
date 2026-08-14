@@ -89,6 +89,15 @@ const dossier = Dossier.make({
       verdict: Verdict.cases.Refuted.make({ evidence: "guarded two lines above" }),
     },
   ],
+  // The confirmed cluster's suggestion maps to both mates' stable ids, so the
+  // sub-bullet renders no matter which mate presentation picked.
+  testSuggestions: [
+    {
+      tests: ["src/alpha.test.ts", "the empty-input suite"],
+      reason: "the empty-input suite exercises the exact boundary",
+      bugClaimIds: ["fixture-lens/1", "fixture-other/1"],
+    },
+  ],
   observations: [
     {
       candidate: observation("fixture-lens/5", "k".repeat(400)),
@@ -214,6 +223,17 @@ describe("dossier markdown rendering", () => {
     expect(confirmed).not.toContain("input of length zero loops forever")
     // Without evidence there is nothing to prefer, so the claim speaks for itself.
     expect(findings).toContain("input of length zero loops forever")
+  })
+
+  it("renders a cluster's test suggestion once, next to its finding", () => {
+    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    const confirmed = findings
+      .split("\n- ")
+      .find((entry) => entry.includes("first line")) ?? ""
+    expect(confirmed).toContain(
+      "suggested tests: src/alpha.test.ts, the empty-input suite — the empty-input suite exercises the exact boundary",
+    )
+    expect(markdown.match(/suggested tests:/g)).toHaveLength(1)
   })
 
   it("shows the effective seat frozen onto each lens", () => {

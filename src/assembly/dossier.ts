@@ -8,6 +8,7 @@ interface AssembledPath {
 
 interface AssembledBugClaimPath extends AssembledPath {
   readonly bugClaims: Dossier["bugClaims"]
+  readonly testSuggestions: Dossier["testSuggestions"]
 }
 
 interface AssembledJudgmentPath extends AssembledPath {
@@ -33,6 +34,7 @@ export const assembleDossier = ({
     runId: plan.runId,
     target: targetIdentityOf(plan.target),
     bugClaims: bugClaimPath.bugClaims,
+    testSuggestions: bugClaimPath.testSuggestions,
     observations: judgmentPath.observations,
     coverageGaps: [
       ...finderCoverageGaps,

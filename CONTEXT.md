@@ -135,6 +135,13 @@ What Verification attaches to a BugClaim: confirmed, refuted, or unverified.
 Unverified is a first-class verdict, never an absence.
 _Avoid_: evaluation, judgment (that word belongs to Observations)
 
+**TestSuggestion**:
+Verification's optional recommendation to run named existing repository tests
+that would increase confidence in a confirmed or unverified BugClaim, including
+why those tests are relevant. It is advice carried by the Dossier, not an
+execution request or test result.
+_Avoid_: test request, reproduction, generated test
+
 **Judgment**:
 What the judge attaches to an Observation: kept, dropped with a reason, or
 undecided. Undecided is first-class, never an absence.

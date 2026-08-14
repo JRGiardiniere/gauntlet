@@ -40,6 +40,15 @@ Human detail: read `dossier.md` on disk, and only for findings you will act on.
 Machine truth: parse `dossier.json` on disk. Stdout is the digest, not the
 Dossier.
 
+A finding may carry a "suggested tests" line — existing repository tests the
+verifier believes would increase confidence. Running them is optional: run a
+relevant one with the repository's own instructions, ask the user, or leave it
+as follow-up. Investigate a failure in the context of the suggestion's stated
+reason. A pass is supporting evidence only to the extent the existing test
+actually covers the suspected behavior — never automatic refutation of a
+scenario it may not cover. Verdicts stand either way; Gauntlet never runs
+suggested tests itself.
+
 ## Recipe
 
 When configuration or a new Recipe is needed:

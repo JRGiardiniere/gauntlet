@@ -80,6 +80,7 @@ export interface BugClaimPathExecution {
 
 export interface BugClaimPathResult {
   readonly bugClaims: Dossier["bugClaims"]
+  readonly testSuggestions: Dossier["testSuggestions"]
   readonly coverageGaps: Dossier["coverageGaps"]
   readonly costUsd: number
   readonly invocationCount: number
@@ -99,6 +100,7 @@ export const executeBugClaimPath = Effect.fn(
     yield* progress(`skipping Verification (${counted(0, "BugClaim")})`)
     return {
       bugClaims: [],
+      testSuggestions: [],
       coverageGaps: [],
       costUsd: 0,
       invocationCount: 0,
@@ -253,6 +255,7 @@ export const executeBugClaimPath = Effect.fn(
   }
   return {
     bugClaims: resolved.bugClaims,
+    testSuggestions: resolved.testSuggestions,
     coverageGaps: [...coverageGaps, ...resolved.coverageGaps],
     costUsd:
       poolCostUsd +
