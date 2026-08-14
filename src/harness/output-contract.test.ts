@@ -162,9 +162,16 @@ describe("output contracts", () => {
             evidence: "guard rejects it",
             test_suggestion: { tests: [], reason: "" },
           },
+          {
+            cluster: 3,
+            verdict: "UNVERIFIED",
+            severity: "P3",
+            evidence: "needs runtime state",
+            test_suggestion: {},
+          },
         ],
       })
-      expect(suggested.verdicts).toHaveLength(2)
+      expect(suggested.verdicts).toHaveLength(3)
     }))
 
   it.effect("requires non-empty pool clusters", () =>

@@ -112,13 +112,17 @@ const testSuggestion = () =>
   Schema.optionalKey(
     described(
       Schema.Struct({
-        tests: described(
-          Schema.Array(Schema.String),
-          "Existing repository test areas, files, classes, or suites (1+) whose execution would materially increase confidence in this verdict. Never generated test source or shell commands.",
+        tests: Schema.optionalKey(
+          described(
+            Schema.Array(Schema.String),
+            "Existing repository test areas, files, classes, or suites (1+) whose execution would materially increase confidence in this verdict. Never generated test source or shell commands.",
+          ),
         ),
-        reason: described(
-          Schema.String,
-          "One concise reason these existing tests are relevant to the claim.",
+        reason: Schema.optionalKey(
+          described(
+            Schema.String,
+            "One concise reason these existing tests are relevant to the claim.",
+          ),
         ),
       }),
       "Optional, CONFIRMED/UNVERIFIED only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help.",

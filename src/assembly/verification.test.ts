@@ -208,7 +208,7 @@ describe("resolveVerification", () => {
             verdict: "CONFIRMED",
             severity: "P1",
             evidence: "reproduced on empty input",
-            test_suggestion: { tests: ["  ", ""], reason: "empty targets" },
+            test_suggestion: { tests: ["  ", ""] },
           },
           {
             cluster: 2,

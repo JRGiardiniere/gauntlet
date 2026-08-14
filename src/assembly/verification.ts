@@ -85,10 +85,10 @@ const validTestSuggestion = (
       `${where} attached a test suggestion to a refuted cluster; dropped it`,
     )
   }
-  const tests = suggestion.tests
+  const tests = (suggestion.tests ?? [])
     .map((test) => test.replace(/\s+/g, " ").trim())
     .filter((test) => test !== "")
-  const reason = suggestion.reason.replace(/\s+/g, " ").trim()
+  const reason = (suggestion.reason ?? "").replace(/\s+/g, " ").trim()
   if (!Array.isArrayNonEmpty(tests) || reason === "") {
     return Result.fail(
       `${where} returned a test suggestion without tests or a reason; dropped it`,

@@ -1,3 +1,4 @@
+import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { BugClaim, Observation } from "./candidate.ts"
 import { Judgment } from "./judgment.ts"
@@ -49,7 +50,11 @@ export const Dossier = Schema.Struct({
   runId: Schema.NonEmptyString,
   target: TargetIdentity,
   bugClaims: Schema.Array(EvaluatedBugClaim),
-  testSuggestions: Schema.Array(TestSuggestion),
+  // Decoding default: dossier.json artifacts written before TestSuggestions
+  // existed lack the key, and resume's completeness check decodes them.
+  testSuggestions: Schema.Array(TestSuggestion).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed([])),
+  ),
   observations: Schema.Array(JudgedObservation),
   coverageGaps: Schema.Array(CoverageGap),
 })

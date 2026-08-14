@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Candidate } from "./candidate.ts"
+import { Dossier } from "./dossier.ts"
 import { modelIdentityOfSeat, Seat } from "./recipe.ts"
 
 describe("domain model", () => {
@@ -41,6 +42,24 @@ describe("domain model", () => {
       expect(yield* decode("acme/luna:4-6:high")).toBe("acme/luna:4-6:high")
       const rejected = yield* Effect.flip(decode("just-a-model"))
       expect(rejected._tag).toBe("SchemaError")
+    }))
+
+  // Resume's completeness check decodes dossier.json artifacts written
+  // before TestSuggestions existed; they must not read as incomplete runs.
+  it.effect("decodes a pre-TestSuggestion dossier artifact", () =>
+    Effect.gen(function* () {
+      const dossier = yield* Schema.decodeUnknownEffect(Dossier)({
+        runId: "run-fixture",
+        target: {
+          _tag: "WorkingTree",
+          repoRoot: "/fixture",
+          headCommit: "abcdef0",
+        },
+        bugClaims: [],
+        observations: [],
+        coverageGaps: [],
+      })
+      expect(dossier.testSuggestions).toEqual([])
     }))
 
   it("identifies a model independently of its thinking effort", () => {
