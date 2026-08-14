@@ -112,8 +112,6 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
         return yield* invoke({
           seat,
           cwd,
-          // Tool-less round-trip; no filesystem tools are ever built.
-          filesystem: "host",
           systemPrompt: SYSTEM_PROMPT,
           prompt: PROMPT,
           contract: EmitFindings,

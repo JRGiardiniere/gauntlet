@@ -39,6 +39,7 @@ import {
   wallSeconds,
 } from "./progress-text.ts"
 import type { RunPaths } from "./run-record.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
 const progress = Effect.fn("gauntlet.bug_claim_path.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -133,8 +134,6 @@ export const executeBugClaimPath = Effect.fn(
           return yield* invoke({
             seat,
             cwd: reviewWorkingDirectory,
-            // Host-backed until #58 migrates the evaluation stages.
-            filesystem: "host",
             systemPrompt: EVALUATION_SYSTEM_PROMPT,
             prompt,
             sessionId: `${plan.runId}-pool`,
@@ -198,10 +197,12 @@ export const executeBugClaimPath = Effect.fn(
             output: EmitVerdicts.schema,
             execute: Effect.gen(function* () {
               const promptTemplates = yield* templates
+              // The prompt shows the stable virtual root the tools expose;
+              // cwd carries the host snapshot path the overlay mounts on.
               const prompt = yield* assembleVerifierPrompt(
                 promptTemplates,
                 plan.target,
-                reviewWorkingDirectory,
+                REVIEW_WORKSPACE_ROOT,
                 claims,
                 bundle,
               )
@@ -211,8 +212,6 @@ export const executeBugClaimPath = Effect.fn(
               return yield* invoke({
                 seat: verificationSeat,
                 cwd: reviewWorkingDirectory,
-                // Host-backed until #58 migrates the evaluation stages.
-                filesystem: "host",
                 systemPrompt: EVALUATION_SYSTEM_PROMPT,
                 prompt,
                 // Bundles run concurrently, so a shared cache partition buys

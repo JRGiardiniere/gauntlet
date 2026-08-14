@@ -24,7 +24,6 @@ import {
 const INPUT: InvokeInput<FindingsOutput> = {
   seat: "fixture/fixture-model:low",
   cwd: "/fixture/repo",
-  filesystem: "workspace",
   systemPrompt: "finder system prompt",
   prompt: "review this diff",
   contract: EmitFindings,

@@ -1,8 +1,6 @@
 import {
   type AgentSessionEvent,
-  createBashToolDefinition,
   createAgentSession,
-  createReadToolDefinition,
   DefaultResourceLoader,
   getAgentDir,
   ModelRuntime,
@@ -298,48 +296,28 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
               },
             }
 
-            // Per-invocation isolation falls out of per-open construction:
-            // one overlay and one interpreter per session, discarded with
-            // it. Pi's non-tool plumbing below (resource loader, session
-            // manager) keeps the real snapshot path — host-side only, never
-            // model-visible.
-            // The widening cast erases Pi's per-tool parameter generics so
-            // both backings share one shape; customTools below re-erases
-            // them anyway at the non-generic SDK option.
-            const filesystemTools: {
-              read: ToolDefinition
-              bash: ToolDefinition
-            } =
-              session.filesystem === "workspace" &&
-              (session.tools.includes("read") ||
-                session.tools.includes("bash"))
-                ? await makeReviewWorkspace(session.cwd).then(
-                    (workspace) => ({
-                      read: workspace.readTool,
-                      bash: workspace.bashTool,
-                    }),
-                  )
-                : {
-                    read: createReadToolDefinition(
-                      session.cwd,
-                    ) as unknown as ToolDefinition,
-                    bash: createBashToolDefinition(
-                      session.cwd,
-                    ) as unknown as ToolDefinition,
-                  }
+            // Filesystem tools exist only ReviewWorkspace-backed — no code
+            // path hands a session host read or bash. Per-invocation
+            // isolation falls out of per-open construction: one overlay and
+            // one interpreter per session, discarded with it. Pi's non-tool
+            // plumbing below (resource loader, session manager) keeps the
+            // real snapshot path — host-side only, never model-visible.
+            const workspace = session.tools.length === 0
+              ? undefined
+              : await makeReviewWorkspace(session.cwd)
             const customTools = [
-              ...(session.tools.includes("read")
+              ...(workspace !== undefined && session.tools.includes("read")
                 ? [
                     withToolCallDeadline(
-                      filesystemTools.read,
+                      workspace.readTool,
                       session.toolTimeoutMillis,
                     ),
                   ]
                 : []),
-              ...(session.tools.includes("bash")
+              ...(workspace !== undefined && session.tools.includes("bash")
                 ? [
                     withToolCallDeadline(
-                      filesystemTools.bash,
+                      workspace.bashTool,
                       session.bashTimeoutMillis,
                     ),
                   ]
@@ -358,13 +336,12 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
             )
             const created = await createAgentSession({
               // Model-visible: Pi prints this as "Current working directory"
-              // in its system prompt. A workspace session must show the
-              // virtual root the tools actually expose, never the host
-              // snapshot path. Host-side plumbing (resource loader, session
-              // manager) keeps the real path above.
-              cwd: session.filesystem === "workspace"
-                ? REVIEW_WORKSPACE_ROOT
-                : session.cwd,
+              // in its system prompt. Every session shows the stable virtual
+              // root — the only root any filesystem tool exposes — so the
+              // host snapshot path never reaches model-visible text, even
+              // when the session is tool-less. Host-side plumbing (resource
+              // loader, session manager) keeps the real path above.
+              cwd: REVIEW_WORKSPACE_ROOT,
               model,
               modelRuntime,
               ...(resolved.thinkingLevel === undefined

@@ -106,17 +106,11 @@ export interface SessionConfig {
   // resolves it through Pi; the factory carries no independently configured
   // ambient model.
   readonly seat: Seat
-  // Host path of the Run's frozen snapshot worktree. Every filesystem-facing
-  // tool observes it — directly ("host") or through a confined overlay
-  // ("workspace") — and Pi's non-tool plumbing (resource loader, session
-  // manager) keeps the real path either way; it is never model-visible.
+  // Host path of the Run's frozen snapshot worktree. Filesystem-facing tools
+  // observe it only through a per-invocation ReviewWorkspace overlay, and
+  // Pi's non-tool plumbing (resource loader, session manager) keeps the real
+  // path host-side; it is never model-visible.
   readonly cwd: string
-  // Which backing the filesystem-facing tools get. "workspace": the adapter
-  // acquires a per-invocation ReviewWorkspace over cwd, so tools see the
-  // stable virtual root and writes stay in a disposable overlay. "host":
-  // Pi's stock host-backed tools. Finders run "workspace"; every other
-  // stage runs "host".
-  readonly filesystem: "host" | "workspace"
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
   // string as "use the stock prompt" (#4 §2).
   readonly systemPrompt: string
@@ -125,9 +119,9 @@ export interface SessionConfig {
   // group.
   readonly sessionId?: string
   readonly emitTool: EmitToolSpec
-  // The complete non-emit capability set — which tools the session gets;
-  // `filesystem` selects their backing. These are recreated as custom Pi
-  // tools so their deadlines remain caller-owned.
+  // The complete non-emit capability set — which tools the session gets,
+  // always ReviewWorkspace-backed. These are recreated as custom Pi tools
+  // so their deadlines remain caller-owned.
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly toolTimeoutMillis: number
   readonly bashTimeoutMillis: number
