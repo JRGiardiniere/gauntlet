@@ -1,7 +1,10 @@
+import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
+import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
+import type { ReviewWorkspace } from "../workspace/review-workspace.ts"
 import {
   type HarnessEvent,
   type HarnessSession,
@@ -12,6 +15,7 @@ import {
   type StopReason,
   type UsageRow,
 } from "./harness-session.ts"
+import { withToolCallDeadline } from "./tool-deadline.ts"
 
 // The deterministic adapter supports a script per open and per prompt. A
 // fresh-session retry therefore consumes the next session script, while a
@@ -31,6 +35,12 @@ export type ScriptedEvent =
       readonly kind: "emit"
       readonly args: unknown
       readonly valid: boolean
+    }
+  | {
+      readonly afterMillis: number
+      readonly kind: "tool"
+      readonly toolName: "read" | "bash"
+      readonly args: unknown
     }
   | {
       readonly afterMillis: number
@@ -76,12 +86,35 @@ export interface RecordedPrompt {
   readonly text: string
 }
 
+export interface RecordedInspection {
+  readonly sessionId: string | undefined
+  readonly toolName: "read" | "bash"
+  readonly args: unknown
+  readonly isError: boolean
+  readonly text: string
+}
+
 export interface Scripted {
   readonly factory: HarnessSessionFactoryShape
   readonly log: Array<string>
   readonly configs: Array<SessionConfig>
   readonly prompts: Array<RecordedPrompt>
+  readonly inspections: Array<RecordedInspection>
 }
+
+const toolText = (result: {
+  readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }>
+}): string =>
+  result.content
+    .flatMap((entry) =>
+      entry.type === "text" && entry.text !== undefined ? [entry.text] : [],
+    )
+    .join("\n")
+
+const scriptInspectsWorkspace = (session: ScriptedSession): boolean =>
+  session.prompts.some((prompt) =>
+    prompt.events.some((event) => event.kind === "tool"),
+  )
 
 export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
   input: 1000,
@@ -98,10 +131,40 @@ interface PromptRequest {
   readonly reject: (reason: string) => void
 }
 
+const executeWorkspaceTool = (
+  workspace: ReviewWorkspace,
+  config: SessionConfig,
+  toolName: "read" | "bash",
+  args: unknown,
+) => {
+  const tool: ToolDefinition = toolName === "read"
+    ? withToolCallDeadline(workspace.readTool, config.toolTimeoutMillis)
+    : withToolCallDeadline(workspace.bashTool, config.bashTimeoutMillis)
+  return Effect.promise(() =>
+    tool
+      .execute(
+        "scripted",
+        args as never,
+        undefined,
+        undefined,
+        undefined as never,
+      )
+      .then((result) => ({
+        isError: false as const,
+        text: toolText(result),
+      }))
+      .catch((cause: unknown) => ({
+        isError: true as const,
+        text: cause instanceof Error ? cause.message : String(cause),
+      })),
+  )
+}
+
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
   const configs: Array<SessionConfig> = []
   const prompts: Array<RecordedPrompt> = []
+  const inspections: Array<RecordedInspection> = []
   let openIndex = 0
   const claimed = new Set<number>()
 
@@ -151,6 +214,23 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         )
       }
 
+      // The live adapter always mounts a ReviewWorkspace for filesystem
+      // sessions. This adapter does the same only when a script declares a
+      // tool event, so invocation-unit tests with a fake cwd stay cheap.
+      const workspace = scriptInspectsWorkspace(behaviorForSession)
+        ? yield* Effect.tryPromise({
+            try: () => makeReviewWorkspace(config.cwd),
+            catch: (cause) =>
+              new InvocationSetupError({
+                operation: "session-construction",
+                reason: `failed to construct ReviewWorkspace: ${
+                  cause instanceof Error ? cause.message : String(cause)
+                }`,
+                cause,
+              }),
+          })
+        : undefined
+
       const listeners = new Set<(event: HarnessEvent) => void>()
       const rows: Array<unknown> = []
       const promptRequests = yield* Queue.unbounded<PromptRequest>()
@@ -176,12 +256,14 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
               log.push(
                 `event:${String(sessionIndex)}.${String(promptIndex)}:${step.kind}`,
               )
-              switch (step.kind) {
-                case "message_start": {
-                  fire({ type: "message_start" })
-                  break
-                }
-                case "message_end": {
+            })
+            switch (step.kind) {
+              case "message_start": {
+                yield* Effect.sync(() => fire({ type: "message_start" }))
+                break
+              }
+              case "message_end": {
+                yield* Effect.sync(() => {
                   const usage = step.usage ?? usageRow()
                   rows.push(usage)
                   fire({
@@ -192,32 +274,77 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                       : { errorMessage: step.errorMessage }),
                     usage,
                   })
-                  break
-                }
-                case "emit": {
+                })
+                break
+              }
+              case "emit": {
+                yield* Effect.sync(() => {
                   fire({
                     type: "tool_execution_start",
                     toolName: config.emitTool.name,
                     args: step.args,
                   })
                   if (step.valid) config.emitTool.execute(step.args)
-                  break
-                }
-                case "tool_error": {
+                })
+                break
+              }
+              case "tool": {
+                yield* Effect.sync(() => {
+                  fire({
+                    type: "tool_execution_start",
+                    toolName: step.toolName,
+                    args: step.args,
+                  })
+                })
+                const recorded = workspace === undefined ||
+                    !config.tools.includes(step.toolName)
+                  ? {
+                      isError: true as const,
+                      text: workspace === undefined
+                        ? "no ReviewWorkspace for this session"
+                        : `${step.toolName} is not in this session's tools`,
+                    }
+                  : yield* executeWorkspaceTool(
+                      workspace,
+                      config,
+                      step.toolName,
+                      step.args,
+                    )
+                yield* Effect.sync(() => {
+                  inspections.push({
+                    sessionId: config.sessionId,
+                    toolName: step.toolName,
+                    args: step.args,
+                    isError: recorded.isError,
+                    text: recorded.text,
+                  })
+                  fire({
+                    type: "tool_execution_end",
+                    toolName: step.toolName,
+                    isError: recorded.isError,
+                    ...(recorded.isError ? { detail: recorded.text } : {}),
+                  })
+                })
+                break
+              }
+              case "tool_error": {
+                yield* Effect.sync(() => {
                   fire({
                     type: "tool_execution_end",
                     toolName: step.toolName,
                     isError: true,
                     detail: step.detail,
                   })
-                  break
-                }
-                case "violation": {
-                  fire({ type: "contract_violation", reason: step.reason })
-                  break
-                }
+                })
+                break
               }
-            })
+              case "violation": {
+                yield* Effect.sync(() => {
+                  fire({ type: "contract_violation", reason: step.reason })
+                })
+                break
+              }
+            }
           }
 
           if (prompt.settles === "never") return yield* Effect.never
@@ -290,7 +417,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs, prompts }
+  return { factory: { open }, log, configs, prompts, inspections }
 }
 
 export const scriptedLayer = (

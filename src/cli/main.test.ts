@@ -27,6 +27,7 @@ import {
   InvocationJournalCheckpoint,
 } from "../run/invocation-journal.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
   InvocationDirectory,
   runGauntlet,
@@ -181,40 +182,44 @@ const emittingSession = (
   ],
 })
 
+const VERIFIER_OUTPUT = {
+  verdicts: [
+    {
+      cluster: 1,
+      verdict: "CONFIRMED",
+      severity: "P2",
+      evidence: "empty input reaches the added line and throws",
+      test_suggestion: {
+        tests: ["the alpha input suite"],
+        reason: "it exercises empty inputs against the added line",
+      },
+    },
+  ],
+}
+
+const JUDGMENT_OUTPUT = {
+  decisions: [
+    {
+      index: 1,
+      decision: "keep",
+      tier: "P2",
+      reason: "the call site confirms the name obscures the value's role",
+      goodFind: true,
+      cleanlyExplained: true,
+    },
+  ],
+}
+
 const successfulSession = (
   output: FindingsOutput = FINDER_OUTPUT,
   forSession?: string,
 ): ScriptedSession => emittingSession(output, forSession)
 
 const successfulVerifierSession = (): ScriptedSession =>
-  emittingSession({
-    verdicts: [
-      {
-        cluster: 1,
-        verdict: "CONFIRMED",
-        severity: "P2",
-        evidence: "empty input reaches the added line and throws",
-        test_suggestion: {
-          tests: ["the alpha input suite"],
-          reason: "it exercises empty inputs against the added line",
-        },
-      },
-    ],
-  }, "-verification")
+  emittingSession(VERIFIER_OUTPUT, "-verification")
 
 const successfulJudgmentSession = (): ScriptedSession =>
-  emittingSession({
-    decisions: [
-      {
-        index: 1,
-        decision: "keep",
-        tier: "P2",
-        reason: "the call site confirms the name obscures the value's role",
-        goodFind: true,
-        cleanlyExplained: true,
-      },
-    ],
-  }, "-judgment")
+  emittingSession(JUDGMENT_OUTPUT, "-judgment")
 
 // Concurrent sessions interleave their prompt calls, so prompts are asserted
 // by the session id they were recorded against, never by global order.
@@ -222,6 +227,54 @@ const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
   scripted.prompts
     .filter(({ sessionId }) => sessionId?.includes(suffix) ?? false)
     .map(({ text }) => text)
+
+const inspectionsFor = (scripted: Scripted, suffix: string) =>
+  scripted.inspections.filter(
+    ({ sessionId }) => sessionId?.includes(suffix) ?? false,
+  )
+
+const confinedSession = (
+  output: unknown,
+  forSession: string,
+  inspect: {
+    readonly bash?: ReadonlyArray<string>
+    readonly read?: ReadonlyArray<string>
+  } = {},
+): ScriptedSession => ({
+  forSession,
+  prompts: [
+    {
+      events: [
+        { afterMillis: 0, kind: "message_start" as const },
+        ...(inspect.bash ?? ["pwd"]).map((command) => ({
+          afterMillis: 0,
+          kind: "tool" as const,
+          toolName: "bash" as const,
+          args: { command },
+        })),
+        ...(inspect.read ?? []).map((path) => ({
+          afterMillis: 0,
+          kind: "tool" as const,
+          toolName: "read" as const,
+          args: { path },
+        })),
+        {
+          afterMillis: 0,
+          kind: "emit" as const,
+          args: output,
+          valid: true,
+        },
+        {
+          afterMillis: 0,
+          kind: "message_end" as const,
+          stopReason: "toolUse" as const,
+          usage: usageRow(),
+        },
+      ],
+      settles: "after-events" as const,
+    },
+  ],
+})
 
 const successfulScripted = (): Scripted =>
   makeScripted({
@@ -467,6 +520,91 @@ describe("gauntlet review", () => {
       expect(stderr).toContain("untracked.txt")
       // Digest tally stays on stdout; stage counts use a different shape.
       expect(stderr).not.toMatch(/\d+ confirmed · \d+ kept ·/)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("confines a full review to the ReviewWorkspace and carries a TestSuggestion", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const run = review(
+        fixture,
+        makeScripted({
+          sessions: [
+            confinedSession(FINDER_OUTPUT, "-finders", {
+              bash: ["pwd"],
+              read: ["alpha.txt"],
+            }),
+            confinedSession(VERIFIER_OUTPUT, "-verification"),
+            confinedSession(JUDGMENT_OUTPUT, "-judgment"),
+          ],
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const runDir = path.join(fixture.runsRoot, runId)
+      const entries = yield* fs.readDirectory(runDir)
+      expect([...entries].sort()).toEqual([
+        "dossier.json",
+        "dossier.md",
+        "journal",
+        "plan.json",
+        "run.log",
+      ])
+
+      const dossier = yield* fs.readFileString(path.join(runDir, "dossier.json")).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.testSuggestions).toEqual([
+        {
+          tests: ["the alpha input suite"],
+          reason: "it exercises empty inputs against the added line",
+          bugClaimIds: ["fixture-review/1"],
+        },
+      ])
+      const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
+      expect(report).toContain(
+        "suggested tests: the alpha input suite — it exercises empty inputs against the added line",
+      )
+
+      expect(run.scripted.configs).toHaveLength(3)
+      const snapshot = run.scripted.configs[0]?.cwd ?? "worktree path missing"
+      for (const config of run.scripted.configs) {
+        expect(config.tools).toEqual(["read", "bash"])
+        expect(config.cwd).toBe(snapshot)
+        expect(config.cwd).not.toBe(fixture.repo)
+      }
+
+      const finderInspections = inspectionsFor(run.scripted, "-finders")
+      expect(finderInspections).toHaveLength(2)
+      expect(finderInspections[0]).toMatchObject({
+        toolName: "bash",
+        isError: false,
+      })
+      expect(finderInspections[0]?.text).toContain(REVIEW_WORKSPACE_ROOT)
+      expect(finderInspections[0]?.text).not.toContain(snapshot)
+      expect(finderInspections[1]).toMatchObject({
+        toolName: "read",
+        isError: false,
+      })
+      expect(finderInspections[1]?.text).toContain("needle-added-line")
+      expect(finderInspections[1]?.text).not.toContain(snapshot)
+
+      for (const suffix of ["-verification", "-judgment"] as const) {
+        const [pwd] = inspectionsFor(run.scripted, suffix)
+        expect(pwd?.toolName).toBe("bash")
+        expect(pwd?.isError).toBe(false)
+        expect(pwd?.text).toContain(REVIEW_WORKSPACE_ROOT)
+        expect(pwd?.text).not.toContain(snapshot)
+      }
+
+      for (const suffix of ["-finders", "-verification", "-judgment"] as const) {
+        const [prompt = ""] = promptTextsFor(run.scripted, suffix)
+        expect(prompt).toContain(`repo=${REVIEW_WORKSPACE_ROOT}`)
+        expect(prompt).not.toContain(snapshot)
+      }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("loads the full shipped and project-local catalog and freezes seats", () =>
