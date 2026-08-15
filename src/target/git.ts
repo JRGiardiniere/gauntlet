@@ -51,7 +51,7 @@ export const describeGitFailure = (
 // OVERRIDE cwd — a review launched from a hook would target the hook's repo.
 // Unset them for the child (same list as vitest.setup.ts guards for tests).
 // Shared with gh (which shells out to git) and the git test fixture.
-export const scrubbedGitEnv: Record<string, undefined> = {
+export const scrubbedGitEnv = {
   GIT_ALTERNATE_OBJECT_DIRECTORIES: undefined,
   GIT_CEILING_DIRECTORIES: undefined,
   GIT_COMMON_DIR: undefined,
@@ -61,7 +61,7 @@ export const scrubbedGitEnv: Record<string, undefined> = {
   GIT_PREFIX: undefined,
   GIT_QUARANTINE_PATH: undefined,
   GIT_WORK_TREE: undefined,
-}
+} satisfies Record<string, undefined>
 
 // Runs one git command and captures stdout. A non-zero exit is a
 // GitCommandError carrying git's own stderr — the caller decides what it
