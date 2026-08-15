@@ -144,27 +144,27 @@ interface PromptRequest {
   readonly reject: (reason: string) => void
 }
 
-// The workspace tools' validated argument contracts. The scripted adapter
-// hands each tool event's args to Pi's execute seam, which re-validates them
-// against the tool's own schema — so a script declares read args for read and
-// bash args for bash, exactly as a live model call would.
-type WorkspaceToolArgs = BashArgs | ReadToolInput
+// A workspace tool call as the script declares it. The scripted adapter
+// trusts its statically-typed script input: it hands each tool event's args
+// straight to the selected tool's execute function without replaying Pi's
+// schema validation (a script is test-authored input, not live model output).
+type WorkspaceToolCall = Extract<ScriptedEvent, { readonly kind: "tool" }>
 
 const executeWorkspaceTool = (
   workspace: ReviewWorkspace,
   config: SessionConfig,
-  toolName: "read" | "bash",
-  args: WorkspaceToolArgs,
+  call: WorkspaceToolCall,
 ) => {
-  const tool: ToolDefinition = toolName === "read"
+  const tool: ToolDefinition = call.toolName === "read"
     ? withToolCallDeadline(workspace.readTool, config.toolTimeoutMillis)
     : withToolCallDeadline(workspace.bashTool, config.bashTimeoutMillis)
-  // SAFETY: Pi's ExtensionContext is unused by both workspace tools (they
-  // read it never); undefined matches the erasure the SDK's own customTools
-  // seam applies when it invokes custom tool executes.
+  // SAFETY: both workspace tools tolerate a missing ExtensionContext — the
+  // read tool reads it only through optional chaining (ctx?.model) and the
+  // bash tool ignores it — so undefined is a faithful placeholder in a fake
+  // that constructs no context.
   return Effect.promise(() =>
     tool
-      .execute("scripted", args, undefined, undefined, undefined as never)
+      .execute("scripted", call.args, undefined, undefined, undefined as never)
       .then((result) => ({
         isError: false as const,
         text: toolText(result),
@@ -322,12 +322,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                         ? "no ReviewWorkspace for this session"
                         : `${step.toolName} is not in this session's tools`,
                     }
-                  : yield* executeWorkspaceTool(
-                      workspace,
-                      config,
-                      step.toolName,
-                      step.args,
-                    )
+                  : yield* executeWorkspaceTool(workspace, config, step)
                 yield* Effect.sync(() => {
                   inspections.push({
                     sessionId: config.sessionId,

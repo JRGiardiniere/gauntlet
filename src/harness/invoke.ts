@@ -4,6 +4,7 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Function from "effect/Function"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
@@ -288,11 +289,7 @@ const openCapturedSession = Effect.fn(
     (opened) =>
       Effect.sync(() => {
         try {
-          // SAFETY: usage rows are JSON accounting data by Pi's contract; the
-          // seam erases them to `unknown` for verbatim retention (ADR 0006),
-          // and jsonSafeRow re-validates JSON-safety downstream, dropping
-          // undefined reasoning fields and failing on non-serializable rows.
-          const rows = opened.usageRows() as ReadonlyArray<Schema.Json>
+          const rows = opened.usageRows().map(jsonSafeRow)
           capture.dispatch({ type: "usage_rows", rows })
         } catch (cause) {
           capture.dispatch({
@@ -565,23 +562,17 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   })
 
 const decodeUsageRow = Schema.decodeUnknownEffect(UsageRow)
-const encodeUnknownJson = Schema.encodeUnknownEffect(
+const encodeJsonString = Schema.encodeUnknownSync(
   Schema.fromJsonString(Schema.Unknown),
 )
-const decodeJsonString = Schema.decodeUnknownEffect(
+const decodeJsonValue = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Json),
 )
 
-const jsonSafeRow = (row: Schema.Json) =>
-  encodeUnknownJson(row).pipe(
-    Effect.flatMap(decodeJsonString),
-    Effect.mapError(
-      () =>
-        new AdapterContractViolation({
-          reason: "raw usage row is not JSON-serializable",
-        }),
-    ),
-  )
+// Normalizes a raw usage row into the journal's JSON contract. The
+// stringify/parse round-trip drops undefined fields (as JSON.stringify
+// would) and throws on non-serializable rows.
+const jsonSafeRow = Function.compose(encodeJsonString, decodeJsonValue)
 
 const usageFrom = (states: ReadonlyArray<CaptureState>) =>
   Effect.gen(function* () {
@@ -612,10 +603,7 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
         ),
       )
     })
-    const rawRows = yield* Effect.forEach(
-      states.flatMap((state) => commonOf(state).rawUsageRows),
-      jsonSafeRow,
-    )
+    const rawRows = states.flatMap((state) => commonOf(state).rawUsageRows)
     let input = 0
     let output = 0
     let cacheRead = 0
