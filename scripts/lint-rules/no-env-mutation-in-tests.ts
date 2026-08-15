@@ -5,7 +5,7 @@ import {
   getPropertyName,
   type InspectedNode,
   isIdentifier,
-  isTypeScriptFile,
+  isTestFile,
 } from "./utils.ts"
 
 const isProcessEnv = (
@@ -33,9 +33,7 @@ export const noEnvMutationInTestsRule = defineRule({
   },
   createOnce(context) {
     return {
-      before: () =>
-        isTypeScriptFile(context.filename)
-        && context.filename.endsWith(".test.ts"),
+      before: () => isTestFile(context.filename),
       AssignmentExpression(node) {
         if (isProcessEnvVariable(node.left) || isProcessEnv(node.left)) {
           context.report({ node, messageId: "envMutation" })

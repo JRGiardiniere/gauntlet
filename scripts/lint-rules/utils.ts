@@ -58,6 +58,9 @@ export const isEffectFnCall = (
 export const isTypeScriptFile = (filename: string): boolean =>
   /\.(?:ts|tsx|mts|cts)$/.test(filename)
 
+export const isTestFile = (filename: string): boolean =>
+  filename.endsWith(".test.ts")
+
 export const isRelativeImport = (source: string): boolean =>
   source.startsWith("./") || source.startsWith("../")
 
