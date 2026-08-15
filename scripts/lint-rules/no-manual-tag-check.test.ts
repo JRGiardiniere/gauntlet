@@ -1,71 +1,50 @@
-import { describe, expect, it } from "vitest"
 import rule from "./no-manual-tag-check.js"
-import { runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const tagAccess = (name: string, property: unknown = { type: "Identifier", name: "_tag" }) => ({
-  type: "MemberExpression",
-  object: { type: "Identifier", name },
-  property,
-  computed: property !== null && typeof property === "object" && "value" in property,
-})
+const message =
+  /Effect\.catchTag, Effect\.catchTags, or Predicate\.isTagged.*docs\/effect-house-style\.md rule 7/
 
-describe("no-manual-tag-check", () => {
-  it("reports equality checks against an error tag", () => {
-    const access = tagAccess("error")
-    const node = {
-      type: "BinaryExpression",
-      operator: "===",
-      left: access,
-      right: { type: "StringLiteral", value: "DomainError" },
-    }
-
-    expect(
-      runRule(rule, "BinaryExpression", node),
-    ).toHaveLength(1)
-  })
-
-  it("reports computed _tag comparisons on a cause", () => {
-    const access = tagAccess("cause", { type: "StringLiteral", value: "_tag" })
-    const node = {
-      type: "BinaryExpression",
-      operator: "!==",
-      left: access,
-      right: { type: "StringLiteral", value: "DomainError" },
-    }
-
-    expect(
-      runRule(rule, "BinaryExpression", node),
-    ).toHaveLength(1)
-  })
-
-  it("allows narrowing an unknown with an _tag membership check", () => {
-    const node = {
-      type: "BinaryExpression",
-      operator: "in",
-      left: { type: "StringLiteral", value: "_tag" },
-      right: { type: "Identifier", name: "failure" },
-    }
-
-    expect(runRule(rule, "BinaryExpression", node)).toHaveLength(0)
-  })
-
-  it("allows tagged state unions", () => {
-    const access = tagAccess("prepared")
-    const node = {
-      type: "BinaryExpression",
-      operator: "===",
-      left: access,
-      right: { type: "StringLiteral", value: "Prepared" },
-    }
-
-    expect(
-      runRule(rule, "BinaryExpression", node),
-    ).toHaveLength(0)
-  })
-
-  it("allows reading an error tag for serialization", () => {
-    expect(
-      runRule(rule, "MemberExpression", tagAccess("error")),
-    ).toHaveLength(0)
-  })
+ruleTester.run("no-manual-tag-check", rule, {
+  valid: [
+    {
+      name: "narrowing an unknown with a _tag membership check",
+      code: `const tagged = "_tag" in failure`,
+      filename: productionFile,
+    },
+    {
+      name: "reading an error tag for boundary serialization",
+      code: `const payload = { tag: error._tag, message: error.message }`,
+      filename: productionFile,
+    },
+    {
+      name: "comparing the tag of a state union rather than an error",
+      code: `const ready = prepared._tag === "Prepared"`,
+      filename: productionFile,
+    },
+    {
+      name: "a JavaScript file, which sits outside the Effect error seam",
+      code: `const isDomain = error._tag === "DomainError"`,
+      filename: "/repo/publisher.js",
+    },
+  ],
+  invalid: [
+    {
+      name: "an equality check against an error tag",
+      code: `const isDomain = error._tag === "DomainError"`,
+      filename: productionFile,
+      errors: [{ message }],
+    },
+    {
+      name: "a computed tag comparison on a cause",
+      code: `const notDomain = cause["_tag"] !== "DomainError"`,
+      filename: productionFile,
+      errors: [{ message }],
+    },
+    {
+      name: "a tag comparison reached through an error-named property",
+      code: `const isDomain = result.failure._tag === "DomainError"`,
+      filename: productionFile,
+      errors: [{ message }],
+    },
+  ],
 })

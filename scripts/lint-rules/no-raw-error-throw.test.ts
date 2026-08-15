@@ -1,26 +1,33 @@
-import { describe, expect, it } from "vitest"
 import rule from "./no-raw-error-throw.js"
-import { runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const thrownConstruction = (name: string) => ({
-  type: "ThrowStatement",
-  argument: {
-    type: "NewExpression",
-    callee: { type: "Identifier", name },
-    arguments: [],
-  },
-})
-
-describe("no-raw-error-throw", () => {
-  it("reports throwing a raw Error", () => {
-    expect(
-      runRule(rule, "ThrowStatement", thrownConstruction("Error")),
-    ).toHaveLength(1)
-  })
-
-  it("allows throwing a tagged error construction", () => {
-    expect(
-      runRule(rule, "ThrowStatement", thrownConstruction("DomainError")),
-    ).toHaveLength(0)
-  })
+ruleTester.run("no-raw-error-throw", rule, {
+  valid: [
+    {
+      name: "throwing a tagged error construction",
+      code: `throw new DomainError({ reason: "missing" })`,
+      filename: productionFile,
+    },
+    {
+      name: "constructing a raw Error without throwing it",
+      code: `const cause = new Error("boom")`,
+      filename: productionFile,
+    },
+    {
+      name: "a JavaScript file, which sits outside the Effect error seam",
+      code: `throw new Error("boom")`,
+      filename: "/repo/publisher.js",
+    },
+  ],
+  invalid: [
+    {
+      name: "throwing a raw Error",
+      code: `throw new Error("boom")`,
+      filename: productionFile,
+      errors: [{
+        message:
+          /Fail with a tagged error.*docs\/effect-house-style\.md rule 7/,
+      }],
+    },
+  ],
 })

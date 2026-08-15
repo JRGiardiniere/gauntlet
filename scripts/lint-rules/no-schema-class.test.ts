@@ -1,38 +1,41 @@
-import { describe, expect, it } from "vitest"
 import rule from "./no-schema-class.js"
-import { runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const memberExpression = (namespace: string, property: string) => ({
-  type: "MemberExpression",
-  object: { type: "Identifier", name: namespace },
-  property: { type: "Identifier", name: property },
-})
+const messageFor = (name: string) =>
+  new RegExp(
+    `Schema\\.${name} is banned by the Effect skill's SCHEMA\\.md.*no numbered house-style rule covers this.*plain Schema\\.Struct models and Data\\.TaggedError`,
+  )
 
-describe("no-schema-class", () => {
-  it.each(["Class", "TaggedClass"])("reports Schema.%s", (property) => {
-    const errors = runRule(
-      rule,
-      "MemberExpression",
-      memberExpression("Schema", property),
-    )
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.message).toContain("plain Schema.Struct models")
-    expect(errors[0]?.message).toContain("Data.TaggedError")
-    expect(errors[0]?.message).toContain(
-      "banned by the Effect skill's SCHEMA.md",
-    )
-    expect(errors[0]?.message).toContain("no numbered house-style rule covers this")
-    expect(errors[0]?.message).toContain("docs/effect-house-style.md")
-  })
-
-  it("allows Data.TaggedError", () => {
-    expect(
-      runRule(
-        rule,
-        "MemberExpression",
-        memberExpression("Data", "TaggedError"),
-      ),
-    ).toHaveLength(0)
-  })
+ruleTester.run("no-schema-class", rule, {
+  valid: [
+    {
+      name: "a plain Schema.Struct model",
+      code: `const Value = Schema.Struct({ value: Schema.String })`,
+      filename: productionFile,
+    },
+    {
+      name: "Data.TaggedError for errors",
+      code: `class DomainError extends Data.TaggedError("DomainError") {}`,
+      filename: productionFile,
+    },
+    {
+      name: "a JavaScript file, which sits outside the schema seam",
+      code: `const Value = Schema.Class("Value")({ value: Schema.String })`,
+      filename: "/repo/publisher.js",
+    },
+  ],
+  invalid: [
+    {
+      name: "Schema.Class",
+      code: `const Value = Schema.Class("Value")({ value: Schema.String })`,
+      filename: productionFile,
+      errors: [{ message: messageFor("Class") }],
+    },
+    {
+      name: "Schema.TaggedClass",
+      code: `const Value = Schema.TaggedClass("Value")("Value", { value: Schema.String })`,
+      filename: productionFile,
+      errors: [{ message: messageFor("TaggedClass") }],
+    },
+  ],
 })

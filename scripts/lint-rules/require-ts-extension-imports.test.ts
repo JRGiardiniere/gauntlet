@@ -1,192 +1,105 @@
-import { describe, expect, it } from "vitest"
 import rule from "./require-ts-extension-imports.js"
-import { runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const declaration = (type: string, source: string) => ({
-  type,
-  source: {
-    value: source,
-    range: [8, 8 + source.length + 2] as [number, number],
-  },
+const allowedImport = (name: string, source: string) => ({
+  name,
+  code: `import { value } from "${source}"`,
+  filename: productionFile,
 })
 
-describe("require-ts-extension-imports", () => {
-  describe("imports", () => {
-    it("reports an extensionless relative import", () => {
-      const errors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "./module"),
-      )
-
-      expect(errors).toHaveLength(1)
-      expect(errors[0]?.message).toBe(
-        `Use an explicit ".ts" extension for relative import "./module"`,
-      )
-    })
-
-    it("reports JavaScript extensions with their TypeScript replacement", () => {
-      const jsErrors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "./module.js"),
-      )
-      const jsxErrors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "./component.jsx"),
-      )
-
-      expect(jsErrors[0]?.message).toBe(
-        `Use ".ts" extension instead of ".js" for relative imports`,
-      )
-      expect(jsxErrors[0]?.message).toBe(
-        `Use ".tsx" extension instead of ".jsx" for relative imports`,
-      )
-    })
-
-    it.each([".ts", ".tsx", ".mts", ".cts"])(
-      "allows the explicit %s TypeScript extension",
-      (extension) => {
-        const errors = runRule(
-          rule,
-          "ImportDeclaration",
-          declaration("ImportDeclaration", `./module${extension}`),
-        )
-
-        expect(errors).toHaveLength(0)
-      },
-    )
-
-    it.each([".mjs", ".cjs", ".json"])(
-      "allows explicit %s runtime boundary and resource imports",
-      (extension) => {
-        const errors = runRule(
-          rule,
-          "ImportDeclaration",
-          declaration("ImportDeclaration", `./module${extension}`),
-        )
-
-        expect(errors).toHaveLength(0)
-      },
-    )
-
-    it("allows imports of physical JavaScript plugin files", () => {
-      const errors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "./require-ts-extension-imports.js"),
-        { filename: import.meta.filename },
-      )
-
-      expect(errors).toHaveLength(0)
-    })
-
-    it("allows package imports", () => {
-      const moduleErrors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "effect/Effect"),
-      )
-      const javascriptErrors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "some-package/utils.js"),
-      )
-      const bareErrors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "effect"),
-      )
-
-      expect(moduleErrors).toHaveLength(0)
-      expect(javascriptErrors).toHaveLength(0)
-      expect(bareErrors).toHaveLength(0)
-    })
-
-    it.each(["./theme.css", "./banner.svg", "./decoder.wasm", "./notes.txt"])(
-      "allows the %s asset import without appending a TypeScript extension",
-      (source) => {
-        const errors = runRule(
-          rule,
-          "ImportDeclaration",
-          declaration("ImportDeclaration", source),
-        )
-
-        expect(errors).toHaveLength(0)
-      },
-    )
-
-    it("allows resource imports with loader queries", () => {
-      const errors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "./schema.sql?raw"),
-      )
-
-      expect(errors).toHaveLength(0)
-    })
-
-    it("reports deeply nested relative JavaScript imports", () => {
-      const errors = runRule(
-        rule,
-        "ImportDeclaration",
-        declaration("ImportDeclaration", "../../lib/utils.js"),
-      )
-
-      expect(errors).toHaveLength(1)
-      expect(errors[0]?.message).toBe(
-        `Use ".ts" extension instead of ".js" for relative imports`,
-      )
-    })
-  })
-
-  it("checks export-all declarations", () => {
-    const errors = runRule(
-      rule,
-      "ExportAllDeclaration",
-      declaration("ExportAllDeclaration", "./module"),
-    )
-
-    expect(errors).toHaveLength(1)
-  })
-
-  it("allows export-all declarations with TypeScript extensions", () => {
-    const errors = runRule(
-      rule,
-      "ExportAllDeclaration",
-      declaration("ExportAllDeclaration", "./module.ts"),
-    )
-
-    expect(errors).toHaveLength(0)
-  })
-
-  it("checks sourced named-export declarations", () => {
-    const errors = runRule(
-      rule,
-      "ExportNamedDeclaration",
-      declaration("ExportNamedDeclaration", "./module.js"),
-    )
-
-    expect(errors).toHaveLength(1)
-  })
-
-  it("allows sourced named exports with TypeScript extensions", () => {
-    const errors = runRule(
-      rule,
-      "ExportNamedDeclaration",
-      declaration("ExportNamedDeclaration", "./module.ts"),
-    )
-
-    expect(errors).toHaveLength(0)
-  })
-
-  it("allows local named-export declarations", () => {
-    const errors = runRule(rule, "ExportNamedDeclaration", {
-      type: "ExportNamedDeclaration",
-      source: null,
-    })
-
-    expect(errors).toHaveLength(0)
-  })
+ruleTester.run("require-ts-extension-imports", rule, {
+  valid: [
+    allowedImport("an explicit .ts extension", "./module.ts"),
+    allowedImport("an explicit .tsx extension", "./component.tsx"),
+    allowedImport("an explicit .mts extension", "./module.mts"),
+    allowedImport("an explicit .cts extension", "./module.cts"),
+    allowedImport("an .mjs runtime boundary import", "./module.mjs"),
+    allowedImport("a .cjs runtime boundary import", "./module.cjs"),
+    allowedImport("a .json resource import", "./module.json"),
+    allowedImport("a .css asset import", "./theme.css"),
+    allowedImport("an .svg asset import", "./banner.svg"),
+    allowedImport("a .wasm asset import", "./decoder.wasm"),
+    allowedImport("a .txt asset import", "./notes.txt"),
+    allowedImport("a resource import with a loader query", "./schema.sql?raw"),
+    allowedImport("a bare package import", "effect"),
+    allowedImport("a package subpath import", "effect/Effect"),
+    allowedImport("a package import that names a JavaScript file", "some-package/utils.js"),
+    {
+      name: "an import of a JavaScript file that physically exists",
+      code: `import rule from "./require-ts-extension-imports.js"`,
+      filename: import.meta.filename,
+    },
+    {
+      name: "a local named-export declaration with no source",
+      code: `export const value = 1`,
+      filename: productionFile,
+    },
+    {
+      name: "a sourced export with an explicit .ts extension",
+      code: `export { value } from "./module.ts"`,
+      filename: productionFile,
+    },
+    {
+      name: "an export-all with an explicit .ts extension",
+      code: `export * from "./module.ts"`,
+      filename: productionFile,
+    },
+    {
+      name: "a JavaScript file, which must keep runtime-resolvable imports",
+      code: `import { value } from "./module.js"`,
+      filename: "/repo/publisher.js",
+    },
+  ],
+  invalid: [
+    {
+      name: "an extensionless relative import",
+      code: `import { value } from "./module"`,
+      filename: productionFile,
+      errors: [{
+        message: `Use an explicit ".ts" extension for relative import "./module"`,
+      }],
+      output: `import { value } from "./module.ts"`,
+    },
+    {
+      name: "a .js extension on a relative import",
+      code: `import { value } from "./module.js"`,
+      filename: productionFile,
+      errors: [{
+        message: `Use ".ts" extension instead of ".js" for relative imports`,
+      }],
+      output: `import { value } from "./module.ts"`,
+    },
+    {
+      name: "a .jsx extension on a relative import",
+      code: `import { value } from "./component.jsx"`,
+      filename: productionFile,
+      errors: [{
+        message: `Use ".tsx" extension instead of ".jsx" for relative imports`,
+      }],
+      output: `import { value } from "./component.tsx"`,
+    },
+    {
+      name: "a deeply nested relative JavaScript import",
+      code: `import { value } from "../../lib/utils.js"`,
+      filename: productionFile,
+      errors: [{
+        message: `Use ".ts" extension instead of ".js" for relative imports`,
+      }],
+      output: `import { value } from "../../lib/utils.ts"`,
+    },
+    {
+      name: "an export-all declaration",
+      code: `export * from "./module"`,
+      filename: productionFile,
+      errors: 1,
+      output: `export * from "./module.ts"`,
+    },
+    {
+      name: "a sourced named-export declaration",
+      code: `export { value } from "./module.js"`,
+      filename: productionFile,
+      errors: 1,
+      output: `export { value } from "./module.ts"`,
+    },
+  ],
 })
