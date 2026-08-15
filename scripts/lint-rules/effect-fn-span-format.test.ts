@@ -29,7 +29,7 @@ ruleTester.run("effect-fn-span-format", rule, {
     {
       name: "a JavaScript file, which carries no span vocabulary",
       code: `Effect.fn("publish")`,
-      filename: "/repo/publisher.js",
+      filename: "/gauntlet/src/publisher.js",
     },
   ],
   invalid: [
@@ -50,8 +50,14 @@ ruleTester.run("effect-fn-span-format", rule, {
       errors: [{ message: uncheckableNameMessage }],
     },
     {
-      name: "a name-less Effect.fn call",
+      name: "an Effect.fn call whose first argument is the function",
       code: `Effect.fn(function* () {})`,
+      filename: productionFile,
+      errors: [{ message: uncheckableNameMessage }],
+    },
+    {
+      name: "an argument-less Effect.fn call",
+      code: `Effect.fn()`,
       filename: productionFile,
       errors: [{ message: uncheckableNameMessage }],
     },
