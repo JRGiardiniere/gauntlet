@@ -1,9 +1,11 @@
 import { defineRule } from "@oxlint/plugins"
 
-import { getPropertyName, isIdentifier, isTypeScriptFile } from "./utils.ts"
-
-const isTestFile = (filename: string): boolean =>
-  filename.endsWith(".test.ts")
+import {
+  getPropertyName,
+  isIdentifier,
+  isTestFile,
+  isTypeScriptFile,
+} from "./utils.ts"
 
 export const noFnUntracedOutsideTestsRule = defineRule({
   meta: {

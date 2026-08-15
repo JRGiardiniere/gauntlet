@@ -1,6 +1,6 @@
 import { defineRule } from "@oxlint/plugins"
 
-import { getPropertyName, isIdentifier, isTypeScriptFile } from "./utils.ts"
+import { getPropertyName, isIdentifier, isTestFile } from "./utils.ts"
 
 export const noSleepInTestsRule = defineRule({
   meta: {
@@ -15,9 +15,7 @@ export const noSleepInTestsRule = defineRule({
   },
   createOnce(context) {
     return {
-      before: () =>
-        isTypeScriptFile(context.filename)
-        && context.filename.endsWith(".test.ts"),
+      before: () => isTestFile(context.filename),
       MemberExpression(node) {
         if (
           isIdentifier(node.object, "Effect")
