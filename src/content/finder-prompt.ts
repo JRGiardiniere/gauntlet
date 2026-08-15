@@ -19,6 +19,10 @@ export { PromptAssemblyError }
 
 export const FINDER_TOOLS = ["read", "bash"] as const
 
+export const FINDER_PRELOAD_TURN = `## Finder context preload
+
+This is the setup turn named by the system contract. Do not analyze the change, call tools, or emit findings. Reply only with the short inert acknowledgment requested there.`
+
 export interface FinderPromptTemplates {
   readonly systemPrompt: string
   readonly sharedPromptTemplate: string
@@ -56,7 +60,7 @@ export const loadFinderPromptTemplates = Effect.fn(
 // lens tail diverges, so multiple finder invocations can share a provider
 // cache prefix without lens labels, run ids, or timestamps leaking ahead of
 // it. A Standard Finder never receives specification material (issue #73).
-export const assembleFinderPrompt = (
+export const assembleFinderContext = (
   template: string,
   target: ReviewTarget,
   reviewRoot: string,
@@ -84,11 +88,34 @@ export const assembleFinderPrompt = (
     if (lens.finderClass === "interpretive" && specification !== undefined) {
       sections.push(renderSpecificationSection(specification))
     }
-    sections.push(lens.promptText)
+    return sections.join("\n\n")
+  })
+
+export const assembleFinderAssignment = (lens: FrozenLens): string => {
+  const sections = [lens.promptText]
     if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
       sections.push(
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
       )
     }
-    return sections.join("\n\n")
-  })
+  return sections.join("\n\n")
+}
+
+export const assembleFinderPrompt = (
+  template: string,
+  target: ReviewTarget,
+  reviewRoot: string,
+  lens: FrozenLens,
+  specification: ReviewSpecification | undefined,
+): Effect.Effect<string, PromptAssemblyError> =>
+  assembleFinderContext(
+    template,
+    target,
+    reviewRoot,
+    lens,
+    specification,
+  ).pipe(
+    Effect.map((context) =>
+      `${context}\n\n${assembleFinderAssignment(lens)}`
+    ),
+  )

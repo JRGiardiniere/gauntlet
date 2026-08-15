@@ -9,7 +9,11 @@ import {
   type EmitToolArgs,
   InvocationSetupError,
 } from "./harness-session.ts"
-import { invoke, type InvokeInput } from "./invoke.ts"
+import {
+  invoke,
+  type InvokeInput,
+  preloadConversation,
+} from "./invoke.ts"
 import {
   EmitFindings,
   type FindingsOutput,
@@ -118,6 +122,24 @@ const runFailure = (
   })
 }
 
+const runPreload = (behavior: ScriptedBehavior) => {
+  const scripted = makeScripted(behavior)
+  return Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(
+      preloadConversation({
+        ...INPUT,
+        prompt: "shared finder context\n\n## Finder context preload",
+        cacheGroupId: "fixture-cache-group",
+      }).pipe(Effect.provide(scriptedLayer(scripted))),
+    )
+    const result = yield* advanceUntilComplete(
+      fiber,
+      INPUT.deadlines.overallMillis + INPUT.deadlines.startupMillis + 1,
+    )
+    return { result, scripted }
+  })
+}
+
 const cleanStop = (): ScriptedPrompt => ({
   events: [
     { afterMillis: 100, kind: "message_start" },
@@ -127,6 +149,89 @@ const cleanStop = (): ScriptedPrompt => ({
 })
 
 describe("invoke (scripted HarnessSession, TestClock)", () => {
+  it.effect("captures the actual preload acknowledgment as a replayable prefix", () =>
+    Effect.gen(function* () {
+      const { result, scripted } = yield* runPreload({
+        sessions: [
+          {
+            prompts: [
+              {
+                events: [
+                  { afterMillis: 100, kind: "message_start" },
+                  { afterMillis: 200, kind: "message_end", stopReason: "stop" },
+                ],
+                settles: "after-events",
+                assistantText: "Context loaded.",
+              },
+            ],
+          },
+        ],
+      })
+
+      expect(Termination.guards.Completed(result.outcome.termination)).toBe(true)
+      expect(result.outcome.output).toEqual({
+        acknowledgment: "Context loaded.",
+      })
+      expect(result.conversationPrefix?.assistantText).toBe("Context loaded.")
+      expect(scripted.configs[0]?.mode).toBe("preload")
+      expect(scripted.prefixes[0]?.userPrompt).toBe(
+        "shared finder context\n\n## Finder context preload",
+      )
+      expect(scripted.prefixes[0]?.prefix).toBe(result.conversationPrefix)
+    }))
+
+  it.effect("blocks every preload tool before workspace or emit execution", () =>
+    Effect.gen(function* () {
+      const { result, scripted } = yield* runPreload({
+        sessions: [
+          {
+            prompts: [
+              {
+                events: [
+                  { afterMillis: 100, kind: "message_start" },
+                  {
+                    afterMillis: 150,
+                    kind: "tool",
+                    toolName: "read",
+                    args: { path: "secret.txt" },
+                  },
+                  {
+                    afterMillis: 175,
+                    kind: "emit",
+                    args: GOOD_EMIT,
+                    valid: true,
+                  },
+                  {
+                    afterMillis: 200,
+                    kind: "message_end",
+                    stopReason: "toolUse",
+                  },
+                ],
+                settles: "after-events",
+                assistantText: "not reusable",
+              },
+            ],
+          },
+        ],
+      })
+
+      expect(Termination.guards.ProviderFailed(result.outcome.termination)).toBe(
+        true,
+      )
+      expect(result.outcome.output).toBeUndefined()
+      expect(result.conversationPrefix).toBeUndefined()
+      expect(scripted.inspections).toEqual([
+        expect.objectContaining({
+          toolName: "read",
+          isError: true,
+          text: "finder preload cannot call workspace tools",
+        }),
+      ])
+      expect(result.outcome.diagnostics.join(" ")).toContain(
+        "forbidden tool calls",
+      )
+    }))
+
   it.effect("retries one first-response stall in a fresh session", () =>
     Effect.gen(function* () {
       const { outcome, scripted } = yield* run({

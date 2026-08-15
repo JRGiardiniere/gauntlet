@@ -6,6 +6,7 @@ import {
   ModelRuntime,
   resolveCliModel,
   SessionManager,
+  type SessionMessageEntry,
   SettingsManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
@@ -22,6 +23,7 @@ import {
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
+  type ReplayableConversationPrefix,
   type SessionConfig,
   StopReason,
   UsageRow,
@@ -176,12 +178,54 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   }
 }
 
+type PiUserMessage = Extract<SessionMessageEntry["message"], { role: "user" }>
+type PiAssistantMessage = Extract<
+  SessionMessageEntry["message"],
+  { role: "assistant" }
+>
+
+interface PiConversationPrefix {
+  readonly user: PiUserMessage
+  readonly assistant: PiAssistantMessage
+}
+
+const assistantText = (message: PiAssistantMessage): string =>
+  message.content.flatMap((content) =>
+    content.type === "text" ? [content.text] : []
+  ).join("")
+
+const capturePiConversationPrefix = (
+  sessionManager: SessionManager,
+  prefixes: Map<symbol, PiConversationPrefix>,
+): ReplayableConversationPrefix | undefined => {
+  const entries = sessionManager.getEntries().filter(
+    (entry): entry is SessionMessageEntry => entry.type === "message",
+  )
+  const user = entries.at(-2)?.message
+  const assistant = entries.at(-1)?.message
+  if (user?.role !== "user" || assistant?.role !== "assistant") {
+    return undefined
+  }
+  const text = assistantText(assistant)
+  if (text.trim() === "") return undefined
+  const id = Symbol("pi-conversation-prefix")
+  prefixes.set(id, { user, assistant })
+  return { id, assistantText: text }
+}
+
+const blockPreloadTool = (tool: ToolDefinition): ToolDefinition => ({
+  ...tool,
+  execute: () =>
+    Promise.reject(new Error("finder preload cannot execute tools")),
+})
+
 export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
   // pay N full initializations. A failed create is evicted rather than
   // cached, so a transient failure never poisons later opens.
   let runtimePromise: ReturnType<typeof ModelRuntime.create> | undefined
+  const conversationPrefixes = new Map<symbol, PiConversationPrefix>()
   const sharedModelRuntime = () => {
     if (runtimePromise === undefined) {
       const created = ModelRuntime.create()
@@ -246,6 +290,19 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
           yield* Effect.logWarning(
             `model resolution warning: ${resolved.warning}`,
           )
+        }
+
+        const replayPrefix = session.conversationPrefix === undefined
+          ? undefined
+          : conversationPrefixes.get(session.conversationPrefix.id)
+        if (
+          session.conversationPrefix !== undefined && replayPrefix === undefined
+        ) {
+          return yield* new InvocationSetupError({
+            operation: "validate-config",
+            reason:
+              "conversation prefix was not captured by this harness factory",
+          })
         }
 
         return yield* Effect.tryPromise({
@@ -345,10 +402,14 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
 
             const sessionManager = SessionManager.inMemory(
               session.cwd,
-              session.sessionId === undefined
+              session.cacheGroupId === undefined
                 ? undefined
-                : { id: session.sessionId },
+                : { id: session.cacheGroupId },
             )
+            if (replayPrefix !== undefined) {
+              sessionManager.appendMessage(replayPrefix.user)
+              sessionManager.appendMessage(replayPrefix.assistant)
+            }
             // Every definition is already the non-generic `ToolDefinition`:
             // ReviewWorkspace exposes the erasure, and withToolCallDeadline
             // preserves it. The SDK's customTools option accepts the same
@@ -367,7 +428,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // The allowlist is HARD (#4 §5): a custom tool absent from it
               // is dropped before the model ever sees it.
               tools: [...session.tools, session.emitTool.name],
-              customTools,
+              customTools:
+                session.mode === "preload"
+                  ? customTools.map(blockPreloadTool)
+                  : customTools,
               resourceLoader,
               sessionManager,
               settingsManager,
@@ -397,6 +461,11 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                   expandPromptTemplates: false,
                   source: "rpc",
                 }),
+              captureConversationPrefix: () =>
+                capturePiConversationPrefix(
+                  sessionManager,
+                  conversationPrefixes,
+                ),
               abort: () => agentSession.abort(),
               dispose: () => {
                 agentSession.dispose()

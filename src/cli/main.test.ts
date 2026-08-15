@@ -31,6 +31,7 @@ import {
   InvocationArtifact,
   InvocationJournalCheckpoint,
 } from "../run/invocation-journal.ts"
+import { FinderCacheSettle } from "../run/review-executor.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
@@ -169,10 +170,11 @@ type EmittedOutput =
   | JudgmentsOutput
 
 // The BugClaim and Judgment paths execute concurrently, so their sessions
-// are keyed by session-id suffix instead of relying on open order.
+// are keyed by cache-group suffix instead of relying on open order.
 const emittingSession = (
   output: EmittedOutput,
   forSession?: string,
+  usage = usageRow(),
 ): ScriptedSession => {
   const prompts: Array<ScriptedPrompt> = [
     {
@@ -188,14 +190,14 @@ const emittingSession = (
           afterMillis: 0,
           kind: "message_end",
           stopReason: "toolUse",
-          usage: usageRow(),
+          usage,
         },
       ],
       settles: "after-events",
     },
   ]
   // An unkeyed session is claimed in open order; a keyed one is claimed by
-  // matching the invocation's session-id suffix, so `forSession` is added to
+  // matching the invocation's cache-group suffix, so `forSession` is added to
   // the session object only when present.
   return forSession === undefined
     ? { prompts }
@@ -233,7 +235,27 @@ const JUDGMENT_OUTPUT = {
 const successfulSession = (
   output: FindingsOutput = FINDER_OUTPUT,
   forSession?: string,
-): ScriptedSession => emittingSession(output, forSession)
+  usage = usageRow(),
+): ScriptedSession => emittingSession(output, forSession, usage)
+
+const successfulPreloadSession = (forSession: string): ScriptedSession => ({
+  forSession,
+  prompts: [
+    {
+      events: [
+        { afterMillis: 0, kind: "message_start" },
+        {
+          afterMillis: 0,
+          kind: "message_end",
+          stopReason: "stop",
+          usage: usageRow(),
+        },
+      ],
+      settles: "after-events",
+      assistantText: "Context loaded.",
+    },
+  ],
+})
 
 const successfulVerifierSession = (): ScriptedSession =>
   emittingSession(VERIFIER_OUTPUT, "-verification")
@@ -242,15 +264,15 @@ const successfulJudgmentSession = (): ScriptedSession =>
   emittingSession(JUDGMENT_OUTPUT, "-judgment")
 
 // Concurrent sessions interleave their prompt calls, so prompts are asserted
-// by the session id they were recorded against, never by global order.
+// by the cache group they were recorded against, never by global order.
 const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
   scripted.prompts
-    .filter(({ sessionId }) => sessionId?.includes(suffix) ?? false)
+    .filter(({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false)
     .map(({ text }) => text)
 
 const inspectionsFor = (scripted: Scripted, suffix: string) =>
   scripted.inspections.filter(
-    ({ sessionId }) => sessionId?.includes(suffix) ?? false,
+    ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
   )
 
 const confinedSession = (
@@ -314,6 +336,7 @@ const runCommand = (
   effect: runGauntlet(argv).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
     Effect.provideService(ContentDirectory, fixture.content),
+    Effect.provideService(FinderCacheSettle, Effect.void),
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
@@ -568,6 +591,12 @@ describe("gauntlet review", () => {
       )
 
       expect(yield* run.effect).toBe(0)
+      expect(run.scripted.configs.map((config) => config.mode)).toEqual([
+        "invocation",
+        "invocation",
+        "invocation",
+      ])
+      expect(run.scripted.prefixes).toHaveLength(0)
 
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
       const runDir = path.join(fixture.runsRoot, runId)
@@ -696,6 +725,222 @@ describe("gauntlet review", () => {
       expect(stderr).toContain("gauntlet: skipping Pool (0 BugClaims)")
       expect(stderr).toContain("gauntlet: skipping Verification (0 BugClaims)")
       expect(stderr).toContain("gauntlet: skipping Judgment (0 Observations)")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("preloads each Seat/context partition once and replays the captured prefix to cache-miss followers", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-standard-two.md"),
+        "fixture standard two tail",
+      )
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-interpretive-one.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive one tail\n",
+      )
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-interpretive-two.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive two tail\n",
+      )
+      const specNeedle = "SPECIFICATION-NEEDLE: preserve stable ordering"
+      const specPath = path.join(fixture.home, "issue-79.md")
+      yield* fs.writeFileString(specPath, `${specNeedle}\n`)
+      const cacheMiss = usageRow({ cacheRead: 0, cacheWrite: 0 })
+      const scripted = makeScripted({
+        sessions: [
+          successfulPreloadSession("-finders-1"),
+          successfulSession({ findings: [] }, "-finders-1", cacheMiss),
+          successfulSession({ findings: [] }, "-finders-1", cacheMiss),
+          successfulPreloadSession("-finders-2"),
+          successfulSession({ findings: [] }, "-finders-2", cacheMiss),
+          successfulSession({ findings: [] }, "-finders-2", cacheMiss),
+        ],
+      })
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--lenses",
+          "fixture-review,fixture-standard-two,fixture-interpretive-one,fixture-interpretive-two",
+          "--spec",
+          specPath,
+        ],
+        scripted,
+      )
+      expect(yield* run.effect).toBe(0)
+
+      expect(scripted.prefixes).toHaveLength(2)
+      for (const suffix of ["-finders-1", "-finders-2"]) {
+        const groupConfigs = scripted.configs.filter(
+          ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
+        )
+        const preload = groupConfigs.find(({ mode }) => mode === "preload")
+        const followers = groupConfigs.filter(({ mode }) => mode === "invocation")
+        expect(preload).toBeDefined()
+        expect(followers).toHaveLength(2)
+        const captured = scripted.prefixes.find(
+          ({ prefix }) => prefix === followers[0]?.conversationPrefix,
+        )
+        expect(captured?.assistantText).toBe("Context loaded.")
+        for (const follower of followers) {
+          expect(follower.conversationPrefix).toBe(captured?.prefix)
+          expect(follower.systemPrompt).toBe(preload?.systemPrompt)
+          expect(follower.tools).toEqual(preload?.tools)
+          expect(follower.emitTool).toMatchObject({
+            name: preload?.emitTool.name,
+            description: preload?.emitTool.description,
+            parameters: preload?.emitTool.parameters,
+          })
+        }
+      }
+
+      const groupedPrompts = ["-finders-1", "-finders-2"].map((suffix) =>
+        scripted.prompts.filter(
+          ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
+        )
+      )
+      const standardPreload = groupedPrompts[0]?.find(
+        ({ openIndex }) => scripted.configs[openIndex - 1]?.mode === "preload",
+      )?.text ?? ""
+      const interpretivePreload = groupedPrompts[1]?.find(
+        ({ openIndex }) => scripted.configs[openIndex - 1]?.mode === "preload",
+      )?.text ?? ""
+      expect(standardPreload).toContain("shared start")
+      expect(standardPreload).not.toContain(specNeedle)
+      expect(standardPreload).toMatch(/## Finder context preload[\s\S]*$/)
+      expect(interpretivePreload).toContain(specNeedle)
+      expect(interpretivePreload).toMatch(/## Finder context preload[\s\S]*$/)
+      const followerPrompts = groupedPrompts.flatMap((prompts) =>
+        prompts.filter(
+          ({ openIndex }) => scripted.configs[openIndex - 1]?.mode === "invocation",
+        ).map(({ text }) => text)
+      )
+      expect(followerPrompts.sort()).toEqual([
+        "fixture interpretive one tail",
+        "fixture interpretive two tail",
+        "fixture lens tail",
+        "fixture standard two tail",
+      ])
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const journals = yield* fs.readDirectory(
+        path.join(fixture.runsRoot, runId, "journal"),
+      )
+      expect(journals.sort()).toEqual([
+        "finder-fixture-interpretive-one.json",
+        "finder-fixture-interpretive-two.json",
+        "finder-fixture-review.json",
+        "finder-fixture-standard-two.json",
+        "finder-preload-1-1.json",
+        "finder-preload-2-1.json",
+      ])
+      const dossier = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "dossier.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.coverageGaps).toEqual([])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reuses completed Finders on resume and freshly preloads the unfinished partition", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-resume-two.md"),
+        "fixture resume two tail\n",
+      )
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-resume-three.md"),
+        "fixture resume three tail\n",
+      )
+
+      const journaled = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        [
+          "review",
+          "--lenses",
+          "fixture-review,fixture-resume-two,fixture-resume-three",
+        ],
+        makeScripted({
+          sessions: [
+            successfulPreloadSession("-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+            {
+              forSession: "-finders-1",
+              prompts: [{ events: [], settles: "never" }],
+              abortBehavior: "hangs",
+            },
+            {
+              forSession: "-finders-1",
+              prompts: [{ events: [], settles: "never" }],
+              abortBehavior: "hangs",
+            },
+          ],
+        }),
+      )
+      const firstFiber = yield* first.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (runId, invocationKey) =>
+            invocationKey === "finder-fixture-review"
+              ? Deferred.succeed(journaled, runId).pipe(
+                  Effect.andThen(Effect.never),
+                )
+              : Effect.void,
+        ),
+        Effect.forkChild,
+      )
+      const runId = yield* Deferred.await(journaled)
+      yield* Fiber.interrupt(firstFiber)
+      expect(
+        yield* fs.exists(
+          path.join(
+            fixture.runsRoot,
+            runId,
+            "journal",
+            "finder-fixture-review.json",
+          ),
+        ),
+      ).toBe(true)
+
+      const resumed = resume(
+        fixture,
+        runId,
+        makeScripted({
+          sessions: [
+            successfulPreloadSession("-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+          ],
+        }),
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(resumed.scripted.configs.map(({ mode }) => mode).sort()).toEqual([
+        "invocation",
+        "invocation",
+        "preload",
+      ])
+      expect(resumed.scripted.prefixes).toHaveLength(1)
+      const followerPrefixes = resumed.scripted.configs.flatMap((config) =>
+        config.mode === "invocation" && config.conversationPrefix !== undefined
+          ? [config.conversationPrefix]
+          : [],
+      )
+      expect(followerPrefixes).toHaveLength(2)
+      expect(followerPrefixes[0]).toBe(followerPrefixes[1])
+      const journals = yield* fs.readDirectory(
+        path.join(fixture.runsRoot, runId, "journal"),
+      )
+      expect(journals).toContain("finder-preload-1-1.json")
+      expect(journals).toContain("finder-preload-1-2.json")
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "reusing finder fixture-review from journal",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>

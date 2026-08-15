@@ -31,7 +31,10 @@ and lens files, no plumbing. The companion specifications live in
   fence longer than any backtick run in the diff. The assembled finder prompt
   is system prompt + shared block + ReviewSpecification section (interpretive
   finders only, when the plan froze one) + lens tail (+ cap override, when
-  applicable) — see the cache-prefix invariant in `docs/spec/pipeline-shape.md`.
+  applicable). Multi-Finder partitions carry the shared portion in a preload
+  turn, replay its actual acknowledgment, then append only this Lens tail as
+  the follower turn; singletons keep the one-turn assembled prompt. See the
+  cache-prefix invariant in `docs/spec/pipeline-shape.md`.
 - `stage-scope-block.md`: shared by verifier and judge. `{{DIFF_SECTION}}` is
   either the inline fenced diff or a pointer to the diff file stored with the
   plan (ADR 0006 stores it exactly once). When the plan froze a

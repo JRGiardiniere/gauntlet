@@ -1,10 +1,12 @@
 import * as Array from "effect/Array"
 import * as Console from "effect/Console"
+import * as Context from "effect/Context"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as HashMap from "effect/HashMap"
 import * as Logger from "effect/Logger"
+import * as Option from "effect/Option"
 import * as Record from "effect/Record"
 import * as Result from "effect/Result"
 import { assembleDossier } from "../assembly/dossier.ts"
@@ -14,15 +16,26 @@ import {
   routeFinderResults,
 } from "../assembly/finders.ts"
 import {
+  assembleFinderAssignment,
+  assembleFinderContext,
   assembleFinderPrompt,
+  FINDER_PRELOAD_TURN,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
 } from "../content/finder-prompt.ts"
 import { Dossier } from "../domain/dossier.ts"
-import { modelIdentityOfSeat } from "../domain/recipe.ts"
+import type { AgentOutcome } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { invoke } from "../harness/invoke.ts"
-import { EmitFindings } from "../harness/output-contract.ts"
+import {
+  invoke,
+  PreloadOutput,
+  preloadConversation,
+} from "../harness/invoke.ts"
+import type { ReplayableConversationPrefix } from "../harness/harness-session.ts"
+import {
+  EmitFindings,
+  type FindingsOutput,
+} from "../harness/output-contract.ts"
 import { renderDigest } from "../render/digest.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
@@ -30,6 +43,9 @@ import { executeBugClaimPath } from "./bug-claim-path.ts"
 import {
   executeJournaledInvocation,
   finderInvocationsInPlan,
+  nextJournalInvocationKey,
+  readJournaledInvocation,
+  writeInvocationJournal,
 } from "./invocation-journal.ts"
 import {
   counted,
@@ -43,10 +59,26 @@ import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
-// Pi uses the shared session id as its provider cache partition. Each model
-// group completes one real finder before its siblings fan out, then gives the
-// provider's prefix cache a short settle window (research/pi-harness-surface).
+// Cache delivery is provider best-effort. Scheduling depends only on the
+// frozen Seat and exact shared-context shape; adapters may map cacheGroupId to
+// a native cache/session key without leaking provider logic up here.
 const CACHE_SETTLE_MILLIS = 1_500
+
+export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
+  "gauntlet/FinderCacheSettle",
+  {
+    defaultValue: () => Effect.sleep(Duration.millis(CACHE_SETTLE_MILLIS)),
+  },
+)
+
+const finderContextKind = (
+  plan: ReviewPlan,
+  invocation: ReturnType<typeof finderInvocationsInPlan>[number],
+): "standard" | "interpretive-with-review-specification" =>
+  invocation.lens.finderClass === "interpretive" &&
+    plan.specification !== undefined
+    ? "interpretive-with-review-specification"
+    : "standard"
 
 const progress = Effect.fn("gauntlet.run_executor.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -78,38 +110,50 @@ export const executeReviewPlan = Effect.fn(
           "gauntlet.run_executor.execute_finder",
         )(function* (
           invocation: (typeof invocations)[number],
-          sessionId: string,
+          cacheGroupId: string,
+          stored: AgentOutcome<FindingsOutput> | undefined,
+          conversationPrefix: ReplayableConversationPrefix | undefined,
         ) {
-          const journaled = yield* executeJournaledInvocation({
-            journalDirectory: paths.journalDirectory,
-            runId: plan.runId,
-            invocationKey: invocation.invocationKey,
-            output: EmitFindings.schema,
-            execute: Effect.gen(function* () {
-              const promptTemplates = yield* templates
-              // The prompt shows the stable virtual root the tools expose;
-              // cwd carries the host snapshot path the overlay mounts on.
-              const prompt = yield* assembleFinderPrompt(
-                promptTemplates.sharedPromptTemplate,
-                plan.target,
-                REVIEW_WORKSPACE_ROOT,
-                invocation.lens,
-                plan.specification,
-              )
-              yield* progress(`invoking finder ${invocation.lens.name}`)
-              const outcome = yield* invoke({
-                seat: invocation.seat,
-                cwd: reviewWorkingDirectory,
-                systemPrompt: promptTemplates.systemPrompt,
-                prompt,
-                sessionId,
-                contract: EmitFindings,
-                tools: FINDER_TOOLS,
-                deadlines: REVIEW_INVOCATION_DEADLINES,
+          const journaled = stored === undefined
+            ? yield* executeJournaledInvocation({
+                journalDirectory: paths.journalDirectory,
+                runId: plan.runId,
+                invocationKey: invocation.invocationKey,
+                output: EmitFindings.schema,
+                execute: Effect.gen(function* () {
+                  const promptTemplates = yield* templates
+                  // A warmed follower appends only its assignment to the
+                  // captured shared conversation. A singleton or degraded
+                  // preload receives the same complete prompt as before.
+                  const prompt = conversationPrefix === undefined
+                    ? yield* assembleFinderPrompt(
+                        promptTemplates.sharedPromptTemplate,
+                        plan.target,
+                        REVIEW_WORKSPACE_ROOT,
+                        invocation.lens,
+                        plan.specification,
+                      )
+                    : assembleFinderAssignment(invocation.lens)
+                  yield* progress(`invoking finder ${invocation.lens.name}`)
+                  const invokeInput = {
+                    seat: invocation.seat,
+                    cwd: reviewWorkingDirectory,
+                    systemPrompt: promptTemplates.systemPrompt,
+                    prompt,
+                    cacheGroupId,
+                    contract: EmitFindings,
+                    tools: FINDER_TOOLS,
+                    deadlines: REVIEW_INVOCATION_DEADLINES,
+                  }
+                  const outcome = yield* invoke(
+                    conversationPrefix === undefined
+                      ? invokeInput
+                      : { ...invokeInput, conversationPrefix },
+                  )
+                  return enforceCandidateCap(invocation.lens, outcome)
+                }),
               })
-              return enforceCandidateCap(invocation.lens, outcome)
-            }),
-          })
+            : { outcome: stored, reused: true as const }
           const outcome = journaled.reused
             ? enforceCandidateCap(invocation.lens, journaled.outcome)
             : journaled.outcome
@@ -137,59 +181,149 @@ export const executeReviewPlan = Effect.fn(
 
         const executePartition = (
           groupedInvocations: ReadonlyArray<(typeof invocations)[number]>,
-          sessionId: string,
+          cacheGroupId: string,
+          storedByKey: HashMap.HashMap<string, AgentOutcome<FindingsOutput>>,
+          conversationPrefix: ReplayableConversationPrefix | undefined,
         ) =>
           Effect.partition(
             groupedInvocations,
             (invocation) =>
-              executeFinder(invocation, sessionId).pipe(
+              executeFinder(
+                invocation,
+                cacheGroupId,
+                Option.getOrUndefined(
+                  HashMap.get(storedByKey, invocation.invocationKey),
+                ),
+                conversationPrefix,
+              ).pipe(
                 Effect.mapError((error) => ({ invocation, error })),
               ),
             { concurrency: "unbounded" },
           )
 
         const groups = Record.values(
-          Array.groupBy(invocations, (invocation) =>
-            modelIdentityOfSeat(invocation.seat)),
+          Array.groupBy(
+            invocations,
+            (invocation) =>
+              `${invocation.seat}\u0000${finderContextKind(plan, invocation)}`,
+          ),
         )
         const findersStartedAt = yield* DateTime.now
         const groupResults = yield* Effect.forEach(
           groups,
           (group, groupIndex) =>
             Effect.gen(function* () {
-              const sessionId =
+              const cacheGroupId =
                 `${plan.runId}-finders-${String(groupIndex + 1)}`
-              const failed = []
-              const completed = []
-              let cursor = 0
-              let warmed = false
+              let preloadOutcome: AgentOutcome<PreloadOutput> | undefined
+              const storedEntries = yield* Effect.forEach(
+                group,
+                (invocation) =>
+                  readJournaledInvocation({
+                    journalDirectory: paths.journalDirectory,
+                    runId: plan.runId,
+                    invocationKey: invocation.invocationKey,
+                    output: EmitFindings.schema,
+                  }).pipe(
+                    Effect.map((stored) => ({ invocation, stored })),
+                  ),
+              )
+              const storedByKey = HashMap.fromIterable(
+                storedEntries.flatMap(({ invocation, stored }) =>
+                  Option.isSome(stored)
+                    ? [[invocation.invocationKey, stored.value] as const]
+                    : []
+                ),
+              )
+              const unfinished = storedEntries.flatMap(
+                ({ invocation, stored }) =>
+                  Option.isNone(stored) ? [invocation] : [],
+              )
+              let conversationPrefix: ReplayableConversationPrefix | undefined
 
-              // On resume, leading journal hits are free and do not warm the
-              // provider cache in this process. The first missing invocation
-              // is therefore the warmup; a setup failure does not prevent the
-              // next sibling from trying to establish the prefix.
-              for (const invocation of group) {
-                if (warmed) break
-                const [invocationFailures, invocationResults] =
-                  yield* executePartition([invocation], sessionId)
-                failed.push(...invocationFailures)
-                completed.push(...invocationResults)
-                cursor += 1
-                warmed = invocationResults.some((result) => !result.reused)
+              if (unfinished.length > 1) {
+                const first = unfinished[0]
+                if (first === undefined) {
+                  return yield* new RunError({
+                    operation: "execute-plan",
+                    runId: plan.runId,
+                    reason: "finder preload partition lost its first invocation",
+                  })
+                }
+                const promptTemplates = yield* templates
+                const context = yield* assembleFinderContext(
+                  promptTemplates.sharedPromptTemplate,
+                  plan.target,
+                  REVIEW_WORKSPACE_ROOT,
+                  first.lens,
+                  plan.specification,
+                )
+                yield* progress(
+                  `invoking finder preload (${String(unfinished.length)} followers)`,
+                )
+                const attempted = yield* preloadConversation({
+                  seat: first.seat,
+                  cwd: reviewWorkingDirectory,
+                  systemPrompt: promptTemplates.systemPrompt,
+                  prompt: `${context}\n\n${FINDER_PRELOAD_TURN}`,
+                  cacheGroupId,
+                  contract: EmitFindings,
+                  tools: FINDER_TOOLS,
+                  deadlines: REVIEW_INVOCATION_DEADLINES,
+                }).pipe(
+                  Effect.match({
+                    onFailure: (error) => ({ error } as const),
+                    onSuccess: (result) => ({ result } as const),
+                  }),
+                )
+                if ("error" in attempted) {
+                  yield* Effect.logWarning("finder preload unavailable", {
+                    cacheGroupId,
+                    reason: attempted.error.reason,
+                  })
+                  yield* progress(
+                    `finder preload unavailable — ${attempted.error.reason}`,
+                  )
+                } else {
+                  preloadOutcome = attempted.result.outcome
+                  const preloadInvocationKey =
+                    yield* nextJournalInvocationKey(
+                      paths.journalDirectory,
+                      `finder-preload-${String(groupIndex + 1)}`,
+                    )
+                  yield* writeInvocationJournal(
+                    {
+                      journalDirectory: paths.journalDirectory,
+                      runId: plan.runId,
+                      invocationKey: preloadInvocationKey,
+                      output: PreloadOutput,
+                    },
+                    attempted.result.outcome,
+                  )
+                  conversationPrefix = attempted.result.conversationPrefix
+                  if (conversationPrefix !== undefined) {
+                    yield* (yield* FinderCacheSettle)
+                  }
+                }
               }
 
-              const followers = Array.drop(group, cursor)
-              if (warmed && followers.length > 0) {
-                yield* Effect.sleep(Duration.millis(CACHE_SETTLE_MILLIS))
-              }
-              const [followerFailures, followerResults] =
-                yield* executePartition(followers, sessionId)
+              const [failed, completed] = yield* executePartition(
+                group,
+                cacheGroupId,
+                storedByKey,
+                conversationPrefix,
+              )
               return {
-                failed: [...failed, ...followerFailures],
-                completed: [...completed, ...followerResults],
+                failed,
+                completed,
+                preloadOutcome,
               }
             }),
           { concurrency: "unbounded" },
+        )
+
+        const preloadOutcomes = groupResults.flatMap((result) =>
+          result.preloadOutcome === undefined ? [] : [result.preloadOutcome]
         )
 
         const failures = groupResults.flatMap((result) => result.failed)
@@ -261,10 +395,14 @@ export const executeReviewPlan = Effect.fn(
         const accounting = {
           costUsd: results.reduce(
             (total, result) => total + result.outcome.usage.costUsd,
-            0,
+            preloadOutcomes.reduce(
+              (total, outcome) => total + outcome.usage.costUsd,
+              0,
+            ),
           ) + bugClaimPath.costUsd + judgmentPath.costUsd,
           invocationCount:
             invocations.length +
+            preloadOutcomes.length +
             bugClaimPath.invocationCount +
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),

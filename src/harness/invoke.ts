@@ -23,6 +23,7 @@ import {
   HarnessSessionFactory,
   type InvocationFailure,
   InvocationSetupError,
+  type ReplayableConversationPrefix,
   type StopReason,
   UsageRow,
 } from "./harness-session.ts"
@@ -44,13 +45,30 @@ export interface InvokeInput<O> {
   readonly cwd: string
   readonly systemPrompt: string
   readonly prompt: string
-  readonly sessionId?: string
+  readonly cacheGroupId?: string
+  readonly conversationPrefix?: ReplayableConversationPrefix
   readonly contract: OutputContract<O>
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly deadlines: InvocationDeadlines
   // Explicit cancellation provenance. Ordinary fiber interruption remains
   // interruption; it is not relabeled as an AgentOutcome.
   readonly signal?: AbortSignal
+}
+
+export const PreloadOutput = Schema.Struct({
+  acknowledgment: Schema.NonEmptyString,
+})
+export interface PreloadOutput
+  extends Schema.Schema.Type<typeof PreloadOutput> {}
+
+export type PreloadInput<O> = Omit<
+  InvokeInput<O>,
+  "conversationPrefix"
+>
+
+export interface PreloadResult {
+  readonly outcome: AgentOutcome<PreloadOutput>
+  readonly conversationPrefix?: ReplayableConversationPrefix
 }
 
 interface TerminalEvidence {
@@ -65,6 +83,7 @@ interface CaptureCommon {
   readonly usageSweepError: string | undefined
   readonly violations: ReadonlyArray<string>
   readonly diagnostics: ReadonlyArray<string>
+  readonly toolCallCount: number
 }
 
 type CaptureState = Data.TaggedEnum<{
@@ -145,7 +164,11 @@ const reduceCapture = (
           })
         }
         case "tool_execution_start": {
-          const active = { ...common, acceptedActivity: true }
+          const active = {
+            ...common,
+            acceptedActivity: true,
+            toolCallCount: common.toolCallCount + 1,
+          }
           if (event.toolName !== fact.emitToolName) {
             return withCommon(state, active)
           }
@@ -223,6 +246,7 @@ const makeCaptureAccumulator = (): CaptureAccumulator => {
     usageSweepError: undefined,
     violations: [],
     diagnostics: [],
+    toolCallCount: 0,
   })
   return {
     dispatch: (fact) => {
@@ -263,7 +287,11 @@ const bestEffortDispose = (
 
 const openCapturedSession = Effect.fn(
   "gauntlet.invocation.open_captured_session",
-)(function* <O>(input: InvokeInput<O>, capture: CaptureAccumulator) {
+)(function* <O>(
+  input: InvokeInput<O>,
+  capture: CaptureAccumulator,
+  mode: "invocation" | "preload" = "invocation",
+) {
   const factory = yield* HarnessSessionFactory
   const openConfig = {
     seat: input.seat,
@@ -279,13 +307,19 @@ const openCapturedSession = Effect.fn(
     tools: input.tools,
     toolTimeoutMillis: input.deadlines.toolMillis,
     bashTimeoutMillis: input.deadlines.bashMillis,
+    mode,
   }
+  const cacheConfigured = input.cacheGroupId === undefined
+    ? openConfig
+    : { ...openConfig, cacheGroupId: input.cacheGroupId }
+  const sessionConfig = input.conversationPrefix === undefined
+    ? cacheConfigured
+    : {
+        ...cacheConfigured,
+        conversationPrefix: input.conversationPrefix,
+      }
   const session = yield* Effect.acquireRelease(
-    factory.open(
-      input.sessionId === undefined
-        ? openConfig
-        : { ...openConfig, sessionId: input.sessionId },
-    ),
+    factory.open(sessionConfig),
     (opened) =>
       Effect.sync(() => {
         try {
@@ -807,4 +841,260 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
     diagnostics,
     Math.max(0, finishedAt - startedAt),
   )
+})
+
+interface PreloadAttempt {
+  readonly termination: TerminationType
+  readonly conversationPrefix?: ReplayableConversationPrefix
+}
+
+const runPreloadAttempt = Effect.fn(
+  "gauntlet.invocation.run_preload_attempt",
+)(function* <O>(
+  input: PreloadInput<O>,
+  capture: CaptureAccumulator,
+  currentSession: CurrentSession,
+) {
+  const opened = yield* openCapturedSession(input, capture, "preload").pipe(
+    Effect.timeoutOption(Duration.millis(input.deadlines.startupMillis)),
+  )
+  if (Option.isNone(opened)) {
+    capture.dispatch({
+      type: "diagnostic",
+      message: `session construction exceeded ${String(input.deadlines.startupMillis)}ms`,
+    })
+    return {
+      termination: Termination.cases.FirstResponseTimeout.make({}),
+    } satisfies PreloadAttempt
+  }
+
+  const { session, events } = opened.value
+  currentSession.value = session
+  const ending = yield* runPrompt(
+    session,
+    events,
+    input.prompt,
+    input.deadlines.firstResponseMillis,
+    capture,
+  )
+  if (ending.type === "first-response-timeout") {
+    return {
+      termination: Termination.cases.FirstResponseTimeout.make({}),
+    } satisfies PreloadAttempt
+  }
+
+  const common = commonOf(capture.snapshot())
+  if (ending.rejection !== undefined) {
+    if (common.violations.length > 0) {
+      return yield* new AdapterContractViolation({
+        reason: common.violations.join("; "),
+      })
+    }
+    if (common.acceptedActivity) {
+      return yield* new AdapterContractViolation({
+        reason: `preload prompt rejected after accepted session activity: ${ending.rejection}`,
+      })
+    }
+    return yield* new InvocationSetupError({
+      operation: "prompt",
+      reason: ending.rejection,
+    })
+  }
+  if (common.terminal === undefined) {
+    return yield* new AdapterContractViolation({
+      reason: "preload prompt settled without terminal assistant evidence",
+    })
+  }
+  if (common.toolCallCount > 0) {
+    capture.dispatch({
+      type: "diagnostic",
+      message: `preload attempted ${String(common.toolCallCount)} forbidden tool call${common.toolCallCount === 1 ? "" : "s"}; no prefix was reused`,
+    })
+    return {
+      termination: Termination.cases.ProviderFailed.make({}),
+    } satisfies PreloadAttempt
+  }
+
+  switch (common.terminal.stopReason) {
+    case "stop": {
+      const conversationPrefix = session.captureConversationPrefix()
+      if (conversationPrefix === undefined) {
+        return yield* new AdapterContractViolation({
+          reason: "preload completed without a replayable assistant response",
+        })
+      }
+      return {
+        termination: Termination.cases.Completed.make({}),
+        conversationPrefix,
+      } satisfies PreloadAttempt
+    }
+    case "length": {
+      return {
+        termination: Termination.cases.ContextLimit.make({}),
+      } satisfies PreloadAttempt
+    }
+    case "error": {
+      capture.dispatch({
+        type: "diagnostic",
+        message: `provider failed${common.terminal.errorMessage === undefined ? "" : `: ${common.terminal.errorMessage}`}`,
+      })
+      return {
+        termination: Termination.cases.ProviderFailed.make({}),
+      } satisfies PreloadAttempt
+    }
+    case "toolUse": {
+      capture.dispatch({
+        type: "diagnostic",
+        message: "preload stopped for tool use without a captured tool event; no prefix was reused",
+      })
+      return {
+        termination: Termination.cases.ProviderFailed.make({}),
+      } satisfies PreloadAttempt
+    }
+    case "pending":
+    case "deferred":
+    case "aborted": {
+      return yield* new AdapterContractViolation({
+        reason: `preload prompt settled with uncaused stop reason ${common.terminal.stopReason}`,
+      })
+    }
+  }
+})
+
+const finalizePreloadOutcome = (
+  termination: TerminationType,
+  conversationPrefix: ReplayableConversationPrefix | undefined,
+  captures: ReadonlyArray<CaptureAccumulator>,
+  globalDiagnostics: ReadonlyArray<string>,
+  durationMillis: number,
+): Effect.Effect<AgentOutcome<PreloadOutput>, AdapterContractViolation> =>
+  Effect.gen(function* () {
+    const states = captures.map((capture) => capture.snapshot())
+    const diagnostics = [
+      ...globalDiagnostics,
+      ...states.flatMap((state) => commonOf(state).diagnostics),
+    ]
+    const usage = yield* usageFrom(states)
+    const outcome = {
+      termination,
+      usage,
+      durationMillis,
+      diagnostics,
+    }
+    return conversationPrefix === undefined
+      ? outcome
+      : {
+          ...outcome,
+          output: { acknowledgment: conversationPrefix.assistantText },
+        }
+  })
+
+// A preload is a real, bounded, metered AgentInvocation whose only successful
+// product is an adapter-owned replay token. It never performs corrective turns:
+// setup prose is the requested terminal response, and any tool use invalidates
+// the prefix without changing the Finder work that follows.
+export const preloadConversation = Effect.fn(
+  "gauntlet.invocation.preload_conversation",
+)(function* <O>(input: PreloadInput<O>): Effect.fn.Return<
+  PreloadResult,
+  InvocationFailure,
+  HarnessSessionFactory
+> {
+  yield* validateInput(input)
+  const startedAt = yield* Clock.currentTimeMillis
+  const absoluteDeadline = startedAt + input.deadlines.overallMillis
+  const captures: Array<CaptureAccumulator> = []
+  const diagnostics: Array<string> = []
+  const currentSession: CurrentSession = { value: undefined }
+
+  const runOne = (attempt: number) => {
+    const capture = makeCaptureAccumulator()
+    captures.push(capture)
+    return Effect.scoped(
+      runPreloadAttempt(input, capture, currentSession),
+    ).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          currentSession.value = undefined
+        }),
+      ),
+      Effect.tap(() =>
+        Effect.sync(() => {
+          diagnostics.push(`attempt ${String(attempt)} completed`)
+        }),
+      ),
+    )
+  }
+
+  const runAttempts = Effect.gen(function* () {
+    const first = yield* runOne(1)
+    if (!Termination.guards.FirstResponseTimeout(first.termination)) {
+      return first
+    }
+    const remaining = yield* remainingMillis(absoluteDeadline)
+    if (remaining < MIN_RETRY_REMAINING_MILLIS) {
+      diagnostics.push(
+        "fresh invocation retry skipped because less than 5000ms remained",
+      )
+      return first
+    }
+    diagnostics.push("retrying first-response stall in one fresh session")
+    return yield* runOne(2).pipe(
+      Effect.catchTag("InvocationSetupError", (error) =>
+        Effect.sync(() => {
+          diagnostics.push(
+            `fresh invocation retry failed during ${error.operation}: ${error.reason}; retained the first-response timeout outcome`,
+          )
+          return first
+        }),
+      ),
+    )
+  })
+
+  const abortCurrent = Effect.sync(() => {
+    const session = currentSession.value
+    if (session !== undefined) void session.abort().catch(() => undefined)
+  })
+  const budgetEnding = Effect.sleep(
+    Duration.millis(input.deadlines.overallMillis),
+  ).pipe(
+    Effect.andThen(
+      Effect.sync(() => {
+        diagnostics.push("overall invocation deadline exhausted")
+      }),
+    ),
+    Effect.andThen(abortCurrent),
+    Effect.as({
+      termination: Termination.cases.BudgetExhausted.make({}),
+    } satisfies PreloadAttempt),
+  )
+  const cancellationEnding = input.signal === undefined
+    ? Effect.never
+    : waitForAbort(input.signal).pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            diagnostics.push("explicit cancellation requested")
+          }),
+        ),
+        Effect.andThen(abortCurrent),
+        Effect.as({
+          termination: Termination.cases.Interrupted.make({}),
+        } satisfies PreloadAttempt),
+      )
+
+  const result: PreloadAttempt = yield* Effect.raceFirst(
+    runAttempts,
+    Effect.raceFirst(budgetEnding, cancellationEnding),
+  )
+  const finishedAt = yield* Clock.currentTimeMillis
+  const outcome = yield* finalizePreloadOutcome(
+    result.termination,
+    result.conversationPrefix,
+    captures,
+    diagnostics,
+    Math.max(0, finishedAt - startedAt),
+  )
+  return result.conversationPrefix === undefined
+    ? { outcome }
+    : { outcome, conversationPrefix: result.conversationPrefix }
 })

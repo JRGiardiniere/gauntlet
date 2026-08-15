@@ -104,4 +104,23 @@ sits between the shared block and the tail: it is identical for every
 interpretive lens in the run, so it extends the shared prefix rather than
 breaking it (interpretive finders simply share a longer prefix than standard
 ones). Warmup/fan-out sequencing, session-key sharing,
-and cache diagnostics are adapter mechanics (ADR 0002), not review shape.
+and cache diagnostics are operational mechanics (ADR 0002), not review
+semantics.
+
+The scheduler partitions unfinished Finders by the complete resolved Seat and
+shared context shape: ordinary context, or ordinary context plus the frozen
+ReviewSpecification. A singleton runs directly. A larger partition first runs
+one bounded preload AgentInvocation with the same system prompt and tool
+definitions as its followers. The setup contract forbids analysis and tool
+execution; adapters enforce that prohibition before any tool can reach the
+workspace. The actual short assistant acknowledgment is captured, never
+synthesized. After the generic settle delay, every follower replays that exact
+user/assistant prefix and appends only its Lens assignment as the last turn.
+
+One provider-neutral cache-group identifier names the partition; an adapter may
+map it to a native key. A missing or failed cache changes cost only: followers
+still receive the complete context and retain the ordinary invocation retry,
+termination, output, and coverage behavior. Every preload outcome is journaled
+as paid work, but never reused as evidence of transient provider cache state.
+Resume reuses completed Finder outcomes and freshly preloads any partition that
+still has more than one unfinished Finder.

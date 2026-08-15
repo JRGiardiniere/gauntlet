@@ -138,7 +138,7 @@ export const executeBugClaimPath = Effect.fn(
             cwd: reviewWorkingDirectory,
             systemPrompt: EVALUATION_SYSTEM_PROMPT,
             prompt,
-            sessionId: `${plan.runId}-pool`,
+            cacheGroupId: `${plan.runId}-pool`,
             contract: EmitPool,
             tools: POOL_TOOLS,
             deadlines: REVIEW_INVOCATION_DEADLINES,
@@ -219,7 +219,7 @@ export const executeBugClaimPath = Effect.fn(
                 prompt,
                 // Bundles run concurrently, so a shared cache partition buys
                 // nothing; per-bundle ids keep logs and scripts attributable.
-                sessionId: `${plan.runId}-verification-${String(bundleNumber)}`,
+                cacheGroupId: `${plan.runId}-verification-${String(bundleNumber)}`,
                 contract: EmitVerdicts,
                 tools: VERIFICATION_TOOLS,
                 deadlines: REVIEW_INVOCATION_DEADLINES,

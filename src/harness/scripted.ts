@@ -12,6 +12,7 @@ import {
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
+  type ReplayableConversationPrefix,
   type SessionConfig,
   type StopReason,
   type UsageRow,
@@ -71,10 +72,11 @@ export interface ScriptedPrompt {
   readonly events: ReadonlyArray<ScriptedEvent>
   readonly settles: "after-events" | "never"
   readonly reject?: string
+  readonly assistantText?: string
 }
 
 export interface ScriptedSession {
-  // Claimed by the first open whose config.sessionId contains this key —
+  // Claimed by the first open whose config.cacheGroupId contains this key —
   // lets a script address one invocation of a concurrent fan-out. Unkeyed
   // sessions are consumed in open order, as before.
   readonly forSession?: string
@@ -95,12 +97,12 @@ export interface RecordedPrompt {
   // 1-based open order — pairs the prompt with configs[openIndex - 1] even
   // when concurrent sessions interleave their prompt calls.
   readonly openIndex: number
-  readonly sessionId: string | undefined
+  readonly cacheGroupId: string | undefined
   readonly text: string
 }
 
 export interface RecordedInspection {
-  readonly sessionId: string | undefined
+  readonly cacheGroupId: string | undefined
   readonly toolName: "read" | "bash"
   readonly args: unknown
   readonly isError: boolean
@@ -113,6 +115,13 @@ export interface Scripted {
   readonly configs: Array<SessionConfig>
   readonly prompts: Array<RecordedPrompt>
   readonly inspections: Array<RecordedInspection>
+  readonly prefixes: Array<RecordedConversationPrefix>
+}
+
+export interface RecordedConversationPrefix {
+  readonly prefix: ReplayableConversationPrefix
+  readonly userPrompt: string
+  readonly assistantText: string
 }
 
 const toolText = (result: {
@@ -140,6 +149,7 @@ export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
 })
 
 interface PromptRequest {
+  readonly text: string
   readonly resolve: () => void
   readonly reject: (reason: string) => void
 }
@@ -181,11 +191,12 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const configs: Array<SessionConfig> = []
   const prompts: Array<RecordedPrompt> = []
   const inspections: Array<RecordedInspection> = []
+  const prefixes: Array<RecordedConversationPrefix> = []
   let openIndex = 0
   const claimed = new Set<number>()
 
   const claimSession = (
-    sessionId: string | undefined,
+    cacheGroupId: string | undefined,
   ): ScriptedSession | undefined => {
     let unkeyed: number | undefined
     for (const [index, session] of behavior.sessions.entries()) {
@@ -194,7 +205,9 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         unkeyed = unkeyed ?? index
         continue
       }
-      if (sessionId !== undefined && sessionId.includes(session.forSession)) {
+      if (
+        cacheGroupId !== undefined && cacheGroupId.includes(session.forSession)
+      ) {
         claimed.add(index)
         return session
       }
@@ -207,7 +220,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const open: HarnessSessionFactoryContract["open"] = (config) =>
     Effect.gen(function* () {
       const sessionIndex = openIndex + 1
-      const behaviorForSession = claimSession(config.sessionId)
+      const behaviorForSession = claimSession(config.cacheGroupId)
       openIndex += 1
       log.push(`open:${String(sessionIndex)}`)
       configs.push(config)
@@ -224,6 +237,17 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           reason: behaviorForSession.failOpen,
         })
       }
+      if (
+        config.conversationPrefix !== undefined &&
+        !prefixes.some(({ prefix }) =>
+          prefix.id === config.conversationPrefix?.id
+        )
+      ) {
+        return yield* new InvocationSetupError({
+          operation: "open",
+          reason: "conversation prefix was not captured by this scripted factory",
+        })
+      }
       if (behaviorForSession.openDelayMillis !== undefined) {
         yield* Effect.sleep(
           Duration.millis(behaviorForSession.openDelayMillis),
@@ -233,7 +257,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       // The live adapter always mounts a ReviewWorkspace for filesystem
       // sessions. This adapter does the same only when a script declares a
       // tool event, so invocation-unit tests with a fake cwd stay cheap.
-      const workspace = scriptInspectsWorkspace(behaviorForSession)
+      const workspace = config.mode === "invocation" &&
+          scriptInspectsWorkspace(behaviorForSession)
         ? yield* Effect.tryPromise({
             try: () => makeReviewWorkspace(config.cwd),
             catch: (cause) =>
@@ -251,6 +276,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       const rows: Array<unknown> = []
       const promptRequests = yield* Queue.unbounded<PromptRequest>()
       let requestedPrompts = 0
+      let capturedPrefix: ReplayableConversationPrefix | undefined
 
       const fire = (event: HarnessEvent) => {
         for (const listener of listeners) listener(event)
@@ -302,7 +328,9 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     toolName: config.emitTool.name,
                     args: step.args,
                   })
-                  if (step.valid) config.emitTool.execute(step.args)
+                  if (step.valid && config.mode === "invocation") {
+                    config.emitTool.execute(step.args)
+                  }
                 })
                 break
               }
@@ -314,7 +342,12 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     args: step.args,
                   })
                 })
-                const recorded = workspace === undefined ||
+                const recorded = config.mode === "preload"
+                  ? {
+                      isError: true as const,
+                      text: "finder preload cannot call workspace tools",
+                    }
+                  : workspace === undefined ||
                     !config.tools.includes(step.toolName)
                   ? {
                       isError: true as const,
@@ -325,7 +358,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                   : yield* executeWorkspaceTool(workspace, config, step)
                 yield* Effect.sync(() => {
                   inspections.push({
-                    sessionId: config.sessionId,
+                    cacheGroupId: config.cacheGroupId,
                     toolName: step.toolName,
                     args: step.args,
                     isError: recorded.isError,
@@ -364,6 +397,21 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
 
           if (prompt.settles === "never") return yield* Effect.never
           yield* Effect.sync(() => {
+            const assistantText = prompt.assistantText
+            if (assistantText !== undefined && assistantText.trim() !== "") {
+              const prefix = {
+                id: Symbol("scripted-conversation-prefix"),
+                assistantText,
+              }
+              capturedPrefix = prefix
+              prefixes.push({
+                prefix,
+                userPrompt: request.text,
+                assistantText,
+              })
+            }
+          })
+          yield* Effect.sync(() => {
             if (prompt.reject === undefined) request.resolve()
             else request.reject(prompt.reject)
           })
@@ -391,7 +439,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         prompt: (text) => {
           prompts.push({
             openIndex: sessionIndex,
-            sessionId: config.sessionId,
+            cacheGroupId: config.cacheGroupId,
             text,
           })
           requestedPrompts += 1
@@ -405,6 +453,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           // @effect-diagnostics-next-line newPromise:off
           return new Promise<void>((resolve, reject) => {
             Queue.offerUnsafe(promptRequests, {
+              text,
               resolve,
               reject: (reason) => reject(reason),
             })
@@ -417,6 +466,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             ? new Promise<never>(() => undefined)
             : Promise.resolve()
         },
+        captureConversationPrefix: () => capturedPrefix,
         dispose: () => {
           log.push(`dispose:${String(sessionIndex)}`)
           if (behaviorForSession.failDispose !== undefined) {
@@ -434,7 +484,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs, prompts, inspections }
+  return { factory: { open }, log, configs, prompts, inspections, prefixes }
 }
 
 export const scriptedLayer = (

@@ -157,7 +157,7 @@ describe("Judgment stage interface", () => {
       expect(scripted.configs).toHaveLength(1)
       expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
       expect(scripted.configs[0]?.cwd).toBe(REVIEW_ROOT)
-      expect(scripted.configs[0]?.sessionId).toBe("judgment-test-run-judgment")
+      expect(scripted.configs[0]?.cacheGroupId).toBe("judgment-test-run-judgment")
       expect(scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(scripted.configs[0]?.emitTool.name).toBe("emit_judgments")
 

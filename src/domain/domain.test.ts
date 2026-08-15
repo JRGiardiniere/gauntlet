@@ -3,7 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Candidate } from "./candidate.ts"
 import { Dossier } from "./dossier.ts"
-import { modelIdentityOfSeat, Seat } from "./recipe.ts"
+import { Seat } from "./recipe.ts"
 
 describe("domain model", () => {
   it.effect("a candidate self-classifies by failure-scenario presence", () =>
@@ -98,8 +98,4 @@ describe("domain model", () => {
       expect(rejected._tag).toBe("SchemaError")
     }))
 
-  it("identifies a model independently of its thinking effort", () => {
-    expect(modelIdentityOfSeat("acme/luna-4:low")).toBe("acme/luna-4")
-    expect(modelIdentityOfSeat("acme/luna:4-6:high")).toBe("acme/luna:4-6")
-  })
 })

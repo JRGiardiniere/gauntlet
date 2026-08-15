@@ -108,7 +108,7 @@ export const executeJudgment = Effect.fn(
         cwd: reviewWorkingDirectory,
         systemPrompt: EVALUATION_SYSTEM_PROMPT,
         prompt,
-        sessionId: `${plan.runId}-judgment`,
+        cacheGroupId: `${plan.runId}-judgment`,
         contract: EmitJudgments,
         tools: JUDGMENT_TOOLS,
         deadlines: REVIEW_INVOCATION_DEADLINES,

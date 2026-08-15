@@ -1,6 +1,7 @@
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
@@ -55,6 +56,20 @@ const invocationPath = Effect.fn(
   return path.join(journalDirectory, `${encodeURIComponent(invocationKey)}.json`)
 })
 
+export const nextJournalInvocationKey = Effect.fn(
+  "gauntlet.invocation_journal.next_key",
+)(function* (journalDirectory: string, base: string) {
+  const fs = yield* FileSystem.FileSystem
+  const prefix = `${base}-`
+  const entries = yield* fs.readDirectory(journalDirectory)
+  const sequence = entries.reduce((highest, entry) => {
+    if (!entry.startsWith(prefix) || !entry.endsWith(".json")) return highest
+    const value = Number(entry.slice(prefix.length, -".json".length))
+    return Number.isSafeInteger(value) && value > highest ? value : highest
+  }, 0)
+  return `${base}-${String(sequence + 1)}`
+})
+
 // `output` has the exact type of OutputContract.schema, so the contract that
 // validated the emit is the same codec that persists and replays the outcome.
 export interface JournaledInvocation<O, E, R> {
@@ -64,6 +79,54 @@ export interface JournaledInvocation<O, E, R> {
   readonly output: Schema.Codec<O, O, never, never>
   readonly execute: Effect.Effect<AgentOutcome<O>, E, R>
 }
+
+export interface InvocationJournalEntry<O> {
+  readonly journalDirectory: string
+  readonly runId: string
+  readonly invocationKey: string
+  readonly output: Schema.Codec<O, O, never, never>
+}
+
+export const readJournaledInvocation = Effect.fn(
+  "gauntlet.invocation_journal.read",
+)(function* <O>({
+  invocationKey,
+  journalDirectory,
+  output,
+  runId,
+}: InvocationJournalEntry<O>) {
+  const artifact = InvocationArtifact(output)
+  const artifactPath = yield* invocationPath(journalDirectory, invocationKey)
+  const text = yield* readOptionalArtifactText(artifactPath).pipe(
+    Effect.mapError((cause) =>
+      new InvocationJournalReadError({ path: artifactPath, cause })),
+  )
+  return Option.flatMap(text, (source) =>
+    Schema.decodeOption(Schema.fromJsonString(artifact))(source).pipe(
+      Option.filter((entry) => entry.runId === runId),
+      Option.map((entry) => entry.outcome),
+    ))
+})
+
+export const writeInvocationJournal = Effect.fn(
+  "gauntlet.invocation_journal.write",
+)(function* <O>(
+  entry: InvocationJournalEntry<O>,
+  outcome: AgentOutcome<O>,
+) {
+  const artifact = InvocationArtifact(entry.output)
+  const artifactPath = yield* invocationPath(
+    entry.journalDirectory,
+    entry.invocationKey,
+  )
+  yield* writeArtifactJson(artifactPath, artifact, {
+    runId: entry.runId,
+    invocationKey: entry.invocationKey,
+    outcome,
+  })
+  const checkpoint = yield* InvocationJournalCheckpoint
+  yield* checkpoint(entry.runId, entry.invocationKey)
+})
 
 // Replay a valid stored outcome, or pay the supplied invocation exactly once
 // and persist its full outcome atomically. Missing, corrupt, or foreign
@@ -77,27 +140,13 @@ export const executeJournaledInvocation = Effect.fn(
   output,
   runId,
 }: JournaledInvocation<O, E, R>) {
-  const artifact = InvocationArtifact(output)
-  const artifactPath = yield* invocationPath(journalDirectory, invocationKey)
-  const text = yield* readOptionalArtifactText(artifactPath).pipe(
-    Effect.mapError((cause) =>
-      new InvocationJournalReadError({ path: artifactPath, cause })),
-  )
-  const stored = Option.flatMap(text, (source) =>
-    Schema.decodeOption(Schema.fromJsonString(artifact))(source).pipe(
-      Option.filter((entry) => entry.runId === runId),
-    ))
+  const entry = { journalDirectory, runId, invocationKey, output }
+  const stored = yield* readJournaledInvocation(entry)
   if (Option.isSome(stored)) {
-    return { outcome: stored.value.outcome, reused: true }
+    return { outcome: stored.value, reused: true }
   }
 
   const outcome = yield* execute
-  yield* writeArtifactJson(artifactPath, artifact, {
-    runId,
-    invocationKey,
-    outcome,
-  })
-  const checkpoint = yield* InvocationJournalCheckpoint
-  yield* checkpoint(runId, invocationKey)
+  yield* writeInvocationJournal(entry, outcome)
   return { outcome, reused: false }
 })
