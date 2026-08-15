@@ -1,12 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import type { ReadToolInput } from "@earendil-works/pi-coding-agent"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import { withToolCallDeadline } from "../harness/tool-deadline.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
-import { makeReviewWorkspace } from "./just-bash-workspace.ts"
+import { type BashArgs, makeReviewWorkspace } from "./just-bash-workspace.ts"
 import {
   REVIEW_WORKSPACE_ROOT,
   type ReviewWorkspace,
@@ -30,41 +31,64 @@ const ONE_PIXEL_PNG = Buffer.from(
   "base64",
 )
 
-const execTool = (
-  tool: ReviewWorkspace["bashTool"],
-  args: unknown,
+// The adapter seam. Pi's execute signature derives params from each tool's
+// TypeBox schema, but ReviewWorkspace erases the generic at the same SDK seam
+// production uses. callOnSeam holds the one erasure; the execBashTool and
+// execReadTool wrappers pair each tool with its named argument contract (the
+// exported BashArgs, Pi's own ReadToolInput) so arguments cannot cross tools.
+// SAFETY: the ctx parameter is passed as undefined deliberately. The only
+// ctx use in either workspace tool is the read tool's optional `ctx?.model`
+// non-vision image note, and undefined falls back to that note's no-model
+// default; these tests assert the image attachment itself, never the note.
+const callOnSeam = (
+  tool: ReviewWorkspace["bashTool"] | ReviewWorkspace["readTool"],
+  args: BashArgs | ReadToolInput,
   signal?: AbortSignal,
 ) =>
-  Effect.promise(() =>
-    tool
-      .execute("workspace-test", args as never, signal, undefined, undefined as never)
-      .then(
-        (result) => ({
-          isError: false,
-          text: result.content
-            .flatMap((entry) =>
-              entry.type === "text" && entry.text !== undefined
-                ? [entry.text]
-                : [],
-            )
-            .join("\n"),
-        }),
-        (error: unknown) => ({
-          isError: true,
-          text: error instanceof Error ? error.message : String(error),
-        }),
-      ),
+  tool.execute("workspace-test", args, signal, undefined, undefined as never)
+
+type WorkspaceToolResult = Awaited<
+  ReturnType<ReviewWorkspace["readTool"]["execute"]>
+>
+
+const asOutcome = (promise: Promise<WorkspaceToolResult>) =>
+  promise.then(
+    (result) => ({
+      isError: false,
+      text: result.content
+        .flatMap((entry) =>
+          entry.type === "text" && entry.text !== undefined
+            ? [entry.text]
+            : [],
+        )
+        .join("\n"),
+    }),
+    (cause: unknown) => ({
+      isError: true,
+      text: cause instanceof Error ? cause.message : String(cause),
+    }),
   )
+
+const execBashTool = (
+  tool: ReviewWorkspace["bashTool"],
+  args: BashArgs,
+  signal?: AbortSignal,
+) => Effect.promise(() => asOutcome(callOnSeam(tool, args, signal)))
+
+const execReadTool = (
+  tool: ReviewWorkspace["readTool"],
+  args: ReadToolInput,
+) => Effect.promise(() => asOutcome(callOnSeam(tool, args)))
 
 // Bash output keeps its raw trailing newline (Pi's contract); trim it here
 // so equality assertions stay readable. read() stays byte-exact.
 const bash = (workspace: ReviewWorkspace, command: string) =>
-  execTool(workspace.bashTool, { command }).pipe(
+  execBashTool(workspace.bashTool, { command }).pipe(
     Effect.map((result) => ({ ...result, text: result.text.trimEnd() })),
   )
 
-const read = (workspace: ReviewWorkspace, args: unknown) =>
-  execTool(workspace.readTool, args)
+const read = (workspace: ReviewWorkspace, args: ReadToolInput) =>
+  execReadTool(workspace.readTool, args)
 
 // A worktree snapshot exactly as acquireReviewWorkingDirectory produces one,
 // plus a host file OUTSIDE the snapshot root that no guest path may reach.
@@ -216,8 +240,7 @@ describe("ReviewWorkspace", () => {
 
       // Image reads keep Pi's attachment contract through the overlay.
       const image = yield* Effect.promise(() =>
-        workspace.readTool
-          .execute("workspace-test", { path: "data/pixel.png" } as never, undefined, undefined, undefined as never)
+        callOnSeam(workspace.readTool, { path: "data/pixel.png" })
           .then((result) => result.content.map((entry) => entry.type)),
       )
       expect(image).toEqual(["text", "image"])
@@ -453,7 +476,7 @@ describe("ReviewWorkspace", () => {
 
         // A timeout past Node's 2^31-1ms timer ceiling is rejected up front
         // instead of overflowing into an immediate abort.
-        const overflow = yield* execTool(workspace.bashTool, {
+        const overflow = yield* execBashTool(workspace.bashTool, {
           command: "pwd",
           timeout: 3_000_000,
         })
@@ -462,7 +485,7 @@ describe("ReviewWorkspace", () => {
 
         // A model-supplied timeout reports as a timeout even when the
         // interpreter honors the abort by resolving with exit code 124.
-        const modelTimeout = yield* execTool(workspace.bashTool, {
+        const modelTimeout = yield* execBashTool(workspace.bashTool, {
           command: "sleep 5",
           timeout: 0.05,
         })
@@ -472,12 +495,11 @@ describe("ReviewWorkspace", () => {
         // The tool deadline stays caller-owned and bounds a stuck command.
         const deadlined = withToolCallDeadline(workspace.bashTool, 200)
         const timedOut = yield* Effect.promise(() =>
-          deadlined
-            .execute("workspace-test", { command: "sleep 5" } as never, undefined, undefined, undefined as never)
+          callOnSeam(deadlined, { command: "sleep 5" })
             .then(
               () => "resolved",
-              (error: unknown) =>
-                error instanceof Error ? error.message : String(error),
+              (cause: unknown) =>
+                cause instanceof Error ? cause.message : String(cause),
             ),
         )
         expect(timedOut).toContain("bash exceeded its 200ms deadline")

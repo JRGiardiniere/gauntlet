@@ -1,11 +1,13 @@
 import {
   createReadToolDefinition,
   DEFAULT_MAX_BYTES,
+  defineTool,
   formatSize,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
 import * as Data from "effect/Data"
-import { Bash, type BashOptions, OverlayFs } from "just-bash"
+import { Bash, type BashOptions, OverlayFs, type OverlayFsOptions } from "just-bash"
+import { type Static, Type } from "typebox"
 import {
   REVIEW_WORKSPACE_ROOT,
   type ReviewWorkspace,
@@ -90,27 +92,40 @@ const guardWorkspacePath = (absolutePath: string): void => {
 // Pi bump cannot drift a duplicated contract. Path resolution runs against
 // the virtual root; confinement holds because every operation goes through
 // the overlay, which rejects paths outside it.
-// The widening cast drops Pi's per-tool parameter generics only — the same
-// erasure pi-live's customTools option applies at the non-generic SDK seam.
+// defineTool is Pi's sanctioned non-generic seam: an identity that keeps the
+// read tool's own parameter and render types while making it assignable to
+// the erasure ReviewWorkspace exposes (the same erasure pi-live applies to
+// customTools).
 const makeReadTool = (fs: OverlayFs): ToolDefinition =>
-  createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
-    operations: {
-      readFile: async (absolutePath) => {
-        guardWorkspacePath(absolutePath)
-        return Buffer.from(await fs.readFileBuffer(absolutePath))
+  defineTool(
+    createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
+      operations: {
+        readFile: async (absolutePath) => {
+          guardWorkspacePath(absolutePath)
+          return Buffer.from(await fs.readFileBuffer(absolutePath))
+        },
+        access: async (absolutePath) => {
+          guardWorkspacePath(absolutePath)
+          await fs.stat(absolutePath)
+        },
+        detectImageMimeType,
       },
-      access: async (absolutePath) => {
-        guardWorkspacePath(absolutePath)
-        await fs.stat(absolutePath)
-      },
-      detectImageMimeType,
-    },
-  }) as unknown as ToolDefinition
+    }),
+  )
 
-interface BashArgs {
-  readonly command: string
-  readonly timeout?: number
-}
+// The bash tool's parameter contract: the schema Pi validates model calls
+// against, with the args type derived from it instead of asserted
+// downstream at the execute seam.
+const bashParameters = Type.Object({
+  command: Type.String({ description: "Bash command to execute" }),
+  timeout: Type.Optional(
+    Type.Number({
+      description: "Timeout in seconds (optional, no default timeout)",
+    }),
+  ),
+})
+
+export type BashArgs = Static<typeof bashParameters>
 
 const combinedOutput = (stdout: string, stderr: string): string => {
   if (stdout === "") return stderr
@@ -118,67 +133,58 @@ const combinedOutput = (stdout: string, stderr: string): string => {
   return stdout.endsWith("\n") ? `${stdout}${stderr}` : `${stdout}\n${stderr}`
 }
 
-const makeBashTool = (bash: Bash): ToolDefinition => ({
-  name: "bash",
-  label: "bash",
-  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
-  parameters: {
-    type: "object",
-    properties: {
-      command: { type: "string", description: "Bash command to execute" },
-      timeout: {
-        type: "number",
-        description: "Timeout in seconds (optional, no default timeout)",
-      },
-    },
-    required: ["command"],
-  } as unknown as ToolDefinition["parameters"],
-  execute: async (_toolCallId, args, signal) => {
-    const { command, timeout } = args as BashArgs
-    let timeoutSignal: AbortSignal | undefined
-    if (timeout !== undefined) {
-      // The upper bound guards Node's 2^31-1ms timer ceiling: a delay past
-      // it overflows and fires the abort immediately instead of later.
-      if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483) {
-        throw new WorkspaceToolError({
-          message:
-            "Invalid timeout: must be a positive number of seconds at most 2147483",
-        })
+const makeBashTool = (bash: Bash): ToolDefinition =>
+  defineTool({
+    name: "bash",
+    label: "bash",
+    description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
+    parameters: bashParameters,
+    execute: async (_toolCallId, args: BashArgs, signal) => {
+      const { command, timeout } = args
+      let timeoutSignal: AbortSignal | undefined
+      if (timeout !== undefined) {
+        // The upper bound guards Node's 2^31-1ms timer ceiling: a delay past
+        // it overflows and fires the abort immediately instead of later.
+        if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483) {
+          throw new WorkspaceToolError({
+            message:
+              "Invalid timeout: must be a positive number of seconds at most 2147483",
+          })
+        }
+        // Rounded: AbortSignal.timeout rejects non-integer delays.
+        timeoutSignal = AbortSignal.timeout(Math.round(timeout * 1000))
       }
-      // Rounded: AbortSignal.timeout rejects non-integer delays.
-      timeoutSignal = AbortSignal.timeout(Math.round(timeout * 1000))
-    }
-    const signals = [signal, timeoutSignal].filter(
-      (candidate) => candidate !== undefined,
-    )
-    const result = await bash
-      .exec(command, signals.length === 0 ? {} : {
-        signal: AbortSignal.any(signals),
-      })
-      .catch((cause: unknown) => {
+      const signals = [signal, timeoutSignal].filter(
+        (candidate) => candidate !== undefined,
+      )
+      const result = await bash
+        .exec(command, signals.length === 0 ? {} : {
+          signal: AbortSignal.any(signals),
+        })
+        .catch((cause: unknown) => {
+          throw new WorkspaceToolError({
+            message: timeoutSignal?.aborted === true
+              ? `Command timed out after ${String(timeout)} seconds`
+              : failureMessage(cause),
+          })
+        })
+      const outputText = combinedOutput(result.stdout, result.stderr) ||
+        "(no output)"
+      if (result.exitCode !== 0) {
+        // The interpreter may honor the abort by resolving with exit 124
+        // instead of rejecting; report that as the timeout it is.
         throw new WorkspaceToolError({
           message: timeoutSignal?.aborted === true
             ? `Command timed out after ${String(timeout)} seconds`
-            : failureMessage(cause),
+            : `${outputText}\n\nCommand exited with code ${String(result.exitCode)}`,
         })
-      })
-    const outputText = combinedOutput(result.stdout, result.stderr) ||
-      "(no output)"
-    if (result.exitCode !== 0) {
-      // The interpreter may honor the abort by resolving with exit 124
-      // instead of rejecting; report that as the timeout it is.
-      throw new WorkspaceToolError({
-        message: timeoutSignal?.aborted === true
-          ? `Command timed out after ${String(timeout)} seconds`
-          : `${outputText}\n\nCommand exited with code ${String(result.exitCode)}`,
-      })
-    }
-    return {
-      content: [{ type: "text", text: outputText }],
-      details: {},
-    }
-  },
-})
+      }
+      return {
+        content: [{ type: "text", text: outputText }],
+        details: {},
+      }
+    },
+    })
 
 // ".git" spelled in every letter case: the 2^3 combinations of g/i/t.
 const GIT_ENTRY_CASE_ALIASES = [
@@ -207,7 +213,9 @@ export const makeReviewWorkspace = async (
   snapshotRoot: string,
   options?: ReviewWorkspaceOptions,
 ): Promise<ReviewWorkspace> => {
-  const fs = new OverlayFs({
+  // `maxMemoryBytes` is admitted only when a test shrinks the overlay cap;
+  // production keeps the library default (1 GiB).
+  const overlayOptions: OverlayFsOptions = {
     root: snapshotRoot,
     mountPoint: REVIEW_WORKSPACE_ROOT,
     // The library default-denies symlinks, which would silently break
@@ -221,10 +229,11 @@ export const makeReviewWorkspace = async (
     // generated/vendored files; a backing read is transient, so this cap
     // (not maxMemoryBytes, which counts only copied files) bounds it.
     maxFileReadSize: 64 * 1024 * 1024,
-    ...(options?.maxOverlayMemoryBytes === undefined
-      ? {}
-      : { maxMemoryBytes: options.maxOverlayMemoryBytes }),
-  })
+  }
+  if (options?.maxOverlayMemoryBytes !== undefined) {
+    overlayOptions.maxMemoryBytes = options.maxOverlayMemoryBytes
+  }
+  const fs = new OverlayFs(overlayOptions)
   // The snapshot is a git worktree whose `.git` administrative entry names
   // the host git directory. Tombstone it in the overlay: the deletion lives
   // in memory and the host file is untouched. Tombstones are recorded per

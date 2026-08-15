@@ -102,12 +102,13 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       ? "loading applicable finder lenses"
       : `loading finder lenses ${selectedLensNames.join(", ")}`,
   )
-  const lenses = yield* loadFinderLenses({
-    repoRoot: target.repoRoot,
-    ...(selectedLensNames === undefined
-      ? {}
-      : { names: selectedLensNames }),
-  })
+  // `names` is admitted only when a --lenses selection narrows the catalog;
+  // omitting it means every shipped and project-local lens loads.
+  const lenses = yield* loadFinderLenses(
+    selectedLensNames === undefined
+      ? { repoRoot: target.repoRoot }
+      : { repoRoot: target.repoRoot, names: selectedLensNames },
+  )
 
   const runsRoot = yield* resolveRunsRoot()
   const runId = yield* makeRunId()
