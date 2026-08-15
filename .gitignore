@@ -7,4 +7,5 @@ node_modules/
 
 # In-flight design drafts (published as issues; local copies transient)
 docs/research/just-bash-limits-and-cancellation.md
+docs/research/opentui-hunk-turso-lint-inbox.md
 docs/spec/default-lenses-and-recipe-selection.md
