@@ -2,7 +2,7 @@ import * as fs from "node:fs"
 import * as path from "node:path"
 
 import { defineRule } from "@oxlint/plugins"
-import type { ESTree, Options } from "@oxlint/plugins"
+import type { ESTree } from "@oxlint/plugins"
 
 import { isRelativeImport } from "./utils.ts"
 
@@ -45,32 +45,6 @@ const resolvesToBarrel = (
 interface BarrelOptions {
   readonly checkPatterns?: ReadonlyArray<string>
   readonly checkRelativeIndexImports?: boolean
-}
-
-// The declared guards are the option boundary: they prove each field's
-// shape, so the rule body reads validated values rather than asserting them.
-const isJsonRecord = (
-  option: Options[number] | undefined,
-): option is Record<string, Options[number]> =>
-  typeof option === "object" && option !== null && !Array.isArray(option)
-
-const isStringEntry = (entry: Options[number]): entry is string =>
-  typeof entry === "string"
-
-const isStringArray = (
-  value: Options[number] | undefined,
-): value is Array<string> =>
-  Array.isArray(value) && value.every(isStringEntry)
-
-const barrelOptionsFrom = (
-  option: Options[number] | undefined,
-): BarrelOptions => {
-  if (!isJsonRecord(option)) return {}
-  const patterns = option["checkPatterns"]
-  return {
-    checkPatterns: isStringArray(patterns) ? patterns : [],
-    checkRelativeIndexImports: option["checkRelativeIndexImports"] !== false,
-  }
 }
 
 const createBarrelMatcher = (options: BarrelOptions) => {
@@ -123,10 +97,14 @@ export const noImportFromBarrelPackageRule = defineRule({
     defaultOptions: [{}],
   },
   createOnce(context) {
-    let isBarrelImport = createBarrelMatcher({})
+    let isBarrelImport: ReturnType<typeof createBarrelMatcher> = () => false
     return {
       before: () => {
-        isBarrelImport = createBarrelMatcher(barrelOptionsFrom(context.options[0]))
+        // SAFETY: oxlint validates rule options against meta.schema when the
+        // config loads and rejects the run before any hook fires, so a
+        // present option already has BarrelOptions' shape.
+        const options = (context.options[0] ?? {}) as BarrelOptions
+        isBarrelImport = createBarrelMatcher(options)
       },
       ImportDeclaration(node) {
         if (node.importKind === "type") return
