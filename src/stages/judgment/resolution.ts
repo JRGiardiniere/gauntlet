@@ -152,25 +152,26 @@ const materialize = (
         }]
       }
       const { cleanlyExplained, goodFind, qualityNote } = decision.value
+      const core = {
+        tier: decision.value.tier,
+        reason: decision.value.reason,
+        goodFind,
+        cleanlyExplained,
+        mergedCandidateIds: Option.getOrElse(
+          HashMap.get(mergedIds, index),
+          () => [],
+        ),
+      }
       // The contract admits a quality note only when a rating is false.
-      const noteAdmitted = qualityNote !== undefined &&
-        !(goodFind && cleanlyExplained)
-      if (qualityNote !== undefined && !noteAdmitted) {
-        discardedQualityNotes.push(index)
+      if (qualityNote === undefined || (goodFind && cleanlyExplained)) {
+        if (qualityNote !== undefined) {
+          discardedQualityNotes.push(index)
+        }
+        return [{ candidate, judgment: Judgment.cases.Kept.make(core) }]
       }
       return [{
         candidate,
-        judgment: Judgment.cases.Kept.make({
-          tier: decision.value.tier,
-          reason: decision.value.reason,
-          goodFind,
-          cleanlyExplained,
-          ...(noteAdmitted ? { qualityNote } : {}),
-          mergedCandidateIds: Option.getOrElse(
-            HashMap.get(mergedIds, index),
-            () => [],
-          ),
-        }),
+        judgment: Judgment.cases.Kept.make({ ...core, qualityNote }),
       }]
     },
   )
