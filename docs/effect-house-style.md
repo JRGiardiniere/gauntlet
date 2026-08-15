@@ -41,16 +41,18 @@ and `node_modules/effect` (see "When unsure of an API" below), and consult
 `docs/effect-v4-patterns.md` — the full per-concern steal/reference/avoid analysis these
 rules were distilled from (decision record: `docs/effect-refactor-prd.md`).
 
-**Golden rule: never trust memorized Effect knowledge.** We run `effect@4.0.0-beta.106`
-(v4, developed in `Effect-TS/effect-smol`). Training data is dominated by v3 and older
-betas; APIs moved. Before using any API you have not seen in this repo, verify it against
-`node_modules/effect` (ground truth for our pin) or the reference repos listed below.
+**Golden rule: never trust memorized Effect knowledge.** We run effect v4 (developed in
+`Effect-TS/effect-smol`) at the exact version pinned in `package.json`. Training data is
+dominated by v3 and older betas; APIs moved. Before using any API you have not seen in
+this repo, verify it against `node_modules/effect` (ground truth for our pin) or the
+reference repos listed below.
 
 ## Non-negotiable rules
 
 **Versions & imports**
-1. `effect` and every `@effect/*` package are pinned **exactly** `4.0.0-beta.106` — no
-   carets, no bumps unless the task explicitly says so.
+1. `effect` and every `@effect/*` package are pinned **exactly** to one shared version
+   (enforced by `scripts/check-effect-pin.mjs`) — no carets, no bumps unless the task
+   explicitly says so.
 2. HTTP and subprocess are **in-core** in v4: `effect/unstable/http/*` (HttpClient,
    HttpClientRequest, HttpClientResponse, HttpClientError, FetchHttpClient) and
    `effect/unstable/process`. There is **no `@effect/platform`** package; never import
@@ -209,12 +211,12 @@ Use this ladder for anything the rules above don't settle — an unfamiliar API,
 question (how to shape a stream, cache a layer, structure a scheduler), or any "how do
 real v4 codebases do X" question. This is expected, routine work, not a fallback.
 
-1. **`node_modules/effect`** in this repo — the arbiter for beta.106 signatures and
-   import paths (`effect/unstable/*` subpaths move between betas).
+1. **`node_modules/effect`** in this repo — the arbiter for the pinned version's
+   signatures and import paths (`effect/unstable/*` subpaths move between releases).
 2. **Reference repos** at `~/.btca/agent/sandbox/effect-v4-refs/` (grep them; each is a
    full checkout of a real v4 codebase). Search broadly — the table maps known strengths,
    but any of them may hold the pattern you need. Caveat: they span beta.31–.90, all
-   older than our beta.106 pin — patterns transfer, exact signatures may not.
+   older than our pin — patterns transfer, exact signatures may not.
 
 | Question | Repo (under `effect-v4-refs/` unless noted) |
 |---|---|
@@ -260,5 +262,5 @@ roughly in order of how often they appear:
 - Type-assertion casts on an Effect's error/requirement union (`as Effect.Effect<...>`)
   to force a union past inference.
 - Caret or drifted version pins (rule 1); imports from paths not verified against
-  beta.106 (golden rule).
+  the pinned version (golden rule).
 - Change-history comments (rule 21).

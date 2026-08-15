@@ -1,9 +1,11 @@
 > **Imported reference (cloudflare-hub).** Written for cloudflare-hub against
-> effect@4.0.0-beta.90; gauntlet pins **4.0.0-beta.106** and runs plain Node
+> effect@4.0.0-beta.90; gauntlet pins **4.0.0-rc.109** and runs plain Node
 > (no Cloudflare Sandbox). "For hub:" recommendations, hub service names, and
 > "we pin beta.90" statements are historical context. Every API name, import
 > path, and signature claim that speaks to our pin has been **verified against
-> the installed beta.106 source** (verified 2026-08-10); the substantive
+> the installed beta.106 source** (verified 2026-08-10; the beta.106→rc.109
+> changesets are patch-only and touch no API this doc prescribes, re-checked
+> 2026-08-15); the substantive
 > beta.90→106 renames folded in are `Schedule.take(n)` → `Schedule.upTo({ times: n })`
 > and `Schema.TaggedErrorClass` → `Schema.TaggedError`. Code excerpts from the
 > reference repos remain quotes of those repos at their own (older) pins.
