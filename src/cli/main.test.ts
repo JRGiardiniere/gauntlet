@@ -18,14 +18,19 @@ import {
   makeScripted,
   scriptedLayer,
   type Scripted,
+  type ScriptedPrompt,
   type ScriptedSession,
   usageRow,
 } from "../harness/scripted.ts"
-import { FindingsOutput } from "../harness/output-contract.ts"
+import {
+  FindingsOutput,
+  type VerdictsOutput,
+} from "../harness/output-contract.ts"
 import {
   InvocationArtifact,
   InvocationJournalCheckpoint,
 } from "../run/invocation-journal.ts"
+import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
@@ -151,16 +156,20 @@ const FINDER_OUTPUT = {
       summary: "the name hides the value's role",
     },
   ],
-}
+} satisfies FindingsOutput
+
+// The three stage outputs a scripted session can emit. The harness keeps emit
+// args `unknown` because it is a generic adapter seam; these helpers name the
+// admissible domain outputs so a script can only emit decodable model output.
+type EmittedOutput = FindingsOutput | VerdictsOutput | JudgmentsOutput
 
 // The BugClaim and Judgment paths execute concurrently, so their sessions
 // are keyed by session-id suffix instead of relying on open order.
 const emittingSession = (
-  output: unknown,
+  output: EmittedOutput,
   forSession?: string,
-): ScriptedSession => ({
-  ...(forSession === undefined ? {} : { forSession }),
-  prompts: [
+): ScriptedSession => {
+  const prompts: Array<ScriptedPrompt> = [
     {
       events: [
         { afterMillis: 0, kind: "message_start" },
@@ -179,8 +188,14 @@ const emittingSession = (
       ],
       settles: "after-events",
     },
-  ],
-})
+  ]
+  // An unkeyed session is claimed in open order; a keyed one is claimed by
+  // matching the invocation's session-id suffix, so `forSession` is added to
+  // the session object only when present.
+  return forSession === undefined
+    ? { prompts }
+    : { prompts, forSession }
+}
 
 const VERIFIER_OUTPUT = {
   verdicts: [
@@ -195,7 +210,7 @@ const VERIFIER_OUTPUT = {
       },
     },
   ],
-}
+} satisfies VerdictsOutput
 
 const JUDGMENT_OUTPUT = {
   decisions: [
@@ -208,7 +223,7 @@ const JUDGMENT_OUTPUT = {
       cleanlyExplained: true,
     },
   ],
-}
+} satisfies JudgmentsOutput
 
 const successfulSession = (
   output: FindingsOutput = FINDER_OUTPUT,
@@ -234,7 +249,7 @@ const inspectionsFor = (scripted: Scripted, suffix: string) =>
   )
 
 const confinedSession = (
-  output: unknown,
+  output: EmittedOutput,
   forSession: string,
   inspect: {
     readonly bash?: ReadonlyArray<string>
