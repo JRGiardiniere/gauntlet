@@ -21,7 +21,7 @@ ruleTester.run("no-schema-class", rule, {
     {
       name: "a JavaScript file, which sits outside the schema seam",
       code: `const Value = Schema.Class("Value")({ value: Schema.String })`,
-      filename: "/repo/publisher.js",
+      filename: "/gauntlet/src/publisher.js",
     },
   ],
   invalid: [

@@ -21,7 +21,7 @@ ruleTester.run("no-instanceof-tagged-error", rule, {
     {
       name: "a JavaScript file, which sits outside the Effect error seam",
       code: `const isDomain = error instanceof DomainError`,
-      filename: "/repo/publisher.js",
+      filename: "/gauntlet/src/publisher.js",
     },
   ],
   invalid: [

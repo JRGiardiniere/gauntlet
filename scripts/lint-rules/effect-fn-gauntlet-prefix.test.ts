@@ -34,22 +34,22 @@ ruleTester.run("effect-fn-gauntlet-prefix", rule, {
     {
       name: "an exempt unit test file",
       code: `Effect.fn("Publisher.publish")`,
-      filename: "/repo/publisher.test.ts",
+      filename: "/gauntlet/src/publisher.test.ts",
     },
     {
       name: "an exempt fake file",
       code: `Effect.fn("Publisher.publish")`,
-      filename: "/repo/publisher.fake.ts",
+      filename: "/gauntlet/src/publisher.fake.ts",
     },
     {
       name: "an exempt integration file",
       code: `Effect.fn("Publisher.publish")`,
-      filename: "/repo/publisher.integration.ts",
+      filename: "/gauntlet/src/publisher.integration.ts",
     },
     {
       name: "a JavaScript file, which carries no span vocabulary",
       code: `Effect.fn("Publisher.publish")`,
-      filename: "/repo/publisher.js",
+      filename: "/gauntlet/src/publisher.js",
     },
   ],
   invalid: [
