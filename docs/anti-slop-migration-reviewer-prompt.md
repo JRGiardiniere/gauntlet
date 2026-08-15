@@ -89,6 +89,15 @@ Reject diagnostic laundering, including:
 - weakened, deleted, or rewritten tests that stop exercising invalid input;
 - `SAFETY:` comments that restate the assertion without proving its invariant.
 
+Sanctioned exception: `.oxlintrc.json` scopes `anti-slop/no-runtime-typeof` to
+`["error", { "allowInTypeGuards": true }]` for `scripts/lint-rules/**`. Oxlint's
+ESTree gives string and numeric literals the same `type: "Literal"`, so a
+declared type guard over `typeof node.value` is the only way a lint rule can
+discriminate them. Severity stays at error, and the option admits `typeof`
+solely inside functions whose return type is a type predicate. Do not flag
+this override; do flag any widening of its file scope or new uses of the
+option elsewhere.
+
 Completion criterion: configuration and tests retain at least their previous enforcement, and every removed finding reflects a substantive code change or a justified existing contract.
 
 ### 4. Review semantic preservation
