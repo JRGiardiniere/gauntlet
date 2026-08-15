@@ -1,9 +1,8 @@
 import * as Schema from "effect/Schema"
 
 // One retained requirement document with document-level provenance: enough to
-// cite where the text came from. `role` labels the document's standing —
-// today only the caller-provided addendum exists; fetched Slice and parent
-// documents arrive with the Specification Sources (issue #70).
+// cite where the text came from. `role` labels the document's standing; the
+// caller-provided addendum is the only admitted role.
 export const SpecificationDocument = Schema.Struct({
   role: Schema.Literals(["caller-addendum"]),
   provenance: Schema.NonEmptyString,
