@@ -17,15 +17,17 @@ const observations = indexObservations(
 const keep = (
   index: number,
   merge?: ReadonlyArray<number>,
-) => ({
-  index,
-  decision: "keep" as const,
-  tier: "P2" as const,
-  reason: "checked the call sites and confirmed the structural cost",
-  goodFind: true,
-  cleanlyExplained: true,
-  ...(merge === undefined ? {} : { merge }),
-})
+) => {
+  const decision = {
+    index,
+    decision: "keep" as const,
+    tier: "P2" as const,
+    reason: "checked the call sites and confirmed the structural cost",
+    goodFind: true,
+    cleanlyExplained: true,
+  }
+  return merge === undefined ? decision : { ...decision, merge }
+}
 
 const drop = (index: number) => ({
   index,
