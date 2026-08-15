@@ -66,10 +66,10 @@ objects.
 
 - Header: target identity, recipe + seats, lens list with seats,
   the one cost/duration line, coverage gaps.
-- Findings grouped by tier, each with evidence (confirmed BugClaims) or
+- Findings grouped by Review Priority, each with evidence (confirmed BugClaims) or
   keep-reason (kept Observations).
 - **Unverified and undecided render in the main findings section**, tagged
-  `[unverified]` / `[undecided]`, after confirmed/kept within their tier —
+  `[unverified]` / `[undecided]`, after confirmed/kept within their priority —
   first-class per #6, not banished to an appendix; an unverified P1 is
   exactly what a human should glance at. The digest already counts them.
 - Appendices for refuted claims and judge drops — kept because they cost

@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema"
 import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as String from "effect/String"
-import { Severity } from "../domain/verdict.ts"
+import { ReviewPriority } from "../domain/verdict.ts"
 
 // One immutable contract drives the model-facing tool schema and every
 // decode/persistence boundary for that output. Tool names are owned by the
@@ -136,7 +136,7 @@ const verdictCore = {
   ),
   evidence: described(
     oneLine,
-    "One line: the inputs/state and wrong output, or the line that refutes it.",
+    "One line: the inputs/state and wrong output, or the line that refutes it. When Review Priority rests on specification responsibility, include that reasoning on the same line.",
   ),
 }
 
@@ -146,9 +146,9 @@ const reportedVerdict = Schema.Struct({
     Schema.Literals(["CONFIRMED", "UNVERIFIED"]),
     "`CONFIRMED` | `UNVERIFIED` | `REFUTED` — see the ladder in the verifier prompt.",
   ),
-  severity: described(
-    Severity,
-    "`P1` | `P2` | `P3`. Judged on reachability × consequence.",
+  review_priority: described(
+    ReviewPriority,
+    "`P1` | `P2` | `P3`. Review Priority for the author of the current ReviewTarget: reachability, consequence, and whether that target is responsible. A regression introduced by the target stays P1; a real parent-only concern may be Confirmed P3 with evidence stating both the factual premise and the specification reasoning. Slice silence alone never lowers priority.",
   ),
   test_suggestion: testSuggestion(),
 })

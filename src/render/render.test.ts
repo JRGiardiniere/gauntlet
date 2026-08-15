@@ -42,7 +42,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
 })
 
 const confirmedVerdict = Verdict.cases.Confirmed.make({
-  severity: "P1",
+  reviewPriority: "P1",
   evidence: "reproduced with an empty input",
 })
 
@@ -76,7 +76,7 @@ const dossier = Dossier.make({
     {
       candidate: bugClaim("fixture-lens/2", "tiered but unverified claim"),
       cluster: 2,
-      verdict: Verdict.cases.Unverified.make({ severity: "P2" }),
+      verdict: Verdict.cases.Unverified.make({ reviewPriority: "P2" }),
     },
     {
       candidate: bugClaim("fixture-lens/3", "untiered unverified claim"),
@@ -102,7 +102,7 @@ const dossier = Dossier.make({
     {
       candidate: observation("fixture-lens/5", "k".repeat(400)),
       judgment: Judgment.cases.Kept.make({
-        tier: "P2",
+        reviewPriority: "P2",
         reason: "checked the call sites;\n## the coupling is real",
         goodFind: true,
         cleanlyExplained: true,
@@ -156,7 +156,7 @@ const paths: RunPaths = {
 describe("dossier markdown rendering", () => {
   const markdown = renderDossierMarkdown(plan, dossier, accounting)
 
-  it("orders findings by tier with unverified and undecided tagged in the main section", () => {
+  it("orders findings by Review Priority with unverified and undecided tagged in the main section", () => {
     const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
     const confirmedAt = findings.indexOf("first line")
     const keptAt = findings.indexOf("kkkk")

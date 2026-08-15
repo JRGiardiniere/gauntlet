@@ -18,6 +18,7 @@ describe("EmitJudgments contract", () => {
         Schema.fromJsonString(Schema.Unknown),
       )(document.schema)
       expect(projected).toContain("Reading ONLY the finder's own summary")
+      expect(projected).toContain("never a priority")
     }))
 
   it.effect("admits keep-only fields on keeps and rejects them on drops", () =>
@@ -28,7 +29,7 @@ describe("EmitJudgments contract", () => {
             {
               index: 1,
               decision: "drop",
-              tier: "P3",
+              review_priority: "P3",
               reason: "false premise",
             },
           ],
@@ -41,7 +42,7 @@ describe("EmitJudgments contract", () => {
           {
             index: 1,
             decision: "keep",
-            tier: "P2",
+            review_priority: "P2",
             reason: "warranted and checked",
             goodFind: true,
             cleanlyExplained: true,

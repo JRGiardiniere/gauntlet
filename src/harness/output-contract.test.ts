@@ -19,7 +19,8 @@ describe("output contracts", () => {
       const sentinels = [
         [EmitFindings, "as it appears in the changed-file list"],
         [EmitPool, "must appear in exactly one cluster"],
-        [EmitVerdicts, "reachability × consequence"],
+        [EmitVerdicts, "Slice silence alone never lowers priority"],
+        [EmitVerdicts, "include that reasoning on the same line"],
         [EmitVerdicts, "Never generated test source or shell commands"],
       ] as const
       for (const [contract, sentinel] of sentinels) {
@@ -95,7 +96,7 @@ describe("output contracts", () => {
       const findingsFailure = yield* Effect.flip(
         strictDecode(EmitFindings.schema)({
           findings: [
-            { file: "src/a.ts", summary: "extra", severity: "P1" },
+            { file: "src/a.ts", summary: "extra", review_priority: "P1" },
           ],
         }),
       )
@@ -121,7 +122,7 @@ describe("output contracts", () => {
               {
                 cluster: 1,
                 verdict: "CONFIRMED",
-                severity: "P2",
+                review_priority: "P2",
                 evidence,
               },
             ],
@@ -149,7 +150,7 @@ describe("output contracts", () => {
           {
             cluster: 1,
             verdict: "CONFIRMED",
-            severity: "P1",
+            review_priority: "P1",
             evidence: "reproduced",
             test_suggestion: {
               tests: ["src/a.test.ts"],
@@ -165,13 +166,63 @@ describe("output contracts", () => {
           {
             cluster: 3,
             verdict: "UNVERIFIED",
-            severity: "P3",
+            review_priority: "P3",
             evidence: "needs runtime state",
             test_suggestion: {},
           },
         ],
       })
       expect(suggested.verdicts).toHaveLength(3)
+    }))
+
+  it.effect("requires Review Priority and rejects the retired severity field", () =>
+    Effect.gen(function* () {
+      const decode = strictDecode(EmitVerdicts.schema)
+      const retired = yield* Effect.flip(
+        decode({
+          verdicts: [
+            {
+              cluster: 1,
+              verdict: "CONFIRMED",
+              severity: "P1",
+              evidence: "the added handler throws on empty input",
+            },
+          ],
+        }),
+      )
+      expect(retired._tag).toBe("SchemaError")
+
+      const regression = yield* decode({
+        verdicts: [
+          {
+            cluster: 1,
+            verdict: "CONFIRMED",
+            review_priority: "P1",
+            evidence:
+              "the added handler throws on empty input; a regression introduced by this change stays P1 even though the Slice never mentioned it",
+          },
+        ],
+      })
+      expect(regression.verdicts[0]).toMatchObject({
+        verdict: "CONFIRMED",
+        review_priority: "P1",
+      })
+
+      const parentOnly = yield* decode({
+        verdicts: [
+          {
+            cluster: 1,
+            verdict: "CONFIRMED",
+            review_priority: "P3",
+            evidence:
+              "the parent requires sibling persistence and this Slice deferred it; Confirmed because the gap is real, P3 because later work owns it",
+          },
+        ],
+      })
+      expect(parentOnly.verdicts[0]).toMatchObject({
+        verdict: "CONFIRMED",
+        review_priority: "P3",
+      })
     }))
 
   it.effect("requires non-empty pool clusters", () =>

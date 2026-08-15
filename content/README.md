@@ -79,7 +79,7 @@ Deliberate changes made during the port:
 - **Verdict fields trimmed**: the old `real` boolean (bench-compat mirror of
   the verdict), `confidence` (asked but never read downstream), and severity
   `"none"` (only legal when refuted) are dropped. Refuted claims simply carry
-  no severity, matching the judge's no-tier-on-drop rule.
+  no Review Priority, matching the judge's no-priority-on-drop rule.
 - **Judge prompt curated**: the preamble referencing retired lenses
   (`subjective-code`/`subjective-design`), bench files, and the jettisoned
   subjective corpus is gone; the operative prompt is intact. The

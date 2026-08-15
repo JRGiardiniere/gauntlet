@@ -101,12 +101,12 @@ const domainVerdict = (reported: ReportedVerdict): Verdict => {
   switch (reported.verdict) {
     case "CONFIRMED":
       return Verdict.cases.Confirmed.make({
-        severity: reported.severity,
+        reviewPriority: reported.review_priority,
         evidence: reported.evidence,
       })
     case "UNVERIFIED":
       return Verdict.cases.Unverified.make({
-        severity: reported.severity,
+        reviewPriority: reported.review_priority,
         evidence: reported.evidence,
       })
     case "REFUTED":
