@@ -10,13 +10,19 @@ flags documented-but-unexercised.
 ## Verbs
 
 ```
-gauntlet review [recipe] [--pr N] [--destination local|pr] [--resume [run-id]] [--lenses a,b]
+gauntlet review [recipe] <target> [--spec <file>] [--destination local|pr] [--resume [run-id]] [--lenses a,b]
+  <target> = --working-tree | --pr <number> | --commits <base>[..<head>]
 gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
 gauntlet config set <key> <value...>
 gauntlet config unset <key>
 ```
+
+`<target>` is one required, mutually exclusive selection: `--working-tree`
+(uncommitted changes vs HEAD), `--pr <number>`, or `--commits
+<base>[..<head>]`. `--spec <file>` supplies a Caller Addendum per the
+specification-ingress spec (#70).
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
@@ -29,19 +35,44 @@ gauntlet config unset <key>
   "run directory is the backstop" made actionable, never re-paying a review.
 - `config set` and `config unset` explicitly manage the standing choices in
   `~/.gauntlet/settings.json`:
-  `default-recipe`, `favorites`, `runs-root`. Bare `gauntlet config` prints
-  settings and the recipe list, favorites first. An unnamed review requires a
-  configured Default Recipe; if the setting is absent or names no available
-  Recipe, it fails with a clear error instead of silently choosing one.
+  `default-recipe`, `default-lenses`, `favorites`, `runs-root`. Bare `gauntlet
+  config` prints settings and the recipe list, favorites first. An unnamed
+  review requires a configured Default Recipe and every review requires
+  configured Default Lenses; invalid standing selections fail clearly instead
+  of silently choosing one.
 - `config init` explicitly creates the initial Recipe Catalog and settings. It
   is idempotent when they are already valid, never overwrites or replenishes a
   partial catalog, and ordinary review commands never mutate configuration.
 
 ## Targets: explicit aiming, no autodetect
 
-The caller aims the tool. Default target is the working tree (uncommitted
-changes vs HEAD — the mid-flight agent case); `--pr <number>` reviews that
-PR's range. Destination defaults to `local`, which means the Run lands on disk
+The caller aims the tool, and (amended 2026-08-14) aims it *explicitly*: every
+review names its target — `--working-tree` (uncommitted changes vs HEAD — the
+mid-flight agent case), `--pr <number>` for that PR's range, or `--commits
+<base>[..<head>]` for committed work with no PR (#82). There is no default
+target and no clean-tree fallback: with three target kinds an implicit default
+invites exactly the guessing this ADR bans, an omitted target is a usage error
+naming all options instead of a post-invocation `TargetUnresolvable`, and the
+primary caller is an agent that writes the flag either way. The explicit-target
+requirement is implemented alongside the commit-range ticket so the CLI breaks
+once, not twice. Target selection is independent of Specification Source
+resolution (which keys on machine-recoverable signals like the current branch
+name, not on which target kind was named).
+
+The commit range mirrors the PullRequest target's mechanics (settled
+2026-08-14, #82): `<head>` defaults to `HEAD`, either end accepts any
+committish, the diff base is `merge-base(base, head)`, and both ends resolve
+to commit SHAs at submission. The frozen target identity is that SHA pair —
+resume's unchanged-target check is SHA-pair equality, immune to moving refs.
+The reviewed snapshot is the head commit's tree; uncommitted working-tree
+edits are ignored with one scope-degradation warning (the mirror of the
+working tree's untracked-files warning), never inferred into the review. An
+unresolvable ref fails before a Run is created; a range whose merge-base
+equals its head is "nothing to review" — the clean-working-tree treatment.
+Commit-range and working-tree runs are local-destination; `pr` still requires
+`--pr`.
+
+Destination defaults to `local`, which means the Run lands on disk
 and its bounded digest is printed. `pr` keeps those local outputs and also
 posts the human-readable Dossier; it requires `--pr`. There is no `both`
 destination because local artifacts are always produced. The old repo's ~250-line
@@ -70,6 +101,23 @@ Default Seat. Trialling a model is writing one file directly — agents do not
 need a recipe CRUD command. There are no per-stage override flags or config
 overlay file (the old one shipped literally empty).
 
+A Recipe may also carry one Lens selection: `lenses.extend` adds named Lenses
+to the configured Default Lenses, while `lenses.only` selects exactly the named
+Lenses. Omission uses the configured Default Lenses unchanged. The runtime
+`--lenses` flag remains the single exact caller override and supersedes the
+Recipe's Lens selection. Resolved names are validated before a Run is created.
+An empty Default Lens selection or `lenses.only` list is valid: the Run has no
+Finder invocations and produces the ordinary zero-result Dossier. Gauntlet does
+not add a special protection for an obviously empty review.
+
+Lens selections express membership, not priority or execution order. Planning
+produces a deterministic invocation array and the ReviewPlan records that
+resolved array because the journal and downstream candidate indexes consume
+it. The array's operational order stays stable within the Run, but callers are
+not promised that configuration order controls scheduling, output, or cache
+behavior. The ReviewPlan does not retain the Default Lenses, Recipe selection
+mode, or source-catalog provenance after resolution.
+
 One invalid Recipe never disables the catalog: bare `config` marks its file
 invalid with the Schema error, selecting it fails before a Run is created, and
 unrelated Recipes remain usable. Documentation gives one positive JSON example
@@ -84,6 +132,10 @@ and overrides. Missing Favorite names produce one warning rather than hiding
 the rest of the catalog. No separate machine-output mode exists without a real
 consumer.
 
+Bare `config` is also the Lens discovery surface: it lists the effective Lens
+Catalog, identifies the Default Lenses, and reports invalid Lens content. Help
+text explains selection semantics; it does not embed a mutable catalog listing.
+
 Selection precedence is exactly: a Recipe named positionally, otherwise the
 configured Default Recipe. If neither resolves, review fails and lists the
 available Recipes. Environment variables, flags, and a hidden built-in
@@ -92,26 +144,36 @@ submission (#6), so editing a Recipe never changes an in-flight run or a
 resumed run whose target is unchanged (amended per #52).
 
 `config set default-recipe` accepts only an available valid Recipe and
-`config unset default-recipe` is rejected. Unsetting `favorites` restores an
-empty list; unsetting `runs-root` restores `~/.gauntlet/runs`. Direct edits may
-still create dangling or malformed settings, so bare `config` explains the
-inconsistency and unnamed `review` refuses to guess.
+`config unset default-recipe` is rejected. `config set default-lenses` replaces
+the standing selection and `config unset default-lenses` is likewise rejected.
+Unsetting `favorites` restores an empty list; unsetting `runs-root` restores
+`~/.gauntlet/runs`. Direct edits may still create dangling or malformed
+settings, so bare `config` explains the inconsistency and `review` refuses to
+guess.
 
-Settings are strict JSON: required `default-recipe`, required ordered
-`favorites` (possibly empty), and optional `runs-root`. `config set favorites`
-replaces the whole list, requires distinct available valid Recipe names, and
-`config unset favorites` clears it. Settings writes use the existing atomic
-sibling-temp-and-rename mechanism; the personal-tool use case does not justify
-locking or conflict machinery.
+Settings are strict JSON: required `default-recipe`, required `default-lenses`,
+required ordered `favorites` (possibly empty), and optional `runs-root`.
+`config set favorites` replaces the whole list, requires distinct available
+valid Recipe names, and `config unset favorites` clears it. Settings writes use
+the existing atomic sibling-temp-and-rename mechanism; the personal-tool use
+case does not justify locking or conflict machinery.
 
 On a genuinely fresh configuration, `config init` creates ordinary `quick`,
 `low`, `medium`, and `high` Recipe files, makes all four Favorites, and selects
-`medium` as the Default Recipe. Those files are immediately user-owned; after
-creation Gauntlet retains no provenance or special behavior for them. A valid
-second invocation changes nothing. A partial configuration gets a precise
-repair error rather than an automatic overwrite. Exact initial Seats are
-selected from the valid model lineup at implementation time, not frozen in
-this ADR.
+`medium` as the Default Recipe. It also writes the initial Default Lenses as an
+explicit user-owned setting rather than inferring them from every available
+Lens. The Recipe files and Default Lenses are immediately user-owned; after
+creation Gauntlet retains no special behavior for them. A valid second
+invocation changes nothing. A partial configuration gets a precise repair error
+rather than an automatic overwrite. Exact initial Seats and Default Lenses are
+selected at implementation time, not frozen in this ADR.
+
+The initial selection preserves the shipped review shape finalized for that
+release. Later Lens files become available without silently joining an existing
+user's Default Lenses. Gauntlet is presently a personal tool with one known
+configuration, so adding this required setting does not justify general schema
+migration machinery or an old-settings compatibility contract; the known
+configuration may be updated explicitly during rollout.
 
 ## Output contract
 

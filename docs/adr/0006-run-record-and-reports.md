@@ -41,9 +41,10 @@ reader actually exists.
 ## No cost governance
 
 Cost is an output read afterward, never an input constrained proactively.
-This amends ADR 0005 and CONTEXT.md: **a recipe is seats only** — no budget
-fields, no dollar ceilings, no token budgets, no spend warnings, and
-"budgets" leaves the ReviewPlan's field list. What survives is not cost
+This amends ADR 0005 and CONTEXT.md: **a Recipe has no cost governance** — no
+budget fields, no dollar ceilings, no token budgets, no spend warnings, and
+"budgets" leaves the ReviewPlan's field list. Seat assignment and Lens
+selection remain review policy, not cost governance. What survives is not cost
 control: #7's per-lens candidate caps and corrective-turn limits are
 output-volume and runaway protections and stay where #7 put them.
 

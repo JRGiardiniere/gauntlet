@@ -6,10 +6,34 @@ code-review agent. This is a glossary only — no implementation detail belongs 
 ## Language
 
 **ReviewTarget**:
-The exact change under review — a tagged union of target kinds (v1: a working
-tree or a pull request), carrying its frozen diff and any scope-degradation
-warnings acquired with it.
+The exact change under review — a tagged union of target kinds (a working
+tree, a pull request, or a commit range), carrying its frozen diff and any
+scope-degradation warnings acquired with it.
 _Avoid_: scope, subject, changeset, target repo
+
+**ReviewSpecification**:
+The frozen requirements used to judge a ReviewTarget — the material of at most
+one Specification Source, beside an optional Caller Addendum. Its current Slice
+defines present obligations; broader material supplies intent, constraints,
+and explicitly deferred work.
+_Avoid_: spec context, scope block, issue text
+
+**Caller Addendum**:
+Caller-provided Markdown carried in a ReviewSpecification beside fetched
+source material — labeled as caller context, never authority over fetched
+text. It stands alone as the complete ReviewSpecification only when no
+Specification Source resolves.
+_Avoid_: spec override, supplemental source, extra context
+
+**Slice**:
+The part of a ReviewSpecification whose obligations belong to the current
+ReviewTarget, distinct from sibling work described by broader material.
+_Avoid_: child issue, subtask, ticket
+
+**Specification Source**:
+An authority that supplies requirement material and relationships for a
+ReviewSpecification without defining what system must host that material.
+_Avoid_: issue provider, tracker integration, spec resolver
 
 **AgentInvocation**:
 One bounded request to an agent for one structured output — inclusive of
@@ -37,11 +61,9 @@ destination is not part of the plan.
 _Avoid_: configuration snapshot, settings, options
 
 **Recipe**:
-A named model selection as user-owned content in the Recipe Catalog. It names
-one Default Seat plus optional Stage-specific Seat overrides — seats only,
-never budgets or cost limits. Favorites and the Default Recipe are settings
-metadata, never recipe anatomy. The ReviewPlan freezes the resolved Seats at
-submission.
+A named review policy stored as user-owned content in the Recipe Catalog. It
+assigns Seats and may select Lenses, but never contains budgets, cost limits,
+caps, prompt text, or per-Lens Seat assignments.
 _Avoid_: preset, tier, model config
 
 **Seat**:
@@ -63,6 +85,12 @@ _Avoid_: recipe database, built-in recipes, app recipes, user recipes
 The one Recipe selected for a review when the caller does not name one. It is
 a user preference that points to a Recipe, never part of that Recipe.
 _Avoid_: default, fallback recipe, default model
+
+**Default Lenses**:
+The required standing selection of Lenses applied when neither the selected
+Recipe nor the caller chooses otherwise. It is a user preference, never
+inferred from every available Lens and never part of a Recipe.
+_Avoid_: baseline lenses, default Lens set, Lens roster
 
 **Candidate**:
 One finder-produced claim awaiting evaluation, with a stable identity. A tagged
@@ -86,7 +114,7 @@ _Avoid_: subjective candidate, nit, suggestion
 **Lens**:
 One finder's point of view, as pure content: a named prompt (a markdown file,
 shipped with Gauntlet or project-local, one shared format) with frontmatter
-limited to an optional `deep` Finder Class and an optional display-only
+limited to an optional `interpretive` Finder Class and an optional display-only
 category tag (grouping in listings, never routing).
 A Lens never names a concrete Seat and carries no routing, caps, or schema —
 its Candidates route by their own type, not by the Lens that produced them.
@@ -95,11 +123,17 @@ submission.
 _Avoid_: bug lens / subjective lens (lenses are not typed by path), role,
 angle, finder (that's the invocation, not the prompt)
 
+**Lens Catalog**:
+A collection of available Lenses whose scope comes from catalog membership,
+never from tags or other applicability metadata on a Lens.
+_Avoid_: lens registry, repository-only tag, global tag
+
 **Finder Class**:
-A stable statement of how much Finder reasoning a Lens needs: `standard` by
-default or `deep` by explicit declaration. The selected Recipe maps the class
-to a concrete Seat; the Lens never chooses a provider or model.
-_Avoid_: finder role, smart model, low model, model override
+A stable statement of how a Lens reasons: `standard` for a bounded review pass
+or `interpretive` for broader reasoning over intent and context. An
+Interpretive Finder receives the ReviewSpecification when one is available;
+the selected Recipe maps each class to a concrete Seat.
+_Avoid_: subjective finder, deep finder, finder role, model tier
 
 **Run**:
 The durable, resumable execution of one review. The only thing that "runs" —
@@ -134,6 +168,12 @@ Assembly
 What Verification attaches to a BugClaim: confirmed, refuted, or unverified.
 Unverified is a first-class verdict, never an absence.
 _Avoid_: evaluation, judgment (that word belongs to Observations)
+
+**Review Priority**:
+The P1–P3 urgency of a reported Candidate for the author of the current
+ReviewTarget, considering reachability, consequence, and whether that target
+is responsible for addressing it.
+_Avoid_: severity, impact score, confidence
 
 **TestSuggestion**:
 Verification's optional recommendation to run named existing repository tests

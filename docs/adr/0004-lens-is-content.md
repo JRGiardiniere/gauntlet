@@ -14,30 +14,41 @@ editing every preset. We decided none of that is lens anatomy:
   lens *tends* to produce, the type tag decides where each candidate *goes*.
   `Candidate.path` and the subjective-lens allowlist do not exist in Gauntlet.
 - **Spend policy** (caps) belongs to the ReviewPlan (#7).
-- **Model policy** belongs to the Recipe. A Lens may declare only that it needs
-  the `deep` Finder Class; omission means `standard`. The selected Recipe maps
-  both stable classes to concrete Seats, so a Lens cannot pin a model that
+- **Selection policy** belongs outside the Lens. Making a Lens available does
+  not itself select it for every review; the standing user preference, the
+  selected Recipe, or the caller determines which available Lenses enter the
+  ReviewPlan. Availability scope comes from which Lens Catalog contains the
+  file, never from a global/repository tag in its frontmatter.
+- **Interpretive policy** belongs to one stable Finder Class, not a subjective
+  path or name allowlist. A Lens may declare `interpretive` when it needs broad
+  reasoning over intent and context; omission means `standard`. Interpretive
+  Finders receive the ReviewSpecification when one is available. The selected
+  Recipe maps both classes to concrete Seats, so a Lens cannot pin a model that
   silently becomes stale. There is no arbitrary role→model matrix and no
   concrete per-Lens Seat override.
 
 What remains **is** the lens: a name and a prompt. Lenses are markdown files
 in one format — name from the filename, body is the prompt, frontmatter
-limited to optional `finder-class: deep` and a display-only `category` tag
+limited to optional `finder-class: interpretive` and a display-only `category` tag
 (amended per #12: groups lens listings for the human reader; never read by
 routing, which stays on the candidate's own type; amended per #52:
 `category` is live catalog metadata, never a FrozenLens field — so it cannot
 appear in a Dossier, which renders from the frozen plan).
-`finder-class` affects only Recipe Seat resolution and admits exactly
-`deep`; standard is represented by omission. Built-ins ship inside Gauntlet;
-a project drops the same format in its own lens directory; one loader reads
-both. Caps, routing, schemas, and tool sets are banned from lens files by
-design — reintroducing them rebuilds the old anatomy.
+`finder-class` admits exactly `interpretive`; standard is represented by
+omission. The class governs Recipe Seat resolution and whether the Finder
+receives an available ReviewSpecification, never Candidate routing. Built-ins
+ship inside Gauntlet; a project drops the same format in its own lens
+directory; one loader reads the available Lens Catalogs. Caps, routing,
+schemas, tool sets, and
+applicability tags are banned from lens files by design — reintroducing them
+rebuilds the old anatomy.
 
-The shipped `subjective` and `refactoring-checklist` Lenses opt into `deep`:
-both evaluate design taste rather than running a bounded correctness sweep.
-Every other shipped Lens is standard. Category does not imply Finder Class —
-future Lenses opt into `deep` individually when their reasoning demand earns
-it.
+The shipped `subjective` and `refactoring-checklist` Lenses opt into
+`interpretive`; restored `spec-conformance` does too. They all reason over
+broader intent rather than running only a bounded mechanical sweep, though
+their Candidates may take either evaluation path. Every other shipped Lens is
+standard. Category does not imply Finder Class — future Lenses opt into
+`interpretive` individually when their reasoning and context needs earn it.
 
 Version identity is the frozen prompt text, never a separately stored digest
 (amended per #52): at submission the ReviewPlan freezes each lens's prompt
@@ -49,9 +60,10 @@ run used — the frozen text travels with the run.
 
 ## Consequences
 
-- Adding a lens = adding one markdown file. It can never require touching
-  schemas, routing, Recipes, or core stages, and tests must never key
-  assertions to real lens names (fixture lenses only).
+- Adding a lens = adding one markdown file, which makes it available for
+  selection. It can never require touching schemas, routing, or core stages,
+  and tests must never key assertions to real lens names (fixture lenses
+  only).
 - The per-project coding-style lens (fast-follow) is just a project-local
   file; the loader ships in v1.
 - A finder's emit schema keeps `failure_scenario` optional — that optionality
