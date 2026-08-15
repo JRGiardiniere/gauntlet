@@ -402,6 +402,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
               `no scripted prompt ${String(promptIndex)} for session ${String(sessionIndex)}`,
             )
           }
+          // @effect-diagnostics-next-line newPromise:off
           return new Promise<void>((resolve, reject) => {
             Queue.offerUnsafe(promptRequests, {
               resolve,
@@ -412,6 +413,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         abort: () => {
           log.push(`abort:${String(sessionIndex)}`)
           return behaviorForSession.abortBehavior === "hangs"
+            // @effect-diagnostics-next-line newPromise:off
             ? new Promise<never>(() => undefined)
             : Promise.resolve()
         },

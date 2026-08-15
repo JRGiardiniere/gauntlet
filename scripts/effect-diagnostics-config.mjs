@@ -24,6 +24,19 @@ export const effectDiagnosticSeverity = {
   // scope is clean.
   globalDateInEffect: "error",
   globalRandomInEffect: "error",
+  // Zero-warning boundary (2026-08-15): every sanctioned occurrence of these
+  // carries an inline @effect-diagnostics directive at the site — Promise
+  // contracts at the Pi/OverlayFs seams, oxlint plugin code that runs outside
+  // the Effect runtime, and tests that deliberately touch the real
+  // environment. Blocking severity makes any new occurrence fail the gate
+  // instead of joining a standing warning floor.
+  asyncFunction: "error",
+  newPromise: "error",
+  nodeBuiltinImport: "error",
+  preferSchemaOverJson: "error",
+  preferTypedSchemaDecoder: "error",
+  processEnv: "error",
+  processEnvInEffect: "error",
 }
 
 export const effectDiagnosticsConfig = {

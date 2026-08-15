@@ -319,6 +319,7 @@ describe("ReviewWorkspace", () => {
       // disclose that host path.
       const tilde = yield* read(workspace, { path: "~/.ssh/config" })
       expect(tilde.isError).toBe(true)
+      // @effect-diagnostics-next-line processEnvInEffect:off
       const hostHome = process.env["HOME"]
       if (hostHome !== undefined) {
         expect(tilde.text).not.toContain(hostHome)
@@ -339,6 +340,7 @@ describe("ReviewWorkspace", () => {
       expect(env.text).toMatch(/^HOME=\//m)
       expect(env.text).toContain("HOSTNAME=localhost")
       expect(env.text).toContain("PWD=/repo")
+      // @effect-diagnostics-next-line processEnvInEffect:off
       const hostHome = process.env["HOME"]
       if (hostHome !== undefined) {
         expect(env.text).not.toContain(hostHome)

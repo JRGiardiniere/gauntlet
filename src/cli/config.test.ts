@@ -153,6 +153,7 @@ describe("gauntlet config init", () => {
       yield* fs.makeDirectory(fixture.recipesDirectory, { recursive: true })
       yield* fs.writeFileString(
         path.join(fixture.recipesDirectory, "retired.json"),
+        // @effect-diagnostics-next-line preferSchemaOverJson:off
         JSON.stringify({
           default: "fixture/model:low",
           "deep-finders": "fixture/strong-model:high",
