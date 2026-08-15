@@ -1,44 +1,59 @@
-import { describe, expect, it } from "vitest"
 import rule from "./effect-fn-span-shape.js"
-import { effectFnCall, runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-describe("effect-fn-span-shape", () => {
-  it.each(["publish", ".publish", "Publisher.", "Publisher..publish"])(
-    "reports the invalid span name %s",
-    (spanName) => {
-      const errors = runRule(rule, "CallExpression", effectFnCall(spanName))
+const malformedNameMessage =
+  /dotted, non-empty segments.*gauntlet\.<snake_case_module>\.<snake_case_method>.*house-style rules 17\/25.*docs\/effect-house-style\.md/
 
-      expect(errors).toHaveLength(1)
-      expect(errors[0]?.message).toContain("gauntlet.<snake_case_module>.<snake_case_method>")
-      expect(errors[0]?.message).toContain("house-style rules 17/25")
-      expect(errors[0]?.message).toContain("docs/effect-house-style.md")
+const uncheckableNameMessage =
+  /static string literals.*house-style rules 17\/25.*docs\/effect-house-style\.md/
+
+const malformed = (spanName: string) => ({
+  name: `the malformed span name ${spanName}`,
+  code: `Effect.fn("${spanName}")`,
+  filename: productionFile,
+  errors: [{ message: malformedNameMessage }],
+})
+
+ruleTester.run("effect-fn-span-shape", rule, {
+  valid: [
+    {
+      name: "a dotted span name",
+      code: `Effect.fn("Publisher.publish")`,
+      filename: productionFile,
     },
-  )
-
-  it.each([
-    ["a template-literal span name", { type: "TemplateLiteral" }],
-    ["a constant reference span name", { type: "Identifier", name: "SPAN_NAME" }],
-  ])("reports %s as non-checkable", (_label, argument) => {
-    const errors = runRule(rule, "CallExpression", effectFnCall(argument))
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.message).toContain("static string literals")
-    expect(errors[0]?.message).toContain("house-style rules 17/25")
-  })
-
-  it("reports a name-less Effect.fn call as non-checkable", () => {
-    const errors = runRule(rule, "CallExpression", effectFnCall())
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.message).toContain("static string literals")
-  })
-
-  it.each(["Publisher.publish", "gauntlet.publisher.publish"])(
-    "allows the dotted span name %s",
-    (spanName) => {
-      expect(
-        runRule(rule, "CallExpression", effectFnCall(spanName)),
-      ).toHaveLength(0)
+    {
+      name: "a dotted, gauntlet-prefixed span name",
+      code: `Effect.fn("gauntlet.publisher.publish")`,
+      filename: productionFile,
     },
-  )
+    {
+      name: "a JavaScript file, which carries no span vocabulary",
+      code: `Effect.fn("publish")`,
+      filename: "/repo/publisher.js",
+    },
+  ],
+  invalid: [
+    malformed("publish"),
+    malformed(".publish"),
+    malformed("Publisher."),
+    malformed("Publisher..publish"),
+    {
+      name: "a template-literal span name",
+      code: "Effect.fn(`Publisher.publish`)",
+      filename: productionFile,
+      errors: [{ message: uncheckableNameMessage }],
+    },
+    {
+      name: "a constant-reference span name",
+      code: `Effect.fn(SPAN_NAME)`,
+      filename: productionFile,
+      errors: [{ message: uncheckableNameMessage }],
+    },
+    {
+      name: "a name-less Effect.fn call",
+      code: `Effect.fn(function* () {})`,
+      filename: productionFile,
+      errors: [{ message: uncheckableNameMessage }],
+    },
+  ],
 })

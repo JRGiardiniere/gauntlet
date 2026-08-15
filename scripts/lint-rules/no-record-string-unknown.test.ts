@@ -1,42 +1,58 @@
-import { describe, expect, it } from "vitest"
 import rule from "./no-record-string-unknown.js"
-import { runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const node = { type: "TSTypeReference", range: [0, 23] }
+const unknownMessage =
+  /authoritative domain type or schema.*surface the missing model to the user/
 
-describe("no-record-string-unknown", () => {
-  it("reports an unknown-valued string record", () => {
-    const errors = runRule(rule, "TSTypeReference", node, {
-      sourceCode: "Record<string, unknown>",
-    })
+const anyMessage = /disables type checking/
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.message).toContain("authoritative domain type or schema")
-    expect(errors[0]?.message).toContain("surface the missing model to the user")
-  })
-
-  it("reports an any-valued string record more strongly", () => {
-    const errors = runRule(rule, "TSTypeReference", node, {
-      sourceCode: "Record<string, any>",
-    })
-
-    expect(errors).toHaveLength(1)
-    expect(errors[0]?.message).toContain("disables type checking")
-  })
-
-  it("reports the equivalent string index signature", () => {
-    expect(
-      runRule(rule, "TSIndexSignature", { type: "TSIndexSignature" }, {
-        sourceCode: "readonly [key: string]: unknown",
-      }),
-    ).toHaveLength(1)
-  })
-
-  it("allows records whose value type is modeled", () => {
-    expect(
-      runRule(rule, "TSTypeReference", node, {
-        sourceCode: "Record<string, AppRecord>",
-      }),
-    ).toHaveLength(0)
-  })
+ruleTester.run("no-record-string-unknown", rule, {
+  valid: [
+    {
+      name: "a record whose value type is modeled",
+      code: `type Values = Record<string, AppRecord>`,
+      filename: productionFile,
+    },
+    {
+      name: "an interface with declared members",
+      code: `interface Values { readonly value: string }`,
+      filename: productionFile,
+    },
+    {
+      name: "a numerically keyed index signature",
+      code: `interface Values { readonly [index: number]: unknown }`,
+      filename: productionFile,
+    },
+    {
+      name: "a line comment mentioning the banned shape",
+      code: `// Record<string, unknown> is what this replaces\nexport const values = {}`,
+      filename: productionFile,
+    },
+  ],
+  invalid: [
+    {
+      name: "an unknown-valued string record",
+      code: `type Values = Record<string, unknown>`,
+      filename: productionFile,
+      errors: [{ message: unknownMessage }],
+    },
+    {
+      name: "an any-valued string record, reported more strongly",
+      code: `type Values = Record<string, any>`,
+      filename: productionFile,
+      errors: [{ message: anyMessage }],
+    },
+    {
+      name: "the equivalent string index signature",
+      code: `interface Values { readonly [key: string]: unknown }`,
+      filename: productionFile,
+      errors: [{ message: unknownMessage }],
+    },
+    {
+      name: "the banned shape hidden in a JSDoc annotation",
+      code: `/** @param {Record<string, unknown>} values */\nexport const publish = (values) => values`,
+      filename: productionFile,
+      errors: [{ message: unknownMessage }],
+    },
+  ],
 })

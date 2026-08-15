@@ -1,34 +1,38 @@
-import { describe, expect, it } from "vitest"
 import rule from "./no-instanceof-tagged-error.js"
-import { runRule } from "./test-utils.ts"
+import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const instanceofExpression = (name: string, operator = "instanceof") => ({
-  type: "BinaryExpression",
-  operator,
-  left: { type: "Identifier", name: "error" },
-  right: { type: "Identifier", name },
-})
-
-describe("no-instanceof-tagged-error", () => {
-  it("reports instanceof checks against a tagged error name", () => {
-    expect(
-      runRule(rule, "BinaryExpression", instanceofExpression("DomainError")),
-    ).toHaveLength(1)
-  })
-
-  it("allows instanceof checks against the built-in Error", () => {
-    expect(
-      runRule(rule, "BinaryExpression", instanceofExpression("Error")),
-    ).toHaveLength(0)
-  })
-
-  it("ignores other binary operators", () => {
-    expect(
-      runRule(
-        rule,
-        "BinaryExpression",
-        instanceofExpression("DomainError", "==="),
-      ),
-    ).toHaveLength(0)
-  })
+ruleTester.run("no-instanceof-tagged-error", rule, {
+  valid: [
+    {
+      name: "instanceof against the built-in Error",
+      code: `const message = cause instanceof Error ? cause.message : String(cause)`,
+      filename: productionFile,
+    },
+    {
+      name: "instanceof against a non-error class",
+      code: `const isResponse = value instanceof Response`,
+      filename: productionFile,
+    },
+    {
+      name: "an equality comparison rather than instanceof",
+      code: `const same = error === DomainError`,
+      filename: productionFile,
+    },
+    {
+      name: "a JavaScript file, which sits outside the Effect error seam",
+      code: `const isDomain = error instanceof DomainError`,
+      filename: "/repo/publisher.js",
+    },
+  ],
+  invalid: [
+    {
+      name: "instanceof against a tagged error name",
+      code: `const isDomain = error instanceof DomainError`,
+      filename: productionFile,
+      errors: [{
+        message:
+          /Effect\.catchTag, Effect\.catchTags, or a tag predicate.*docs\/effect-house-style\.md rule 7/,
+      }],
+    },
+  ],
 })
