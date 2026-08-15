@@ -100,10 +100,12 @@ const makeReadTool = (fs: OverlayFs): ToolDefinition =>
   defineTool(
     createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
       operations: {
+        // @effect-diagnostics-next-line asyncFunction:off
         readFile: async (absolutePath) => {
           guardWorkspacePath(absolutePath)
           return Buffer.from(await fs.readFileBuffer(absolutePath))
         },
+        // @effect-diagnostics-next-line asyncFunction:off
         access: async (absolutePath) => {
           guardWorkspacePath(absolutePath)
           await fs.stat(absolutePath)
@@ -139,6 +141,7 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
     label: "bash",
     description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
     parameters: bashParameters,
+    // @effect-diagnostics-next-line asyncFunction:off
     execute: async (_toolCallId, args: BashArgs, signal) => {
       const { command, timeout } = args
       let timeoutSignal: AbortSignal | undefined
@@ -209,6 +212,7 @@ export interface ReviewWorkspaceOptions {
 // One ReviewWorkspace per AgentInvocation: one overlay, one interpreter.
 // Invocations never observe one another's writes and cannot modify the
 // backing snapshot.
+// @effect-diagnostics-next-line asyncFunction:off
 export const makeReviewWorkspace = async (
   snapshotRoot: string,
   options?: ReviewWorkspaceOptions,

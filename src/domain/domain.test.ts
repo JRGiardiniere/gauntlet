@@ -48,6 +48,7 @@ describe("domain model", () => {
   // before TestSuggestions existed; they must not read as incomplete runs.
   it.effect("decodes a pre-TestSuggestion dossier artifact", () =>
     Effect.gen(function* () {
+      // @effect-diagnostics-next-line preferTypedSchemaDecoder:off
       const dossier = yield* Schema.decodeUnknownEffect(Dossier)({
         runId: "run-fixture",
         target: {

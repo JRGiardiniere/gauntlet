@@ -27,5 +27,6 @@ const GIT_ENV_KEYS = [
 ] as const
 
 for (const key of GIT_ENV_KEYS) {
+  // @effect-diagnostics-next-line processEnv:off
   delete process.env[key]
 }
