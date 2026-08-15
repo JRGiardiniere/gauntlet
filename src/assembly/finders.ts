@@ -59,13 +59,17 @@ export const routeFinderResults = (
     }
 
     for (const [index, finding] of outcome.output.findings.entries()) {
-      const core = {
+      // `line` may be absent on whole-change findings; it is added to the
+      // core only when the finder located one.
+      const base = {
         id: `${lens.name}/${String(index + 1)}`,
         lens: lens.name,
         file: finding.file,
-        ...(finding.line === undefined ? {} : { line: finding.line }),
         summary: finding.summary,
       }
+      const core = finding.line === undefined
+        ? base
+        : { ...base, line: finding.line }
       if (finding.failure_scenario === undefined) {
         observations.push(Candidate.cases.Observation.make(core))
       } else {
