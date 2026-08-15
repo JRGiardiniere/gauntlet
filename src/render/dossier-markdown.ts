@@ -2,7 +2,7 @@ import { Candidate } from "../domain/candidate.ts"
 import type { Dossier, TestSuggestion } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
-import type { Severity } from "../domain/verdict.ts"
+import type { ReviewPriority } from "../domain/verdict.ts"
 import { type DossierView, viewDossier } from "./dossier-view.ts"
 
 export interface RunAccounting {
@@ -50,7 +50,7 @@ const explanation = (
 const findingLine = (
   candidate: Candidate,
   lenses: ReadonlyArray<string>,
-  tier: Severity | undefined,
+  tier: ReviewPriority | undefined,
   tag: string | undefined,
   detail: string | undefined,
   suggestion?: TestSuggestion,
@@ -67,7 +67,7 @@ const findingLine = (
   return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}${suggestionLine}`
 }
 
-const severityOrder: ReadonlyArray<Severity> = ["P1", "P2", "P3"]
+const reviewPriorityOrder: ReadonlyArray<ReviewPriority> = ["P1", "P2", "P3"]
 
 // Every cluster-mate's stable id maps to its cluster's suggestion, so the
 // lookup works from whichever mate presentation chose to render.
@@ -80,7 +80,7 @@ const suggestionByClaimId = (
     ),
   )
 
-// Findings by tier: confirmed/kept first within their tier, then
+// Findings by Review Priority: confirmed/kept first within their priority, then
 // unverified/undecided tagged in the main section — first-class, never
 // banished to an appendix (ADR 0006).
 const renderFindings = (
@@ -88,9 +88,9 @@ const renderFindings = (
   suggestionFor: ReadonlyMap<string, TestSuggestion>,
 ): string => {
   const lines: Array<string> = []
-  for (const tier of severityOrder) {
+  for (const tier of reviewPriorityOrder) {
     for (const entry of view.confirmed) {
-      if (entry.verdict.severity === tier) {
+      if (entry.verdict.reviewPriority === tier) {
         lines.push(
           findingLine(
             entry.candidate,
@@ -117,7 +117,7 @@ const renderFindings = (
       }
     }
     for (const entry of view.unverified) {
-      if (entry.verdict.severity === tier) {
+      if (entry.verdict.reviewPriority === tier) {
         lines.push(
           findingLine(
             entry.candidate,
@@ -132,7 +132,7 @@ const renderFindings = (
     }
   }
   for (const entry of view.unverified) {
-    if (entry.verdict.severity === undefined) {
+    if (entry.verdict.reviewPriority === undefined) {
       lines.push(
         findingLine(
           entry.candidate,

@@ -1,5 +1,5 @@
 import * as Schema from "effect/Schema"
-import { Severity } from "../../domain/verdict.ts"
+import { ReviewPriority } from "../../domain/verdict.ts"
 import {
   defineOutputContract,
   described,
@@ -23,8 +23,8 @@ const keepDecision = Schema.Struct({
     "`keep` = warranted criticism worth reporting; `drop` = not worth the author's time.",
   ),
   tier: described(
-    Severity,
-    "`P1` | `P2` | `P3`. Required when keep, omitted when drop — a dropped candidate has no tier at all; \"not actually a problem\" is a drop with a reason, never a severity.",
+    ReviewPriority,
+    "`P1` | `P2` | `P3`. Review Priority. Required when keep, omitted when drop — a dropped candidate has no Review Priority at all; \"not actually a problem\" is a drop with a reason, never a priority.",
   ),
   merge: Schema.optionalKey(
     described(

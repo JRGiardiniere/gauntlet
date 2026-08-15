@@ -49,13 +49,13 @@ describe("resolveVerification", () => {
           {
             cluster: 1,
             verdict: "CONFIRMED",
-            severity: "P1",
+            review_priority: "P1",
             evidence: "reproduced on empty input",
           },
           {
             cluster: 2,
             verdict: "UNVERIFIED",
-            severity: "P2",
+            review_priority: "P2",
             evidence: "needs runtime state",
           },
           {
@@ -69,11 +69,11 @@ describe("resolveVerification", () => {
 
     expect(resolved.bugClaims.map(({ verdict }) => verdict)).toEqual([
       Verdict.cases.Confirmed.make({
-        severity: "P1",
+        reviewPriority: "P1",
         evidence: "reproduced on empty input",
       }),
       Verdict.cases.Unverified.make({
-        severity: "P2",
+        reviewPriority: "P2",
         evidence: "needs runtime state",
       }),
       Verdict.cases.Refuted.make({
@@ -98,7 +98,7 @@ describe("resolveVerification", () => {
           {
             cluster: 1,
             verdict: "CONFIRMED",
-            severity: "P1",
+            review_priority: "P1",
             evidence: "reproduced on empty input",
           },
           {
@@ -129,7 +129,7 @@ describe("resolveVerification", () => {
           {
             cluster: 1,
             verdict: "UNVERIFIED",
-            severity: "P3",
+            review_priority: "P3",
             evidence: "could not reach the trigger",
           },
         ]),
@@ -139,7 +139,7 @@ describe("resolveVerification", () => {
     expect(resolved.bugClaims[0]?.verdict._tag).toBe("Unverified")
     expect(resolved.bugClaims[0]?.verdict).toEqual(
       Verdict.cases.Unverified.make({
-        severity: "P3",
+        reviewPriority: "P3",
         evidence: "could not reach the trigger",
       }),
     )
@@ -159,7 +159,7 @@ describe("resolveVerification", () => {
           {
             cluster: 1,
             verdict: "CONFIRMED",
-            severity: "P1",
+            review_priority: "P1",
             evidence: "reproduced on empty input",
             test_suggestion: {
               tests: [" src/one.test.ts\n", "the empty-input suite"],
@@ -169,7 +169,7 @@ describe("resolveVerification", () => {
           {
             cluster: 2,
             verdict: "UNVERIFIED",
-            severity: "P2",
+            review_priority: "P2",
             evidence: "needs runtime state",
             test_suggestion: {
               tests: ["src/two.test.ts"],
@@ -206,14 +206,14 @@ describe("resolveVerification", () => {
           {
             cluster: 1,
             verdict: "CONFIRMED",
-            severity: "P1",
+            review_priority: "P1",
             evidence: "reproduced on empty input",
             test_suggestion: { tests: ["  ", ""] },
           },
           {
             cluster: 2,
             verdict: "UNVERIFIED",
-            severity: "P2",
+            review_priority: "P2",
             evidence: "needs runtime state",
             test_suggestion: { tests: ["src/two.test.ts"], reason: " " },
           },
@@ -255,7 +255,7 @@ describe("resolveVerification", () => {
           {
             cluster: 1,
             verdict: "CONFIRMED",
-            severity: "P1",
+            review_priority: "P1",
             evidence: "only one cluster was returned",
           },
         ]),
@@ -273,5 +273,61 @@ describe("resolveVerification", () => {
           "verification bundle 1 did not report every cluster exactly once",
       },
     ])
+  })
+
+  it("keeps a high-consequence regression Confirmed P1", () => {
+    const claims = indexBugClaims([claim("one")])
+    const clusters = numberPoolClusters(singletonClusters(claims))
+    const resolved = resolveVerification(claims, clusters, [
+      {
+        bundleNumber: 1,
+        clusters,
+        outcome: completed([
+          {
+            cluster: 1,
+            verdict: "CONFIRMED",
+            review_priority: "P1",
+            evidence:
+              "the added handler throws on empty input; a regression introduced by this change stays P1 even though the Slice never mentioned it",
+          },
+        ]),
+      },
+    ])
+
+    expect(resolved.bugClaims[0]?.verdict).toEqual(
+      Verdict.cases.Confirmed.make({
+        reviewPriority: "P1",
+        evidence:
+          "the added handler throws on empty input; a regression introduced by this change stays P1 even though the Slice never mentioned it",
+      }),
+    )
+  })
+
+  it("keeps a real parent-only concern Confirmed P3 with specification reasoning", () => {
+    const claims = indexBugClaims([claim("one")])
+    const clusters = numberPoolClusters(singletonClusters(claims))
+    const resolved = resolveVerification(claims, clusters, [
+      {
+        bundleNumber: 1,
+        clusters,
+        outcome: completed([
+          {
+            cluster: 1,
+            verdict: "CONFIRMED",
+            review_priority: "P3",
+            evidence:
+              "the parent requires sibling persistence and this Slice deferred it; Confirmed because the gap is real, P3 because later work owns it",
+          },
+        ]),
+      },
+    ])
+
+    expect(resolved.bugClaims[0]?.verdict).toEqual(
+      Verdict.cases.Confirmed.make({
+        reviewPriority: "P3",
+        evidence:
+          "the parent requires sibling persistence and this Slice deferred it; Confirmed because the gap is real, P3 because later work owns it",
+      }),
+    )
   })
 })

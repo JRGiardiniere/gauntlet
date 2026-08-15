@@ -52,16 +52,22 @@ wrong or disproportionate, not for being big.
 Also drop candidates that restate a mechanical bug or a single provably-dead
 guard — those belong to the BugClaim path and will be verified there.
 
-## Tiers (survivors only)
+## Review Priority (survivors only)
+
+Rate P1–P3 for the author of the current ReviewTarget: reachability,
+consequence, and whether that target is responsible for addressing the
+concern.
 
 - **P1** — the change should not merge as-shaped: wrong starting place, or a
   structure whose cost compounds immediately (every subsequent change pays
   it). Reserve for findings you would block on.
 - **P2** — real but bounded structural cost; fix in this PR or a fast
   follow-up.
-- **P3** — worth doing, not blocking.
+- **P3** — worth doing, not blocking, including a credible broader concern
+  that the parent/Slice relationship suggests is not owed now.
 
-"Not actually a problem" is never a tier — it is a drop with a reason.
+"Not actually a problem" is never a Review Priority — it is a drop with a
+reason. Slice silence alone never lowers priority.
 
 ## Merging
 
@@ -94,7 +100,7 @@ real signal about the finder, not a mistake to fix by dropping it.
 Return one decision per candidate, by index — never re-emit or rewrite
 finding text. Every index appears exactly once across keep, merge, and drop.
 
-- **keep**: index, tier, a one-line reason stating why it is warranted and what
+- **keep**: index, `tier` (Review Priority P1–P3), a one-line reason stating why it is warranted and what
   you checked in the tree to confirm the premise, plus `goodFind` and
   `cleanlyExplained`.
 - **merge**: indexes folded into a kept candidate.

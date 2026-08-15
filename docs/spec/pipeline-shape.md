@@ -17,7 +17,7 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads.
 3. **Verification** — one invocation per bundle; adversarial; attaches a
-   Verdict (confirmed / refuted / unverified) plus severity and one-line
+   Verdict (confirmed / refuted / unverified) plus Review Priority and one-line
    evidence to each cluster.
 4. **Judgment** — one invocation, all Observations, decisions by index:
    kept (with tier + reason + finder ratings), dropped (with reason), merged.
@@ -79,7 +79,7 @@ Assembly is the deterministic aggregation of those results.
   member's lens is credited, and all members stay in the Dossier.
 - Judge merge claims are sanitized: a candidate cannot be merged into itself,
   into an unknown keeper, or into a keeper that another merge removed.
-- Severity is judged downstream (verifier/judge), never self-reported by
+- Review Priority is judged downstream (verifier/judge), never self-reported by
   finders — a finder rates its own work and has seen only its own lens.
 - Refuted claims and judge drops are not discarded: they land in the Dossier
   and render as Markdown Dossier appendices (ADR 0006).

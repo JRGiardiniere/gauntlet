@@ -42,7 +42,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
 })
 
 const confirmedVerdict = Verdict.cases.Confirmed.make({
-  severity: "P1",
+  reviewPriority: "P1",
   evidence: "reproduced with an empty input",
 })
 
@@ -76,7 +76,7 @@ const dossier = Dossier.make({
     {
       candidate: bugClaim("fixture-lens/2", "tiered but unverified claim"),
       cluster: 2,
-      verdict: Verdict.cases.Unverified.make({ severity: "P2" }),
+      verdict: Verdict.cases.Unverified.make({ reviewPriority: "P2" }),
     },
     {
       candidate: bugClaim("fixture-lens/3", "untiered unverified claim"),

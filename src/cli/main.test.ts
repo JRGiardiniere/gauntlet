@@ -202,7 +202,7 @@ const VERIFIER_OUTPUT = {
     {
       cluster: 1,
       verdict: "CONFIRMED",
-      severity: "P2",
+      review_priority: "P2",
       evidence: "empty input reaches the added line and throws",
       test_suggestion: {
         tests: ["the alpha input suite"],
@@ -417,7 +417,7 @@ describe("gauntlet review", () => {
       expect(dossier.bugClaims[0]?.candidate.id).toBe("fixture-review/1")
       expect(dossier.bugClaims[0]?.verdict).toEqual({
         _tag: "Confirmed",
-        severity: "P2",
+        reviewPriority: "P2",
         evidence: "empty input reaches the added line and throws",
       })
       expect(dossier.testSuggestions).toEqual([

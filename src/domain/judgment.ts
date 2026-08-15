@@ -1,12 +1,12 @@
 import * as Schema from "effect/Schema"
-import { Severity } from "./verdict.ts"
+import { ReviewPriority } from "./verdict.ts"
 
 // What the judge attaches to an Observation (CONTEXT.md). Undecided is
 // first-class — an Observation the judge said nothing about lands here,
 // never silently dropped.
 export const Judgment = Schema.TaggedUnion({
   Kept: {
-    tier: Severity,
+    tier: ReviewPriority,
     // Why it is warranted AND what was checked in the tree to confirm it.
     reason: Schema.NonEmptyString,
     // The Observation path's only quality record (docs/spec/emit-tools.md):

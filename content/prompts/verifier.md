@@ -22,14 +22,27 @@ reason through the concrete failure scenario.
 
 Claim types differ: cleanup, dead-config, and convention claims have no crash.
 For those, verify the factual premise instead — the duplication exists, the
-guard is provably dead, the quoted rule really says that — and judge severity
-on the concrete cost (what is duplicated, wasted, or harder to maintain), never
-on a crash-shaped ladder.
+guard is provably dead, the quoted rule really says that — and judge Review
+Priority on the concrete cost (what is duplicated, wasted, or harder to
+maintain), never on a crash-shaped ladder.
 
-For CONFIRMED and UNVERIFIED, rate severity on reachability × consequence — a
-defect that is hard to spot is not thereby severe, and an obvious one is not
-thereby trivial. P1: wrong behavior on a realistic path, should block merge.
-P2: real defect, bounded blast radius. P3: real but minor.
+For CONFIRMED and UNVERIFIED, rate Review Priority for the author of the
+current ReviewTarget: reachability, consequence, and whether that target is
+responsible for addressing the concern. A defect that is hard to spot is not
+thereby P1, and an obvious one is not thereby P3.
+
+- P1: an actionable concern that should block the current change. A concrete
+  regression introduced by this ReviewTarget stays P1 — missing Slice prose
+  never excuses newly broken behavior.
+- P2: a real current concern with bounded urgency.
+- P3: a non-blocking concern, including a minor current issue or a credible
+  broader concern that the parent/Slice relationship suggests is not owed now.
+
+A Confirmed P3 is still Confirmed: specification responsibility influences
+priority, never factual truth. When a real failure or missing behavior belongs
+to broader or later work, keep it Confirmed P3 and state both the factual
+premise and the specification reasoning in the evidence so the report reader
+can make the final scope judgment. Slice silence alone never lowers priority.
 
 Where running an existing repository test would materially increase confidence
 in a CONFIRMED or UNVERIFIED verdict, attach a `test_suggestion` to that

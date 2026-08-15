@@ -63,6 +63,41 @@ describe("domain model", () => {
       expect(dossier.testSuggestions).toEqual([])
     }))
 
+  it.effect("rejects a pre-change Dossier that still names severity", () =>
+    Effect.gen(function* () {
+      const rejected = yield* Effect.flip(
+        Schema.decodeUnknownEffect(Dossier)({
+          runId: "run-fixture",
+          target: {
+            _tag: "WorkingTree",
+            repoRoot: "/fixture",
+            headCommit: "abcdef0",
+          },
+          bugClaims: [
+            {
+              candidate: {
+                _tag: "BugClaim",
+                id: "fixture-lens/1",
+                lens: "fixture-lens",
+                file: "src/alpha.ts",
+                summary: "off-by-one in the pager",
+                failureScenario: "page size 0 loops forever",
+              },
+              cluster: 1,
+              verdict: {
+                _tag: "Confirmed",
+                severity: "P1",
+                evidence: "reproduced on empty input",
+              },
+            },
+          ],
+          observations: [],
+          coverageGaps: [],
+        }),
+      )
+      expect(rejected._tag).toBe("SchemaError")
+    }))
+
   it("identifies a model independently of its thinking effort", () => {
     expect(modelIdentityOfSeat("acme/luna-4:low")).toBe("acme/luna-4")
     expect(modelIdentityOfSeat("acme/luna:4-6:high")).toBe("acme/luna:4-6")

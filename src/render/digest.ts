@@ -49,16 +49,16 @@ export const renderDigest = (
     `$${accounting.costUsd.toFixed(2)} · ${accounting.wallTimeSeconds}s`
   const surviving = [
     ...view.confirmed.map((entry) => {
-      return `- [${entry.verdict.severity}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
+      return `- [${entry.verdict.reviewPriority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.kept.map((entry) => {
       return `- [${entry.judgment.tier}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.unverified.map((entry) => {
-      const severity = entry.verdict.severity === undefined
+      const priority = entry.verdict.reviewPriority === undefined
         ? "unverified"
-        : `${entry.verdict.severity} unverified`
-      return `- [${severity}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
+        : `${entry.verdict.reviewPriority} unverified`
+      return `- [${priority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.undecided.map((candidate) => {
       return `- [undecided] ${candidateLocation(candidate)} — ${boundedLine(candidate.summary)}`

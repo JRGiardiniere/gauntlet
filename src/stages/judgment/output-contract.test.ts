@@ -18,6 +18,7 @@ describe("EmitJudgments contract", () => {
         Schema.fromJsonString(Schema.Unknown),
       )(document.schema)
       expect(projected).toContain("Reading ONLY the finder's own summary")
+      expect(projected).toContain("never a priority")
     }))
 
   it.effect("admits keep-only fields on keeps and rejects them on drops", () =>
