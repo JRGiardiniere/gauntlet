@@ -207,6 +207,7 @@ export const executeBugClaimPath = Effect.fn(
                 REVIEW_WORKSPACE_ROOT,
                 claims,
                 bundle,
+                plan.specification,
               )
               yield* progress(
                 `invoking Verification bundle ${String(bundleNumber)}`,

@@ -94,6 +94,7 @@ export const executeReviewPlan = Effect.fn(
                 plan.target,
                 REVIEW_WORKSPACE_ROOT,
                 invocation.lens,
+                plan.specification,
               )
               yield* progress(`invoking finder ${invocation.lens.name}`)
               const outcome = yield* invoke({

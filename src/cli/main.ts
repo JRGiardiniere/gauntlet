@@ -24,6 +24,7 @@ import {
   FrozenLens,
   ReviewPlan,
 } from "../domain/review-plan.ts"
+import type { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
@@ -35,6 +36,7 @@ import {
   type LoadedRun,
 } from "../run/run-record.ts"
 import { liveTargetMatchesPlan } from "../run/target-consistency.ts"
+import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
@@ -70,6 +72,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   selectedLensNames: ReadonlyArray<string> | undefined,
   pr: Option.Option<number>,
   destination: Destination,
+  specification: ReviewSpecification | undefined,
 ) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
@@ -116,15 +119,21 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   // Each lens freezes its final recipe-resolved seat: the recipe maps the
   // lens's finder class to a seat, and later recipe edits never change a
   // resumed run (ADR 0004/0005).
-  const frozenLenses = lenses.map((lens) =>
-    FrozenLens.make({
+  // optionalKey admits an absent key, never a present undefined one, so the
+  // standard-by-omission convention holds in the persisted plan too.
+  const frozenLenses = lenses.map((lens) => {
+    const frozen = {
       name: lens.name,
       promptText: lens.promptText,
       seat: finderSeat(selected.recipe, lens.finderClass),
       candidateCap: candidateCapForLens(lens.name),
-    }))
+    }
+    return lens.finderClass === "interpretive"
+      ? FrozenLens.make({ ...frozen, finderClass: lens.finderClass })
+      : FrozenLens.make(frozen)
+  })
 
-  const plan = ReviewPlan.make({
+  const planFields = {
     runId,
     target,
     recipeName: selected.name,
@@ -136,7 +145,10 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       judgment: stageSeat(selected.recipe, "judgment"),
     },
     lenses: frozenLenses,
-  })
+  }
+  const plan = specification === undefined
+    ? ReviewPlan.make(planFields)
+    : ReviewPlan.make({ ...planFields, specification })
   yield* progress("freezing review plan")
   yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
 
@@ -168,11 +180,14 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
         ? Option.some(resumable.plan.target.number)
         : Option.none()
+      // The replacement review reuses the abandoned plan's frozen
+      // specification verbatim: --resume never re-reads the addendum file.
       yield* startReview(
         Option.fromNullishOr(resumable.plan.recipeName),
         undefined,
         pr,
         destination,
+        resumable.plan.specification,
       ).pipe(
         Effect.provideService(
           InvocationDirectory,
@@ -201,6 +216,7 @@ const executeReviewCommand = Effect.fn(
   resume: Option.Option<string>,
   pr: Option.Option<number>,
   destination: Destination,
+  spec: Option.Option<string>,
 ) {
   if (Option.isSome(resume)) {
     if (Option.isSome(lenses)) {
@@ -218,6 +234,11 @@ const executeReviewCommand = Effect.fn(
         reason: "--pr cannot be combined with --resume; the plan is frozen",
       })
     }
+    if (Option.isSome(spec)) {
+      return yield* new ReviewCommandError({
+        reason: "--spec cannot be combined with --resume; the plan is frozen",
+      })
+    }
     yield* resumeReview(
       resume.value === LATEST_RESUME_SENTINEL
         ? Option.none()
@@ -231,15 +252,19 @@ const executeReviewCommand = Effect.fn(
       reason: "--destination pr requires --pr",
     })
   }
-  if (Option.isNone(lenses)) {
-    yield* startReview(recipe, undefined, pr, destination)
-    return
-  }
+  // An explicitly named unusable addendum fails here, before any Run exists
+  // (issue #73): the caller selected the file, so absence is never quiet.
+  const specification = Option.isSome(spec)
+    ? yield* loadCallerAddendum(yield* InvocationDirectory, spec.value)
+    : undefined
   yield* startReview(
     recipe,
-    lenses.value.split(",").map((name) => name.trim()),
+    Option.isNone(lenses)
+      ? undefined
+      : lenses.value.split(",").map((name) => name.trim()),
     pr,
     destination,
+    specification,
   )
 })
 
@@ -273,9 +298,16 @@ const review = Command.make(
         "Resume a run when the target is unchanged; omit run-id to select the latest incomplete run. A changed target starts a new review.",
       ),
     ),
+    spec: Flag.string("spec").pipe(
+      Flag.optional,
+      Flag.withMetavar("<markdown-file>"),
+      Flag.withDescription(
+        "Caller Addendum: a Markdown requirements file frozen into the plan and shown to interpretive finders, verification, and judgment",
+      ),
+    ),
   },
-  ({ destination, lenses, pr, recipe, resume }) =>
-    executeReviewCommand(recipe, lenses, resume, pr, destination),
+  ({ destination, lenses, pr, recipe, resume, spec }) =>
+    executeReviewCommand(recipe, lenses, resume, pr, destination, spec),
 ).pipe(
   Command.withDescription(
     "Review the working tree or a named pull request",
@@ -353,6 +385,10 @@ export const runGauntlet = (
         ),
       ReviewCommandError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
+      SpecificationLoadError: (failure) =>
+        progress(`could not review — ${failure.reason} (${failure.path})`).pipe(
+          Effect.as(1),
+        ),
       DeliveryError: (failure) =>
         progress(
           failure.operation === "post" && failure.runId !== undefined

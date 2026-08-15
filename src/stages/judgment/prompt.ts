@@ -11,6 +11,7 @@ import {
   type PromptAssemblyError,
   renderPromptTemplate,
 } from "../../content/prompt-template.ts"
+import type { ReviewSpecification } from "../../domain/review-specification.ts"
 import type { ReviewTarget } from "../../domain/review-target.ts"
 import type { IndexedObservation } from "./resolution.ts"
 
@@ -50,12 +51,14 @@ export const assembleJudgmentPrompt = (
   target: ReviewTarget,
   reviewRoot: string,
   observations: ReadonlyArray<IndexedObservation>,
+  specification: ReviewSpecification | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const scope = yield* assembleStageScope(
       templates.stageScope,
       target,
       reviewRoot,
+      specification,
     )
     return yield* renderPromptTemplate("judge", templates.judge, [
       ["SCOPE_BLOCK", scope],

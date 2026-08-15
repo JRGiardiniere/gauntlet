@@ -8,6 +8,7 @@ import type {
   IndexedBugClaim,
   NumberedPoolCluster,
 } from "../assembly/pool.ts"
+import type { ReviewSpecification } from "../domain/review-specification.ts"
 import type { ReviewTarget } from "../domain/review-target.ts"
 import { formatCandidateLine } from "./candidate-line.ts"
 import { ContentDirectory, ContentLoadError } from "./lens.ts"
@@ -16,6 +17,7 @@ import {
   type PromptAssemblyError,
   renderPromptTemplate,
 } from "./prompt-template.ts"
+import { renderSpecificationSection } from "./specification-section.ts"
 
 export const POOL_TOOLS = [] as const
 export const VERIFICATION_TOOLS = ["read", "bash"] as const
@@ -99,22 +101,31 @@ const verifierClaims = (
   }).join("\n\n")
 }
 
+// Verification and Judgment both receive the frozen ReviewSpecification when
+// one exists, appended after the stable scope and before their assignment
+// (issue #73). Pool never does — assemblePoolPrompt stays candidate-only.
 export const assembleStageScope = (
   template: string,
   target: ReviewTarget,
   reviewRoot: string,
+  specification: ReviewSpecification | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
-  renderPromptTemplate("stage scope", template, [
-    ["REPO_ROOT", reviewRoot],
-    [
-      "CHANGED_FILES",
-      Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
-    ],
-    [
-      "DIFF_SECTION",
-      `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
-    ],
-  ])
+  Effect.gen(function* () {
+    const scope = yield* renderPromptTemplate("stage scope", template, [
+      ["REPO_ROOT", reviewRoot],
+      [
+        "CHANGED_FILES",
+        Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
+      ],
+      [
+        "DIFF_SECTION",
+        `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
+      ],
+    ])
+    return specification === undefined
+      ? scope
+      : `${scope}\n\n${renderSpecificationSection(specification)}`
+  })
 
 export const assembleVerifierPrompt = (
   templates: EvaluationPromptTemplates,
@@ -122,12 +133,14 @@ export const assembleVerifierPrompt = (
   reviewRoot: string,
   claims: ReadonlyArray<IndexedBugClaim>,
   bundle: ReadonlyArray<NumberedPoolCluster>,
+  specification: ReviewSpecification | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const scope = yield* assembleStageScope(
       templates.stageScope,
       target,
       reviewRoot,
+      specification,
     )
     return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],

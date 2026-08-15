@@ -148,6 +148,7 @@ describe("lens content", () => {
           target,
           target.repoRoot,
           frozen,
+          undefined,
         )
         expect(prompt).toContain("fixture prompt v1")
         expect(prompt).not.toContain("fixture prompt v2")
@@ -190,12 +191,14 @@ describe("finder prompt cache prefix", () => {
         target,
         target.repoRoot,
         first,
+        undefined,
       )
       const secondPrompt = yield* assembleFinderPrompt(
         template,
         target,
         target.repoRoot,
         second,
+        undefined,
       )
       const firstPrefix = firstPrompt.slice(0, firstPrompt.indexOf(first.promptText))
       const secondPrefix = secondPrompt.slice(0, secondPrompt.indexOf(second.promptText))
@@ -227,6 +230,7 @@ describe("finder prompt cache prefix", () => {
         target,
         target.repoRoot,
         lens,
+        undefined,
       )
 
       expect(prompt).toContain('+const marker = "{{MAX_PER_LENS}}"')
@@ -261,12 +265,14 @@ describe("finder prompt cache prefix", () => {
         target,
         target.repoRoot,
         ordinary,
+        undefined,
       )
       const expandedPrompt = yield* assembleFinderPrompt(
         template,
         target,
         target.repoRoot,
         expanded,
+        undefined,
       )
       const ordinaryPrefix = ordinaryPrompt.slice(
         0,

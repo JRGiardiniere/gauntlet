@@ -57,6 +57,7 @@ describe("evaluation prompts", () => {
           seat: "fixture/model:low",
           candidateCap: 6,
         }),
+        undefined,
       )
       const templates: EvaluationPromptTemplates = {
         pool: "{{CANDIDATES}}",
@@ -70,6 +71,7 @@ describe("evaluation prompts", () => {
         reviewRoot,
         [{ index: 1, candidate: bugClaim }],
         [{ number: 1, indexes: [1], summary: bugClaim.summary }],
+        undefined,
       )
       for (const prompt of [finder, verifier]) {
         expect(prompt).toContain(reviewRoot)
