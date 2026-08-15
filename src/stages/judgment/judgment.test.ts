@@ -8,6 +8,7 @@ import * as TestConsole from "effect/testing/TestConsole"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
+import type { EmitToolArgs } from "../../harness/harness-session.ts"
 import {
   makeScripted,
   type Scripted,
@@ -41,14 +42,32 @@ const observations = globalThis.Array.from({ length: 2 }, (_, index) =>
   }))
 
 const emittingSession = (
-  output: unknown,
-  valid = true,
+  output: EmitToolArgs,
   promptCount = 1,
 ): ScriptedSession => ({
   prompts: globalThis.Array.from({ length: promptCount }, () => ({
     events: [
       { afterMillis: 0, kind: "message_start" as const },
-      { afterMillis: 0, kind: "emit" as const, args: output, valid },
+      { afterMillis: 0, kind: "emit" as const, args: output, valid: true },
+      {
+        afterMillis: 0,
+        kind: "message_end" as const,
+        stopReason: "toolUse" as const,
+        usage: usageRow(),
+      },
+    ],
+    settles: "after-events" as const,
+  })),
+})
+
+const offSpecEmittingSession = (
+  output: unknown,
+  promptCount: number,
+): ScriptedSession => ({
+  prompts: globalThis.Array.from({ length: promptCount }, () => ({
+    events: [
+      { afterMillis: 0, kind: "message_start" as const },
+      { afterMillis: 0, kind: "emit" as const, args: output, valid: false },
       {
         afterMillis: 0,
         kind: "message_end" as const,
@@ -188,7 +207,7 @@ describe("Judgment stage interface", () => {
     Effect.gen(function* () {
       const scripted = makeScripted({
         sessions: [
-          emittingSession(
+          offSpecEmittingSession(
             {
               decisions: [{
                 index: 1,
@@ -196,7 +215,6 @@ describe("Judgment stage interface", () => {
                 reason: "missing the required keep fields",
               }],
             },
-            false,
             3,
           ),
         ],

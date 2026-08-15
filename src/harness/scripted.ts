@@ -35,7 +35,13 @@ export type ScriptedEvent =
       readonly afterMillis: number
       readonly kind: "emit"
       readonly args: unknown
-      readonly valid: boolean
+      readonly valid: false
+    }
+  | {
+      readonly afterMillis: number
+      readonly kind: "emit"
+      readonly args: EmitToolArgs
+      readonly valid: true
     }
   | {
       readonly afterMillis: number
@@ -285,12 +291,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     toolName: config.emitTool.name,
                     args: step.args,
                   })
-                  if (step.valid) {
-                    // SAFETY: the script marked these args valid, standing in
-                    // for Pi's JSON-Schema validation; validated emit
-                    // arguments are JSON values.
-                    config.emitTool.execute(step.args as EmitToolArgs)
-                  }
+                  if (step.valid) config.emitTool.execute(step.args)
                 })
                 break
               }

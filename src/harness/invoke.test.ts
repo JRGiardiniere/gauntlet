@@ -6,6 +6,7 @@ import * as TestClock from "effect/testing/TestClock"
 import { Termination } from "../domain/agent-outcome.ts"
 import {
   AdapterContractViolation,
+  type EmitToolArgs,
   InvocationSetupError,
 } from "./harness-session.ts"
 import { invoke, type InvokeInput } from "./invoke.ts"
@@ -55,7 +56,7 @@ const OTHER_EMIT: FindingsOutput = {
 
 const makeExplicitCancellation = () => new AbortController()
 
-const completedPrompt = (emit: unknown = GOOD_EMIT): ScriptedPrompt => ({
+const completedPrompt = (emit: EmitToolArgs = GOOD_EMIT): ScriptedPrompt => ({
   events: [
     { afterMillis: 100, kind: "message_start" },
     { afterMillis: 200, kind: "emit", args: emit, valid: true },
