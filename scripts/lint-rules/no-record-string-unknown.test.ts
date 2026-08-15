@@ -54,5 +54,11 @@ ruleTester.run("no-record-string-unknown", rule, {
       filename: productionFile,
       errors: [{ message: unknownMessage }],
     },
+    {
+      name: "a JSDoc annotation in a JavaScript file, still scanned",
+      code: `/** @param {Record<string, unknown>} values */\nexport const publish = (values) => values`,
+      filename: "/gauntlet/src/publisher.js",
+      errors: [{ message: unknownMessage }],
+    },
   ],
 })
