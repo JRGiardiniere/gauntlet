@@ -120,13 +120,12 @@ const runError = (
   reason: string,
   runId: string | undefined,
   cause?: unknown,
-) =>
-  new RunError({
-    operation,
-    reason,
-    ...(runId === undefined ? {} : { runId }),
-    ...(cause === undefined ? {} : { cause }),
-  })
+) => {
+  const core = runId === undefined
+    ? { operation, reason }
+    : { operation, reason, runId }
+  return new RunError(cause === undefined ? core : { ...core, cause })
+}
 
 export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
   function* (runsRoot: string, requestedRunId: string) {
