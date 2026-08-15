@@ -163,16 +163,14 @@ const materialize = (
         ),
       }
       // The contract admits a quality note only when a rating is false.
-      if (qualityNote === undefined || (goodFind && cleanlyExplained)) {
-        if (qualityNote !== undefined) {
-          discardedQualityNotes.push(index)
-        }
-        return [{ candidate, judgment: Judgment.cases.Kept.make(core) }]
+      if (qualityNote !== undefined && !(goodFind && cleanlyExplained)) {
+        return [{
+          candidate,
+          judgment: Judgment.cases.Kept.make({ ...core, qualityNote }),
+        }]
       }
-      return [{
-        candidate,
-        judgment: Judgment.cases.Kept.make({ ...core, qualityNote }),
-      }]
+      if (qualityNote !== undefined) discardedQualityNotes.push(index)
+      return [{ candidate, judgment: Judgment.cases.Kept.make(core) }]
     },
   )
   return { observations: resolved, undecidedIndexes, discardedQualityNotes }
