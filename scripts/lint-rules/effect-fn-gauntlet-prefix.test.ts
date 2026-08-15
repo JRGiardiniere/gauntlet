@@ -1,4 +1,4 @@
-import rule from "./effect-fn-gauntlet-prefix.js"
+import { effectFnGauntletPrefixRule as rule } from "./effect-fn-gauntlet-prefix.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const prefixMessage =
@@ -12,12 +12,12 @@ ruleTester.run("effect-fn-gauntlet-prefix", rule, {
       filename: productionFile,
     },
     {
-      name: "a non-dotted span, which effect-fn-span-shape owns",
+      name: "a non-dotted span, which effect-fn-span-format owns",
       code: `Effect.fn("publish")`,
       filename: productionFile,
     },
     {
-      name: "a non-literal span, which effect-fn-span-shape owns",
+      name: "a non-literal span, which effect-fn-span-format owns",
       code: "Effect.fn(`Publisher.publish`)",
       filename: productionFile,
     },

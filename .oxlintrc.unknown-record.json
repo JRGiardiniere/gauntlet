@@ -3,7 +3,7 @@
   "jsPlugins": [
     {
       "name": "gauntlet",
-      "specifier": "./scripts/lint-rules/index.js"
+      "specifier": "./scripts/lint-rules/index.ts"
     }
   ],
   "categories": {

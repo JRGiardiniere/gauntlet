@@ -1,4 +1,4 @@
-import rule from "./no-record-string-unknown.js"
+import { noRecordStringUnknownRule as rule } from "./no-record-string-unknown.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const unknownMessage =

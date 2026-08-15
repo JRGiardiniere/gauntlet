@@ -1,4 +1,4 @@
-import rule from "./no-env-mutation-in-tests.js"
+import { noEnvMutationInTestsRule as rule } from "./no-env-mutation-in-tests.ts"
 import { productionFile, ruleTester, testFile } from "./rule-tester.ts"
 
 const message =

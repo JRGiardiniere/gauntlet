@@ -1,4 +1,4 @@
-import rule from "./retry-schedule-bounded.js"
+import { retryScheduleBoundedRule as rule } from "./retry-schedule-bounded.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const boundedSchedule = `Schedule.spaced("1 second").pipe(Schedule.take(2))`

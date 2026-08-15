@@ -1,4 +1,4 @@
-import rule from "./no-manual-tag-check.js"
+import { noManualTagCheckRule as rule } from "./no-manual-tag-check.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const message =

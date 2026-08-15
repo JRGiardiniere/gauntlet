@@ -1,4 +1,4 @@
-import rule from "./no-import-from-barrel-package.js"
+import { noImportFromBarrelPackageRule as rule } from "./no-import-from-barrel-package.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const effectBarrel = [{ checkPatterns: ["^effect$"] }]

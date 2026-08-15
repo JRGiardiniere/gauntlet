@@ -1,4 +1,4 @@
-import rule from "./require-ts-extension-imports.js"
+import { requireTsExtensionImportsRule as rule } from "./require-ts-extension-imports.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const allowedImport = (name: string, source: string) => ({
@@ -26,7 +26,7 @@ ruleTester.run("require-ts-extension-imports", rule, {
     allowedImport("a package import that names a JavaScript file", "some-package/utils.js"),
     {
       name: "an import of a JavaScript file that physically exists",
-      code: `import rule from "./require-ts-extension-imports.js"`,
+      code: `import { requireTsExtensionImportsRule as rule } from "./require-ts-extension-imports.ts"`,
       filename: import.meta.filename,
     },
     {

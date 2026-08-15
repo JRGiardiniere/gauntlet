@@ -3,7 +3,7 @@
   "jsPlugins": [
     {
       "name": "gauntlet",
-      "specifier": "./scripts/lint-rules/index.js"
+      "specifier": "./scripts/lint-rules/index.ts"
     },
     {
       "name": "anti-slop",
@@ -51,7 +51,7 @@
     "anti-slop/no-widen-then-assert": "error",
     "anti-slop/require-safety-comment-for-type-assertion": "error",
     "gauntlet/effect-fn-gauntlet-prefix": "error",
-    "gauntlet/effect-fn-span-shape": "error",
+    "gauntlet/effect-fn-span-format": "error",
     "gauntlet/no-effect-platform-imports": "error",
     "gauntlet/no-env-mutation-in-tests": "error",
     "gauntlet/no-fnuntraced-outside-tests": "error",
@@ -148,6 +148,14 @@
       "files": ["**/vitest.setup.ts"],
       "rules": {
         "gauntlet/no-import-from-barrel-package": "off"
+      }
+    },
+    {
+      "files": ["scripts/lint-rules/**"],
+      "rules": {
+        "anti-slop/no-runtime-typeof": ["error", {
+          "allowInTypeGuards": true
+        }]
       }
     }
   ]
