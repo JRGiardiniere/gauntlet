@@ -100,7 +100,7 @@ real signal about the finder, not a mistake to fix by dropping it.
 Return one decision per candidate, by index — never re-emit or rewrite
 finding text. Every index appears exactly once across keep, merge, and drop.
 
-- **keep**: index, `tier` (Review Priority P1–P3), a one-line reason stating why it is warranted and what
+- **keep**: index, `review_priority` (P1–P3), a one-line reason stating why it is warranted and what
   you checked in the tree to confirm the premise, plus `goodFind` and
   `cleanlyExplained`.
 - **merge**: indexes folded into a kept candidate.

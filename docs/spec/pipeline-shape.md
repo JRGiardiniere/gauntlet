@@ -20,7 +20,7 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    Verdict (confirmed / refuted / unverified) plus Review Priority and one-line
    evidence to each cluster.
 4. **Judgment** — one invocation, all Observations, decisions by index:
-   kept (with tier + reason + finder ratings), dropped (with reason), merged.
+   kept (with Review Priority + reason + finder ratings), dropped (with reason), merged.
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
 ## Routing

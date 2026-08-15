@@ -21,7 +21,7 @@ const keep = (
   const decision = {
     index,
     decision: "keep" as const,
-    tier: "P2" as const,
+    review_priority: "P2" as const,
     reason: "checked the call sites and confirmed the structural cost",
     goodFind: true,
     cleanlyExplained: true,

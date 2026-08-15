@@ -95,7 +95,7 @@ const keepingSession = (): ScriptedSession =>
       {
         index: 1,
         decision: "keep",
-        tier: "P2",
+        review_priority: "P2",
         reason: "the call sites confirm the premise",
         goodFind: true,
         cleanlyExplained: true,
@@ -147,7 +147,7 @@ describe("Judgment stage interface", () => {
       expect(result.observations).toHaveLength(1)
       expect(result.observations[0]?.judgment).toMatchObject({
         _tag: "Kept",
-        tier: "P2",
+        reviewPriority: "P2",
         mergedCandidateIds: ["fixture/2"],
       })
       expect(result.coverageGaps).toEqual([])

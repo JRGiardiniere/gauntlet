@@ -6,7 +6,7 @@ import { ReviewPriority } from "./verdict.ts"
 // never silently dropped.
 export const Judgment = Schema.TaggedUnion({
   Kept: {
-    tier: ReviewPriority,
+    reviewPriority: ReviewPriority,
     // Why it is warranted AND what was checked in the tree to confirm it.
     reason: Schema.NonEmptyString,
     // The Observation path's only quality record (docs/spec/emit-tools.md):

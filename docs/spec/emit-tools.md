@@ -54,7 +54,7 @@ Call this exactly once, as your final action. Do not answer in prose instead."
 | `cluster` | integer | yes | The [cN] label of the cluster. |
 | `verdict` | enum | yes | `CONFIRMED` \| `UNVERIFIED` \| `REFUTED` — see the ladder in the verifier prompt. |
 | `review_priority` | enum | for confirmed/unverified | `P1` \| `P2` \| `P3`. Review Priority for the author of the current ReviewTarget: reachability, consequence, and whether that target is responsible. A regression introduced by the target stays P1; a real parent-only concern may be Confirmed P3 with evidence stating both the factual premise and the specification reasoning. Slice silence alone never lowers priority. |
-| `evidence` | string | yes | One line: the inputs/state and wrong output, or the line that refutes it. |
+| `evidence` | string | yes | One line: the inputs/state and wrong output, or the line that refutes it. When Review Priority rests on specification responsibility, include that reasoning on the same line. |
 | `test_suggestion` | object | no | Optional, CONFIRMED/UNVERIFIED only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help. `tests` (string[], 1+): existing repository test areas, files, classes, or suites — never generated test source or shell commands. `reason` (string): one concise reason these existing tests are relevant to the claim. |
 
 `test_suggestion` is the one exception to the strict decoder policy: its schema
@@ -75,7 +75,7 @@ duplicates, none omitted) —
 |---|---|---|---|
 | `index` | integer | yes | The [i] label of the candidate this decision is about. |
 | `decision` | enum | yes | `keep` = warranted criticism worth reporting; `drop` = not worth the author's time. |
-| `tier` | enum | keeps | `P1` \| `P2` \| `P3`. Review Priority. Required when keep, omitted when drop — a dropped candidate has no Review Priority at all; "not actually a problem" is a drop with a reason, never a priority. |
+| `review_priority` | enum | keeps | `P1` \| `P2` \| `P3`. Review Priority. Required when keep, omitted when drop — a dropped candidate has no Review Priority at all; "not actually a problem" is a drop with a reason, never a priority. |
 | `merge` | integer[] | no | Indexes of duplicate candidates folded into this kept one — same root observation arriving at two altitudes. Merge duplicates, not themes. |
 | `reason` | string | yes | One line. Keeps: why it is warranted AND what was checked in the tree to confirm the premise. Drops: which failure it is — false premise / disproportionate / taste, not cost / repo convention / BugClaim-path claim / no nameable payer. |
 | `goodFind` | boolean | keeps | Was this genuinely worth catching, as opposed to merely admissible? Admissible but obvious is `false`. |

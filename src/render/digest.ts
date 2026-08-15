@@ -52,7 +52,7 @@ export const renderDigest = (
       return `- [${entry.verdict.reviewPriority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.kept.map((entry) => {
-      return `- [${entry.judgment.tier}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
+      return `- [${entry.judgment.reviewPriority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
     }),
     ...view.unverified.map((entry) => {
       const priority = entry.verdict.reviewPriority === undefined

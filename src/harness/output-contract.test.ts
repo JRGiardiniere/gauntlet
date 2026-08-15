@@ -20,6 +20,7 @@ describe("output contracts", () => {
         [EmitFindings, "as it appears in the changed-file list"],
         [EmitPool, "must appear in exactly one cluster"],
         [EmitVerdicts, "Slice silence alone never lowers priority"],
+        [EmitVerdicts, "include that reasoning on the same line"],
         [EmitVerdicts, "Never generated test source or shell commands"],
       ] as const
       for (const [contract, sentinel] of sentinels) {

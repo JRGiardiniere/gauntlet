@@ -22,7 +22,7 @@ const keepDecision = Schema.Struct({
     Schema.Literal("keep"),
     "`keep` = warranted criticism worth reporting; `drop` = not worth the author's time.",
   ),
-  tier: described(
+  review_priority: described(
     ReviewPriority,
     "`P1` | `P2` | `P3`. Review Priority. Required when keep, omitted when drop — a dropped candidate has no Review Priority at all; \"not actually a problem\" is a drop with a reason, never a priority.",
   ),

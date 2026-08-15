@@ -50,12 +50,12 @@ const explanation = (
 const findingLine = (
   candidate: Candidate,
   lenses: ReadonlyArray<string>,
-  tier: ReviewPriority | undefined,
+  priority: ReviewPriority | undefined,
   tag: string | undefined,
   detail: string | undefined,
   suggestion?: TestSuggestion,
 ): string => {
-  const tierLabel = tier === undefined ? "" : `**[${tier}]** `
+  const priorityLabel = priority === undefined ? "" : `**[${priority}]** `
   const tagLabel = tag === undefined ? "" : `\`[${tag}]\` `
   const explained = explanation(candidate, detail)
   const detailLine = explained === undefined ? "" : `\n  - ${oneLine(explained)}`
@@ -64,7 +64,7 @@ const findingLine = (
   const suggestionLine = suggestion === undefined
     ? ""
     : `\n  - suggested tests: ${suggestion.tests.map(oneLine).join(", ")} — ${oneLine(suggestion.reason)}`
-  return `- ${tierLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}${suggestionLine}`
+  return `- ${priorityLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}${suggestionLine}`
 }
 
 const reviewPriorityOrder: ReadonlyArray<ReviewPriority> = ["P1", "P2", "P3"]
@@ -88,14 +88,14 @@ const renderFindings = (
   suggestionFor: ReadonlyMap<string, TestSuggestion>,
 ): string => {
   const lines: Array<string> = []
-  for (const tier of reviewPriorityOrder) {
+  for (const priority of reviewPriorityOrder) {
     for (const entry of view.confirmed) {
-      if (entry.verdict.reviewPriority === tier) {
+      if (entry.verdict.reviewPriority === priority) {
         lines.push(
           findingLine(
             entry.candidate,
             entry.lenses,
-            tier,
+            priority,
             undefined,
             entry.verdict.evidence,
             suggestionFor.get(entry.candidate.id),
@@ -104,12 +104,12 @@ const renderFindings = (
       }
     }
     for (const entry of view.kept) {
-      if (entry.judgment.tier === tier) {
+      if (entry.judgment.reviewPriority === priority) {
         lines.push(
           findingLine(
             entry.candidate,
             [entry.candidate.lens],
-            tier,
+            priority,
             undefined,
             entry.judgment.reason,
           ),
@@ -117,12 +117,12 @@ const renderFindings = (
       }
     }
     for (const entry of view.unverified) {
-      if (entry.verdict.reviewPriority === tier) {
+      if (entry.verdict.reviewPriority === priority) {
         lines.push(
           findingLine(
             entry.candidate,
             entry.lenses,
-            tier,
+            priority,
             "unverified",
             entry.verdict.evidence,
             suggestionFor.get(entry.candidate.id),

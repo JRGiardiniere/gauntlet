@@ -29,7 +29,7 @@ describe("EmitJudgments contract", () => {
             {
               index: 1,
               decision: "drop",
-              tier: "P3",
+              review_priority: "P3",
               reason: "false premise",
             },
           ],
@@ -42,7 +42,7 @@ describe("EmitJudgments contract", () => {
           {
             index: 1,
             decision: "keep",
-            tier: "P2",
+            review_priority: "P2",
             reason: "warranted and checked",
             goodFind: true,
             cleanlyExplained: true,

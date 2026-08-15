@@ -136,7 +136,7 @@ const verdictCore = {
   ),
   evidence: described(
     oneLine,
-    "One line: the inputs/state and wrong output, or the line that refutes it.",
+    "One line: the inputs/state and wrong output, or the line that refutes it. When Review Priority rests on specification responsibility, include that reasoning on the same line.",
   ),
 }
 

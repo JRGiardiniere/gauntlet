@@ -153,7 +153,7 @@ const materialize = (
       }
       const { cleanlyExplained, goodFind, qualityNote } = decision.value
       const core = {
-        tier: decision.value.tier,
+        reviewPriority: decision.value.review_priority,
         reason: decision.value.reason,
         goodFind,
         cleanlyExplained,

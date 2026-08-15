@@ -40,9 +40,10 @@ thereby P1, and an obvious one is not thereby P3.
 
 A Confirmed P3 is still Confirmed: specification responsibility influences
 priority, never factual truth. When a real failure or missing behavior belongs
-to broader or later work, keep it Confirmed P3 and state both the factual
-premise and the specification reasoning in the evidence so the report reader
-can make the final scope judgment. Slice silence alone never lowers priority.
+to broader or later work, keep it Confirmed P3 and put both the factual
+premise and the specification reasoning on the same evidence line so the
+report reader can make the final scope judgment. Slice silence alone never
+lowers priority.
 
 Where running an existing repository test would materially increase confidence
 in a CONFIRMED or UNVERIFIED verdict, attach a `test_suggestion` to that

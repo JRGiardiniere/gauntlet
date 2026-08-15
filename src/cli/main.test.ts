@@ -217,7 +217,7 @@ const JUDGMENT_OUTPUT = {
     {
       index: 1,
       decision: "keep",
-      tier: "P2",
+      review_priority: "P2",
       reason: "the call site confirms the name obscures the value's role",
       goodFind: true,
       cleanlyExplained: true,
@@ -432,7 +432,7 @@ describe("gauntlet review", () => {
       expect(dossier.observations[0]?.candidate.id).toBe("fixture-review/2")
       expect(dossier.observations[0]?.judgment).toMatchObject({
         _tag: "Kept",
-        tier: "P2",
+        reviewPriority: "P2",
         goodFind: true,
         cleanlyExplained: true,
       })
