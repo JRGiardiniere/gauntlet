@@ -33,7 +33,7 @@ describe("lens content", () => {
         const fs = yield* FileSystem.FileSystem
         const source = [
           "---",
-          "finder-class: deep",
+          "finder-class: interpretive",
           "category: fixture-category",
           "---",
           "fixture prompt body",
@@ -47,7 +47,7 @@ describe("lens content", () => {
         expect(lens).toEqual({
           name: "fixture-lens",
           promptText: "fixture prompt body",
-          finderClass: "deep",
+          finderClass: "interpretive",
         })
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
@@ -77,7 +77,8 @@ describe("lens content", () => {
         )
         expect(modelFailure.reason).toContain("not admitted: model")
 
-        // Standard is represented by omission; only `deep` may be declared.
+        // Standard is represented by omission; only `interpretive` may be
+        // declared.
         yield* fs.writeFileString(
           `${directory}/fixture-lens.md`,
           "---\nfinder-class: standard\n---\nfixture body\n",
@@ -88,6 +89,17 @@ describe("lens content", () => {
         expect(classFailure.reason).toContain(
           "does not match the lens format",
         )
+
+        // The retired `deep` spelling is rejected, never silently accepted
+        // (the rename to `interpretive` is a finished break, not a shim).
+        yield* fs.writeFileString(
+          `${directory}/fixture-lens.md`,
+          "---\nfinder-class: deep\n---\nfixture body\n",
+        )
+        const deepFailure = yield* loadLens(directory, "fixture-lens").pipe(
+          Effect.flip,
+        )
+        expect(deepFailure.reason).toContain("does not match the lens format")
 
         yield* fs.writeFileString(
           `${directory}/fixture-lens.md`,

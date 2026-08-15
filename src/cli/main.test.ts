@@ -616,15 +616,15 @@ describe("gauntlet review", () => {
       yield* fs.makeDirectory(projectLenses, { recursive: true })
       yield* fs.writeFileString(
         path.join(projectLenses, "fixture-local.md"),
-        "---\nfinder-class: deep\n---\nfixture local tail\n",
+        "---\nfinder-class: interpretive\n---\nfixture local tail\n",
       )
       yield* writeRecipe(fixture, "fixture-recipe", {
         default: FIXTURE_SEAT,
-        "deep-finders": "fixture/local-model:medium",
+        "interpretive-finders": "fixture/local-model:medium",
       })
 
-      // One standard + one deep seat keeps each model group size-1, so the
-      // cache settle never fires and this stays free of TestClock.
+      // One standard + one interpretive seat keeps each model group size-1,
+      // so the cache settle never fires and this stays free of TestClock.
       const run = runCommand(
         fixture,
         ["review"],
@@ -678,22 +678,22 @@ describe("gauntlet review", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "fixture-deep.md"),
-        "---\nfinder-class: deep\n---\nfixture deep tail\n",
+        path.join(fixture.content, "lenses", "fixture-interpretive.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive tail\n",
       )
       // fixture-recipe stays the configured default; naming fixture-full
       // positionally must win (selection precedence, ADR 0005).
       yield* writeRecipe(fixture, "fixture-full", {
         default: "fixture/default-model:low",
         finders: "fixture/finder-model:low",
-        "deep-finders": "fixture/deep-model:high",
+        "interpretive-finders": "fixture/interpretive-model:high",
         pool: "fixture/pool-model:low",
         verification: "fixture/verify-model:low",
         judgment: "fixture/judge-model:low",
       })
       const run = runCommand(
         fixture,
-        ["review", "fixture-full", "--lenses", "fixture-review,fixture-deep"],
+        ["review", "fixture-full", "--lenses", "fixture-review,fixture-interpretive"],
         makeScripted({
           sessions: [
             successfulSession({ findings: [] }, "-finders-1"),
@@ -721,7 +721,9 @@ describe("gauntlet review", () => {
         plan.lenses.map((lens) => [lens.name, lens.seat]),
       )
       expect(seatByLens.get("fixture-review")).toBe("fixture/finder-model:low")
-      expect(seatByLens.get("fixture-deep")).toBe("fixture/deep-model:high")
+      expect(seatByLens.get("fixture-interpretive")).toBe(
+        "fixture/interpretive-model:high",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
@@ -731,11 +733,11 @@ describe("gauntlet review", () => {
       const path = yield* Path.Path
       yield* fs.writeFileString(
         path.join(fixture.content, "lenses", "fixture-other.md"),
-        "---\nfinder-class: deep\n---\nfixture other tail\n",
+        "---\nfinder-class: interpretive\n---\nfixture other tail\n",
       )
       yield* writeRecipe(fixture, "fixture-recipe", {
         default: FIXTURE_SEAT,
-        "deep-finders": "fixture/other-model:low",
+        "interpretive-finders": "fixture/other-model:low",
       })
       const missingEmitPrompt = {
         events: [

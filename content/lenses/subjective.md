@@ -1,6 +1,6 @@
 ---
 category: judgment
-finder-class: deep
+finder-class: interpretive
 ---
 
 # Judgment

@@ -20,9 +20,9 @@ export const RecipeName = Schema.String.check(
 )
 export type RecipeName = typeof RecipeName.Type
 
-// A lens is standard by omission or opts into exactly `deep` (ADR 0004);
-// the recipe maps the class to a seat, the lens never names one.
-export const FinderClass = Schema.Literals(["standard", "deep"])
+// A lens is standard by omission or opts into exactly `interpretive` (ADR
+// 0004); the recipe maps the class to a seat, the lens never names one.
+export const FinderClass = Schema.Literals(["standard", "interpretive"])
 export type FinderClass = typeof FinderClass.Type
 
 // A Recipe is user-owned content: one strict JSON file in the Recipe Catalog
@@ -32,18 +32,19 @@ export type FinderClass = typeof FinderClass.Type
 export const Recipe = Schema.Struct({
   default: Seat,
   finders: Schema.optionalKey(Seat),
-  "deep-finders": Schema.optionalKey(Seat),
+  "interpretive-finders": Schema.optionalKey(Seat),
   pool: Schema.optionalKey(Seat),
   verification: Schema.optionalKey(Seat),
   judgment: Schema.optionalKey(Seat),
 })
 export type Recipe = typeof Recipe.Type
 
-// Standard finders resolve through `finders` then `default`; deep finders
-// through `deep-finders`, then `finders`, then `default` (ADR 0005).
+// Standard finders resolve through `finders` then `default`; interpretive
+// finders through `interpretive-finders`, then `finders`, then `default`
+// (ADR 0005).
 export const finderSeat = (recipe: Recipe, finderClass: FinderClass): Seat =>
-  finderClass === "deep"
-    ? recipe["deep-finders"] ?? recipe.finders ?? recipe.default
+  finderClass === "interpretive"
+    ? recipe["interpretive-finders"] ?? recipe.finders ?? recipe.default
     : recipe.finders ?? recipe.default
 
 // Every other seated stage resolves through its named override then `default`.

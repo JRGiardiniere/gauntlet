@@ -42,8 +42,8 @@ export const ReviewPlan = Schema.Struct({
   // Resolved from the named recipe at submission. Absent seats mean the
   // corresponding stage runs no invocations — the walking skeleton freezes
   // an entirely seatless plan. Finder seats are not stage state: each frozen
-  // lens carries its own class-resolved seat, and a mixed standard/deep run
-  // has no single Finder seat to record.
+  // lens carries its own class-resolved seat, and a mixed standard/interpretive
+  // run has no single Finder seat to record.
   recipeName: Schema.optionalKey(Schema.NonEmptyString),
   seats: Schema.Struct({
     pool: Schema.optionalKey(Seat),

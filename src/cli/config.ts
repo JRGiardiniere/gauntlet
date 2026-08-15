@@ -56,7 +56,7 @@ const SETTINGS_KEYS = "default-recipe, favorites, runs-root"
 const summarizeRecipe = (recipe: Recipe): string =>
   [
     `default ${recipe.default}`,
-    ...(["finders", "deep-finders", "pool", "verification", "judgment"] as const)
+    ...(["finders", "interpretive-finders", "pool", "verification", "judgment"] as const)
       .filter((field) => recipe[field] !== undefined)
       .map((field) => `${field} ${recipe[field]}`),
   ].join(" · ")

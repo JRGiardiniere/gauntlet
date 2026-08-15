@@ -91,11 +91,12 @@ files; SQLite and a monolithic catalog file add machinery without a present
 reader or scale problem.
 
 A Recipe contains a required `default` Seat and optional top-level `finders`,
-`deep-finders`, `pool`, `verification`, and `judgment` Seat overrides; no budget
-or cost fields (amended by ADR 0006: cost is read afterward, never constrained
-proactively). A standard Finder resolves through `finders` then `default`; a
-deep Finder resolves through `deep-finders`, then `finders`, then `default`.
-All other seated Stages resolve through their named override then `default`.
+`interpretive-finders`, `pool`, `verification`, and `judgment` Seat overrides;
+no budget or cost fields (amended by ADR 0006: cost is read afterward, never
+constrained proactively). A standard Finder resolves through `finders` then
+`default`; an interpretive Finder resolves through `interpretive-finders`, then
+`finders`, then `default`. All other seated Stages resolve through their named
+override then `default`.
 Unknown keys are invalid so a misspelled Stage cannot silently inherit the
 Default Seat. Trialling a model is writing one file directly — agents do not
 need a recipe CRUD command. There are no per-stage override flags or config
