@@ -127,8 +127,8 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     runId,
     target,
     recipeName: selected.name,
-    // Finder seats live on each frozen lens (a mixed standard/deep run has
-    // no single Finder seat); only the downstream stages are stage state.
+    // Finder seats live on each frozen lens (a mixed standard/interpretive run
+    // has no single Finder seat); only the downstream stages are stage state.
     seats: {
       pool: stageSeat(selected.recipe, "pool"),
       verification: stageSeat(selected.recipe, "verification"),

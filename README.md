@@ -72,23 +72,24 @@ interface — inspect or copy a nearby recipe, write a new file, then run
 `gauntlet config` to validate it. Admitted fields (anything else is invalid):
 
 - `default` — required seat (`provider/model:effort`) for every seated stage
-- `finders`, `deep-finders`, `pool`, `verification`, `judgment` — optional
-  per-stage seat overrides
+- `finders`, `interpretive-finders`, `pool`, `verification`, `judgment` —
+  optional per-stage seat overrides
 
 ```json
 {
   "default": "openai-codex/gpt-5.6-sol:high",
   "finders": "openai-codex/gpt-5.6-luna:low",
-  "deep-finders": "openai-codex/gpt-5.6-sol:high",
+  "interpretive-finders": "openai-codex/gpt-5.6-sol:high",
   "judgment": "openai-codex/gpt-5.6-sol:xhigh"
 }
 ```
 
 Lenses never name models. A lens is standard by omission or declares
-`finder-class: deep` in its frontmatter; the selected recipe resolves the
-class to a seat — standard finders through `finders` then `default`, deep
-finders through `deep-finders`, then `finders`, then `default`. Other seated
-stages resolve through their named override then `default`. The ReviewPlan
+`finder-class: interpretive` in its frontmatter; the selected recipe resolves
+the class to a seat — standard finders through `finders` then `default`,
+interpretive finders through `interpretive-finders`, then `finders`, then
+`default`. Other seated stages resolve through their named override then
+`default`. The ReviewPlan
 freezes every resolved seat at submission, so recipe edits never change an
 in-flight run or a resumed run whose target is unchanged. Resume reuses
 completed paid work when the target is unchanged, under the currently

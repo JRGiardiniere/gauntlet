@@ -33,7 +33,7 @@ describe("lens content", () => {
         const fs = yield* FileSystem.FileSystem
         const source = [
           "---",
-          "finder-class: deep",
+          "finder-class: interpretive",
           "category: fixture-category",
           "---",
           "fixture prompt body",
@@ -47,7 +47,7 @@ describe("lens content", () => {
         expect(lens).toEqual({
           name: "fixture-lens",
           promptText: "fixture prompt body",
-          finderClass: "deep",
+          finderClass: "interpretive",
         })
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
@@ -77,7 +77,8 @@ describe("lens content", () => {
         )
         expect(modelFailure.reason).toContain("not admitted: model")
 
-        // Standard is represented by omission; only `deep` may be declared.
+        // Standard is represented by omission; a declared class admits
+        // exactly `interpretive`.
         yield* fs.writeFileString(
           `${directory}/fixture-lens.md`,
           "---\nfinder-class: standard\n---\nfixture body\n",
@@ -86,8 +87,23 @@ describe("lens content", () => {
           Effect.flip,
         )
         expect(classFailure.reason).toContain(
-          "does not match the lens format",
+          'finder-class admits exactly "interpretive"',
         )
+        expect(classFailure.reason).toContain('got "standard"')
+
+        // A rejected class value names the admitted spelling so the caller
+        // can fix the lens instead of reverse-engineering the format.
+        yield* fs.writeFileString(
+          `${directory}/fixture-lens.md`,
+          "---\nfinder-class: deep\n---\nfixture body\n",
+        )
+        const deepFailure = yield* loadLens(directory, "fixture-lens").pipe(
+          Effect.flip,
+        )
+        expect(deepFailure.reason).toContain(
+          'finder-class admits exactly "interpretive"',
+        )
+        expect(deepFailure.reason).toContain('got "deep"')
 
         yield* fs.writeFileString(
           `${directory}/fixture-lens.md`,

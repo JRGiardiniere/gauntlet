@@ -11,13 +11,13 @@ import * as Schema from "effect/Schema"
 import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
 
-// A lens is standard by omission or opts into exactly `deep`; arbitrary
+// A lens is standard by omission or opts into exactly `interpretive`; arbitrary
 // classes and concrete seats are invalid — the recipe maps the class to a
 // seat, the lens never chooses a provider or model (ADR 0004). `category`
 // is validated but not surfaced: it groups future lens listings and has no
 // consumer today.
 const LensFrontmatter = Schema.Struct({
-  "finder-class": Schema.optionalKey(Schema.Literals(["deep"])),
+  "finder-class": Schema.optionalKey(Schema.Literals(["interpretive"])),
   category: Schema.optionalKey(Schema.NonEmptyString),
 })
 
@@ -76,12 +76,15 @@ const decodeLensSource = (
       }
     }
 
+    const finderClass = parsed.frontmatter["finder-class"]
+    const reason =
+      typeof finderClass === "string" && finderClass !== "interpretive"
+        ? `finder-class admits exactly "interpretive" (standard is by omission); got "${finderClass}"`
+        : "frontmatter does not match the lens format"
     const frontmatter = yield* Schema.decodeEffect(LensFrontmatter)(
       parsed.frontmatter,
     ).pipe(
-      Effect.mapError(
-        contentLoadError(path, "frontmatter does not match the lens format"),
-      ),
+      Effect.mapError(contentLoadError(path, reason)),
     )
     const promptText = parsed.body
     if (promptText.trim() === "") {
