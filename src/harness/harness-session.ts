@@ -89,6 +89,11 @@ export interface HarnessSession {
   readonly usageRows: () => ReadonlyArray<unknown>
 }
 
+// The terminating emit tool's validated arguments, delivered by Pi after its
+// JSON-Schema coercion pass (#4 §5). JSON by construction, but still
+// untrusted: each stage re-decodes them against its own OutputContract.
+export type EmitToolArgs = Schema.Json
+
 // The terminating emit tool as the seam sees it: parameters are an already
 // projected plain JSON Schema (Pi detects the missing TypeBox.Kind symbol and
 // runs its JSON-Schema coercion path, #4 §5), and `execute` is called only
@@ -98,7 +103,7 @@ export interface EmitToolSpec {
   readonly name: string
   readonly description: string
   readonly parameters: JsonSchema.JsonSchema
-  readonly execute: (args: unknown) => void
+  readonly execute: (args: EmitToolArgs) => void
 }
 
 export interface SessionConfig {
@@ -161,7 +166,7 @@ export type InvocationFailure =
   | InvocationSetupError
   | AdapterContractViolation
 
-export interface HarnessSessionFactoryShape {
+export interface HarnessSessionFactoryContract {
   // `open` may do blocking work (credential/catalog reads), so invocation
   // gives it a narrower startup bound inside the absolute overall deadline.
   // Interruptibility of the acquire is the invocation engine's job.
@@ -175,5 +180,5 @@ export interface HarnessSessionFactoryShape {
 // role a static Fake would.
 export class HarnessSessionFactory extends Context.Service<
   HarnessSessionFactory,
-  HarnessSessionFactoryShape
+  HarnessSessionFactoryContract
 >()("gauntlet/HarnessSessionFactory") {}

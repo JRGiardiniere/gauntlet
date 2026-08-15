@@ -6,10 +6,11 @@ import * as Queue from "effect/Queue"
 import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import type { ReviewWorkspace } from "../workspace/review-workspace.ts"
 import {
+  type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
-  type HarnessSessionFactoryShape,
+  type HarnessSessionFactoryContract,
   InvocationSetupError,
   type SessionConfig,
   type StopReason,
@@ -95,7 +96,7 @@ export interface RecordedInspection {
 }
 
 export interface Scripted {
-  readonly factory: HarnessSessionFactoryShape
+  readonly factory: HarnessSessionFactoryContract
   readonly log: Array<string>
   readonly configs: Array<SessionConfig>
   readonly prompts: Array<RecordedPrompt>
@@ -188,7 +189,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
     return behavior.sessions[unkeyed]
   }
 
-  const open: HarnessSessionFactoryShape["open"] = (config) =>
+  const open: HarnessSessionFactoryContract["open"] = (config) =>
     Effect.gen(function* () {
       const sessionIndex = openIndex + 1
       const behaviorForSession = claimSession(config.sessionId)
@@ -284,7 +285,12 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     toolName: config.emitTool.name,
                     args: step.args,
                   })
-                  if (step.valid) config.emitTool.execute(step.args)
+                  if (step.valid) {
+                    // SAFETY: the script marked these args valid, standing in
+                    // for Pi's JSON-Schema validation; validated emit
+                    // arguments are JSON values.
+                    config.emitTool.execute(step.args as EmitToolArgs)
+                  }
                 })
                 break
               }

@@ -16,10 +16,11 @@ import * as Schema from "effect/Schema"
 import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
+  type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
-  type HarnessSessionFactoryShape,
+  type HarnessSessionFactoryContract,
   InvocationSetupError,
   type SessionConfig,
   StopReason,
@@ -95,7 +96,10 @@ const decodeToolExecutionStart = Schema.decodeUnknownResult(
 )
 const decodeToolExecutionEnd = Schema.decodeUnknownResult(PiToolExecutionEnd)
 
-const violation = (context: string, error: unknown): HarnessEvent => ({
+const violation = (
+  context: string,
+  error: Schema.SchemaError,
+): HarnessEvent => ({
   type: "contract_violation",
   reason: `${context}: ${String(error)}`,
 })
@@ -122,14 +126,16 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
         return undefined
       }
       return Result.match(decodeAssistantMessageEnd(event), {
-        onSuccess: (end): HarnessEvent => ({
-          type: "message_end",
-          stopReason: end.message.stopReason,
-          ...(end.message.errorMessage === undefined
-            ? {}
-            : { errorMessage: end.message.errorMessage }),
-          usage: end.message.usage,
-        }),
+        onSuccess: (end): HarnessEvent => {
+          const event = {
+            type: "message_end" as const,
+            stopReason: end.message.stopReason,
+            usage: end.message.usage,
+          }
+          return end.message.errorMessage === undefined
+            ? event
+            : { ...event, errorMessage: end.message.errorMessage }
+        },
         onFailure: (error) =>
           violation("assistant message_end did not decode", error),
       })
@@ -153,12 +159,12 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
               content.text === undefined ? [] : [content.text],
             )
             .join("\n")
-          return {
-            type: "tool_execution_end",
+          const event = {
+            type: "tool_execution_end" as const,
             toolName: end.toolName,
             isError: end.isError,
-            ...(detail === "" ? {} : { detail }),
           }
+          return detail === "" ? event : { ...event, detail }
         },
         onFailure: (error) =>
           violation("tool_execution_end did not decode", error),
@@ -170,7 +176,7 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   }
 }
 
-export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
+export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
   // pay N full initializations. A failed create is evicted rather than
@@ -272,22 +278,24 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
             })
             await resourceLoader.reload()
 
-            // The cast on `parameters` is the documented plain-JSON-Schema
-            // path: Pi detects the missing TypeBox.Kind symbol and runs its
-            // JSON-Schema coercion pass instead (#4 §5). The cast is confined
-            // to that one field so the SDK still type-checks every other.
+            // `parameters` is the documented plain-JSON-Schema path: Pi
+            // detects the missing TypeBox.Kind symbol and runs its JSON-Schema
+            // coercion pass instead (#4 §5). The SDK types that field as the
+            // empty `TSchema`, so the projected schema needs no cast.
             const emitToolDefinition: ToolDefinition = {
               name: session.emitTool.name,
               label: session.emitTool.name,
               description: session.emitTool.description,
-              parameters: session.emitTool
-                .parameters as unknown as ToolDefinition["parameters"],
+              parameters: session.emitTool.parameters,
               // Sequential execution closes the last-call-wins/terminate-
               // unanimity hazard: `terminate` only ends the run when every
               // finalized call in the batch terminates.
               executionMode: "sequential",
               execute: async (_toolCallId, args) => {
-                session.emitTool.execute(args)
+                // SAFETY: Pi validated `args` against the emit tool's
+                // projected JSON Schema before invoking execute, so `args`
+                // is a JSON value here.
+                session.emitTool.execute(args as EmitToolArgs)
                 return {
                   content: [{ type: "text" as const, text: "captured" }],
                   details: {},
@@ -334,7 +342,11 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
                 ? undefined
                 : { id: session.sessionId },
             )
-            const created = await createAgentSession({
+            // Every definition is already the non-generic `ToolDefinition`:
+            // ReviewWorkspace exposes the erasure, and withToolCallDeadline
+            // preserves it. The SDK's customTools option accepts the same
+            // erasure, so no assertion is needed here.
+            const sessionOptions = {
               // Model-visible: Pi prints this as "Current working directory"
               // in its system prompt. Every session shows the stable virtual
               // root — the only root any filesystem tool exposes — so the
@@ -344,21 +356,20 @@ export const makeLivePiFactory = (): HarnessSessionFactoryShape => {
               cwd: REVIEW_WORKSPACE_ROOT,
               model,
               modelRuntime,
-              ...(resolved.thinkingLevel === undefined
-                ? {}
-                : { thinkingLevel: resolved.thinkingLevel }),
-              noTools: "builtin",
+              noTools: "builtin" as const,
               // The allowlist is HARD (#4 §5): a custom tool absent from it
               // is dropped before the model ever sees it.
               tools: [...session.tools, session.emitTool.name],
-              // Pi's non-generic SDK option erases each definition's
-              // parameter type. Keep the assertion at that one SDK seam;
-              // every tool remains fully typed while it is built/wrapped.
-              customTools: customTools as unknown as Array<ToolDefinition>,
+              customTools,
               resourceLoader,
               sessionManager,
               settingsManager,
-            })
+            }
+            const created = await createAgentSession(
+              resolved.thinkingLevel === undefined
+                ? sessionOptions
+                : { ...sessionOptions, thinkingLevel: resolved.thinkingLevel },
+            )
             if (signal.aborted) {
               // The caller's deadline fired mid-construction. The interrupted
               // acquire will never hand this session to the release
