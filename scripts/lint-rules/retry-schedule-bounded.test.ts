@@ -46,10 +46,19 @@ ruleTester.run("retry-schedule-bounded", rule, {
         + `const retrySchedule = ${boundedSchedule}`,
     ),
     bounded("an unrelated retry helper", `HttpClient.retry({ times: 2 })`),
+    {
+      name: "a JavaScript file, which carries no retry vocabulary",
+      code: `HttpClient.retryTransient({})`,
+      filename: "/gauntlet/src/publisher.js",
+    },
   ],
   invalid: [
     unbounded("retryTransient with empty options", `HttpClient.retryTransient({})`),
     unbounded("retryTransient with no options at all", `HttpClient.retryTransient()`),
+    unbounded(
+      "a destructured retryTransient import called bare",
+      `retryTransient({ schedule: Schedule.spaced("1 second") })`,
+    ),
     unbounded(
       "an unknown schedule identifier",
       `HttpClient.retryTransient({ schedule: retrySchedule })`,
