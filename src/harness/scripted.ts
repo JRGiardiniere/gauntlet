@@ -1,9 +1,9 @@
-import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
+import type { ReadToolInput, ToolDefinition } from "@earendil-works/pi-coding-agent"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
-import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
+import { type BashArgs, makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import type { ReviewWorkspace } from "../workspace/review-workspace.ts"
 import {
   type EmitToolArgs,
@@ -46,8 +46,14 @@ export type ScriptedEvent =
   | {
       readonly afterMillis: number
       readonly kind: "tool"
-      readonly toolName: "read" | "bash"
-      readonly args: unknown
+      readonly toolName: "read"
+      readonly args: ReadToolInput
+    }
+  | {
+      readonly afterMillis: number
+      readonly kind: "tool"
+      readonly toolName: "bash"
+      readonly args: BashArgs
     }
   | {
       readonly afterMillis: number
@@ -138,24 +144,27 @@ interface PromptRequest {
   readonly reject: (reason: string) => void
 }
 
+// The workspace tools' validated argument contracts. The scripted adapter
+// hands each tool event's args to Pi's execute seam, which re-validates them
+// against the tool's own schema — so a script declares read args for read and
+// bash args for bash, exactly as a live model call would.
+type WorkspaceToolArgs = BashArgs | ReadToolInput
+
 const executeWorkspaceTool = (
   workspace: ReviewWorkspace,
   config: SessionConfig,
   toolName: "read" | "bash",
-  args: unknown,
+  args: WorkspaceToolArgs,
 ) => {
   const tool: ToolDefinition = toolName === "read"
     ? withToolCallDeadline(workspace.readTool, config.toolTimeoutMillis)
     : withToolCallDeadline(workspace.bashTool, config.bashTimeoutMillis)
+  // SAFETY: Pi's ExtensionContext is unused by both workspace tools (they
+  // read it never); undefined matches the erasure the SDK's own customTools
+  // seam applies when it invokes custom tool executes.
   return Effect.promise(() =>
     tool
-      .execute(
-        "scripted",
-        args as never,
-        undefined,
-        undefined,
-        undefined as never,
-      )
+      .execute("scripted", args, undefined, undefined, undefined as never)
       .then((result) => ({
         isError: false as const,
         text: toolText(result),
@@ -273,14 +282,16 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                 yield* Effect.sync(() => {
                   const usage = step.usage ?? usageRow()
                   rows.push(usage)
-                  fire({
-                    type: "message_end",
+                  const event = {
+                    type: "message_end" as const,
                     stopReason: step.stopReason,
-                    ...(step.errorMessage === undefined
-                      ? {}
-                      : { errorMessage: step.errorMessage }),
                     usage,
-                  })
+                  }
+                  fire(
+                    step.errorMessage === undefined
+                      ? event
+                      : { ...event, errorMessage: step.errorMessage },
+                  )
                 })
                 break
               }
@@ -325,12 +336,14 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     isError: recorded.isError,
                     text: recorded.text,
                   })
-                  fire({
-                    type: "tool_execution_end",
+                  const event = {
+                    type: "tool_execution_end" as const,
                     toolName: step.toolName,
                     isError: recorded.isError,
-                    ...(recorded.isError ? { detail: recorded.text } : {}),
-                  })
+                  }
+                  fire(
+                    recorded.isError ? { ...event, detail: recorded.text } : event,
+                  )
                 })
                 break
               }

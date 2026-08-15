@@ -16,6 +16,7 @@ import {
 import type { Seat } from "../domain/recipe.ts"
 import {
   AdapterContractViolation,
+  type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
@@ -59,7 +60,7 @@ interface TerminalEvidence {
 interface CaptureCommon {
   readonly terminal: TerminalEvidence | undefined
   readonly acceptedActivity: boolean
-  readonly rawUsageRows: ReadonlyArray<unknown>
+  readonly rawUsageRows: ReadonlyArray<Schema.Json>
   readonly usageSweepError: string | undefined
   readonly violations: ReadonlyArray<string>
   readonly diagnostics: ReadonlyArray<string>
@@ -82,7 +83,7 @@ type CaptureFact =
   | { readonly type: "prompt_started" }
   | { readonly type: "event"; readonly event: HarnessEvent; readonly emitToolName: string }
   | { readonly type: "validated_emit"; readonly raw: unknown }
-  | { readonly type: "usage_rows"; readonly rows: ReadonlyArray<unknown> }
+  | { readonly type: "usage_rows"; readonly rows: ReadonlyArray<Schema.Json> }
   | { readonly type: "usage_sweep_error"; readonly reason: string }
   | { readonly type: "diagnostic"; readonly message: string }
 
@@ -263,26 +264,36 @@ const openCapturedSession = Effect.fn(
   "gauntlet.invocation.open_captured_session",
 )(function* <O>(input: InvokeInput<O>, capture: CaptureAccumulator) {
   const factory = yield* HarnessSessionFactory
+  const openConfig = {
+    seat: input.seat,
+    cwd: input.cwd,
+    systemPrompt: input.systemPrompt,
+    emitTool: {
+      name: input.contract.toolName,
+      description: input.contract.description,
+      parameters: Schema.toJsonSchemaDocument(input.contract.schema).schema,
+      execute: (raw: EmitToolArgs) =>
+        capture.dispatch({ type: "validated_emit", raw }),
+    },
+    tools: input.tools,
+    toolTimeoutMillis: input.deadlines.toolMillis,
+    bashTimeoutMillis: input.deadlines.bashMillis,
+  }
   const session = yield* Effect.acquireRelease(
-    factory.open({
-      seat: input.seat,
-      cwd: input.cwd,
-      systemPrompt: input.systemPrompt,
-      ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
-      emitTool: {
-        name: input.contract.toolName,
-        description: input.contract.description,
-        parameters: Schema.toJsonSchemaDocument(input.contract.schema).schema,
-        execute: (raw) => capture.dispatch({ type: "validated_emit", raw }),
-      },
-      tools: input.tools,
-      toolTimeoutMillis: input.deadlines.toolMillis,
-      bashTimeoutMillis: input.deadlines.bashMillis,
-    }),
+    factory.open(
+      input.sessionId === undefined
+        ? openConfig
+        : { ...openConfig, sessionId: input.sessionId },
+    ),
     (opened) =>
       Effect.sync(() => {
         try {
-          capture.dispatch({ type: "usage_rows", rows: opened.usageRows() })
+          // SAFETY: usage rows are JSON accounting data by Pi's contract; the
+          // seam erases them to `unknown` for verbatim retention (ADR 0006),
+          // and jsonSafeRow re-validates JSON-safety downstream, dropping
+          // undefined reasoning fields and failing on non-serializable rows.
+          const rows = opened.usageRows() as ReadonlyArray<Schema.Json>
+          capture.dispatch({ type: "usage_rows", rows })
         } catch (cause) {
           capture.dispatch({
             type: "usage_sweep_error",
@@ -561,7 +572,7 @@ const decodeJsonString = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Json),
 )
 
-const jsonSafeRow = (row: unknown) =>
+const jsonSafeRow = (row: Schema.Json) =>
   encodeUnknownJson(row).pipe(
     Effect.flatMap(decodeJsonString),
     Effect.mapError(
@@ -699,13 +710,15 @@ const finalizeOutcome = <O>(
     ]
     const usage = yield* usageFrom(states)
     const output = yield* outputFrom(input.contract, states, diagnostics)
-    return {
+    const outcome = {
       termination,
-      ...(Option.isNone(output) ? {} : { output: output.value }),
       usage,
       durationMillis,
       diagnostics,
     }
+    return Option.isNone(output)
+      ? outcome
+      : { ...outcome, output: output.value }
   })
 
 export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
