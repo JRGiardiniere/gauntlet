@@ -1,5 +1,6 @@
-// @effect-diagnostics nodeBuiltinImport:off
+// @effect-diagnostics-next-line nodeBuiltinImport:off
 import * as fs from "node:fs"
+// @effect-diagnostics-next-line nodeBuiltinImport:off
 import * as path from "node:path"
 
 import { defineRule } from "@oxlint/plugins"

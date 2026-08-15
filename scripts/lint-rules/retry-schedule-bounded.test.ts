@@ -1,10 +1,11 @@
 import { retryScheduleBoundedRule as rule } from "./retry-schedule-bounded.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const boundedSchedule = `Schedule.spaced("1 second").pipe(Schedule.take(2))`
+const boundedSchedule =
+  `Schedule.spaced("1 second").pipe(Schedule.upTo({ times: 2 }))`
 
 const message =
-  /HttpClient\.retryTransient must be explicitly bounded.*Schedule\.spaced\(\.\.\.\)\.pipe\(Schedule\.take\(\.\.\.\)\).*house-style rules 13\/23.*docs\/effect-house-style\.md/
+  /HttpClient\.retryTransient must be explicitly bounded.*Schedule\.spaced\(\.\.\.\)\.pipe\(Schedule\.upTo\(\{ times: n \}\)\).*house-style rules 13\/23.*docs\/effect-house-style\.md/
 
 const bounded = (name: string, code: string) => ({
   name,
@@ -45,6 +46,10 @@ ruleTester.run("retry-schedule-bounded", rule, {
       `HttpClient.retryTransient({ schedule: retrySchedule })\n`
         + `const retrySchedule = ${boundedSchedule}`,
     ),
+    bounded(
+      "an unbounded schedule capped by a numeric times option",
+      `HttpClient.retryTransient({ schedule: Schedule.spaced("1 second"), times: 2 })`,
+    ),
     bounded("an unrelated retry helper", `HttpClient.retry({ times: 2 })`),
     {
       name: "a JavaScript file, which carries no retry vocabulary",
@@ -68,8 +73,8 @@ ruleTester.run("retry-schedule-bounded", rule, {
       `HttpClient.retryTransient({ schedule: Schedule.spaced("1 second") })`,
     ),
     unbounded(
-      "an unbounded schedule even when times is also present",
-      `HttpClient.retryTransient({ schedule: Schedule.spaced("1 second"), times: 2 })`,
+      "the beta.90 Schedule.take spelling, which no longer exists",
+      `HttpClient.retryTransient({ schedule: Schedule.spaced("1 second").pipe(Schedule.take(2)) })`,
     ),
   ],
 })
