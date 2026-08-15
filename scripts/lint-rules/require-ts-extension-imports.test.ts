@@ -26,7 +26,7 @@ ruleTester.run("require-ts-extension-imports", rule, {
     allowedImport("a package import that names a JavaScript file", "some-package/utils.js"),
     {
       name: "an import of a JavaScript file that physically exists",
-      code: `import { requireTsExtensionImportsRule as rule } from "./require-ts-extension-imports.ts"`,
+      code: `import { value } from "./fixtures/runtime-boundary.js"`,
       filename: import.meta.filename,
     },
     {
@@ -47,7 +47,7 @@ ruleTester.run("require-ts-extension-imports", rule, {
     {
       name: "a JavaScript file, which must keep runtime-resolvable imports",
       code: `import { value } from "./module.js"`,
-      filename: "/repo/publisher.js",
+      filename: "/gauntlet/src/publisher.js",
     },
   ],
   invalid: [
@@ -59,6 +59,15 @@ ruleTester.run("require-ts-extension-imports", rule, {
         message: `Use an explicit ".ts" extension for relative import "./module"`,
       }],
       output: `import { value } from "./module.ts"`,
+    },
+    {
+      name: "a .js import whose file does not physically exist",
+      code: `import { value } from "./fixtures/missing.js"`,
+      filename: import.meta.filename,
+      errors: [{
+        message: `Use ".ts" extension instead of ".js" for relative imports`,
+      }],
+      output: `import { value } from "./fixtures/missing.ts"`,
     },
     {
       name: "a .js extension on a relative import",
