@@ -1,4 +1,4 @@
-import rule from "./no-sleep-in-tests.js"
+import { noSleepInTestsRule as rule } from "./no-sleep-in-tests.ts"
 import { productionFile, ruleTester, testFile } from "./rule-tester.ts"
 
 const inGenerator = (body: string) => `const run = function* () { ${body} }`

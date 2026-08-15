@@ -1,4 +1,4 @@
-import rule from "./no-schema-class.js"
+import { noSchemaClassRule as rule } from "./no-schema-class.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const messageFor = (name: string) =>

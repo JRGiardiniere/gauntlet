@@ -1,4 +1,4 @@
-import rule from "./no-fnuntraced-outside-tests.js"
+import { noFnUntracedOutsideTestsRule as rule } from "./no-fnuntraced-outside-tests.ts"
 import { productionFile, ruleTester, testFile } from "./rule-tester.ts"
 
 ruleTester.run("no-fnuntraced-outside-tests", rule, {

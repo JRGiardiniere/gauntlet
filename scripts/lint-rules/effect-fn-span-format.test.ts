@@ -1,4 +1,4 @@
-import rule from "./effect-fn-span-shape.js"
+import { effectFnSpanFormatRule as rule } from "./effect-fn-span-format.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const malformedNameMessage =
@@ -14,7 +14,7 @@ const malformed = (spanName: string) => ({
   errors: [{ message: malformedNameMessage }],
 })
 
-ruleTester.run("effect-fn-span-shape", rule, {
+ruleTester.run("effect-fn-span-format", rule, {
   valid: [
     {
       name: "a dotted span name",

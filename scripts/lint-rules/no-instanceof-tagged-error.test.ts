@@ -1,4 +1,4 @@
-import rule from "./no-instanceof-tagged-error.js"
+import { noInstanceofTaggedErrorRule as rule } from "./no-instanceof-tagged-error.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 ruleTester.run("no-instanceof-tagged-error", rule, {

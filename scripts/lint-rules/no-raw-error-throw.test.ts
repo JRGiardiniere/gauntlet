@@ -1,4 +1,4 @@
-import rule from "./no-raw-error-throw.js"
+import { noRawErrorThrowRule as rule } from "./no-raw-error-throw.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 ruleTester.run("no-raw-error-throw", rule, {
