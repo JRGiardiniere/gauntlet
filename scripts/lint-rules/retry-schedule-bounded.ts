@@ -81,6 +81,7 @@ export const retryScheduleBoundedRule = defineRule({
         if (!isTypeScriptFile(context.filename)) return false
         boundedSchedules = new Set()
         retryCalls = []
+        return true
       },
       ImportSpecifier(node) {
         if (
