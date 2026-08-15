@@ -6,7 +6,7 @@ import * as Path from "effect/Path"
 import { withToolCallDeadline } from "../harness/tool-deadline.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
-import { makeReviewWorkspace } from "./just-bash-workspace.ts"
+import { type BashArgs, makeReviewWorkspace } from "./just-bash-workspace.ts"
 import {
   REVIEW_WORKSPACE_ROOT,
   type ReviewWorkspace,
@@ -30,14 +30,36 @@ const ONE_PIXEL_PNG = Buffer.from(
   "base64",
 )
 
+// The adapter seam's precise argument contracts. Pi's execute signature
+// derives params from each tool's TypeBox schema, but ReviewWorkspace erases
+// the generic at the same SDK seam production uses, so the tests name the
+// domain inputs the tools decode: bash takes the exported BashArgs, read
+// takes Pi's read schema shape (path plus optional offset/limit window).
+interface ReadToolArgs {
+  readonly path: string
+  readonly offset?: number
+  readonly limit?: number
+}
+
+type WorkspaceToolArgs = BashArgs | ReadToolArgs
+
+const execSeam = (
+  tool: ReviewWorkspace["bashTool"] | ReviewWorkspace["readTool"],
+  args: WorkspaceToolArgs,
+  signal?: AbortSignal,
+) =>
+  // SAFETY: Pi's ExtensionContext is unused by both workspace tools (they
+  // read it never); undefined matches the erasure the SDK's own customTools
+  // seam applies when it invokes custom tool executes.
+  tool.execute("workspace-test", args, signal, undefined, undefined as never)
+
 const execTool = (
-  tool: ReviewWorkspace["bashTool"],
-  args: unknown,
+  tool: ReviewWorkspace["bashTool"] | ReviewWorkspace["readTool"],
+  args: WorkspaceToolArgs,
   signal?: AbortSignal,
 ) =>
   Effect.promise(() =>
-    tool
-      .execute("workspace-test", args as never, signal, undefined, undefined as never)
+    execSeam(tool, args, signal)
       .then(
         (result) => ({
           isError: false,
@@ -49,9 +71,9 @@ const execTool = (
             )
             .join("\n"),
         }),
-        (error: unknown) => ({
+        (cause: unknown) => ({
           isError: true,
-          text: error instanceof Error ? error.message : String(error),
+          text: cause instanceof Error ? cause.message : String(cause),
         }),
       ),
   )
@@ -63,7 +85,7 @@ const bash = (workspace: ReviewWorkspace, command: string) =>
     Effect.map((result) => ({ ...result, text: result.text.trimEnd() })),
   )
 
-const read = (workspace: ReviewWorkspace, args: unknown) =>
+const read = (workspace: ReviewWorkspace, args: ReadToolArgs) =>
   execTool(workspace.readTool, args)
 
 // A worktree snapshot exactly as acquireReviewWorkingDirectory produces one,
@@ -216,8 +238,7 @@ describe("ReviewWorkspace", () => {
 
       // Image reads keep Pi's attachment contract through the overlay.
       const image = yield* Effect.promise(() =>
-        workspace.readTool
-          .execute("workspace-test", { path: "data/pixel.png" } as never, undefined, undefined, undefined as never)
+        execSeam(workspace.readTool, { path: "data/pixel.png" })
           .then((result) => result.content.map((entry) => entry.type)),
       )
       expect(image).toEqual(["text", "image"])
@@ -472,12 +493,11 @@ describe("ReviewWorkspace", () => {
         // The tool deadline stays caller-owned and bounds a stuck command.
         const deadlined = withToolCallDeadline(workspace.bashTool, 200)
         const timedOut = yield* Effect.promise(() =>
-          deadlined
-            .execute("workspace-test", { command: "sleep 5" } as never, undefined, undefined, undefined as never)
+          execSeam(deadlined, { command: "sleep 5" })
             .then(
               () => "resolved",
-              (error: unknown) =>
-                error instanceof Error ? error.message : String(error),
+              (cause: unknown) =>
+                cause instanceof Error ? cause.message : String(cause),
             ),
         )
         expect(timedOut).toContain("bash exceeded its 200ms deadline")
