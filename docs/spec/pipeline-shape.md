@@ -12,15 +12,24 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
 ```
 
 1. **Finders** — one AgentInvocation per lens, fanned out in parallel over the
-   same frozen diff. Prompt = finder system prompt + shared block + lens tail
-   (see the cache invariant below). Each emits Candidates via `emit_findings`.
+   same frozen diff. Prompt = finder system prompt + shared block +
+   ReviewSpecification (Interpretive Finders only, when the plan froze one) +
+   lens tail (see the cache invariant below). Standard Finders never receive
+   specification material. Each emits Candidates via `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
-   clusters for verifiers. May bundle, never delete. Text-only: no file reads.
+   clusters for verifiers. May bundle, never delete. Text-only: no file reads,
+   no ReviewSpecification.
 3. **Verification** — one invocation per bundle; adversarial; attaches a
    Verdict (confirmed / refuted / unverified) plus Review Priority and one-line
-   evidence to each cluster.
+   evidence to each cluster. Receives the frozen ReviewSpecification, when one
+   exists, after the scope block and before the claims.
 4. **Judgment** — one invocation, all Observations, decisions by index:
    kept (with Review Priority + reason + finder ratings), dropped (with reason), merged.
+   Receives the frozen ReviewSpecification, when one exists, after the scope
+   block and before the candidates.
+
+A run whose plan froze no ReviewSpecification carries no absence text in any
+prompt — nothing announces that no specification was supplied.
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
 ## Routing
@@ -90,5 +99,9 @@ Provider prefix caching only engages when the prompt is byte-identical from
 the first token to the point of divergence. So: shared block first, lens tail
 last, always — nothing lens-specific (no label, no index, no run id, no
 timestamp) may appear before the tail, and every finder in a fan-out carries a
-byte-identical tool set. Warmup/fan-out sequencing, session-key sharing,
+byte-identical tool set. An Interpretive Finder's ReviewSpecification section
+sits between the shared block and the tail: it is identical for every
+interpretive lens in the run, so it extends the shared prefix rather than
+breaking it (interpretive finders simply share a longer prefix than standard
+ones). Warmup/fan-out sequencing, session-key sharing,
 and cache diagnostics are adapter mechanics (ADR 0002), not review shape.

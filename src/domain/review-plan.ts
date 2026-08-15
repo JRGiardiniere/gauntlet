@@ -1,5 +1,6 @@
 import * as Schema from "effect/Schema"
 import { Seat } from "./recipe.ts"
+import { ReviewSpecification } from "./review-specification.ts"
 import { ReviewTarget } from "./review-target.ts"
 
 export const LensName = Schema.String.check(
@@ -27,6 +28,10 @@ export const FrozenLens = Schema.Struct({
   // Per-lens candidate cap, stated in the prompt and enforced by truncation
   // (docs/spec/pipeline-shape.md). The shared default is applied at freeze.
   candidateCap: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  // Standard is the default represented by omission, mirroring lens
+  // frontmatter (ADR 0004). Prompt assembly reads this to decide whether the
+  // frozen ReviewSpecification reaches the finder.
+  finderClass: Schema.optionalKey(Schema.Literals(["interpretive"])),
 })
 export type FrozenLens = typeof FrozenLens.Type
 
@@ -51,5 +56,8 @@ export const ReviewPlan = Schema.Struct({
     judgment: Schema.optionalKey(Seat),
   }),
   lenses: Schema.Array(FrozenLens),
+  // Frozen exactly once at submission (issue #73): resume never re-reads the
+  // addendum file, and a run without one carries no field and no absence text.
+  specification: Schema.optionalKey(ReviewSpecification),
 })
 export type ReviewPlan = typeof ReviewPlan.Type

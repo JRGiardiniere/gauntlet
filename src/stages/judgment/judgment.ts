@@ -100,6 +100,7 @@ export const executeJudgment = Effect.fn(
         plan.target,
         REVIEW_WORKSPACE_ROOT,
         indexed,
+        plan.specification,
       )
       yield* progress("invoking Judgment")
       return yield* invoke({

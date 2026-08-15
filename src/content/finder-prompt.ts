@@ -5,6 +5,7 @@ import {
   DEFAULT_CANDIDATE_CAP,
   type FrozenLens,
 } from "../domain/review-plan.ts"
+import type { ReviewSpecification } from "../domain/review-specification.ts"
 import type { ReviewTarget } from "../domain/review-target.ts"
 import { ContentDirectory, ContentLoadError } from "./lens.ts"
 import {
@@ -12,6 +13,7 @@ import {
   PromptAssemblyError,
   renderPromptTemplate,
 } from "./prompt-template.ts"
+import { renderSpecificationSection } from "./specification-section.ts"
 
 export { PromptAssemblyError }
 
@@ -48,14 +50,18 @@ export const loadFinderPromptTemplates = Effect.fn(
   return { systemPrompt, sharedPromptTemplate } satisfies FinderPromptTemplates
 })
 
-// The shared block is always the first byte of the user prompt. Only the lens
-// tail diverges, so multiple finder invocations can share a provider cache
-// prefix without lens labels, run ids, or timestamps leaking ahead of it.
+// The shared block is always the first byte of the user prompt. An
+// Interpretive Finder's ReviewSpecification follows it — identical for every
+// interpretive lens, so it is still shared prefix, not tail — and only the
+// lens tail diverges, so multiple finder invocations can share a provider
+// cache prefix without lens labels, run ids, or timestamps leaking ahead of
+// it. A Standard Finder never receives specification material (issue #73).
 export const assembleFinderPrompt = (
   template: string,
   target: ReviewTarget,
   reviewRoot: string,
   lens: FrozenLens,
+  specification: ReviewSpecification | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const shared = yield* renderPromptTemplate(
@@ -74,11 +80,15 @@ export const assembleFinderPrompt = (
         ["MAX_PER_LENS", String(DEFAULT_CANDIDATE_CAP)],
       ],
     )
-    const lensSections = [lens.promptText]
+    const sections = [shared]
+    if (lens.finderClass === "interpretive" && specification !== undefined) {
+      sections.push(renderSpecificationSection(specification))
+    }
+    sections.push(lens.promptText)
     if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
-      lensSections.push(
+      sections.push(
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
       )
     }
-    return `${shared}\n\n${lensSections.join("\n\n")}`
+    return sections.join("\n\n")
   })

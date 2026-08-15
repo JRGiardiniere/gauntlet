@@ -24,6 +24,7 @@ import {
 } from "../harness/scripted.ts"
 import {
   FindingsOutput,
+  type PoolOutput,
   type VerdictsOutput,
 } from "../harness/output-contract.ts"
 import {
@@ -158,10 +159,14 @@ const FINDER_OUTPUT = {
   ],
 } satisfies FindingsOutput
 
-// The three stage outputs a scripted session can emit. The harness keeps emit
+// The four stage outputs a scripted session can emit. The harness keeps emit
 // args `unknown` because it is a generic adapter seam; these helpers name the
 // admissible domain outputs so a script can only emit decodable model output.
-type EmittedOutput = FindingsOutput | VerdictsOutput | JudgmentsOutput
+type EmittedOutput =
+  | FindingsOutput
+  | PoolOutput
+  | VerdictsOutput
+  | JudgmentsOutput
 
 // The BugClaim and Judgment paths execute concurrently, so their sessions
 // are keyed by session-id suffix instead of relying on open order.
@@ -489,6 +494,12 @@ describe("gauntlet review", () => {
         expect(stagePrompt).not.toContain(
           run.scripted.configs[0]?.cwd ?? "worktree path missing",
         )
+      }
+      // A run without a ReviewSpecification carries no absence text in any
+      // prompt (issue #73) — nothing announces that no spec was supplied.
+      for (const prompt of [finderPrompt, verifierPrompt, judgmentPrompt]) {
+        expect(prompt).not.toContain("Review Specification")
+        expect(prompt).not.toContain("Caller Addendum")
       }
 
       const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
@@ -987,6 +998,214 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "resume unavailable, running a new review",
       )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("freezes a caller addendum and shows it to interpretive finders, verification, and judgment — never standard finders or pool", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-interpretive.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive tail\n",
+      )
+      // Distinct seats → two size-1 groups → no cache settle / TestClock.
+      yield* writeRecipe(fixture, "fixture-recipe", {
+        default: FIXTURE_SEAT,
+        "interpretive-finders": "fixture/interpretive-model:high",
+      })
+      // The addendum lives outside the reviewed repository, per the
+      // invoking-agent skill's guidance.
+      const addendumPath = path.join(fixture.home, "addendum.md")
+      const needle = "ADDENDUM-REQUIREMENT: alpha.txt must stay sorted"
+      yield* fs.writeFileString(addendumPath, `${needle}\n`)
+
+      // Three BugClaims reach the Pool threshold; one Observation reaches
+      // Judgment. The interpretive finder emits nothing — only its prompt
+      // matters here.
+      const threeBugClaims = {
+        findings: [
+          ...[1, 2, 3].map((line) => ({
+            file: "alpha.txt",
+            line,
+            summary: `claim ${String(line)}`,
+            failure_scenario: `input ${String(line)} breaks`,
+          })),
+          { file: "alpha.txt", summary: "the name hides the value's role" },
+        ],
+      } satisfies FindingsOutput
+      const poolOutput = {
+        clusters: [{ indexes: [1, 2, 3], summary: "one shared defect" }],
+      } satisfies PoolOutput
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--lenses",
+          "fixture-review,fixture-interpretive",
+          "--spec",
+          addendumPath,
+        ],
+        makeScripted({
+          sessions: [
+            successfulSession(threeBugClaims, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-2"),
+            emittingSession(poolOutput, "-pool"),
+            successfulVerifierSession(),
+            successfulJudgmentSession(),
+          ],
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.specification).toEqual({
+        documents: [
+          {
+            role: "caller-addendum",
+            provenance: addendumPath,
+            text: `${needle}\n`,
+          },
+        ],
+      })
+      const classByLens = new Map(
+        plan.lenses.map((lens) => [lens.name, lens.finderClass]),
+      )
+      expect(classByLens.get("fixture-review")).toBeUndefined()
+      expect(classByLens.get("fixture-interpretive")).toBe("interpretive")
+
+      const [standardPrompt = ""] = promptTextsFor(run.scripted, "-finders-1")
+      expect(standardPrompt).not.toContain(needle)
+      expect(standardPrompt).not.toContain("Review Specification")
+      const [poolPrompt = ""] = promptTextsFor(run.scripted, "-pool")
+      expect(poolPrompt).not.toContain(needle)
+      expect(poolPrompt).not.toContain("Review Specification")
+
+      // Shared context first, specification second, assignment last.
+      const [interpretivePrompt = ""] = promptTextsFor(
+        run.scripted,
+        "-finders-2",
+      )
+      expect(interpretivePrompt).toMatch(
+        new RegExp(
+          `shared end\\n\\n## Review Specification\\n\\n[\\s\\S]*### Caller Addendum \\(caller-provided: [\\s\\S]*${needle}[\\s\\S]*\\n\\nfixture interpretive tail$`,
+        ),
+      )
+      const [verifierPrompt = ""] = promptTextsFor(run.scripted, "-verification")
+      const [judgmentPrompt = ""] = promptTextsFor(run.scripted, "-judgment")
+      expect(verifierPrompt.indexOf(needle)).toBeGreaterThan(
+        verifierPrompt.indexOf("needle-added-line"),
+      )
+      expect(verifierPrompt.indexOf(needle)).toBeLessThan(
+        verifierPrompt.indexOf("### [c1]"),
+      )
+      expect(judgmentPrompt.indexOf(needle)).toBeGreaterThan(
+        judgmentPrompt.indexOf("needle-added-line"),
+      )
+      expect(judgmentPrompt.indexOf(needle)).toBeLessThan(
+        judgmentPrompt.indexOf("## Candidates"),
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("fails before Run creation on a missing, empty, or resume-combined --spec", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+
+      const missing = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review", "--spec", path.join(fixture.home, "missing.md")],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* missing.effect).toBe(1)
+      expect(missing.scripted.configs).toHaveLength(0)
+
+      const emptyPath = path.join(fixture.home, "empty.md")
+      yield* fs.writeFileString(emptyPath, "  \n\n")
+      const empty = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review", "--spec", emptyPath],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* empty.effect).toBe(1)
+      expect(empty.scripted.configs).toHaveLength(0)
+
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume", "some-run", "--spec", emptyPath],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* resumed.effect).toBe(1)
+
+      // No Run directory exists for any of the refused invocations.
+      const runIds = (yield* fs.exists(fixture.runsRoot))
+        ? yield* fs.readDirectory(fixture.runsRoot)
+        : []
+      expect(runIds).toHaveLength(0)
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "could not review — caller addendum file does not exist",
+      )
+      expect(stderr).toContain("could not review — caller addendum is empty")
+      expect(stderr).toContain(
+        "could not review — --spec cannot be combined with --resume; the plan is frozen",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("resume replays the frozen addendum after the file is deleted", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const addendumPath = path.join(fixture.home, "addendum.md")
+      const needle = "ADDENDUM-REQUIREMENT: alpha.txt must stay sorted"
+      yield* fs.writeFileString(addendumPath, `${needle}\n`)
+
+      const journaled = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review", "--spec", addendumPath],
+        successfulScripted(),
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          InvocationJournalCheckpoint,
+          (runId) =>
+            Deferred.succeed(journaled, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(journaled)
+      yield* Fiber.interrupt(fiber)
+
+      // The frozen value is the review input: deleting the file cannot
+      // change or block the resumed run.
+      yield* fs.remove(addendumPath)
+
+      const resumed = resume(
+        fixture,
+        undefined,
+        makeScripted({
+          sessions: [successfulVerifierSession(), successfulJudgmentSession()],
+        }),
+      )
+      expect(yield* resumed.effect).toBe(0)
+      const [verifierPrompt = ""] = promptTextsFor(
+        resumed.scripted,
+        "-verification",
+      )
+      const [judgmentPrompt = ""] = promptTextsFor(resumed.scripted, "-judgment")
+      expect(verifierPrompt).toContain(needle)
+      expect(judgmentPrompt).toContain(needle)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes an already-complete run without invoking its finder", () =>

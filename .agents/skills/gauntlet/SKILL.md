@@ -21,15 +21,24 @@ Dossier lives on disk.
    local`. `--destination pr` only when the user asked to post a PR comment; it
    requires `--pr`. `review --pr`, `--destination pr`, and `deliver` need the
    GitHub CLI (`gh`) installed and authenticated.
-4. **Launch** as a background shell task:
+4. **Specification.** When you hold requirements context the review should
+   judge against — the issue or spec behind the change, acceptance criteria,
+   explicit deferrals — write it as a Markdown Caller Addendum and pass
+   `--spec <path>`. Write the file to a temporary location **outside the
+   reviewed repository** (a scratch or temp directory), never into the
+   worktree under review: an addendum inside the repo becomes an untracked
+   review input by accident. The file is read once and frozen into the plan;
+   a missing, unreadable, or empty file fails before any run is created, and
+   `--spec` cannot be combined with `--resume`.
+5. **Launch** as a background shell task:
 
    ```
-   gauntlet review [recipe] [--pr N] [--destination local|pr]
+   gauntlet review [recipe] [--pr N] [--spec <markdown-file>] [--destination local|pr]
    ```
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed.
-5. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
+6. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
    local delivery → link `dossier.md` from the digest paths. A PR destination
    that posted (stderr `posted <url>`) → say the review was delivered as a
    comment on the PR.
