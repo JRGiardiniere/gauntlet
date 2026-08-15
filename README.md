@@ -101,7 +101,8 @@ installed code; a changed target starts a new review.
 - GitHub CLI (`gh`), installed and authenticated — required for `review --pr`,
   `--destination pr`, and `deliver`
 - `effect` / `@effect/platform-node` / `@effect/vitest` pinned **exactly** to
-  `4.0.0-beta.106` (enforced by `scripts/check-effect-pin.mjs`)
+  one shared version (enforced by `scripts/check-effect-pin.mjs`; bump with
+  `pnpm add -E effect@rc @effect/platform-node@rc @effect/vitest@rc`)
 - `pnpm lint` — the house-style gate: oxlint baseline + the `gauntlet` custom
   rule pack (`scripts/lint-rules/`), a `Record<string, unknown>` early-warning
   scan, official type-aware Effect diagnostics (`@effect/tsgo`), the exact-pin
@@ -115,6 +116,6 @@ installed code; a changed target starts a new review.
   invoking-agent skill
 - `docs/effect-house-style.md`, `docs/effect-v4-patterns.md` — house style +
   patterns, imported from cloudflare-hub (see the provenance banners for
-  beta.90 → beta.106 deltas)
+  the deltas from beta.90 to our pin)
 - `docs/research/` — Wayfinder research findings (Effect batteries, durable
   execution, Pi harness surface)
