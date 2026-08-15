@@ -30,7 +30,7 @@ export interface PostedComment {
   readonly url: string
 }
 
-export interface GitHubShape {
+export interface GitHubContract {
   readonly viewPullRequest: (
     cwd: string,
     number: number,
@@ -44,11 +44,11 @@ export interface GitHubShape {
 
 // The thin GitHub boundary (issue #25, spec #15): PR metadata and the single
 // comment post. Tests replace this layer; nothing above talks to the network.
-export class GitHub extends Context.Service<GitHub, GitHubShape>()(
+export class GitHub extends Context.Service<GitHub, GitHubContract>()(
   "gauntlet/GitHub",
 ) {}
 
-export const gitHubLayer = (impl: GitHubShape) =>
+export const gitHubLayer = (impl: GitHubContract) =>
   Layer.succeed(GitHub, GitHub.of(impl))
 
 export const unusedGitHubLayer = gitHubLayer({
