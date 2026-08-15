@@ -292,9 +292,14 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // finalized call in the batch terminates.
               executionMode: "sequential",
               execute: async (_toolCallId, args) => {
-                // SAFETY: Pi validated `args` against the emit tool's
-                // projected JSON Schema before invoking execute, so `args`
-                // is a JSON value here.
+                // SAFETY: pi-ai's `validateToolArguments` structuredClones the
+                // model's arguments, takes the JSON-Schema coercion branch
+                // (our projected schema carries no TypeBox.Kind symbol), and
+                // throws unless the result passes `validator.Check` — so
+                // execute is only ever reached with a JSON value that matched
+                // the emit tool's schema. Verified in pi-ai 0.84.1
+                // `dist/utils/validation.js` `validateToolArguments`, called
+                // from pi-agent-core `dist/agent-loop.js` `prepareToolCall`.
                 session.emitTool.execute(args as EmitToolArgs)
                 return {
                   content: [{ type: "text" as const, text: "captured" }],
