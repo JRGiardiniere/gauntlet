@@ -27,7 +27,7 @@ const isInlineBoundedSchedule = (
   && getPropertyName(node.callee.property) === "pipe"
   && isNamedCall(node.callee.object, "Schedule", "spaced")
   && node.arguments.length === 1
-  && isNamedCall(node.arguments[0], "Schedule", "take")
+  && isNamedCall(node.arguments[0], "Schedule", "upTo")
 
 const propertyNamed = (
   options: ESTree.ObjectExpression,
@@ -53,7 +53,7 @@ export const retryScheduleBoundedRule = defineRule({
     },
     messages: {
       unboundedRetry:
-        "HttpClient.retryTransient must be explicitly bounded. Set schedule to transientRetrySchedule or Schedule.spaced(...).pipe(Schedule.take(...)), or use a numeric times option by itself — house-style rules 13/23, docs/effect-house-style.md.",
+        "HttpClient.retryTransient must be explicitly bounded. Set schedule to transientRetrySchedule or Schedule.spaced(...).pipe(Schedule.upTo({ times: n })), or cap any schedule with a numeric times option — house-style rules 13/23, docs/effect-house-style.md.",
     },
   },
   createOnce(context) {
@@ -64,16 +64,17 @@ export const retryScheduleBoundedRule = defineRule({
       const options = node.arguments[0]
       if (options?.type !== "ObjectExpression") return false
 
-      const schedule = propertyNamed(options, "schedule")
-      if (schedule !== undefined) {
-        if (isInlineBoundedSchedule(schedule.value)) return true
-        return isIdentifier(schedule.value)
-          && (schedule.value.name === "transientRetrySchedule"
-            || boundedSchedules.has(schedule.value.name))
-      }
-
+      // buildFromOptions wraps any supplied schedule in an attempt cap when
+      // `times` is set, so a numeric times bounds the retry on its own.
       const times = propertyNamed(options, "times")
-      return times !== undefined && isNumericLiteral(times.value)
+      if (times !== undefined && isNumericLiteral(times.value)) return true
+
+      const schedule = propertyNamed(options, "schedule")
+      if (schedule === undefined) return false
+      if (isInlineBoundedSchedule(schedule.value)) return true
+      return isIdentifier(schedule.value)
+        && (schedule.value.name === "transientRetrySchedule"
+          || boundedSchedules.has(schedule.value.name))
     }
 
     return {
