@@ -76,12 +76,15 @@ const decodeLensSource = (
       }
     }
 
+    const finderClass = parsed.frontmatter["finder-class"]
+    const reason =
+      typeof finderClass === "string" && finderClass !== "interpretive"
+        ? `finder-class admits exactly "interpretive" (standard is by omission); got "${finderClass}"`
+        : "frontmatter does not match the lens format"
     const frontmatter = yield* Schema.decodeEffect(LensFrontmatter)(
       parsed.frontmatter,
     ).pipe(
-      Effect.mapError(
-        contentLoadError(path, "frontmatter does not match the lens format"),
-      ),
+      Effect.mapError(contentLoadError(path, reason)),
     )
     const promptText = parsed.body
     if (promptText.trim() === "") {

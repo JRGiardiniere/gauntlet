@@ -162,8 +162,8 @@ describe("gauntlet config init", () => {
       expect(yield* stdout()).toContain(
         "- retired — invalid (" + path.join(fixture.recipesDirectory, "retired.json"),
       )
-      // The rename is a finished break: the retired spelling must fail
-      // decoding (excess property) rather than fall back to the default.
+      // Recipe decoding rejects unknown keys, so a rejected override fails
+      // instead of silently inheriting the default seat.
       expect(yield* stdout()).toContain("deep-finders")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
