@@ -60,8 +60,18 @@ const emittingSession = (
   })),
 })
 
+// A judgment emission that fails the output contract: the keep decision
+// carries none of the required keep fields, driving the off-spec path.
+interface OffSpecJudgmentsEmission {
+  readonly decisions: ReadonlyArray<{
+    readonly index: number
+    readonly decision: "keep"
+    readonly reason: string
+  }>
+}
+
 const offSpecEmittingSession = (
-  output: unknown,
+  output: OffSpecJudgmentsEmission,
   promptCount: number,
 ): ScriptedSession => ({
   prompts: globalThis.Array.from({ length: promptCount }, () => ({
