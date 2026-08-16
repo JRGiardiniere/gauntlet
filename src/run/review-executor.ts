@@ -96,14 +96,10 @@ export const executeReviewPlan = Effect.fn(
         const accounting = {
           costUsd: results.reduce(
             (total, result) => total + result.outcome.usage.costUsd,
-            finderStage.preloads.reduce(
-              (total, outcome) => total + outcome.usage.costUsd,
-              0,
-            ),
+            0,
           ) + bugClaimPath.costUsd + judgmentPath.costUsd,
           invocationCount:
             invocations.length +
-            finderStage.preloads.length +
             bugClaimPath.invocationCount +
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),

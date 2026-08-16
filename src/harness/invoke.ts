@@ -24,7 +24,6 @@ import {
   HarnessSessionFactory,
   type InvocationFailure,
   InvocationSetupError,
-  type ReplayableConversationPrefix,
   type StopReason,
   UsageRow,
 } from "./harness-session.ts"
@@ -48,7 +47,6 @@ export interface InvokeInput<O> {
   readonly systemPrompt: string
   readonly prompt: string
   readonly cacheGroupId?: string
-  readonly conversationPrefix?: ReplayableConversationPrefix
   readonly contract: OutputContract<O>
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly deadlines: InvocationDeadlines
@@ -57,25 +55,16 @@ export interface InvokeInput<O> {
   readonly signal?: AbortSignal
 }
 
-export const PreloadOutput = Schema.Struct({
-  acknowledgment: Schema.NonEmptyString,
-})
-export interface PreloadOutput
-  extends Schema.Schema.Type<typeof PreloadOutput> {}
+export type PrefixSignal = Data.TaggedEnum<{
+  PrefixObserved: Record<never, never>
+  PrefixNotObserved: Record<never, never>
+}>
 
-export type PreloadInput<O> = Omit<
-  InvokeInput<O>,
-  "contract" | "conversationPrefix"
-> & {
-  // The preload has a fixed output of its own. This contract is advertised
-  // solely so its tool metadata is byte-identical to the follower session.
-  readonly followerContract: OutputContract<O>
-  readonly expectedAcknowledgment: string
-}
+export const PrefixSignal = Data.taggedEnum<PrefixSignal>()
 
-export interface PreloadResult {
-  readonly outcome: AgentOutcome<PreloadOutput>
-  readonly conversationPrefix?: ReplayableConversationPrefix
+export interface RunningInvocation<O> {
+  readonly firstResponse: Effect.Effect<PrefixSignal>
+  readonly outcome: Effect.Effect<AgentOutcome<O>, InvocationFailure>
 }
 
 interface TerminalEvidence {
@@ -295,43 +284,30 @@ const bestEffortDispose = (
 const openCapturedSession = Effect.fn(
   "gauntlet.invocation.open_captured_session",
 )(function* <O>(
-  input: InvokeInput<O> | PreloadInput<O>,
+  input: InvokeInput<O>,
   capture: CaptureAccumulator,
-  mode: "invocation" | "preload" = "invocation",
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
 ) {
   const factory = yield* HarnessSessionFactory
-  const followerContract = "contract" in input
-    ? input.contract
-    : input.followerContract
   const openConfig = {
     invocationId: input.invocationId,
     seat: input.seat,
     cwd: input.cwd,
     systemPrompt: input.systemPrompt,
     emitTool: {
-      name: followerContract.toolName,
-      description: followerContract.description,
-      parameters: Schema.toJsonSchemaDocument(followerContract.schema).schema,
+      name: input.contract.toolName,
+      description: input.contract.description,
+      parameters: Schema.toJsonSchemaDocument(input.contract.schema).schema,
       execute: (raw: EmitToolArgs) =>
         capture.dispatch({ type: "validated_emit", raw }),
     },
     tools: input.tools,
     toolTimeoutMillis: input.deadlines.toolMillis,
     bashTimeoutMillis: input.deadlines.bashMillis,
-    mode,
   }
-  const cacheConfigured = input.cacheGroupId === undefined
+  const sessionConfig = input.cacheGroupId === undefined
     ? openConfig
     : { ...openConfig, cacheGroupId: input.cacheGroupId }
-  const conversationPrefix = "conversationPrefix" in input
-    ? input.conversationPrefix
-    : undefined
-  const sessionConfig = conversationPrefix === undefined
-    ? cacheConfigured
-    : {
-        ...cacheConfigured,
-        conversationPrefix,
-      }
   const session = yield* Effect.acquireRelease(
     factory.open(sessionConfig),
     (opened) =>
@@ -356,8 +332,14 @@ const openCapturedSession = Effect.fn(
         capture.dispatch({
           type: "event",
           event,
-          emitToolName: followerContract.toolName,
+          emitToolName: input.contract.toolName,
         })
+        if (event.type === "message_end" && prefixSignal !== undefined) {
+          Deferred.doneUnsafe(
+            prefixSignal,
+            Effect.succeed(PrefixSignal.PrefixObserved()),
+          )
+        }
         Queue.offerUnsafe(events, event)
       }),
     ),
@@ -467,8 +449,9 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
   absoluteDeadline: number,
   capture: CaptureAccumulator,
   currentSession: CurrentSession,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
 ) {
-  const opened = yield* openCapturedSession(input, capture).pipe(
+  const opened = yield* openCapturedSession(input, capture, prefixSignal).pipe(
     Effect.timeoutOption(Duration.millis(input.deadlines.startupMillis)),
   )
   if (Option.isNone(opened)) {
@@ -576,7 +559,7 @@ const isFreshRetryable = (termination: TerminationType): boolean =>
 
 type InvocationLifecycleInput = Omit<
   InvokeInput<never>,
-  "contract" | "conversationPrefix"
+  "contract"
 >
 
 const validateInput = (input: InvocationLifecycleInput) =>
@@ -770,8 +753,7 @@ interface InvocationLifecycle<A> {
 }
 
 // Startup, one fresh-session retry, cancellation, overall budget, disposal,
-// and timing are one engine for ordinary and preload invocations. The two
-// modes differ only in how an attempt interprets its terminal evidence.
+// and timing stay in one engine for both ordinary and signaled invocations.
 const runInvocationLifecycle = <A>(
   input: InvocationLifecycleInput,
   run: (
@@ -882,8 +864,11 @@ const runInvocationLifecycle = <A>(
   }
 })
 
-export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
+const invokeInternal = Effect.fn(
+  "gauntlet.invocation.invoke_internal",
+)(function* <O>(
   input: InvokeInput<O>,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
 ): Effect.fn.Return<
   AgentOutcome<O>,
   InvocationFailure,
@@ -892,7 +877,13 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
   const lifecycle = yield* runInvocationLifecycle<TerminationType>(
     input,
     (absoluteDeadline, capture, currentSession) =>
-      runAttempt(input, absoluteDeadline, capture, currentSession),
+      runAttempt(
+        input,
+        absoluteDeadline,
+        capture,
+        currentSession,
+        prefixSignal,
+      ),
     (termination) => termination,
     (termination) => termination,
   )
@@ -905,193 +896,35 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
   )
 })
 
-interface PreloadAttempt {
-  readonly termination: TerminationType
-  readonly conversationPrefix?: ReplayableConversationPrefix
-  readonly acknowledgment?: string
-}
-
-const runPreloadAttempt = Effect.fn(
-  "gauntlet.invocation.run_preload_attempt",
-)(function* <O>(
-  input: PreloadInput<O>,
-  capture: CaptureAccumulator,
-  currentSession: CurrentSession,
-) {
-  const opened = yield* openCapturedSession(input, capture, "preload").pipe(
-    Effect.timeoutOption(Duration.millis(input.deadlines.startupMillis)),
-  )
-  if (Option.isNone(opened)) {
-    capture.dispatch({
-      type: "diagnostic",
-      message: `session construction exceeded ${String(input.deadlines.startupMillis)}ms`,
-    })
-    return {
-      termination: Termination.cases.FirstResponseTimeout.make({}),
-    } satisfies PreloadAttempt
-  }
-
-  const { session, events } = opened.value
-  currentSession.value = session
-  const ending = yield* runPrompt(
-    session,
-    events,
-    input.prompt,
-    input.deadlines.firstResponseMillis,
-    capture,
-  )
-  if (ending.type === "first-response-timeout") {
-    return {
-      termination: Termination.cases.FirstResponseTimeout.make({}),
-    } satisfies PreloadAttempt
-  }
-
-  const common = commonOf(capture.snapshot())
-  if (ending.rejection !== undefined) {
-    if (common.violations.length > 0) {
-      return yield* new AdapterContractViolation({
-        reason: common.violations.join("; "),
-      })
-    }
-    if (common.acceptedActivity) {
-      capture.dispatch({
-        type: "diagnostic",
-        message: `provider rejected preload after accepting session activity: ${ending.rejection}`,
-      })
-      return {
-        termination: Termination.cases.ProviderFailed.make({}),
-      } satisfies PreloadAttempt
-    }
-    return yield* new InvocationSetupError({
-      operation: "prompt",
-      reason: ending.rejection,
-    })
-  }
-  if (common.terminal === undefined) {
-    return yield* new AdapterContractViolation({
-      reason: "preload prompt settled without terminal assistant evidence",
-    })
-  }
-  if (common.toolCallCount > 0) {
-    capture.dispatch({
-      type: "diagnostic",
-      message: `preload attempted ${String(common.toolCallCount)} forbidden tool call${common.toolCallCount === 1 ? "" : "s"}; no prefix was reused`,
-    })
-    return {
-      termination: Termination.cases.ProviderFailed.make({}),
-    } satisfies PreloadAttempt
-  }
-
-  switch (common.terminal.stopReason) {
-    case "stop": {
-      const captured = session.captureConversationPrefix()
-      if (captured === undefined) {
-        return yield* new AdapterContractViolation({
-          reason: "preload completed without a replayable assistant response",
-        })
-      }
-      if (captured.assistantText !== input.expectedAcknowledgment) {
-        capture.dispatch({
-          type: "diagnostic",
-          message: `preload acknowledgment did not exactly match the configured contract; no prefix was reused`,
-        })
-        return {
-          termination: Termination.cases.ProviderFailed.make({}),
-        } satisfies PreloadAttempt
-      }
-      return {
-        termination: Termination.cases.Completed.make({}),
-        conversationPrefix: captured.prefix,
-        acknowledgment: captured.assistantText,
-      } satisfies PreloadAttempt
-    }
-    case "length": {
-      return {
-        termination: Termination.cases.ContextLimit.make({}),
-      } satisfies PreloadAttempt
-    }
-    case "error": {
-      capture.dispatch({
-        type: "diagnostic",
-        message: `provider failed${common.terminal.errorMessage === undefined ? "" : `: ${common.terminal.errorMessage}`}`,
-      })
-      return {
-        termination: Termination.cases.ProviderFailed.make({}),
-      } satisfies PreloadAttempt
-    }
-    case "toolUse": {
-      capture.dispatch({
-        type: "diagnostic",
-        message: "preload stopped for tool use without a captured tool event; no prefix was reused",
-      })
-      return {
-        termination: Termination.cases.ProviderFailed.make({}),
-      } satisfies PreloadAttempt
-    }
-    case "pending":
-    case "deferred":
-    case "aborted": {
-      return yield* new AdapterContractViolation({
-        reason: `preload prompt settled with uncaused stop reason ${common.terminal.stopReason}`,
-      })
-    }
-  }
-})
-
-const finalizePreloadOutcome = (
-  termination: TerminationType,
-  acknowledgment: string | undefined,
-  captures: ReadonlyArray<CaptureAccumulator>,
-  globalDiagnostics: ReadonlyArray<string>,
-  durationMillis: number,
-): Effect.Effect<AgentOutcome<PreloadOutput>, AdapterContractViolation> =>
-  Effect.gen(function* () {
-    const states = captures.map((capture) => capture.snapshot())
-    const diagnostics = [
-      ...globalDiagnostics,
-      ...states.flatMap((state) => commonOf(state).diagnostics),
-    ]
-    const usage = yield* usageFrom(states)
-    const outcome = {
-      termination,
-      usage,
-      durationMillis,
-      diagnostics,
-    }
-    return acknowledgment === undefined
-      ? outcome
-      : {
-          ...outcome,
-          output: { acknowledgment },
-        }
-  })
-
-// A preload is a real, bounded, metered AgentInvocation whose only successful
-// product is an adapter-owned replay token. It never performs corrective turns:
-// setup prose is the requested terminal response, and any tool use invalidates
-// the prefix without changing the Finder work that follows.
-export const preloadConversation = Effect.fn(
-  "gauntlet.invocation.preload_conversation",
-)(function* <O>(input: PreloadInput<O>): Effect.fn.Return<
-  PreloadResult,
+export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
+  input: InvokeInput<O>,
+): Effect.fn.Return<
+  AgentOutcome<O>,
   InvocationFailure,
   HarnessSessionFactory
 > {
-  const lifecycle = yield* runInvocationLifecycle<PreloadAttempt>(
-    input,
-    (_absoluteDeadline, capture, currentSession) =>
-      runPreloadAttempt(input, capture, currentSession),
-    (result) => result.termination,
-    (termination): PreloadAttempt => ({ termination }),
+  return yield* invokeInternal(input)
+})
+
+// Starts one ordinary invocation in the current scope and exposes only the
+// one scheduling fact Finder orchestration needs. Provider events stay private
+// to this module, and joining `outcome` never starts a second invocation.
+export const invokeSignaled = Effect.fn(
+  "gauntlet.invocation.invoke_signaled",
+)(function* <O>(input: InvokeInput<O>): Effect.fn.Return<
+  RunningInvocation<O>,
+  never,
+  HarnessSessionFactory | Scope.Scope
+> {
+  const signal = yield* Deferred.make<PrefixSignal>()
+  const fiber = yield* invokeInternal(input, signal).pipe(
+    Effect.ensuring(
+      Deferred.succeed(signal, PrefixSignal.PrefixNotObserved()),
+    ),
+    Effect.forkScoped,
   )
-  const outcome = yield* finalizePreloadOutcome(
-    lifecycle.result.termination,
-    lifecycle.result.acknowledgment,
-    lifecycle.captures,
-    lifecycle.diagnostics,
-    lifecycle.durationMillis,
-  )
-  return lifecycle.result.conversationPrefix === undefined
-    ? { outcome }
-    : { outcome, conversationPrefix: lifecycle.result.conversationPrefix }
+  return {
+    firstResponse: Deferred.await(signal),
+    outcome: Fiber.join(fiber),
+  }
 })

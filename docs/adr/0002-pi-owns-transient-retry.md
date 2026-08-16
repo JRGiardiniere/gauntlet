@@ -34,12 +34,16 @@ Retryability is a pure function of the termination mode:
 - A future reader must not "add" Effect retry on provider errors; that is the
   rejected alternative, not an omission.
 
-## Finder prefix preloads
+## Finder prefix warmup
 
-Finder cache preloads are normal bounded AgentInvocations and use the same one
-fresh-session retry for a first-response stall. They do not use corrective
-turns: their requested terminal response is inert prose, not an emit. A tool
-attempt invalidates the prefix and is rejected by the adapter before execution.
-Only the exact configured acknowledgment makes the captured prefix replayable.
-An unavailable preload never changes Finder retry or coverage policy; followers
-run with their complete one-turn prompt when no replayable prefix exists.
+For each multi-Finder Seat/context partition, one ordinary Finder starts first
+and uses this ADR's unchanged invocation policy. Its first successfully decoded
+usage-bearing assistant response produces a total scheduling signal: observed,
+or not observed if the invocation settles or fails first. An observed signal
+starts a 1,500 ms best-effort cache-settle delay; the other ordinary Finders
+then start while the first can continue tool use and corrective turns.
+
+Every Finder independently receives the complete byte-identical shared prompt
+prefix and the same provider-neutral cache-group hint. The signal does not
+claim global provider cache propagation, and a missing signal skips only the
+delay. Cache behavior never changes retry, coverage, termination, or output.

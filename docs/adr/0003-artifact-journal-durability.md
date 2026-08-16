@@ -10,8 +10,8 @@ existing retention. Shared prompts, schemas, tools, deadlines, and pipeline
 code come from the currently installed application.
 
 The first checkpoint is `finder-stage.json`: one ordered, schema-validated
-record of every Finder outcome plus the preload outcomes from the Finder-stage
-attempt that produced them. It is written atomically by temp file plus rename
+record of every Finder outcome from the Finder-stage attempt that produced
+them. It is written atomically by temp file plus rename
 only after the complete fan-out returns. Missing, corrupt, foreign-run, or
 incomplete stage state reruns every Finder from scratch; resume never combines
 individual Finder outcomes or provider conversations across attempts. Because
@@ -47,8 +47,8 @@ backgrounding use their own shell/harness.
 ## Consequences
 
 - The Finder fan-out is all-or-nothing for resume. A process interrupted before
-  the atomic checkpoint reruns every Finder and every eligible preload, and
-  cannot reuse downstream artifacts derived from another Finder attempt.
+  the atomic checkpoint reruns every Finder and cannot reuse downstream
+  artifacts derived from another Finder attempt.
 - Dossier accounting includes the completed Finder-stage attempt whose outputs
   it consumes. It is not a provider billing ledger for abandoned processes;
   an in-flight process can die before final usage exists at all.

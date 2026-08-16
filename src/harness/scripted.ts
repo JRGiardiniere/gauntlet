@@ -6,15 +6,12 @@ import * as Queue from "effect/Queue"
 import { type BashArgs, makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import type { ReviewWorkspace } from "../workspace/review-workspace.ts"
 import {
-  type CapturedConversationPrefix,
   type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
-  makeReplayableConversationPrefix,
-  type ReplayableConversationPrefix,
   type SessionConfig,
   type StopReason,
   type UsageRow,
@@ -74,7 +71,6 @@ export interface ScriptedPrompt {
   readonly events: ReadonlyArray<ScriptedEvent>
   readonly settles: "after-events" | "never"
   readonly reject?: string
-  readonly assistantText?: string
 }
 
 export interface ScriptedSession {
@@ -119,13 +115,6 @@ export interface Scripted {
   readonly configs: Array<SessionConfig>
   readonly prompts: Array<RecordedPrompt>
   readonly inspections: Array<RecordedInspection>
-  readonly prefixes: Array<RecordedConversationPrefix>
-}
-
-export interface RecordedConversationPrefix {
-  readonly prefix: ReplayableConversationPrefix
-  readonly userPrompt: string
-  readonly assistantText: string
 }
 
 const toolText = (result: {
@@ -195,7 +184,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const configs: Array<SessionConfig> = []
   const prompts: Array<RecordedPrompt> = []
   const inspections: Array<RecordedInspection> = []
-  const prefixes: Array<RecordedConversationPrefix> = []
   let openIndex = 0
   const claimed = new Set<number>()
 
@@ -241,15 +229,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           reason: behaviorForSession.failOpen,
         })
       }
-      if (
-        config.conversationPrefix !== undefined &&
-        !prefixes.some(({ prefix }) => prefix === config.conversationPrefix)
-      ) {
-        return yield* new InvocationSetupError({
-          operation: "open",
-          reason: "conversation prefix was not captured by this scripted factory",
-        })
-      }
       if (behaviorForSession.openDelayMillis !== undefined) {
         yield* Effect.sleep(
           Duration.millis(behaviorForSession.openDelayMillis),
@@ -259,8 +238,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       // The live adapter always mounts a ReviewWorkspace for filesystem
       // sessions. This adapter does the same only when a script declares a
       // tool event, so invocation-unit tests with a fake cwd stay cheap.
-      const workspace = config.mode === "invocation" &&
-          scriptInspectsWorkspace(behaviorForSession)
+      const workspace = scriptInspectsWorkspace(behaviorForSession)
         ? yield* Effect.tryPromise({
             try: () => makeReviewWorkspace(config.cwd),
             catch: (cause) =>
@@ -278,7 +256,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       const rows: Array<unknown> = []
       const promptRequests = yield* Queue.unbounded<PromptRequest>()
       let requestedPrompts = 0
-      let capturedPrefix: CapturedConversationPrefix | undefined
 
       const fire = (event: HarnessEvent) => {
         for (const listener of listeners) listener(event)
@@ -330,7 +307,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     toolName: config.emitTool.name,
                     args: step.args,
                   })
-                  if (step.valid && config.mode === "invocation") {
+                  if (step.valid) {
                     config.emitTool.execute(step.args)
                   }
                 })
@@ -344,12 +321,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     args: step.args,
                   })
                 })
-                const recorded = config.mode === "preload"
-                  ? {
-                      isError: true as const,
-                      text: "finder preload cannot call workspace tools",
-                    }
-                  : workspace === undefined ||
+                const recorded = workspace === undefined ||
                     !config.tools.includes(step.toolName)
                   ? {
                       isError: true as const,
@@ -399,22 +371,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           }
 
           if (prompt.settles === "never") return yield* Effect.never
-          yield* Effect.sync(() => {
-            const assistantText = prompt.assistantText
-            if (
-              prompt.reject === undefined &&
-              assistantText !== undefined &&
-              assistantText.trim() !== ""
-            ) {
-              const prefix = makeReplayableConversationPrefix()
-              capturedPrefix = { prefix, assistantText }
-              prefixes.push({
-                prefix,
-                userPrompt: request.text,
-                assistantText,
-              })
-            }
-          })
           yield* Effect.sync(() => {
             if (prompt.reject === undefined) request.resolve()
             else request.reject(prompt.reject)
@@ -471,7 +427,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             ? new Promise<never>(() => undefined)
             : Promise.resolve()
         },
-        captureConversationPrefix: () => capturedPrefix,
         dispose: () => {
           log.push(`dispose:${String(sessionIndex)}`)
           if (behaviorForSession.failDispose !== undefined) {
@@ -489,7 +444,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs, prompts, inspections, prefixes }
+  return { factory: { open }, log, configs, prompts, inspections }
 }
 
 export const scriptedLayer = (

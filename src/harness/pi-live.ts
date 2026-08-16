@@ -6,7 +6,6 @@ import {
   ModelRuntime,
   resolveCliModel,
   SessionManager,
-  type SessionMessageEntry,
   SettingsManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
@@ -14,22 +13,15 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import {
-  blockReviewTool,
-  makeBlockedReviewWorkspaceTools,
-  makeReviewWorkspace,
-} from "../workspace/just-bash-workspace.ts"
+import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
-  type CapturedConversationPrefix,
   type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
-  makeReplayableConversationPrefix,
-  type ReplayableConversationPrefix,
   type SessionConfig,
   StopReason,
   UsageRow,
@@ -184,51 +176,12 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   }
 }
 
-type PiUserMessage = Extract<SessionMessageEntry["message"], { role: "user" }>
-type PiAssistantMessage = Extract<
-  SessionMessageEntry["message"],
-  { role: "assistant" }
->
-
-interface PiConversationPrefix {
-  readonly user: PiUserMessage
-  readonly assistant: PiAssistantMessage
-}
-
-const assistantText = (message: PiAssistantMessage): string =>
-  message.content.flatMap((content) =>
-    content.type === "text" ? [content.text] : []
-  ).join("")
-
-const capturePiConversationPrefix = (
-  sessionManager: SessionManager,
-  prefixes: WeakMap<ReplayableConversationPrefix, PiConversationPrefix>,
-): CapturedConversationPrefix | undefined => {
-  const entries = sessionManager.getEntries().filter(
-    (entry): entry is SessionMessageEntry => entry.type === "message",
-  )
-  const user = entries.at(-2)?.message
-  const assistant = entries.at(-1)?.message
-  if (user?.role !== "user" || assistant?.role !== "assistant") {
-    return undefined
-  }
-  const text = assistantText(assistant)
-  if (text.trim() === "") return undefined
-  const prefix = makeReplayableConversationPrefix()
-  prefixes.set(prefix, { user, assistant })
-  return { prefix, assistantText: text }
-}
-
 export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
   // pay N full initializations. A failed create is evicted rather than
   // cached, so a transient failure never poisons later opens.
   let runtimePromise: ReturnType<typeof ModelRuntime.create> | undefined
-  const conversationPrefixes = new WeakMap<
-    ReplayableConversationPrefix,
-    PiConversationPrefix
-  >()
   const sharedModelRuntime = () => {
     if (runtimePromise === undefined) {
       const created = ModelRuntime.create()
@@ -295,28 +248,15 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
           )
         }
 
-        const replayPrefix = session.conversationPrefix === undefined
-          ? undefined
-          : conversationPrefixes.get(session.conversationPrefix)
-        if (
-          session.conversationPrefix !== undefined && replayPrefix === undefined
-        ) {
-          return yield* new InvocationSetupError({
-            operation: "validate-config",
-            reason:
-              "conversation prefix was not captured by this harness factory",
-          })
-        }
-
         return yield* Effect.tryPromise({
           // @effect-diagnostics-next-line asyncFunction:off
           try: async (signal): Promise<HarnessSession> => {
             // Retry ownership is ADR 0002, stated here rather than inherited
             // from Pi defaults: agent-level retry on (3 attempts),
             // provider-level 0 — provider retries above 0 can absorb quota
-            // errors invisibly. Compaction off: it rewrites the shared
-            // conversation prefix every fan-out agent's cache warmup paid
-            // for; overflow surfaces honestly as a "length" stop instead.
+            // errors invisibly. Compaction off: it rewrites the shared prompt
+            // prefix each Finder partition relies on for cache reuse; overflow
+            // surfaces honestly as a "length" stop instead.
             const settingsManager = SettingsManager.inMemory({
               transport: "sse",
               compaction: { enabled: false },
@@ -377,16 +317,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             // one interpreter per session, discarded with it. Pi's non-tool
             // plumbing below (resource loader, session manager) keeps the
             // real snapshot path — host-side only, never model-visible.
-            // Invocation sessions with filesystem tools receive an isolated
-            // workspace. Preloads advertise matching blocked definitions but
-            // never pay for an overlay or interpreter they cannot use.
-            const workspace =
-              session.mode === "preload" || session.tools.length === 0
+            const workspace = session.tools.length === 0
               ? undefined
               : await makeReviewWorkspace(session.cwd)
-            const workspaceTools = session.mode === "preload"
-              ? makeBlockedReviewWorkspaceTools(session.tools)
-              : workspace === undefined
+            const workspaceTools = workspace === undefined
               ? []
               : session.tools.map((tool) =>
                   tool === "read"
@@ -403,12 +337,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               emitToolDefinition,
               session.toolTimeoutMillis,
             )
-            const customTools = [
-              ...workspaceTools,
-              session.mode === "preload"
-                ? blockReviewTool(emitTool)
-                : emitTool,
-            ]
+            const customTools = [...workspaceTools, emitTool]
 
             const sessionManager = SessionManager.inMemory(
               session.cwd,
@@ -416,11 +345,6 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                 ? undefined
                 : { id: session.cacheGroupId },
             )
-            if (replayPrefix !== undefined) {
-              sessionManager.appendMessage(replayPrefix.user)
-              sessionManager.appendMessage(replayPrefix.assistant)
-            }
-            const replayedAssistantCount = replayPrefix === undefined ? 0 : 1
             // Every definition is already the non-generic `ToolDefinition`:
             // ReviewWorkspace exposes the erasure, and withToolCallDeadline
             // preserves it. The SDK's customTools option accepts the same
@@ -469,11 +393,6 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                   expandPromptTemplates: false,
                   source: "rpc",
                 }),
-              captureConversationPrefix: () =>
-                capturePiConversationPrefix(
-                  sessionManager,
-                  conversationPrefixes,
-                ),
               abort: () => agentSession.abort(),
               dispose: () => {
                 agentSession.dispose()
@@ -487,7 +406,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                   entry.message.role === "assistant"
                     ? [entry.message.usage]
                     : [],
-                ).slice(replayedAssistantCount),
+                ),
             } satisfies HarnessSession
           },
           catch: (cause) =>

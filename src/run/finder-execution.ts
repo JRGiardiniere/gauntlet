@@ -16,8 +16,6 @@ import {
   assembleFinderAssignment,
   assembleFinderContext,
   assembleFinderPrompt,
-  FINDER_PRELOAD_ACKNOWLEDGMENT,
-  FINDER_PRELOAD_TURN,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
   resolveFinderContext,
@@ -27,31 +25,40 @@ import {
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { invoke, PreloadOutput, preloadConversation } from "../harness/invoke.ts"
-import type { ReplayableConversationPrefix } from "../harness/harness-session.ts"
+import type {
+  HarnessSessionFactory,
+  InvocationFailure,
+} from "../harness/harness-session.ts"
+import {
+  invoke,
+  invokeSignaled,
+  PrefixSignal,
+} from "../harness/invoke.ts"
 import {
   EmitFindings,
+  type FindingsOutput,
 } from "../harness/output-contract.ts"
+import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
 import {
   clearInvocationJournal,
   finderInvocationsInPlan,
 } from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
-import {
-  counted,
-  invocationTrail,
-  progressDetail,
-} from "./progress-text.ts"
+import { counted, invocationTrail } from "./progress-text.ts"
 import type { RunPaths } from "./run-record.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
+export const FinderCacheSettleDelay = Effect.sleep(
+  Duration.millis(CACHE_SETTLE_MILLIS),
+)
 
+// A narrow test seam lets broad CLI tests skip time. The production delay is
+// centralized above and its timing behavior is covered explicitly with TestClock.
 export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
   "gauntlet/FinderCacheSettle",
   {
-    defaultValue: () => Effect.sleep(Duration.millis(CACHE_SETTLE_MILLIS)),
+    defaultValue: () => FinderCacheSettleDelay,
   },
 )
 
@@ -73,7 +80,6 @@ const FinderStageEntry = Schema.Struct({
 export const FinderStageArtifact = Schema.Struct({
   runId: Schema.NonEmptyString,
   finders: Schema.Array(FinderStageEntry),
-  preloads: Schema.Array(AgentOutcome(PreloadOutput)),
 })
 export interface FinderStageArtifact extends Schema.Schema.Type<
   typeof FinderStageArtifact
@@ -81,7 +87,6 @@ export interface FinderStageArtifact extends Schema.Schema.Type<
 
 interface FinderExecutionResult {
   readonly finders: ReadonlyArray<FinderResult>
-  readonly preloads: ReadonlyArray<AgentOutcomeType<PreloadOutput>>
 }
 
 export const FinderStageCheckpoint = Context.Reference<
@@ -121,7 +126,7 @@ const readCompletedFinderStage = Effect.fn(
   ) {
     return Option.none<FinderExecutionResult>()
   }
-  return Option.some({ finders, preloads: decoded.value.preloads })
+  return Option.some({ finders })
 })
 
 const reportFinderDone = (result: FinderResult) =>
@@ -130,8 +135,8 @@ const reportFinderDone = (result: FinderResult) =>
   )
 
 // A completed Finder fan-out is the first resumable semantic checkpoint.
-// Partial Finder outcomes and preload attempts never participate in control
-// flow: absent or invalid stage state reruns the whole fan-out from scratch.
+// Partial outcomes never participate in control flow: absent or invalid stage
+// state reruns the whole fan-out from scratch.
 export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
@@ -149,28 +154,24 @@ export const executeFinders = Effect.fn(
   const invocations = finderInvocationsInPlan(plan)
   const templates = yield* Effect.cached(loadFinderPromptTemplates())
 
-  const executeFinder = Effect.fn(
-    "gauntlet.finder_execution.execute_finder",
+  const makeFinderInput = Effect.fn(
+    "gauntlet.finder_execution.make_finder_input",
   )(function* (
     invocation: (typeof invocations)[number],
     cacheGroupId: string,
-    conversationPrefix: ReplayableConversationPrefix | undefined,
     sharedContext: string | undefined,
   ) {
     const promptTemplates = yield* templates
-    const prompt = conversationPrefix === undefined
-      ? sharedContext === undefined
-        ? yield* assembleFinderPrompt(
-            promptTemplates.sharedPromptTemplate,
-            plan.target,
-            REVIEW_WORKSPACE_ROOT,
-            invocation.lens,
-            plan.specification,
-          )
-        : `${sharedContext}\n\n${assembleFinderAssignment(invocation.lens)}`
-      : assembleFinderAssignment(invocation.lens)
-    yield* progress(`invoking finder ${invocation.lens.name}`)
-    const invokeInput = {
+    const prompt = sharedContext === undefined
+      ? yield* assembleFinderPrompt(
+          promptTemplates.sharedPromptTemplate,
+          plan.target,
+          REVIEW_WORKSPACE_ROOT,
+          invocation.lens,
+          plan.specification,
+        )
+      : `${sharedContext}\n\n${assembleFinderAssignment(invocation.lens)}`
+    return {
       invocationId: `${cacheGroupId}-${invocation.invocationKey}`,
       seat: invocation.seat,
       cwd: reviewWorkingDirectory,
@@ -181,14 +182,37 @@ export const executeFinders = Effect.fn(
       tools: FINDER_TOOLS,
       deadlines: REVIEW_INVOCATION_DEADLINES,
     }
-    const invoked = yield* invoke(
-      conversationPrefix === undefined
-        ? invokeInput
-        : { ...invokeInput, conversationPrefix },
-    )
-    const outcome = enforceCandidateCap(invocation.lens, invoked)
+  })
+
+  const finishFinder = Effect.fn(
+    "gauntlet.finder_execution.finish_finder",
+  )(function* (
+    invocation: (typeof invocations)[number],
+    invoked: Effect.Effect<
+      AgentOutcomeType<FindingsOutput>,
+      InvocationFailure,
+      HarnessSessionFactory
+    >,
+  ) {
+    const outcome = enforceCandidateCap(invocation.lens, yield* invoked)
     yield* reportFinderDone({ lens: invocation.lens, outcome })
     return { invocation, outcome }
+  })
+
+  const executeFinder = Effect.fn(
+    "gauntlet.finder_execution.execute_finder",
+  )(function* (
+    invocation: (typeof invocations)[number],
+    cacheGroupId: string,
+    sharedContext: string | undefined,
+  ) {
+    yield* progress(`invoking finder ${invocation.lens.name}`)
+    const input = yield* makeFinderInput(
+      invocation,
+      cacheGroupId,
+      sharedContext,
+    )
+    return yield* finishFinder(invocation, invoke(input))
   })
 
   const groups = Record.values(
@@ -203,76 +227,48 @@ export const executeFinders = Effect.fn(
     (group, groupIndex) =>
       Effect.gen(function* () {
         const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
-        let conversationPrefix: ReplayableConversationPrefix | undefined
-        let preloadOutcome: AgentOutcomeType<PreloadOutput> | undefined
-        let sharedContext: string | undefined
-        const [first, second] = group
-        if (first !== undefined && second !== undefined) {
-          const promptTemplates = yield* templates
-          const context = yield* assembleFinderContext(
-            promptTemplates.sharedPromptTemplate,
-            plan.target,
-            REVIEW_WORKSPACE_ROOT,
-            resolveFinderContext(first.lens, plan.specification),
+        const [starter, follower] = group
+        if (starter === undefined) return { failed: [], completed: [] }
+        if (follower === undefined) {
+          const [failed, completed] = yield* Effect.partition(
+            group,
+            (invocation) =>
+              executeFinder(invocation, cacheGroupId, undefined).pipe(
+                Effect.mapError((error) => ({ invocation, error })),
+              ),
           )
-          sharedContext = context
-          yield* progress(
-            `invoking finder preload (${String(group.length)} followers)`,
-          )
-          const attempted = yield* preloadConversation({
-            invocationId: `${cacheGroupId}-preload`,
-            seat: first.seat,
-            cwd: reviewWorkingDirectory,
-            systemPrompt: promptTemplates.systemPrompt,
-            prompt: `${context}\n\n${FINDER_PRELOAD_TURN}`,
-            cacheGroupId,
-            expectedAcknowledgment: FINDER_PRELOAD_ACKNOWLEDGMENT,
-            followerContract: EmitFindings,
-            tools: FINDER_TOOLS,
-            deadlines: REVIEW_INVOCATION_DEADLINES,
-          }).pipe(
-            Effect.map(Option.some),
-            Effect.catchTag("InvocationSetupError", (error) =>
-              Effect.gen(function* () {
-                yield* Effect.logWarning("finder preload unavailable", {
-                  cacheGroupId,
-                  reason: error.reason,
-                })
-                yield* progress(
-                  `finder preload unavailable — ${progressDetail(error.reason)}`,
-                )
-                return Option.none()
-              })),
-          )
-          if (Option.isSome(attempted)) {
-            preloadOutcome = attempted.value.outcome
-            conversationPrefix = attempted.value.conversationPrefix
-            if (conversationPrefix !== undefined) {
-              yield* (yield* FinderCacheSettle)
-            } else {
-              yield* progress(
-                `finder preload unavailable — ${attempted.value.outcome.termination._tag}`,
-              )
-            }
-          }
+          return { failed, completed }
+        }
+
+        const promptTemplates = yield* templates
+        const sharedContext = yield* assembleFinderContext(
+          promptTemplates.sharedPromptTemplate,
+          plan.target,
+          REVIEW_WORKSPACE_ROOT,
+          resolveFinderContext(starter.lens, plan.specification),
+        )
+        yield* progress(`invoking finder ${starter.lens.name}`)
+        const starterInput = yield* makeFinderInput(
+          starter,
+          cacheGroupId,
+          sharedContext,
+        )
+        const running = yield* invokeSignaled(starterInput)
+        const signal = yield* running.firstResponse
+        if (PrefixSignal.$is("PrefixObserved")(signal)) {
+          yield* (yield* FinderCacheSettle)
         }
 
         const [failed, completed] = yield* Effect.partition(
           group,
           (invocation) =>
-            executeFinder(
-              invocation,
-              cacheGroupId,
-              conversationPrefix,
-              sharedContext,
+            (invocation === starter
+              ? finishFinder(starter, running.outcome)
+              : executeFinder(invocation, cacheGroupId, sharedContext)
             ).pipe(Effect.mapError((error) => ({ invocation, error }))),
           { concurrency: "unbounded" },
         )
-        return {
-          failed,
-          completed,
-          preloads: preloadOutcome === undefined ? [] : [preloadOutcome],
-        }
+        return { failed, completed }
       }),
     { concurrency: "unbounded" },
   )
@@ -294,18 +290,19 @@ export const executeFinders = Effect.fn(
         outcome: result.outcome,
       })),
     ))
-  const preloads = groupResults.flatMap((group) => group.preloads)
   yield* writeArtifactJson(paths.finderStage, FinderStageArtifact, {
     runId: plan.runId,
     finders: invocations.flatMap((invocation) => {
       const completed = HashMap.get(completedByKey, invocation.invocationKey)
       return Option.isSome(completed)
-        ? [{ invocationKey: invocation.invocationKey, outcome: completed.value.outcome }]
+        ? [{
+            invocationKey: invocation.invocationKey,
+            outcome: completed.value.outcome,
+          }]
         : []
     }),
-    preloads,
   })
   yield* (yield* FinderStageCheckpoint)(plan.runId)
   yield* Effect.log("Finder stage checkpointed", { path: paths.finderStage })
-  return { finders, preloads }
+  return { finders }
 })

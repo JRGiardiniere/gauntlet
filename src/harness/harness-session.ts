@@ -77,12 +77,6 @@ export type HarnessEvent =
 export interface HarnessSession {
   readonly subscribe: (listener: (event: HarnessEvent) => void) => () => void
   readonly prompt: (text: string) => Promise<void>
-  // Captures the exact user/assistant conversation established by the most
-  // recent successful prompt. The token is opaque to orchestration: only the
-  // factory that created it knows how to replay its transport messages.
-  readonly captureConversationPrefix: () =>
-    | CapturedConversationPrefix
-    | undefined
   // May never settle: Pi's abort awaits waitForIdle (#4 §4). Fire-and-forget
   // always — Gauntlet never re-prompts an aborted session (stall retry is a
   // fresh invocation; corrective turns re-prompt only after a clean stop).
@@ -94,26 +88,6 @@ export interface HarnessSession {
   // invoke; drift fails loudly there.
   readonly usageRows: () => ReadonlyArray<unknown>
 }
-
-const ReplayableConversationPrefixTypeId: unique symbol = Symbol.for(
-  "gauntlet/ReplayableConversationPrefix",
-)
-
-// An adapter-owned identity handle. It deliberately exposes no conversation
-// data: only the factory that registered the handle can resolve and replay it.
-export interface ReplayableConversationPrefix {
-  readonly [ReplayableConversationPrefixTypeId]: true
-}
-
-export interface CapturedConversationPrefix {
-  readonly prefix: ReplayableConversationPrefix
-  readonly assistantText: string
-}
-
-export const makeReplayableConversationPrefix = (
-): ReplayableConversationPrefix => ({
-  [ReplayableConversationPrefixTypeId]: true,
-})
 
 // The terminating emit tool's validated arguments, delivered by Pi after its
 // JSON-Schema coercion pass (#4 §5). JSON by construction, but still
@@ -151,11 +125,6 @@ export interface SessionConfig {
   // Provider-neutral cache partition identity. An adapter may map this to a
   // native session/cache key. Ordinary invocations leave it absent.
   readonly cacheGroupId?: string
-  // A prefix captured by this same factory and replayed before the prompt.
-  readonly conversationPrefix?: ReplayableConversationPrefix
-  // Setup sessions expose the same tool definitions as followers, while the
-  // adapter rejects every tool execution before it can touch the workspace.
-  readonly mode: "invocation" | "preload"
   readonly emitTool: EmitToolSpec
   // The complete non-emit capability set — which tools the session gets,
   // always ReviewWorkspace-backed. These are recreated as custom Pi tools

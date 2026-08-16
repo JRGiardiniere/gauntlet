@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -11,8 +12,10 @@ import {
 } from "./harness-session.ts"
 import {
   invoke,
+  invokeSignaled,
   type InvokeInput,
-  preloadConversation,
+  PrefixSignal,
+  type RunningInvocation,
 } from "./invoke.ts"
 import {
   EmitFindings,
@@ -123,27 +126,6 @@ const runFailure = (
   })
 }
 
-const runPreload = (behavior: ScriptedBehavior) => {
-  const scripted = makeScripted(behavior)
-  const { contract, ...preloadInput } = INPUT
-  return Effect.gen(function* () {
-    const fiber = yield* Effect.forkChild(
-      preloadConversation({
-        ...preloadInput,
-        prompt: "shared finder context\n\n## Finder context preload",
-        cacheGroupId: "fixture-cache-group",
-        followerContract: contract,
-        expectedAcknowledgment: "Context loaded.",
-      }).pipe(Effect.provide(scriptedLayer(scripted))),
-    )
-    const result = yield* advanceUntilComplete(
-      fiber,
-      INPUT.deadlines.overallMillis + INPUT.deadlines.startupMillis + 1,
-    )
-    return { result, scripted }
-  })
-}
-
 const cleanStop = (): ScriptedPrompt => ({
   events: [
     { afterMillis: 100, kind: "message_start" },
@@ -152,144 +134,128 @@ const cleanStop = (): ScriptedPrompt => ({
   settles: "after-events",
 })
 
+const startSignaled = (scripted: ReturnType<typeof makeScripted>) =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<RunningInvocation<FindingsOutput>>()
+    const owner = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const running = yield* invokeSignaled(INPUT).pipe(
+          Effect.provide(scriptedLayer(scripted)),
+        )
+        yield* Deferred.succeed(started, running)
+        return yield* Effect.never
+      }),
+    ).pipe(Effect.forkChild)
+    return { running: yield* Deferred.await(started), owner }
+  })
+
 describe("invoke (scripted HarnessSession, TestClock)", () => {
-  it.effect("captures the actual preload acknowledgment as a replayable prefix", () =>
+  it.effect("signals the first metered response while the invocation keeps running", () =>
     Effect.gen(function* () {
-      const { result, scripted } = yield* runPreload({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  { afterMillis: 200, kind: "message_end", stopReason: "stop" },
-                ],
-                settles: "after-events",
-                assistantText: "Context loaded.",
-              },
+      const scripted = makeScripted({
+        sessions: [{
+          prompts: [{
+            events: [
+              { afterMillis: 100, kind: "message_start" },
+              { afterMillis: 200, kind: "message_end", stopReason: "stop" },
             ],
-          },
-        ],
+            settles: "never",
+          }],
+        }],
       })
+      const { running, owner } = yield* startSignaled(scripted)
+      const signalFiber = yield* Effect.forkChild(running.firstResponse)
+      for (let step = 0; step < 8 && signalFiber.pollUnsafe() === undefined; step += 1) {
+        yield* TestClock.adjust("100 millis")
+        yield* Effect.yieldNow
+      }
 
-      expect(Termination.guards.Completed(result.outcome.termination)).toBe(true)
-      expect(result.outcome.output).toEqual({
-        acknowledgment: "Context loaded.",
-      })
-      expect(result.conversationPrefix).toBeDefined()
-      expect(scripted.configs[0]?.mode).toBe("preload")
-      expect(scripted.prefixes[0]?.userPrompt).toBe(
-        "shared finder context\n\n## Finder context preload",
-      )
-      expect(scripted.prefixes[0]?.prefix).toBe(result.conversationPrefix)
+      expect(PrefixSignal.$is("PrefixObserved")(
+        yield* Fiber.join(signalFiber),
+      )).toBe(true)
+      expect(scripted.log).not.toContain("dispose:1")
+      yield* Fiber.interrupt(owner)
     }))
 
-  it.effect("blocks every preload tool before workspace or emit execution", () =>
+  it.effect("signals not-observed when setup fails", () =>
     Effect.gen(function* () {
-      const { result, scripted } = yield* runPreload({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 150,
-                    kind: "tool",
-                    toolName: "read",
-                    args: { path: "secret.txt" },
-                  },
-                  {
-                    afterMillis: 175,
-                    kind: "emit",
-                    args: GOOD_EMIT,
-                    valid: true,
-                  },
-                  {
-                    afterMillis: 200,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                  },
-                ],
-                settles: "after-events",
-                assistantText: "not reusable",
-              },
-            ],
-          },
-        ],
+      const scripted = makeScripted({
+        sessions: [{ failOpen: "provider unavailable", prompts: [] }],
       })
-
-      expect(Termination.guards.ProviderFailed(result.outcome.termination)).toBe(
-        true,
+      const running = yield* invokeSignaled(INPUT).pipe(
+        Effect.provide(scriptedLayer(scripted)),
       )
-      expect(result.outcome.output).toBeUndefined()
-      expect(result.conversationPrefix).toBeUndefined()
-      expect(scripted.inspections).toEqual([
-        expect.objectContaining({
-          toolName: "read",
-          isError: true,
-          text: "finder preload cannot call workspace tools",
-        }),
-      ])
-      expect(result.outcome.diagnostics.join(" ")).toContain(
-        "forbidden tool calls",
+
+      expect(PrefixSignal.$is("PrefixNotObserved")(
+        yield* running.firstResponse,
+      )).toBe(true)
+      expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
+        InvocationSetupError,
       )
     }))
 
-  it.effect("rejects non-contract preload prose without replaying it", () =>
+  it.effect("signals not-observed when an invocation settles without metered usage", () =>
     Effect.gen(function* () {
-      const { result } = yield* runPreload({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  { afterMillis: 200, kind: "message_end", stopReason: "stop" },
-                ],
-                settles: "after-events",
-                assistantText: "Sure, I loaded the context.",
-              },
-            ],
-          },
-        ],
+      const scripted = makeScripted({
+        sessions: [{
+          prompts: [{
+            events: [{ afterMillis: 0, kind: "message_start" }],
+            settles: "after-events",
+          }],
+        }],
       })
-
-      expect(Termination.guards.ProviderFailed(result.outcome.termination)).toBe(
-        true,
+      const running = yield* invokeSignaled(INPUT).pipe(
+        Effect.provide(scriptedLayer(scripted)),
       )
-      expect(result.outcome.output).toBeUndefined()
-      expect(result.conversationPrefix).toBeUndefined()
-      expect(result.outcome.diagnostics.join(" ")).toContain(
-        "acknowledgment did not exactly match",
+
+      const signal = yield* running.firstResponse
+      expect(PrefixSignal.$is("PrefixNotObserved")(signal)).toBe(true)
+      expect(yield* running.firstResponse).toEqual(signal)
+      expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
+        AdapterContractViolation,
       )
     }))
 
-  it.effect("returns a metered preload outcome after provider rejection from activity", () =>
+  it.effect("signals not-observed after the final first-response timeout", () =>
     Effect.gen(function* () {
-      const { result, scripted } = yield* runPreload({
+      const scripted = makeScripted({
         sessions: [
-          {
-            prompts: [
-              {
-                events: [{ afterMillis: 100, kind: "message_start" }],
-                settles: "after-events",
-                reject: "upstream connection closed",
-                assistantText: "Context loaded.",
-              },
-            ],
-          },
+          { prompts: [{ events: [], settles: "never" }] },
+          { prompts: [{ events: [], settles: "never" }] },
         ],
       })
+      const running = yield* invokeSignaled(INPUT).pipe(
+        Effect.provide(scriptedLayer(scripted)),
+      )
+      const signalFiber = yield* Effect.forkChild(running.firstResponse)
+      yield* TestClock.adjust("20 seconds")
+      yield* Effect.yieldNow
 
-      expect(Termination.guards.ProviderFailed(result.outcome.termination)).toBe(
+      expect(PrefixSignal.$is("PrefixNotObserved")(
+        yield* Fiber.join(signalFiber),
+      )).toBe(true)
+      const outcome = yield* running.outcome.pipe(Effect.orDie)
+      expect(Termination.guards.FirstResponseTimeout(outcome.termination)).toBe(
         true,
       )
-      expect(result.conversationPrefix).toBeUndefined()
-      expect(scripted.prefixes).toEqual([])
-      expect(result.outcome.diagnostics.join(" ")).toContain(
-        "provider rejected preload after accepting session activity",
-      )
+    }))
+
+  it.effect("finalizes the signal when its owning scope is interrupted", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [{ prompts: [{ events: [], settles: "never" }] }],
+      })
+      const { running, owner } = yield* startSignaled(scripted)
+      const signalFiber = yield* Effect.forkChild(running.firstResponse)
+      for (let step = 0; step < 8 && !scripted.log.includes("prompt:1.1"); step += 1) {
+        yield* Effect.yieldNow
+      }
+      expect(scripted.log).toContain("prompt:1.1")
+      yield* Fiber.interrupt(owner)
+
+      expect(PrefixSignal.$is("PrefixNotObserved")(
+        yield* Fiber.join(signalFiber),
+      )).toBe(true)
     }))
 
   it.effect("retries one first-response stall in a fresh session", () =>
