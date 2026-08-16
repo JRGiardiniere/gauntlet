@@ -19,9 +19,11 @@ export { PromptAssemblyError }
 
 export const FINDER_TOOLS = ["read", "bash"] as const
 
-export const FINDER_PRELOAD_TURN = `## Finder context preload
+export const FINDER_PRELOAD_ACKNOWLEDGMENT = "Context loaded."
 
-This is the setup turn named by the system contract. Do not analyze the change, call tools, or emit findings. Reply only with the short inert acknowledgment requested there.`
+export const FINDER_PRELOAD_TURN = `This is the setup turn named by the system contract. Do not analyze the change, call tools, or emit findings. Reply only with the short inert acknowledgment requested there.
+
+## Finder context preload`
 
 export interface FinderPromptTemplates {
   readonly systemPrompt: string

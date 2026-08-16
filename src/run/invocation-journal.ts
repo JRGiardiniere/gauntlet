@@ -87,6 +87,13 @@ export interface InvocationJournalEntry<O> {
   readonly output: Schema.Codec<O, O, never, never>
 }
 
+export interface InvocationJournalPrefix<O> {
+  readonly journalDirectory: string
+  readonly runId: string
+  readonly invocationKeyPrefix: string
+  readonly output: Schema.Codec<O, O, never, never>
+}
+
 export const readJournaledInvocation = Effect.fn(
   "gauntlet.invocation_journal.read",
 )(function* <O>({
@@ -106,6 +113,48 @@ export const readJournaledInvocation = Effect.fn(
       Option.filter((entry) => entry.runId === runId),
       Option.map((entry) => entry.outcome),
     ))
+})
+
+// Accounting replays every valid paid attempt, including sequenced attempts
+// from an interrupted execution. Corrupt, foreign-run, and unrelated files
+// are ignored under the same validity rule as a single journal read.
+export const readJournaledInvocationsByPrefix = Effect.fn(
+  "gauntlet.invocation_journal.read_by_prefix",
+)(function* <O>({
+  invocationKeyPrefix,
+  journalDirectory,
+  output,
+  runId,
+}: InvocationJournalPrefix<O>) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const artifact = InvocationArtifact(output)
+  const entries = yield* fs.readDirectory(journalDirectory)
+  return yield* Effect.forEach(
+    entries.filter((entry) => entry.endsWith(".json")),
+    (entry) => {
+      const artifactPath = path.join(journalDirectory, entry)
+      return readOptionalArtifactText(artifactPath).pipe(
+        Effect.mapError((cause) =>
+          new InvocationJournalReadError({ path: artifactPath, cause })),
+        Effect.map((text) =>
+          Option.flatMap(text, (source) =>
+            Schema.decodeOption(Schema.fromJsonString(artifact))(source).pipe(
+              Option.filter(
+                (candidate) =>
+                  candidate.runId === runId &&
+                  candidate.invocationKey.startsWith(invocationKeyPrefix),
+              ),
+              Option.map((candidate) => candidate.outcome),
+            ))),
+      )
+    },
+  ).pipe(
+    Effect.map((outcomes) =>
+      outcomes.flatMap((outcome) =>
+        Option.isSome(outcome) ? [outcome.value] : []
+      )),
+  )
 })
 
 export const writeInvocationJournal = Effect.fn(

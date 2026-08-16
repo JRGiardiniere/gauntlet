@@ -40,5 +40,6 @@ Finder cache preloads are normal bounded AgentInvocations and use the same one
 fresh-session retry for a first-response stall. They do not use corrective
 turns: their requested terminal response is inert prose, not an emit. A tool
 attempt invalidates the prefix and is rejected by the adapter before execution.
+Only the exact configured acknowledgment makes the captured prefix replayable.
 An unavailable preload never changes Finder retry or coverage policy; followers
 run with their complete one-turn prompt when no replayable prefix exists.

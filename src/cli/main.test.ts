@@ -22,6 +22,7 @@ import {
   type ScriptedSession,
   usageRow,
 } from "../harness/scripted.ts"
+import { PreloadOutput } from "../harness/invoke.ts"
 import {
   FindingsOutput,
   type PoolOutput,
@@ -809,9 +810,9 @@ describe("gauntlet review", () => {
       )?.text ?? ""
       expect(standardPreload).toContain("shared start")
       expect(standardPreload).not.toContain(specNeedle)
-      expect(standardPreload).toMatch(/## Finder context preload[\s\S]*$/)
+      expect(standardPreload).toMatch(/## Finder context preload$/)
       expect(interpretivePreload).toContain(specNeedle)
-      expect(interpretivePreload).toMatch(/## Finder context preload[\s\S]*$/)
+      expect(interpretivePreload).toMatch(/## Finder context preload$/)
       const followerPrompts = groupedPrompts.flatMap((prompts) =>
         prompts.filter(
           ({ openIndex }) => scripted.configs[openIndex - 1]?.mode === "invocation",
@@ -938,9 +939,70 @@ describe("gauntlet review", () => {
       )
       expect(journals).toContain("finder-preload-1-1.json")
       expect(journals).toContain("finder-preload-1-2.json")
+      const dossierMarkdown = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "dossier.md"),
+      )
+      expect(dossierMarkdown).toContain("5 invocations")
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "reusing finder fixture-review from journal",
       )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("journals a paid preload rejection before degrading to direct Finder prompts", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-standard-two.md"),
+        "fixture standard two tail\n",
+      )
+      const scripted = makeScripted({
+        sessions: [
+          {
+            forSession: "-finders-1",
+            prompts: [
+              {
+                events: [{ afterMillis: 0, kind: "message_start" }],
+                settles: "after-events",
+                reject: "provider stream failed",
+              },
+            ],
+          },
+          successfulSession({ findings: [] }, "-finders-1"),
+          successfulSession({ findings: [] }, "-finders-1"),
+        ],
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-standard-two"],
+        scripted,
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const journalPath = path.join(
+        fixture.runsRoot,
+        runId,
+        "journal",
+        "finder-preload-1-1.json",
+      )
+      const stored = yield* fs.readFileString(journalPath).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(
+            Schema.fromJsonString(InvocationArtifact(PreloadOutput)),
+          ),
+        ),
+      )
+      expect(stored.outcome.termination._tag).toBe("ProviderFailed")
+      expect(
+        scripted.configs.filter(({ mode }) => mode === "invocation"),
+      ).toHaveLength(2)
+      expect(
+        scripted.configs.some(
+          ({ conversationPrefix }) => conversationPrefix !== undefined,
+        ),
+      ).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>

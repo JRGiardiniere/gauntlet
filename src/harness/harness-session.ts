@@ -96,9 +96,9 @@ export interface HarnessSession {
 }
 
 export interface ReplayableConversationPrefix {
-  readonly id: symbol
   // Exact assistant text is retained for honest preload journaling and
-  // diagnostics; transport-specific message objects remain adapter-owned.
+  // diagnostics. The object identity itself is the opaque adapter-owned
+  // replay key; orchestration never receives transport-specific messages.
   readonly assistantText: string
 }
 

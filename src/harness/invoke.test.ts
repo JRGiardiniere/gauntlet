@@ -130,6 +130,7 @@ const runPreload = (behavior: ScriptedBehavior) => {
         ...INPUT,
         prompt: "shared finder context\n\n## Finder context preload",
         cacheGroupId: "fixture-cache-group",
+        expectedAcknowledgment: "Context loaded.",
       }).pipe(Effect.provide(scriptedLayer(scripted))),
     )
     const result = yield* advanceUntilComplete(
@@ -229,6 +230,60 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       ])
       expect(result.outcome.diagnostics.join(" ")).toContain(
         "forbidden tool calls",
+      )
+    }))
+
+  it.effect("rejects non-contract preload prose without replaying it", () =>
+    Effect.gen(function* () {
+      const { result } = yield* runPreload({
+        sessions: [
+          {
+            prompts: [
+              {
+                events: [
+                  { afterMillis: 100, kind: "message_start" },
+                  { afterMillis: 200, kind: "message_end", stopReason: "stop" },
+                ],
+                settles: "after-events",
+                assistantText: "Sure, I loaded the context.",
+              },
+            ],
+          },
+        ],
+      })
+
+      expect(Termination.guards.ProviderFailed(result.outcome.termination)).toBe(
+        true,
+      )
+      expect(result.outcome.output).toBeUndefined()
+      expect(result.conversationPrefix).toBeUndefined()
+      expect(result.outcome.diagnostics.join(" ")).toContain(
+        "acknowledgment did not exactly match",
+      )
+    }))
+
+  it.effect("returns a metered preload outcome after provider rejection from activity", () =>
+    Effect.gen(function* () {
+      const { result } = yield* runPreload({
+        sessions: [
+          {
+            prompts: [
+              {
+                events: [{ afterMillis: 100, kind: "message_start" }],
+                settles: "after-events",
+                reject: "upstream connection closed",
+              },
+            ],
+          },
+        ],
+      })
+
+      expect(Termination.guards.ProviderFailed(result.outcome.termination)).toBe(
+        true,
+      )
+      expect(result.conversationPrefix).toBeUndefined()
+      expect(result.outcome.diagnostics.join(" ")).toContain(
+        "provider rejected preload after accepting session activity",
       )
     }))
 

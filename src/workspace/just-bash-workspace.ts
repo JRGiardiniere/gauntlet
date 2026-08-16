@@ -129,6 +129,13 @@ const bashParameters = Type.Object({
 
 export type BashArgs = Static<typeof bashParameters>
 
+const bashToolMetadata = {
+  name: "bash",
+  label: "bash",
+  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
+  parameters: bashParameters,
+}
+
 const combinedOutput = (stdout: string, stderr: string): string => {
   if (stdout === "") return stderr
   if (stderr === "") return stdout
@@ -137,10 +144,7 @@ const combinedOutput = (stdout: string, stderr: string): string => {
 
 const makeBashTool = (bash: Bash): ToolDefinition =>
   defineTool({
-    name: "bash",
-    label: "bash",
-    description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
-    parameters: bashParameters,
+    ...bashToolMetadata,
     // @effect-diagnostics-next-line asyncFunction:off
     execute: async (_toolCallId, args: BashArgs, signal) => {
       const { command, timeout } = args
@@ -188,6 +192,28 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
       }
     },
     })
+
+// Preloads must advertise byte-identical tool metadata so the provider cache
+// prefix matches followers, but they must not pay to construct an overlay and
+// interpreter that cannot be used. These definitions retain the production
+// schemas/descriptions and replace execution before Pi sees them.
+export const makeBlockedReviewWorkspaceTools = (
+  tools: ReadonlyArray<"read" | "bash">,
+): ReadonlyArray<ToolDefinition> =>
+  tools.map((tool) => {
+    const definition: ToolDefinition = tool === "read"
+      ? defineTool(createReadToolDefinition(REVIEW_WORKSPACE_ROOT))
+      : defineTool({
+          ...bashToolMetadata,
+          execute: () =>
+            Promise.reject(new Error("finder preload cannot execute tools")),
+        })
+    return {
+      ...definition,
+      execute: () =>
+        Promise.reject(new Error("finder preload cannot execute tools")),
+    }
+  })
 
 // ".git" spelled in every letter case: the 2^3 combinations of g/i/t.
 const GIT_ENTRY_CASE_ALIASES = [

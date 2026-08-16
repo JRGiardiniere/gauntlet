@@ -8,6 +8,7 @@ import * as Function from "effect/Function"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import {
   type AgentOutcome,
   type AgentUsage,
@@ -64,7 +65,7 @@ export interface PreloadOutput
 export type PreloadInput<O> = Omit<
   InvokeInput<O>,
   "conversationPrefix"
->
+> & { readonly expectedAcknowledgment: string }
 
 export interface PreloadResult {
   readonly outcome: AgentOutcome<PreloadOutput>
@@ -743,13 +744,34 @@ const finalizeOutcome = <O>(
       : { ...outcome, output: output.value }
   })
 
-export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
+interface InvocationLifecycle<A> {
+  readonly result: A
+  readonly captures: ReadonlyArray<CaptureAccumulator>
+  readonly diagnostics: ReadonlyArray<string>
+  readonly durationMillis: number
+}
+
+// Startup, one fresh-session retry, cancellation, overall budget, disposal,
+// and timing are one engine for ordinary and preload invocations. The two
+// modes differ only in how an attempt interprets its terminal evidence.
+const runInvocationLifecycle = <O, A>(
   input: InvokeInput<O>,
-): Effect.fn.Return<
-  AgentOutcome<O>,
+  run: (
+    absoluteDeadline: number,
+    capture: CaptureAccumulator,
+    currentSession: CurrentSession,
+  ) => Effect.Effect<
+    A,
+    InvocationFailure,
+    HarnessSessionFactory | Scope.Scope
+  >,
+  terminationOf: (result: A) => TerminationType,
+  terminalResult: (termination: TerminationType) => A,
+): Effect.Effect<
+  InvocationLifecycle<A>,
   InvocationFailure,
   HarnessSessionFactory
-> {
+> => Effect.gen(function* () {
   yield* validateInput(input)
   const startedAt = yield* Clock.currentTimeMillis
   const absoluteDeadline = startedAt + input.deadlines.overallMillis
@@ -761,7 +783,7 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
     const capture = makeCaptureAccumulator()
     captures.push(capture)
     return Effect.scoped(
-      runAttempt(input, absoluteDeadline, capture, currentSession),
+      run(absoluteDeadline, capture, currentSession),
     ).pipe(
       Effect.ensuring(
         Effect.sync(() => {
@@ -778,7 +800,7 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
 
   const runAttempts = Effect.gen(function* () {
     const first = yield* runOne(1)
-    if (!isFreshRetryable(first)) return first
+    if (!isFreshRetryable(terminationOf(first))) return first
     const remaining = yield* remainingMillis(absoluteDeadline)
     if (remaining < MIN_RETRY_REMAINING_MILLIS) {
       diagnostics.push(
@@ -813,7 +835,7 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
       }),
     ),
     Effect.andThen(abortCurrent),
-    Effect.as(Termination.cases.BudgetExhausted.make({})),
+    Effect.as(terminalResult(Termination.cases.BudgetExhausted.make({}))),
   )
 
   const cancellationEnding =
@@ -826,20 +848,42 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
             }),
           ),
           Effect.andThen(abortCurrent),
-          Effect.as(Termination.cases.Interrupted.make({})),
+          Effect.as(terminalResult(Termination.cases.Interrupted.make({}))),
         )
 
-  const termination = yield* Effect.raceFirst(
+  const result = yield* Effect.raceFirst(
     runAttempts,
     Effect.raceFirst(budgetEnding, cancellationEnding),
   )
   const finishedAt = yield* Clock.currentTimeMillis
-  return yield* finalizeOutcome(
-    input,
-    termination,
+  return {
+    result,
     captures,
     diagnostics,
-    Math.max(0, finishedAt - startedAt),
+    durationMillis: Math.max(0, finishedAt - startedAt),
+  }
+})
+
+export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
+  input: InvokeInput<O>,
+): Effect.fn.Return<
+  AgentOutcome<O>,
+  InvocationFailure,
+  HarnessSessionFactory
+> {
+  const lifecycle = yield* runInvocationLifecycle<O, TerminationType>(
+    input,
+    (absoluteDeadline, capture, currentSession) =>
+      runAttempt(input, absoluteDeadline, capture, currentSession),
+    (termination) => termination,
+    (termination) => termination,
+  )
+  return yield* finalizeOutcome(
+    input,
+    lifecycle.result,
+    lifecycle.captures,
+    lifecycle.diagnostics,
+    lifecycle.durationMillis,
   )
 })
 
@@ -891,9 +935,13 @@ const runPreloadAttempt = Effect.fn(
       })
     }
     if (common.acceptedActivity) {
-      return yield* new AdapterContractViolation({
-        reason: `preload prompt rejected after accepted session activity: ${ending.rejection}`,
+      capture.dispatch({
+        type: "diagnostic",
+        message: `provider rejected preload after accepting session activity: ${ending.rejection}`,
       })
+      return {
+        termination: Termination.cases.ProviderFailed.make({}),
+      } satisfies PreloadAttempt
     }
     return yield* new InvocationSetupError({
       operation: "prompt",
@@ -922,6 +970,15 @@ const runPreloadAttempt = Effect.fn(
         return yield* new AdapterContractViolation({
           reason: "preload completed without a replayable assistant response",
         })
+      }
+      if (conversationPrefix.assistantText !== input.expectedAcknowledgment) {
+        capture.dispatch({
+          type: "diagnostic",
+          message: `preload acknowledgment did not exactly match the configured contract; no prefix was reused`,
+        })
+        return {
+          termination: Termination.cases.ProviderFailed.make({}),
+        } satisfies PreloadAttempt
       }
       return {
         termination: Termination.cases.Completed.make({}),
@@ -1000,101 +1057,21 @@ export const preloadConversation = Effect.fn(
   InvocationFailure,
   HarnessSessionFactory
 > {
-  yield* validateInput(input)
-  const startedAt = yield* Clock.currentTimeMillis
-  const absoluteDeadline = startedAt + input.deadlines.overallMillis
-  const captures: Array<CaptureAccumulator> = []
-  const diagnostics: Array<string> = []
-  const currentSession: CurrentSession = { value: undefined }
-
-  const runOne = (attempt: number) => {
-    const capture = makeCaptureAccumulator()
-    captures.push(capture)
-    return Effect.scoped(
+  const lifecycle = yield* runInvocationLifecycle<O, PreloadAttempt>(
+    input,
+    (_absoluteDeadline, capture, currentSession) =>
       runPreloadAttempt(input, capture, currentSession),
-    ).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          currentSession.value = undefined
-        }),
-      ),
-      Effect.tap(() =>
-        Effect.sync(() => {
-          diagnostics.push(`attempt ${String(attempt)} completed`)
-        }),
-      ),
-    )
-  }
-
-  const runAttempts = Effect.gen(function* () {
-    const first = yield* runOne(1)
-    if (!Termination.guards.FirstResponseTimeout(first.termination)) {
-      return first
-    }
-    const remaining = yield* remainingMillis(absoluteDeadline)
-    if (remaining < MIN_RETRY_REMAINING_MILLIS) {
-      diagnostics.push(
-        "fresh invocation retry skipped because less than 5000ms remained",
-      )
-      return first
-    }
-    diagnostics.push("retrying first-response stall in one fresh session")
-    return yield* runOne(2).pipe(
-      Effect.catchTag("InvocationSetupError", (error) =>
-        Effect.sync(() => {
-          diagnostics.push(
-            `fresh invocation retry failed during ${error.operation}: ${error.reason}; retained the first-response timeout outcome`,
-          )
-          return first
-        }),
-      ),
-    )
-  })
-
-  const abortCurrent = Effect.sync(() => {
-    const session = currentSession.value
-    if (session !== undefined) void session.abort().catch(() => undefined)
-  })
-  const budgetEnding = Effect.sleep(
-    Duration.millis(input.deadlines.overallMillis),
-  ).pipe(
-    Effect.andThen(
-      Effect.sync(() => {
-        diagnostics.push("overall invocation deadline exhausted")
-      }),
-    ),
-    Effect.andThen(abortCurrent),
-    Effect.as({
-      termination: Termination.cases.BudgetExhausted.make({}),
-    } satisfies PreloadAttempt),
+    (result) => result.termination,
+    (termination): PreloadAttempt => ({ termination }),
   )
-  const cancellationEnding = input.signal === undefined
-    ? Effect.never
-    : waitForAbort(input.signal).pipe(
-        Effect.andThen(
-          Effect.sync(() => {
-            diagnostics.push("explicit cancellation requested")
-          }),
-        ),
-        Effect.andThen(abortCurrent),
-        Effect.as({
-          termination: Termination.cases.Interrupted.make({}),
-        } satisfies PreloadAttempt),
-      )
-
-  const result: PreloadAttempt = yield* Effect.raceFirst(
-    runAttempts,
-    Effect.raceFirst(budgetEnding, cancellationEnding),
-  )
-  const finishedAt = yield* Clock.currentTimeMillis
   const outcome = yield* finalizePreloadOutcome(
-    result.termination,
-    result.conversationPrefix,
-    captures,
-    diagnostics,
-    Math.max(0, finishedAt - startedAt),
+    lifecycle.result.termination,
+    lifecycle.result.conversationPrefix,
+    lifecycle.captures,
+    lifecycle.diagnostics,
+    lifecycle.durationMillis,
   )
-  return result.conversationPrefix === undefined
+  return lifecycle.result.conversationPrefix === undefined
     ? { outcome }
-    : { outcome, conversationPrefix: result.conversationPrefix }
+    : { outcome, conversationPrefix: lifecycle.result.conversationPrefix }
 })

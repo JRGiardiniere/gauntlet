@@ -239,9 +239,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       }
       if (
         config.conversationPrefix !== undefined &&
-        !prefixes.some(({ prefix }) =>
-          prefix.id === config.conversationPrefix?.id
-        )
+        !prefixes.some(({ prefix }) => prefix === config.conversationPrefix)
       ) {
         return yield* new InvocationSetupError({
           operation: "open",
@@ -400,7 +398,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             const assistantText = prompt.assistantText
             if (assistantText !== undefined && assistantText.trim() !== "") {
               const prefix = {
-                id: Symbol("scripted-conversation-prefix"),
                 assistantText,
               }
               capturedPrefix = prefix

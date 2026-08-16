@@ -14,7 +14,10 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
-import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
+import {
+  makeBlockedReviewWorkspaceTools,
+  makeReviewWorkspace,
+} from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
   type EmitToolArgs,
@@ -196,7 +199,7 @@ const assistantText = (message: PiAssistantMessage): string =>
 
 const capturePiConversationPrefix = (
   sessionManager: SessionManager,
-  prefixes: Map<symbol, PiConversationPrefix>,
+  prefixes: WeakMap<ReplayableConversationPrefix, PiConversationPrefix>,
 ): ReplayableConversationPrefix | undefined => {
   const entries = sessionManager.getEntries().filter(
     (entry): entry is SessionMessageEntry => entry.type === "message",
@@ -208,9 +211,9 @@ const capturePiConversationPrefix = (
   }
   const text = assistantText(assistant)
   if (text.trim() === "") return undefined
-  const id = Symbol("pi-conversation-prefix")
-  prefixes.set(id, { user, assistant })
-  return { id, assistantText: text }
+  const prefix = { assistantText: text }
+  prefixes.set(prefix, { user, assistant })
+  return prefix
 }
 
 const blockPreloadTool = (tool: ToolDefinition): ToolDefinition => ({
@@ -225,7 +228,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // pay N full initializations. A failed create is evicted rather than
   // cached, so a transient failure never poisons later opens.
   let runtimePromise: ReturnType<typeof ModelRuntime.create> | undefined
-  const conversationPrefixes = new Map<symbol, PiConversationPrefix>()
+  const conversationPrefixes = new WeakMap<
+    ReplayableConversationPrefix,
+    PiConversationPrefix
+  >()
   const sharedModelRuntime = () => {
     if (runtimePromise === undefined) {
       const created = ModelRuntime.create()
@@ -294,7 +300,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
 
         const replayPrefix = session.conversationPrefix === undefined
           ? undefined
-          : conversationPrefixes.get(session.conversationPrefix.id)
+          : conversationPrefixes.get(session.conversationPrefix)
         if (
           session.conversationPrefix !== undefined && replayPrefix === undefined
         ) {
@@ -374,14 +380,17 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             // one interpreter per session, discarded with it. Pi's non-tool
             // plumbing below (resource loader, session manager) keeps the
             // real snapshot path — host-side only, never model-visible.
-            // The workspace exists exactly when the session requested any
-            // filesystem tool; a tool-less session never pays for an overlay
-            // or interpreter.
-            const workspace = session.tools.length === 0
+            // Invocation sessions with filesystem tools receive an isolated
+            // workspace. Preloads advertise matching blocked definitions but
+            // never pay for an overlay or interpreter they cannot use.
+            const workspace =
+              session.mode === "preload" || session.tools.length === 0
               ? undefined
               : await makeReviewWorkspace(session.cwd)
             const customTools = [
-              ...(workspace === undefined
+              ...(session.mode === "preload"
+                ? makeBlockedReviewWorkspaceTools(session.tools)
+                : workspace === undefined
                 ? []
                 : session.tools.map((tool) =>
                     tool === "read"
@@ -410,6 +419,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               sessionManager.appendMessage(replayPrefix.user)
               sessionManager.appendMessage(replayPrefix.assistant)
             }
+            const replayedAssistantCount = replayPrefix === undefined ? 0 : 1
             // Every definition is already the non-generic `ToolDefinition`:
             // ReviewWorkspace exposes the erasure, and withToolCallDeadline
             // preserves it. The SDK's customTools option accepts the same
@@ -479,7 +489,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                   entry.message.role === "assistant"
                     ? [entry.message.usage]
                     : [],
-                ),
+                ).slice(replayedAssistantCount),
             } satisfies HarnessSession
           },
           catch: (cause) =>

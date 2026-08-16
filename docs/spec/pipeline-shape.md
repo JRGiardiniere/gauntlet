@@ -113,8 +113,9 @@ ReviewSpecification. A singleton runs directly. A larger partition first runs
 one bounded preload AgentInvocation with the same system prompt and tool
 definitions as its followers. The setup contract forbids analysis and tool
 execution; adapters enforce that prohibition before any tool can reach the
-workspace. The actual short assistant acknowledgment is captured, never
-synthesized. After the generic settle delay, every follower replays that exact
+workspace. Only the exact contract acknowledgment is accepted and captured;
+other prose degrades to an ordinary direct Finder invocation. After the generic
+settle delay, every follower replays that exact
 user/assistant prefix and appends only its Lens assignment as the last turn.
 
 One provider-neutral cache-group identifier names the partition; an adapter may
@@ -123,4 +124,5 @@ still receive the complete context and retain the ordinary invocation retry,
 termination, output, and coverage behavior. Every preload outcome is journaled
 as paid work, but never reused as evidence of transient provider cache state.
 Resume reuses completed Finder outcomes and freshly preloads any partition that
-still has more than one unfinished Finder.
+still has more than one unfinished Finder. Final accounting reads every valid
+sequenced preload artifact, including attempts from an interrupted execution.
