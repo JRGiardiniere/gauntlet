@@ -19,6 +19,7 @@ import {
   FINDER_PRELOAD_TURN,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
+  resolveFinderContext,
 } from "../content/finder-prompt.ts"
 import type { AgentOutcome } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
@@ -36,7 +37,7 @@ import {
 } from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { counted, invocationTrail } from "./progress-text.ts"
-import { RunError, type RunPaths } from "./run-record.ts"
+import type { RunPaths } from "./run-record.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
@@ -51,15 +52,6 @@ export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
 const progress = Effect.fn("gauntlet.finder_execution.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
-
-const finderContextKind = (
-  plan: ReviewPlan,
-  invocation: ReturnType<typeof finderInvocationsInPlan>[number],
-): "standard" | "interpretive-with-review-specification" =>
-  invocation.lens.finderClass === "interpretive" &&
-    plan.specification !== undefined
-    ? "interpretive-with-review-specification"
-    : "standard"
 
 export interface FinderExecutionInput {
   readonly plan: ReviewPlan
@@ -145,7 +137,7 @@ export const executeFinders = Effect.fn(
     Array.groupBy(
       invocations,
       (invocation) =>
-        `${invocation.seat}\u0000${finderContextKind(plan, invocation)}`,
+        `${invocation.seat}\u0000${resolveFinderContext(invocation.lens, plan.specification).key}`,
     ),
   )
   const groupResults = yield* Effect.forEach(
@@ -178,8 +170,7 @@ export const executeFinders = Effect.fn(
             promptTemplates.sharedPromptTemplate,
             plan.target,
             REVIEW_WORKSPACE_ROOT,
-            first.lens,
-            plan.specification,
+            resolveFinderContext(first.lens, plan.specification),
           )
           yield* progress(
             `invoking finder preload (${String(unfinished.length)} followers)`,
@@ -191,7 +182,7 @@ export const executeFinders = Effect.fn(
             prompt: `${context}\n\n${FINDER_PRELOAD_TURN}`,
             cacheGroupId,
             expectedAcknowledgment: FINDER_PRELOAD_ACKNOWLEDGMENT,
-            contract: EmitFindings,
+            followerContract: EmitFindings,
             tools: FINDER_TOOLS,
             deadlines: REVIEW_INVOCATION_DEADLINES,
           }).pipe(
@@ -223,6 +214,10 @@ export const executeFinders = Effect.fn(
             conversationPrefix = attempted.value.conversationPrefix
             if (conversationPrefix !== undefined) {
               yield* (yield* FinderCacheSettle)
+            } else {
+              yield* progress(
+                `finder preload unavailable — ${attempted.value.outcome.termination._tag}`,
+              )
             }
           }
         }
@@ -261,12 +256,5 @@ export const executeFinders = Effect.fn(
         outcome: result.outcome,
       })),
     ))
-  if (results.length !== invocations.length) {
-    return yield* new RunError({
-      operation: "execute-plan",
-      runId: plan.runId,
-      reason: "finder partition completed without accounting for every invocation",
-    })
-  }
   return results
 })

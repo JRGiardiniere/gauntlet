@@ -1003,6 +1003,9 @@ describe("gauntlet review", () => {
           ({ conversationPrefix }) => conversationPrefix !== undefined,
         ),
       ).toBe(false)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "finder preload unavailable — ProviderFailed",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>

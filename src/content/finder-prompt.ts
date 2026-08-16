@@ -30,6 +30,29 @@ export interface FinderPromptTemplates {
   readonly sharedPromptTemplate: string
 }
 
+export type ResolvedFinderContext =
+  | {
+      readonly key: "standard"
+      readonly specification?: undefined
+    }
+  | {
+      readonly key: "interpretive-with-review-specification"
+      readonly specification: ReviewSpecification
+    }
+
+// One decision owns both cache partition identity and rendered context. A new
+// context variant cannot affect one without being represented in the other.
+export const resolveFinderContext = (
+  lens: FrozenLens,
+  specification: ReviewSpecification | undefined,
+): ResolvedFinderContext =>
+  lens.finderClass === "interpretive" && specification !== undefined
+    ? {
+        key: "interpretive-with-review-specification",
+        specification,
+      }
+    : { key: "standard" }
+
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
 )(function* () {
@@ -66,8 +89,7 @@ export const assembleFinderContext = (
   template: string,
   target: ReviewTarget,
   reviewRoot: string,
-  lens: FrozenLens,
-  specification: ReviewSpecification | undefined,
+  context: ResolvedFinderContext,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const shared = yield* renderPromptTemplate(
@@ -87,8 +109,8 @@ export const assembleFinderContext = (
       ],
     )
     const sections = [shared]
-    if (lens.finderClass === "interpretive" && specification !== undefined) {
-      sections.push(renderSpecificationSection(specification))
+    if (context.specification !== undefined) {
+      sections.push(renderSpecificationSection(context.specification))
     }
     return sections.join("\n\n")
   })
@@ -114,8 +136,7 @@ export const assembleFinderPrompt = (
     template,
     target,
     reviewRoot,
-    lens,
-    specification,
+    resolveFinderContext(lens, specification),
   ).pipe(
     Effect.map((context) =>
       `${context}\n\n${assembleFinderAssignment(lens)}`

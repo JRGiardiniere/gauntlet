@@ -123,6 +123,8 @@ map it to a native key. A missing or failed cache changes cost only: followers
 still receive the complete context and retain the ordinary invocation retry,
 termination, output, and coverage behavior. Every preload outcome is journaled
 as paid work, but never reused as evidence of transient provider cache state.
+If the adapter cannot decode enough evidence to construct an honest typed
+outcome, the review fails rather than journaling fabricated accounting data.
 Resume reuses completed Finder outcomes and freshly preloads any partition that
 still has more than one unfinished Finder. Final accounting reads every valid
 sequenced preload artifact, including attempts from an interrupted execution.

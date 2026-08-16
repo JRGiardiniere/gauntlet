@@ -197,22 +197,27 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
 // prefix matches followers, but they must not pay to construct an overlay and
 // interpreter that cannot be used. These definitions retain the production
 // schemas/descriptions and replace execution before Pi sees them.
+const rejectPreloadToolExecution: ToolDefinition["execute"] = () =>
+  Promise.reject(new Error("finder preload cannot execute tools"))
+
+export const blockReviewTool = (tool: ToolDefinition): ToolDefinition => ({
+  ...tool,
+  execute: rejectPreloadToolExecution,
+})
+
 export const makeBlockedReviewWorkspaceTools = (
   tools: ReadonlyArray<"read" | "bash">,
 ): ReadonlyArray<ToolDefinition> =>
   tools.map((tool) => {
-    const definition: ToolDefinition = tool === "read"
-      ? defineTool(createReadToolDefinition(REVIEW_WORKSPACE_ROOT))
-      : defineTool({
-          ...bashToolMetadata,
-          execute: () =>
-            Promise.reject(new Error("finder preload cannot execute tools")),
-        })
-    return {
-      ...definition,
-      execute: () =>
-        Promise.reject(new Error("finder preload cannot execute tools")),
+    if (tool === "read") {
+      return blockReviewTool(
+        defineTool(createReadToolDefinition(REVIEW_WORKSPACE_ROOT)),
+      )
     }
+    return defineTool({
+      ...bashToolMetadata,
+      execute: rejectPreloadToolExecution,
+    })
   })
 
 // ".git" spelled in every letter case: the 2^3 combinations of g/i/t.

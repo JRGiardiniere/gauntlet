@@ -42,10 +42,12 @@ cheap). Callers that want backgrounding use their own shell/harness.
 
 - One file per finder/verifier/judge invocation, not one per stage — a dead
   lens on resume repays only itself, never its siblings.
-- Finder cache preloads also receive one file per paid attempt. Resume never
-  reuses them as cache state and writes a new sequenced preload artifact, so
-  rewarming preserves rather than overwrites the historical cost evidence;
-  final accounting reads the full valid sequence.
+- Every typed Finder cache preload outcome receives its own sequenced file.
+  Resume never reuses these as cache state, so rewarming preserves rather than
+  overwrites historical cost evidence and final accounting reads the full valid
+  sequence. An adapter-contract violation (including undecodable usage) cannot
+  produce an honest metered `AgentOutcome`; it fails the review before a typed
+  artifact exists instead of inventing cost or termination data.
 - Artifacts are Gauntlet's own schemas, human-readable with `cat`; a corrupt or
   foreign file degrades to "not done yet", never to adopted output.
 - The two known baseline defects are requirements on the port: the scope

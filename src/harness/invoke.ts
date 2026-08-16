@@ -64,8 +64,13 @@ export interface PreloadOutput
 
 export type PreloadInput<O> = Omit<
   InvokeInput<O>,
-  "conversationPrefix"
-> & { readonly expectedAcknowledgment: string }
+  "contract" | "conversationPrefix"
+> & {
+  // The preload has a fixed output of its own. This contract is advertised
+  // solely so its tool metadata is byte-identical to the follower session.
+  readonly followerContract: OutputContract<O>
+  readonly expectedAcknowledgment: string
+}
 
 export interface PreloadResult {
   readonly outcome: AgentOutcome<PreloadOutput>
@@ -289,19 +294,22 @@ const bestEffortDispose = (
 const openCapturedSession = Effect.fn(
   "gauntlet.invocation.open_captured_session",
 )(function* <O>(
-  input: InvokeInput<O>,
+  input: InvokeInput<O> | PreloadInput<O>,
   capture: CaptureAccumulator,
   mode: "invocation" | "preload" = "invocation",
 ) {
   const factory = yield* HarnessSessionFactory
+  const followerContract = "contract" in input
+    ? input.contract
+    : input.followerContract
   const openConfig = {
     seat: input.seat,
     cwd: input.cwd,
     systemPrompt: input.systemPrompt,
     emitTool: {
-      name: input.contract.toolName,
-      description: input.contract.description,
-      parameters: Schema.toJsonSchemaDocument(input.contract.schema).schema,
+      name: followerContract.toolName,
+      description: followerContract.description,
+      parameters: Schema.toJsonSchemaDocument(followerContract.schema).schema,
       execute: (raw: EmitToolArgs) =>
         capture.dispatch({ type: "validated_emit", raw }),
     },
@@ -313,11 +321,14 @@ const openCapturedSession = Effect.fn(
   const cacheConfigured = input.cacheGroupId === undefined
     ? openConfig
     : { ...openConfig, cacheGroupId: input.cacheGroupId }
-  const sessionConfig = input.conversationPrefix === undefined
+  const conversationPrefix = "conversationPrefix" in input
+    ? input.conversationPrefix
+    : undefined
+  const sessionConfig = conversationPrefix === undefined
     ? cacheConfigured
     : {
         ...cacheConfigured,
-        conversationPrefix: input.conversationPrefix,
+        conversationPrefix,
       }
   const session = yield* Effect.acquireRelease(
     factory.open(sessionConfig),
@@ -343,7 +354,7 @@ const openCapturedSession = Effect.fn(
         capture.dispatch({
           type: "event",
           event,
-          emitToolName: input.contract.toolName,
+          emitToolName: followerContract.toolName,
         })
         Queue.offerUnsafe(events, event)
       }),
@@ -561,7 +572,12 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
 const isFreshRetryable = (termination: TerminationType): boolean =>
   Termination.guards.FirstResponseTimeout(termination)
 
-const validateInput = <O>(input: InvokeInput<O>) =>
+type InvocationLifecycleInput = Omit<
+  InvokeInput<never>,
+  "contract" | "conversationPrefix"
+>
+
+const validateInput = (input: InvocationLifecycleInput) =>
   Effect.gen(function* () {
     if (input.systemPrompt.trim() === "") {
       return yield* new InvocationSetupError({
@@ -754,8 +770,8 @@ interface InvocationLifecycle<A> {
 // Startup, one fresh-session retry, cancellation, overall budget, disposal,
 // and timing are one engine for ordinary and preload invocations. The two
 // modes differ only in how an attempt interprets its terminal evidence.
-const runInvocationLifecycle = <O, A>(
-  input: InvokeInput<O>,
+const runInvocationLifecycle = <A>(
+  input: InvocationLifecycleInput,
   run: (
     absoluteDeadline: number,
     capture: CaptureAccumulator,
@@ -871,7 +887,7 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
   InvocationFailure,
   HarnessSessionFactory
 > {
-  const lifecycle = yield* runInvocationLifecycle<O, TerminationType>(
+  const lifecycle = yield* runInvocationLifecycle<TerminationType>(
     input,
     (absoluteDeadline, capture, currentSession) =>
       runAttempt(input, absoluteDeadline, capture, currentSession),
@@ -1057,7 +1073,7 @@ export const preloadConversation = Effect.fn(
   InvocationFailure,
   HarnessSessionFactory
 > {
-  const lifecycle = yield* runInvocationLifecycle<O, PreloadAttempt>(
+  const lifecycle = yield* runInvocationLifecycle<PreloadAttempt>(
     input,
     (_absoluteDeadline, capture, currentSession) =>
       runPreloadAttempt(input, capture, currentSession),

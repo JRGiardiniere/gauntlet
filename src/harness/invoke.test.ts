@@ -124,12 +124,14 @@ const runFailure = (
 
 const runPreload = (behavior: ScriptedBehavior) => {
   const scripted = makeScripted(behavior)
+  const { contract, ...preloadInput } = INPUT
   return Effect.gen(function* () {
     const fiber = yield* Effect.forkChild(
       preloadConversation({
-        ...INPUT,
+        ...preloadInput,
         prompt: "shared finder context\n\n## Finder context preload",
         cacheGroupId: "fixture-cache-group",
+        followerContract: contract,
         expectedAcknowledgment: "Context loaded.",
       }).pipe(Effect.provide(scriptedLayer(scripted))),
     )

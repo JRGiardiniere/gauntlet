@@ -15,6 +15,7 @@ import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import {
+  blockReviewTool,
   makeBlockedReviewWorkspaceTools,
   makeReviewWorkspace,
 } from "../workspace/just-bash-workspace.ts"
@@ -216,12 +217,6 @@ const capturePiConversationPrefix = (
   return prefix
 }
 
-const blockPreloadTool = (tool: ToolDefinition): ToolDefinition => ({
-  ...tool,
-  execute: () =>
-    Promise.reject(new Error("finder preload cannot execute tools")),
-})
-
 export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
@@ -387,26 +382,30 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               session.mode === "preload" || session.tools.length === 0
               ? undefined
               : await makeReviewWorkspace(session.cwd)
+            const workspaceTools = session.mode === "preload"
+              ? makeBlockedReviewWorkspaceTools(session.tools)
+              : workspace === undefined
+              ? []
+              : session.tools.map((tool) =>
+                  tool === "read"
+                    ? withToolCallDeadline(
+                        workspace.readTool,
+                        session.toolTimeoutMillis,
+                      )
+                    : withToolCallDeadline(
+                        workspace.bashTool,
+                        session.bashTimeoutMillis,
+                      ),
+                )
+            const emitTool = withToolCallDeadline(
+              emitToolDefinition,
+              session.toolTimeoutMillis,
+            )
             const customTools = [
-              ...(session.mode === "preload"
-                ? makeBlockedReviewWorkspaceTools(session.tools)
-                : workspace === undefined
-                ? []
-                : session.tools.map((tool) =>
-                    tool === "read"
-                      ? withToolCallDeadline(
-                          workspace.readTool,
-                          session.toolTimeoutMillis,
-                        )
-                      : withToolCallDeadline(
-                          workspace.bashTool,
-                          session.bashTimeoutMillis,
-                        ),
-                  )),
-              withToolCallDeadline(
-                emitToolDefinition,
-                session.toolTimeoutMillis,
-              ),
+              ...workspaceTools,
+              session.mode === "preload"
+                ? blockReviewTool(emitTool)
+                : emitTool,
             ]
 
             const sessionManager = SessionManager.inMemory(
@@ -438,10 +437,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // The allowlist is HARD (#4 §5): a custom tool absent from it
               // is dropped before the model ever sees it.
               tools: [...session.tools, session.emitTool.name],
-              customTools:
-                session.mode === "preload"
-                  ? customTools.map(blockPreloadTool)
-                  : customTools,
+              customTools,
               resourceLoader,
               sessionManager,
               settingsManager,

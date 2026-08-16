@@ -130,8 +130,11 @@ export const readJournaledInvocationsByPrefix = Effect.fn(
   const path = yield* Path.Path
   const artifact = InvocationArtifact(output)
   const entries = yield* fs.readDirectory(journalDirectory)
+  const encodedPrefix = encodeURIComponent(invocationKeyPrefix)
   return yield* Effect.forEach(
-    entries.filter((entry) => entry.endsWith(".json")),
+    entries.filter(
+      (entry) => entry.startsWith(encodedPrefix) && entry.endsWith(".json"),
+    ),
     (entry) => {
       const artifactPath = path.join(journalDirectory, entry)
       return readOptionalArtifactText(artifactPath).pipe(
@@ -149,6 +152,7 @@ export const readJournaledInvocationsByPrefix = Effect.fn(
             ))),
       )
     },
+    { concurrency: "unbounded" },
   ).pipe(
     Effect.map((outcomes) =>
       outcomes.flatMap((outcome) =>
