@@ -15,7 +15,6 @@ import {
 import {
   assembleFinderAssignment,
   assembleFinderContext,
-  assembleFinderPrompt,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
   resolveFinderContext,
@@ -46,7 +45,7 @@ import {
 } from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { counted, invocationTrail } from "./progress-text.ts"
-import type { RunPaths } from "./run-record.ts"
+import { RunError, type RunPaths } from "./run-record.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
 export const FinderCacheSettleDelay = Effect.sleep(
@@ -159,24 +158,15 @@ export const executeFinders = Effect.fn(
   )(function* (
     invocation: (typeof invocations)[number],
     cacheGroupId: string,
-    sharedContext: string | undefined,
+    sharedContext: string,
   ) {
     const promptTemplates = yield* templates
-    const prompt = sharedContext === undefined
-      ? yield* assembleFinderPrompt(
-          promptTemplates.sharedPromptTemplate,
-          plan.target,
-          REVIEW_WORKSPACE_ROOT,
-          invocation.lens,
-          plan.specification,
-        )
-      : `${sharedContext}\n\n${assembleFinderAssignment(invocation.lens)}`
     return {
       invocationId: `${cacheGroupId}-${invocation.invocationKey}`,
       seat: invocation.seat,
       cwd: reviewWorkingDirectory,
       systemPrompt: promptTemplates.systemPrompt,
-      prompt,
+      prompt: `${sharedContext}\n\n${assembleFinderAssignment(invocation.lens)}`,
       cacheGroupId,
       contract: EmitFindings,
       tools: FINDER_TOOLS,
@@ -204,7 +194,7 @@ export const executeFinders = Effect.fn(
   )(function* (
     invocation: (typeof invocations)[number],
     cacheGroupId: string,
-    sharedContext: string | undefined,
+    sharedContext: string,
   ) {
     yield* progress(`invoking finder ${invocation.lens.name}`)
     const input = yield* makeFinderInput(
@@ -227,19 +217,7 @@ export const executeFinders = Effect.fn(
     (group, groupIndex) =>
       Effect.gen(function* () {
         const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
-        const [starter, follower] = group
-        if (starter === undefined) return { failed: [], completed: [] }
-        if (follower === undefined) {
-          const [failed, completed] = yield* Effect.partition(
-            group,
-            (invocation) =>
-              executeFinder(invocation, cacheGroupId, undefined).pipe(
-                Effect.mapError((error) => ({ invocation, error })),
-              ),
-          )
-          return { failed, completed }
-        }
-
+        const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
         const sharedContext = yield* assembleFinderContext(
           promptTemplates.sharedPromptTemplate,
@@ -247,6 +225,17 @@ export const executeFinders = Effect.fn(
           REVIEW_WORKSPACE_ROOT,
           resolveFinderContext(starter.lens, plan.specification),
         )
+        if (group.length === 1) {
+          const [failed, completed] = yield* Effect.partition(
+            group,
+            (invocation) =>
+              executeFinder(invocation, cacheGroupId, sharedContext).pipe(
+                Effect.mapError((error) => ({ invocation, error })),
+              ),
+          )
+          return { failed, completed }
+        }
+
         yield* progress(`invoking finder ${starter.lens.name}`)
         const starterInput = yield* makeFinderInput(
           starter,
@@ -282,25 +271,28 @@ export const executeFinders = Effect.fn(
       .flatMap(({ completed }) => completed)
       .map((result) => [result.invocation.invocationKey, result] as const),
   )
-  const finders = Array.filterMap(invocations, (invocation) =>
+  const ordered = Array.filterMap(invocations, (invocation) =>
     HashMap.get(completedByKey, invocation.invocationKey).pipe(
       Result.fromOption(() => undefined),
-      Result.map((result): FinderResult => ({
-        lens: result.invocation.lens,
-        outcome: result.outcome,
-      })),
+      Result.map((result) => ({ invocation, outcome: result.outcome })),
     ))
+  if (ordered.length !== invocations.length) {
+    return yield* new RunError({
+      operation: "execute-plan",
+      runId: plan.runId,
+      reason: "Finder stage completed without every planned invocation",
+    })
+  }
+  const finders = ordered.map(({ invocation, outcome }): FinderResult => ({
+    lens: invocation.lens,
+    outcome,
+  }))
   yield* writeArtifactJson(paths.finderStage, FinderStageArtifact, {
     runId: plan.runId,
-    finders: invocations.flatMap((invocation) => {
-      const completed = HashMap.get(completedByKey, invocation.invocationKey)
-      return Option.isSome(completed)
-        ? [{
-            invocationKey: invocation.invocationKey,
-            outcome: completed.value.outcome,
-          }]
-        : []
-    }),
+    finders: ordered.map(({ invocation, outcome }) => ({
+      invocationKey: invocation.invocationKey,
+      outcome,
+    })),
   })
   yield* (yield* FinderStageCheckpoint)(plan.runId)
   yield* Effect.log("Finder stage checkpointed", { path: paths.finderStage })

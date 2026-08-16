@@ -121,7 +121,7 @@ continues concurrently. `PrefixNotObserved` skips only the delay.
 
 One provider-neutral cache-group identifier names the partition; an adapter may
 map it to a native key. Every Finder receives a complete prompt whose system
-prompt, tools, and shared user prefix are byte-identical through the Lens tail.
+prompt, tools, and shared user prefix are byte-identical up to the Lens tail.
 A missing or failed cache changes cost only: all Finders retain the ordinary
 invocation retry, termination, output, and coverage behavior.
 If the adapter cannot decode enough evidence to construct an honest typed

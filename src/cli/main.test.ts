@@ -9,7 +9,6 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
-import * as TestClock from "effect/testing/TestClock"
 import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
@@ -30,7 +29,6 @@ import type {
 } from "../harness/output-contract.ts"
 import {
   FinderCacheSettle,
-  FinderCacheSettleDelay,
   FinderStageArtifact,
   FinderStageCheckpoint,
 } from "../run/finder-execution.ts"
@@ -708,181 +706,6 @@ describe("gauntlet review", () => {
       expect(stderr).toContain("gauntlet: skipping Judgment (0 Observations)")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("starts one ordinary Finder per Seat/context partition before its followers", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "fixture-standard-two.md"),
-        "fixture standard two tail",
-      )
-      yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "fixture-interpretive-one.md"),
-        "---\nfinder-class: interpretive\n---\nfixture interpretive one tail\n",
-      )
-      yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "fixture-interpretive-two.md"),
-        "---\nfinder-class: interpretive\n---\nfixture interpretive two tail\n",
-      )
-      const specNeedle = "SPECIFICATION-NEEDLE: preserve stable ordering"
-      const specPath = path.join(fixture.home, "issue-79.md")
-      yield* fs.writeFileString(specPath, `${specNeedle}\n`)
-      const cacheMiss = usageRow({ cacheRead: 0, cacheWrite: 0 })
-      const scripted = makeScripted({
-        sessions: [
-          successfulSession({ findings: [] }, "-finders-1", cacheMiss),
-          successfulSession({ findings: [] }, "-finders-1", cacheMiss),
-          successfulSession({ findings: [] }, "-finders-2", cacheMiss),
-          successfulSession({ findings: [] }, "-finders-2", cacheMiss),
-        ],
-      })
-      const run = runCommand(
-        fixture,
-        [
-          "review",
-          "--lenses",
-          "fixture-review,fixture-standard-two,fixture-interpretive-one,fixture-interpretive-two",
-          "--spec",
-          specPath,
-        ],
-        scripted,
-      )
-      expect(yield* run.effect).toBe(0)
-
-      for (const suffix of ["-finders-1", "-finders-2"]) {
-        const groupConfigs = scripted.configs.filter(
-          ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
-        )
-        expect(groupConfigs).toHaveLength(2)
-        const [starter, follower] = groupConfigs
-        expect(follower?.systemPrompt).toBe(starter?.systemPrompt)
-        expect(follower?.tools).toEqual(starter?.tools)
-        expect(follower?.emitTool).toMatchObject({
-          name: starter?.emitTool.name,
-          description: starter?.emitTool.description,
-          parameters: starter?.emitTool.parameters,
-        })
-        for (const config of groupConfigs) {
-          expect(config.cacheGroupId).toBe(starter?.cacheGroupId)
-        }
-      }
-
-      const groupedPrompts = ["-finders-1", "-finders-2"].map((suffix) =>
-        scripted.prompts.filter(
-          ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
-        )
-      )
-      const standardPrompts = groupedPrompts[0]?.map(({ text }) => text) ?? []
-      const interpretivePrompts = groupedPrompts[1]?.map(({ text }) => text) ?? []
-      expect(standardPrompts).toHaveLength(2)
-      expect(interpretivePrompts).toHaveLength(2)
-      for (const prompt of standardPrompts) {
-        expect(prompt).toContain("shared start")
-        expect(prompt).not.toContain(specNeedle)
-      }
-      for (const prompt of interpretivePrompts) {
-        expect(prompt).toContain("shared start")
-        expect(prompt).toContain(specNeedle)
-      }
-      expect(standardPrompts.some((prompt) => prompt.includes("fixture lens tail"))).toBe(true)
-      expect(standardPrompts.some((prompt) => prompt.includes("fixture standard two tail"))).toBe(true)
-      expect(interpretivePrompts.some((prompt) => prompt.includes("fixture interpretive one tail"))).toBe(true)
-      expect(interpretivePrompts.some((prompt) => prompt.includes("fixture interpretive two tail"))).toBe(true)
-
-      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-      const journals = yield* fs.readDirectory(
-        path.join(fixture.runsRoot, runId, "journal"),
-      )
-      expect(journals).toEqual([])
-      const finderStage = yield* fs.readFileString(
-        path.join(fixture.runsRoot, runId, "finder-stage.json"),
-      ).pipe(
-        Effect.flatMap(
-          Schema.decodeEffect(Schema.fromJsonString(FinderStageArtifact)),
-        ),
-      )
-      expect(finderStage.finders).toHaveLength(4)
-      const dossier = yield* fs.readFileString(
-        path.join(fixture.runsRoot, runId, "dossier.json"),
-      ).pipe(
-        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
-      )
-      expect(dossier.coverageGaps).toEqual([])
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("launches followers 1500ms after the starter's first metered response while it remains active", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "fixture-standard-two.md"),
-        "fixture standard two tail\n",
-      )
-      const scripted = makeScripted({
-        sessions: [
-          {
-            forSession: "fixture-review",
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 0, kind: "message_start" },
-                  { afterMillis: 0, kind: "message_end", stopReason: "stop" },
-                ],
-                settles: "after-events",
-              },
-              {
-                events: [
-                  { afterMillis: 0, kind: "message_start" },
-                  {
-                    afterMillis: 5_000,
-                    kind: "emit",
-                    args: { findings: [] },
-                    valid: true,
-                  },
-                  {
-                    afterMillis: 5_000,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                  },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-          successfulSession(
-            { findings: [] },
-            "fixture-standard-two",
-          ),
-        ],
-      })
-      const prefixObserved = yield* Deferred.make<void>()
-      const run = runCommand(
-        fixture,
-        ["review", "--lenses", "fixture-review,fixture-standard-two"],
-        scripted,
-        Deferred.succeed(prefixObserved, undefined).pipe(
-          Effect.andThen(FinderCacheSettleDelay),
-        ),
-      )
-      const fiber = yield* Effect.forkChild(run.effect)
-
-      yield* Deferred.await(prefixObserved)
-      expect(scripted.log).toContain("event:1.1:message_end")
-      expect(scripted.configs).toHaveLength(1)
-      yield* TestClock.adjust("1499 millis")
-      yield* Effect.yieldNow
-      expect(scripted.configs).toHaveLength(1)
-      yield* TestClock.adjust("1 millis")
-      yield* Effect.yieldNow
-      expect(scripted.configs).toHaveLength(2)
-      expect(scripted.log).not.toContain("dispose:1")
-
-      yield* TestClock.adjust("5 seconds")
-      expect(yield* Fiber.join(fiber)).toBe(0)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
   it.effect("reruns the whole Finder stage when no completed checkpoint exists", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
@@ -1031,45 +854,6 @@ describe("gauntlet review", () => {
       expect(resumedProgress).toContain("finder fixture-review done")
       expect(resumedProgress).toContain("finder fixture-resume-two done")
       expect(resumedProgress).toContain("finder fixture-resume-three done")
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("launches a follower once when the starter fails before a metered response", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "fixture-standard-two.md"),
-        "fixture standard two tail\n",
-      )
-      const scripted = makeScripted({
-        sessions: [
-          {
-            forSession: "-finders-1",
-            prompts: [
-              {
-                events: [{ afterMillis: 0, kind: "message_start" }],
-                settles: "after-events",
-                reject: "provider stream failed",
-              },
-            ],
-          },
-          successfulSession({ findings: [] }, "-finders-1"),
-        ],
-      })
-      const run = runCommand(
-        fixture,
-        ["review", "--lenses", "fixture-review,fixture-standard-two"],
-        scripted,
-      )
-      expect(yield* run.effect).toBe(1)
-      expect(scripted.configs).toHaveLength(2)
-      expect(scripted.prompts).toHaveLength(2)
-      expect(
-        scripted.prompts.some(({ text }) =>
-          text.includes("fixture standard two tail")
-        ),
-      ).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>

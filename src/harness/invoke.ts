@@ -79,7 +79,6 @@ interface CaptureCommon {
   readonly usageSweepError: string | undefined
   readonly violations: ReadonlyArray<string>
   readonly diagnostics: ReadonlyArray<string>
-  readonly toolCallCount: number
 }
 
 type CaptureState = Data.TaggedEnum<{
@@ -163,7 +162,6 @@ const reduceCapture = (
           const active = {
             ...common,
             acceptedActivity: true,
-            toolCallCount: common.toolCallCount + 1,
           }
           if (event.toolName !== fact.emitToolName) {
             return withCommon(state, active)
@@ -242,7 +240,6 @@ const makeCaptureAccumulator = (): CaptureAccumulator => {
     usageSweepError: undefined,
     violations: [],
     diagnostics: [],
-    toolCallCount: 0,
   })
   return {
     dispatch: (fact) => {
@@ -557,12 +554,7 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
 const isFreshRetryable = (termination: TerminationType): boolean =>
   Termination.guards.FirstResponseTimeout(termination)
 
-type InvocationLifecycleInput = Omit<
-  InvokeInput<never>,
-  "contract"
->
-
-const validateInput = (input: InvocationLifecycleInput) =>
+const validateInput = <O>(input: InvokeInput<O>) =>
   Effect.gen(function* () {
     if (input.systemPrompt.trim() === "") {
       return yield* new InvocationSetupError({
@@ -745,8 +737,8 @@ const finalizeOutcome = <O>(
       : { ...outcome, output: output.value }
   })
 
-interface InvocationLifecycle<A> {
-  readonly result: A
+interface InvocationLifecycle {
+  readonly termination: TerminationType
   readonly captures: ReadonlyArray<CaptureAccumulator>
   readonly diagnostics: ReadonlyArray<string>
   readonly durationMillis: number
@@ -754,21 +746,11 @@ interface InvocationLifecycle<A> {
 
 // Startup, one fresh-session retry, cancellation, overall budget, disposal,
 // and timing stay in one engine for both ordinary and signaled invocations.
-const runInvocationLifecycle = <A>(
-  input: InvocationLifecycleInput,
-  run: (
-    absoluteDeadline: number,
-    capture: CaptureAccumulator,
-    currentSession: CurrentSession,
-  ) => Effect.Effect<
-    A,
-    InvocationFailure,
-    HarnessSessionFactory | Scope.Scope
-  >,
-  terminationOf: (result: A) => TerminationType,
-  terminalResult: (termination: TerminationType) => A,
+const runInvocationLifecycle = <O>(
+  input: InvokeInput<O>,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
 ): Effect.Effect<
-  InvocationLifecycle<A>,
+  InvocationLifecycle,
   InvocationFailure,
   HarnessSessionFactory
 > => Effect.gen(function* () {
@@ -783,7 +765,13 @@ const runInvocationLifecycle = <A>(
     const capture = makeCaptureAccumulator()
     captures.push(capture)
     return Effect.scoped(
-      run(absoluteDeadline, capture, currentSession),
+      runAttempt(
+        input,
+        absoluteDeadline,
+        capture,
+        currentSession,
+        prefixSignal,
+      ),
     ).pipe(
       Effect.ensuring(
         Effect.sync(() => {
@@ -800,7 +788,7 @@ const runInvocationLifecycle = <A>(
 
   const runAttempts = Effect.gen(function* () {
     const first = yield* runOne(1)
-    if (!isFreshRetryable(terminationOf(first))) return first
+    if (!isFreshRetryable(first)) return first
     const remaining = yield* remainingMillis(absoluteDeadline)
     if (remaining < MIN_RETRY_REMAINING_MILLIS) {
       diagnostics.push(
@@ -835,7 +823,7 @@ const runInvocationLifecycle = <A>(
       }),
     ),
     Effect.andThen(abortCurrent),
-    Effect.as(terminalResult(Termination.cases.BudgetExhausted.make({}))),
+    Effect.as(Termination.cases.BudgetExhausted.make({})),
   )
 
   const cancellationEnding =
@@ -848,16 +836,16 @@ const runInvocationLifecycle = <A>(
             }),
           ),
           Effect.andThen(abortCurrent),
-          Effect.as(terminalResult(Termination.cases.Interrupted.make({}))),
+          Effect.as(Termination.cases.Interrupted.make({})),
         )
 
-  const result = yield* Effect.raceFirst(
+  const termination = yield* Effect.raceFirst(
     runAttempts,
     Effect.raceFirst(budgetEnding, cancellationEnding),
   )
   const finishedAt = yield* Clock.currentTimeMillis
   return {
-    result,
+    termination,
     captures,
     diagnostics,
     durationMillis: Math.max(0, finishedAt - startedAt),
@@ -874,22 +862,10 @@ const invokeInternal = Effect.fn(
   InvocationFailure,
   HarnessSessionFactory
 > {
-  const lifecycle = yield* runInvocationLifecycle<TerminationType>(
-    input,
-    (absoluteDeadline, capture, currentSession) =>
-      runAttempt(
-        input,
-        absoluteDeadline,
-        capture,
-        currentSession,
-        prefixSignal,
-      ),
-    (termination) => termination,
-    (termination) => termination,
-  )
+  const lifecycle = yield* runInvocationLifecycle(input, prefixSignal)
   return yield* finalizeOutcome(
     input,
-    lifecycle.result,
+    lifecycle.termination,
     lifecycle.captures,
     lifecycle.diagnostics,
     lifecycle.durationMillis,

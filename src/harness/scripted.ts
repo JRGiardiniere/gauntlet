@@ -142,7 +142,6 @@ export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
 })
 
 interface PromptRequest {
-  readonly text: string
   readonly resolve: () => void
   readonly reject: (reason: string) => void
 }
@@ -414,7 +413,6 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           // @effect-diagnostics-next-line newPromise:off
           return new Promise<void>((resolve, reject) => {
             Queue.offerUnsafe(promptRequests, {
-              text,
               resolve,
               reject: (reason) => reject(reason),
             })
