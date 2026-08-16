@@ -1,3 +1,4 @@
+import { stripVTControlCharacters } from "node:util"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -6,13 +7,15 @@ import { Termination } from "../domain/agent-outcome.ts"
 export const counted = (count: number, singular: string): string =>
   `${String(count)} ${count === 1 ? singular : `${singular}s`}`
 
-// External diagnostic text must remain one inert terminal line. Control bytes
-// become spaces before ordinary whitespace is collapsed.
-export const progressDetail = (text: string): string =>
-  Array.from(text, (character) => {
-    const code = character.charCodeAt(0)
-    return code < 32 || (code >= 127 && code <= 159) ? " " : character
-  }).join("").replace(/\s+/g, " ").trim()
+const MAX_PROGRESS_DETAIL_LENGTH = 200
+
+// External diagnostic text must remain one bounded, inert terminal line.
+export const progressDetail = (text: string): string => {
+  const flat = stripVTControlCharacters(text).replace(/\s+/g, " ").trim()
+  return flat.length > MAX_PROGRESS_DETAIL_LENGTH
+    ? `${flat.slice(0, MAX_PROGRESS_DETAIL_LENGTH - 1)}…`
+    : flat
+}
 
 export const invocationTrail = (
   durationMillis: number,

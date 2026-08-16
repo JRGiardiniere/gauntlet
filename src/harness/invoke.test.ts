@@ -27,6 +27,7 @@ import {
 } from "./scripted.ts"
 
 const INPUT: InvokeInput<FindingsOutput> = {
+  invocationId: "fixture-invocation",
   seat: "fixture/fixture-model:low",
   cwd: "/fixture/repo",
   systemPrompt: "finder system prompt",
@@ -266,7 +267,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
 
   it.effect("returns a metered preload outcome after provider rejection from activity", () =>
     Effect.gen(function* () {
-      const { result } = yield* runPreload({
+      const { result, scripted } = yield* runPreload({
         sessions: [
           {
             prompts: [
@@ -274,6 +275,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
                 events: [{ afterMillis: 100, kind: "message_start" }],
                 settles: "after-events",
                 reject: "upstream connection closed",
+                assistantText: "Context loaded.",
               },
             ],
           },
@@ -284,6 +286,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         true,
       )
       expect(result.conversationPrefix).toBeUndefined()
+      expect(scripted.prefixes).toEqual([])
       expect(result.outcome.diagnostics.join(" ")).toContain(
         "provider rejected preload after accepting session activity",
       )

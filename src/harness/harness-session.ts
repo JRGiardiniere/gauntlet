@@ -133,6 +133,9 @@ export interface EmitToolSpec {
 }
 
 export interface SessionConfig {
+  // Stable identity for attribution, scripted selection, and diagnostics.
+  // It carries no provider cache semantics.
+  readonly invocationId: string
   // The invocation's resolved seat, frozen in ReviewPlan. The live adapter
   // resolves it through Pi; the factory carries no independently configured
   // ambient model.
@@ -146,7 +149,7 @@ export interface SessionConfig {
   // string as "use the stock prompt" (#4 §2).
   readonly systemPrompt: string
   // Provider-neutral cache partition identity. An adapter may map this to a
-  // native session/cache key; scheduling never interprets provider details.
+  // native session/cache key. Ordinary invocations leave it absent.
   readonly cacheGroupId?: string
   // A prefix captured by this same factory and replayed before the prompt.
   readonly conversationPrefix?: ReplayableConversationPrefix

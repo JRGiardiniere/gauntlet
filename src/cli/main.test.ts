@@ -262,15 +262,15 @@ const successfulJudgmentSession = (): ScriptedSession =>
   emittingSession(JUDGMENT_OUTPUT, "-judgment")
 
 // Concurrent sessions interleave their prompt calls, so prompts are asserted
-// by the cache group they were recorded against, never by global order.
+// by invocation identity, never by global order.
 const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
   scripted.prompts
-    .filter(({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false)
+    .filter(({ invocationId }) => invocationId.includes(suffix))
     .map(({ text }) => text)
 
 const inspectionsFor = (scripted: Scripted, suffix: string) =>
   scripted.inspections.filter(
-    ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
+    ({ invocationId }) => invocationId.includes(suffix),
   )
 
 const confinedSession = (
@@ -1077,7 +1077,8 @@ describe("gauntlet review", () => {
           sessions: [
             {
               forSession: "-finders-1",
-              failOpen: "provider auth failed\nretry later\u001b[31m",
+              failOpen:
+                `\u001b[31mprovider auth failed\nretry later ${"x".repeat(400)}\u001b[0m`,
               prompts: [],
             },
             successfulSession({ findings: [] }, "-finders-1"),
@@ -1087,11 +1088,16 @@ describe("gauntlet review", () => {
       )
 
       expect(yield* run.effect).toBe(0)
-      const stderr = (yield* TestConsole.errorLines).join("\n")
-      expect(stderr).toContain(
-        "finder preload unavailable — provider auth failed retry later [31m",
-      )
-      expect(stderr).not.toContain("\u001b")
+      const progressLine = (yield* TestConsole.errorLines)
+        .join("\n")
+        .split("\n")
+        .find((line) => line.includes("finder preload unavailable —"))
+      expect(progressLine).toBeDefined()
+      expect(progressLine).not.toContain("\u001b")
+      expect(progressLine).not.toContain("[31m")
+      expect(progressLine).not.toContain("[0m")
+      expect(progressLine?.endsWith("…")).toBe(true)
+      expect(progressLine?.split(" — ")[1]).toHaveLength(200)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>

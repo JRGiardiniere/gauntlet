@@ -110,6 +110,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
           prefix: "gauntlet-live-gate-",
         })
         return yield* invoke({
+          invocationId: "live-gate",
           seat,
           cwd,
           systemPrompt: SYSTEM_PROMPT,

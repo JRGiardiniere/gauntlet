@@ -78,7 +78,7 @@ export interface ScriptedPrompt {
 }
 
 export interface ScriptedSession {
-  // Claimed by the first open whose config.cacheGroupId contains this key —
+  // Claimed by the first open whose config.invocationId contains this key —
   // lets a script address one invocation of a concurrent fan-out. Unkeyed
   // sessions are consumed in open order, as before.
   readonly forSession?: string
@@ -99,11 +99,13 @@ export interface RecordedPrompt {
   // 1-based open order — pairs the prompt with configs[openIndex - 1] even
   // when concurrent sessions interleave their prompt calls.
   readonly openIndex: number
+  readonly invocationId: string
   readonly cacheGroupId: string | undefined
   readonly text: string
 }
 
 export interface RecordedInspection {
+  readonly invocationId: string
   readonly cacheGroupId: string | undefined
   readonly toolName: "read" | "bash"
   readonly args: unknown
@@ -198,7 +200,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const claimed = new Set<number>()
 
   const claimSession = (
-    cacheGroupId: string | undefined,
+    invocationId: string,
   ): ScriptedSession | undefined => {
     let unkeyed: number | undefined
     for (const [index, session] of behavior.sessions.entries()) {
@@ -208,7 +210,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         continue
       }
       if (
-        cacheGroupId !== undefined && cacheGroupId.includes(session.forSession)
+        invocationId.includes(session.forSession)
       ) {
         claimed.add(index)
         return session
@@ -222,7 +224,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const open: HarnessSessionFactoryContract["open"] = (config) =>
     Effect.gen(function* () {
       const sessionIndex = openIndex + 1
-      const behaviorForSession = claimSession(config.cacheGroupId)
+      const behaviorForSession = claimSession(config.invocationId)
       openIndex += 1
       log.push(`open:${String(sessionIndex)}`)
       configs.push(config)
@@ -358,6 +360,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                   : yield* executeWorkspaceTool(workspace, config, step)
                 yield* Effect.sync(() => {
                   inspections.push({
+                    invocationId: config.invocationId,
                     cacheGroupId: config.cacheGroupId,
                     toolName: step.toolName,
                     args: step.args,
@@ -398,7 +401,11 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           if (prompt.settles === "never") return yield* Effect.never
           yield* Effect.sync(() => {
             const assistantText = prompt.assistantText
-            if (assistantText !== undefined && assistantText.trim() !== "") {
+            if (
+              prompt.reject === undefined &&
+              assistantText !== undefined &&
+              assistantText.trim() !== ""
+            ) {
               const prefix = makeReplayableConversationPrefix()
               capturedPrefix = { prefix, assistantText }
               prefixes.push({
@@ -436,6 +443,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         prompt: (text) => {
           prompts.push({
             openIndex: sessionIndex,
+            invocationId: config.invocationId,
             cacheGroupId: config.cacheGroupId,
             text,
           })

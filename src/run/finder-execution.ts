@@ -59,7 +59,7 @@ const progress = Effect.fn("gauntlet.finder_execution.progress")((text: string) 
   Console.error(`gauntlet: ${text}`),
 )
 
-export interface FinderExecutionInput {
+interface FinderExecutionInput {
   readonly plan: ReviewPlan
   readonly paths: RunPaths
   readonly reviewWorkingDirectory: string
@@ -171,6 +171,7 @@ export const executeFinders = Effect.fn(
       : assembleFinderAssignment(invocation.lens)
     yield* progress(`invoking finder ${invocation.lens.name}`)
     const invokeInput = {
+      invocationId: `${cacheGroupId}-${invocation.invocationKey}`,
       seat: invocation.seat,
       cwd: reviewWorkingDirectory,
       systemPrompt: promptTemplates.systemPrompt,
@@ -219,6 +220,7 @@ export const executeFinders = Effect.fn(
             `invoking finder preload (${String(group.length)} followers)`,
           )
           const attempted = yield* preloadConversation({
+            invocationId: `${cacheGroupId}-preload`,
             seat: first.seat,
             cwd: reviewWorkingDirectory,
             systemPrompt: promptTemplates.systemPrompt,

@@ -42,6 +42,7 @@ export interface InvocationDeadlines {
 }
 
 export interface InvokeInput<O> {
+  readonly invocationId: string
   readonly seat: Seat
   readonly cwd: string
   readonly systemPrompt: string
@@ -303,6 +304,7 @@ const openCapturedSession = Effect.fn(
     ? input.contract
     : input.followerContract
   const openConfig = {
+    invocationId: input.invocationId,
     seat: input.seat,
     cwd: input.cwd,
     systemPrompt: input.systemPrompt,
