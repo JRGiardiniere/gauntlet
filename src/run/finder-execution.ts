@@ -7,6 +7,7 @@ import * as HashMap from "effect/HashMap"
 import * as Option from "effect/Option"
 import * as Record from "effect/Record"
 import * as Result from "effect/Result"
+import * as Schema from "effect/Schema"
 import {
   enforceCandidateCap,
   type FinderResult,
@@ -21,20 +22,18 @@ import {
   loadFinderPromptTemplates,
   resolveFinderContext,
 } from "../content/finder-prompt.ts"
-import type { AgentOutcome } from "../domain/agent-outcome.ts"
+import {
+  AgentOutcome,
+  type AgentOutcome as AgentOutcomeType,
+} from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { invoke, PreloadOutput, preloadConversation } from "../harness/invoke.ts"
 import type { ReplayableConversationPrefix } from "../harness/harness-session.ts"
 import {
   EmitFindings,
-  type FindingsOutput,
 } from "../harness/output-contract.ts"
-import {
-  finderInvocationsInPlan,
-  nextJournalInvocationKey,
-  readJournaledInvocation,
-  writeInvocationJournal,
-} from "./invocation-journal.ts"
+import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
+import { finderInvocationsInPlan } from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { counted, invocationTrail } from "./progress-text.ts"
 import type { RunPaths } from "./run-record.ts"
@@ -59,12 +58,77 @@ export interface FinderExecutionInput {
   readonly reviewWorkingDirectory: string
 }
 
-// This module owns the complete Finder partition lifecycle: one resume read,
-// optional paid preload, one journal write per fresh outcome, and stable-order
-// reconstruction. The top-level executor only routes the completed results.
+const FinderStageEntry = Schema.Struct({
+  invocationKey: Schema.NonEmptyString,
+  outcome: AgentOutcome(EmitFindings.schema),
+})
+
+export const FinderStageArtifact = Schema.Struct({
+  runId: Schema.NonEmptyString,
+  finders: Schema.Array(FinderStageEntry),
+  preloads: Schema.Array(AgentOutcome(PreloadOutput)),
+})
+export interface FinderStageArtifact extends Schema.Schema.Type<
+  typeof FinderStageArtifact
+> {}
+
+interface FinderExecutionResult {
+  readonly finders: ReadonlyArray<FinderResult>
+  readonly preloads: ReadonlyArray<AgentOutcomeType<PreloadOutput>>
+}
+
+export const FinderStageCheckpoint = Context.Reference<
+  (runId: string) => Effect.Effect<void>
+>("gauntlet/FinderStageCheckpoint", {
+  defaultValue: () => () => Effect.void,
+})
+
+const readCompletedFinderStage = Effect.fn(
+  "gauntlet.finder_execution.read_completed_stage",
+)(function* (plan: ReviewPlan, artifactPath: string) {
+  const source = yield* readOptionalArtifactText(artifactPath)
+  const decoded = Option.flatMap(source, (text) =>
+    Schema.decodeOption(Schema.fromJsonString(FinderStageArtifact))(text)
+  )
+  if (Option.isNone(decoded) || decoded.value.runId !== plan.runId) {
+    return Option.none<FinderExecutionResult>()
+  }
+
+  const invocations = finderInvocationsInPlan(plan)
+  const storedByKey = HashMap.fromIterable(
+    decoded.value.finders.map((entry) =>
+      [entry.invocationKey, entry.outcome] as const
+    ),
+  )
+  const finders = Array.filterMap(invocations, (invocation) =>
+    HashMap.get(storedByKey, invocation.invocationKey).pipe(
+      Result.fromOption(() => undefined),
+      Result.map((outcome): FinderResult => ({
+        lens: invocation.lens,
+        outcome: enforceCandidateCap(invocation.lens, outcome),
+      })),
+    ))
+  if (
+    decoded.value.finders.length !== invocations.length ||
+    finders.length !== invocations.length
+  ) {
+    return Option.none<FinderExecutionResult>()
+  }
+  return Option.some({ finders, preloads: decoded.value.preloads })
+})
+
+// A completed Finder fan-out is the first resumable semantic checkpoint.
+// Partial Finder outcomes and preload attempts never participate in control
+// flow: absent or invalid stage state reruns the whole fan-out from scratch.
 export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
+  const completed = yield* readCompletedFinderStage(plan, paths.finderStage)
+  if (Option.isSome(completed)) {
+    yield* progress("reusing completed Finder stage")
+    return completed.value
+  }
+
   const invocations = finderInvocationsInPlan(plan)
   const templates = yield* Effect.cached(loadFinderPromptTemplates())
 
@@ -73,21 +137,8 @@ export const executeFinders = Effect.fn(
   )(function* (
     invocation: (typeof invocations)[number],
     cacheGroupId: string,
-    stored: AgentOutcome<FindingsOutput> | undefined,
     conversationPrefix: ReplayableConversationPrefix | undefined,
   ) {
-    if (stored !== undefined) {
-      const outcome = enforceCandidateCap(invocation.lens, stored)
-      yield* progress(`reusing finder ${invocation.lens.name} from journal`)
-      yield* Effect.log("finder invocation reused", {
-        invocationKey: invocation.invocationKey,
-      })
-      yield* progress(
-        `finder ${invocation.lens.name} done — ${counted(outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
-      )
-      return { invocation, outcome }
-    }
-
     const promptTemplates = yield* templates
     const prompt = conversationPrefix === undefined
       ? yield* assembleFinderPrompt(
@@ -115,18 +166,6 @@ export const executeFinders = Effect.fn(
         : { ...invokeInput, conversationPrefix },
     )
     const outcome = enforceCandidateCap(invocation.lens, invoked)
-    yield* writeInvocationJournal(
-      {
-        journalDirectory: paths.journalDirectory,
-        runId: plan.runId,
-        invocationKey: invocation.invocationKey,
-        output: EmitFindings.schema,
-      },
-      outcome,
-    )
-    yield* Effect.log("finder invocation journaled", {
-      invocationKey: invocation.invocationKey,
-    })
     yield* progress(
       `finder ${invocation.lens.name} done — ${counted(outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
     )
@@ -145,25 +184,9 @@ export const executeFinders = Effect.fn(
     (group, groupIndex) =>
       Effect.gen(function* () {
         const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
-        const storedEntries = yield* Effect.forEach(group, (invocation) =>
-          readJournaledInvocation({
-            journalDirectory: paths.journalDirectory,
-            runId: plan.runId,
-            invocationKey: invocation.invocationKey,
-            output: EmitFindings.schema,
-          }).pipe(Effect.map((stored) => ({ invocation, stored }))))
-        const storedByKey = HashMap.fromIterable(
-          storedEntries.flatMap(({ invocation, stored }) =>
-            Option.isSome(stored)
-              ? [[invocation.invocationKey, stored.value] as const]
-              : []
-          ),
-        )
-        const unfinished = storedEntries.flatMap(({ invocation, stored }) =>
-          Option.isNone(stored) ? [invocation] : []
-        )
         let conversationPrefix: ReplayableConversationPrefix | undefined
-        const [first, second] = unfinished
+        let preloadOutcome: AgentOutcomeType<PreloadOutput> | undefined
+        const [first, second] = group
         if (first !== undefined && second !== undefined) {
           const promptTemplates = yield* templates
           const context = yield* assembleFinderContext(
@@ -173,7 +196,7 @@ export const executeFinders = Effect.fn(
             resolveFinderContext(first.lens, plan.specification),
           )
           yield* progress(
-            `invoking finder preload (${String(unfinished.length)} followers)`,
+            `invoking finder preload (${String(group.length)} followers)`,
           )
           const attempted = yield* preloadConversation({
             seat: first.seat,
@@ -198,19 +221,7 @@ export const executeFinders = Effect.fn(
               })),
           )
           if (Option.isSome(attempted)) {
-            const preloadInvocationKey = yield* nextJournalInvocationKey(
-              paths.journalDirectory,
-              `finder-preload-${String(groupIndex + 1)}`,
-            )
-            yield* writeInvocationJournal(
-              {
-                journalDirectory: paths.journalDirectory,
-                runId: plan.runId,
-                invocationKey: preloadInvocationKey,
-                output: PreloadOutput,
-              },
-              attempted.value.outcome,
-            )
+            preloadOutcome = attempted.value.outcome
             conversationPrefix = attempted.value.conversationPrefix
             if (conversationPrefix !== undefined) {
               yield* (yield* FinderCacheSettle)
@@ -222,33 +233,35 @@ export const executeFinders = Effect.fn(
           }
         }
 
-        return yield* Effect.partition(
+        const [failed, completed] = yield* Effect.partition(
           group,
           (invocation) =>
             executeFinder(
               invocation,
               cacheGroupId,
-              Option.getOrUndefined(
-                HashMap.get(storedByKey, invocation.invocationKey),
-              ),
               conversationPrefix,
             ).pipe(Effect.mapError((error) => ({ invocation, error }))),
           { concurrency: "unbounded" },
         )
+        return {
+          failed,
+          completed,
+          preloads: preloadOutcome === undefined ? [] : [preloadOutcome],
+        }
       }),
     { concurrency: "unbounded" },
   )
 
-  const failures = groupResults.flatMap(([failed]) => failed)
+  const failures = groupResults.flatMap(({ failed }) => failed)
   const firstFailure = failures[0]
   if (firstFailure !== undefined) return yield* firstFailure.error
 
   const completedByKey = HashMap.fromIterable(
     groupResults
-      .flatMap(([, completed]) => completed)
+      .flatMap(({ completed }) => completed)
       .map((result) => [result.invocation.invocationKey, result] as const),
   )
-  const results = Array.filterMap(invocations, (invocation) =>
+  const finders = Array.filterMap(invocations, (invocation) =>
     HashMap.get(completedByKey, invocation.invocationKey).pipe(
       Result.fromOption(() => undefined),
       Result.map((result): FinderResult => ({
@@ -256,5 +269,18 @@ export const executeFinders = Effect.fn(
         outcome: result.outcome,
       })),
     ))
-  return results
+  const preloads = groupResults.flatMap((group) => group.preloads)
+  yield* writeArtifactJson(paths.finderStage, FinderStageArtifact, {
+    runId: plan.runId,
+    finders: invocations.flatMap((invocation) => {
+      const completed = HashMap.get(completedByKey, invocation.invocationKey)
+      return Option.isSome(completed)
+        ? [{ invocationKey: invocation.invocationKey, outcome: completed.value.outcome }]
+        : []
+    }),
+    preloads,
+  })
+  yield* (yield* FinderStageCheckpoint)(plan.runId)
+  yield* Effect.log("Finder stage checkpointed", { path: paths.finderStage })
+  return { finders, preloads }
 })

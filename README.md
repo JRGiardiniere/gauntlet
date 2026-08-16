@@ -29,8 +29,10 @@ gauntlet config unset <key>
   if neither resolves, the review fails and lists what is available.
   `--destination` defaults to `local` (run directory + bounded digest). `pr`
   keeps those local outputs and also posts `dossier.md`; it requires `--pr`.
-  `--resume` reuses completed paid work when the target is unchanged, under
-  the currently installed code; a changed target starts a new review.
+  `--resume` continues from completed semantic checkpoints when the target is
+  unchanged, under the currently installed code. The first such checkpoint is
+  the complete Finder stage; an interrupted partial Finder fan-out reruns in
+  full. A changed target starts a new review.
 - `deliver` posts an already-completed pull-request run's `dossier.md` as a
   single PR comment. A working-tree run has no PR destination and is refused.
   Re-delivering a Posted receipt is a no-op that returns the existing comment
@@ -91,9 +93,10 @@ interpretive finders through `interpretive-finders`, then `finders`, then
 `default`. Other seated stages resolve through their named override then
 `default`. The ReviewPlan
 freezes every resolved seat at submission, so recipe edits never change an
-in-flight run or a resumed run whose target is unchanged. Resume reuses
-completed paid work when the target is unchanged, under the currently
-installed code; a changed target starts a new review.
+in-flight run or a resumed run whose target is unchanged. Resume continues
+from completed semantic checkpoints under the currently installed code; it
+does not attempt to resume active model conversations or partial Finder
+fan-outs. A changed target starts a new review.
 
 ## Toolchain
 

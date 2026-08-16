@@ -7,7 +7,6 @@ import { assembleDossier } from "../assembly/dossier.ts"
 import { routeFinderResults } from "../assembly/finders.ts"
 import { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { PreloadOutput } from "../harness/invoke.ts"
 import { renderDigest } from "../render/digest.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
@@ -15,14 +14,17 @@ import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
 import { executeBugClaimPath } from "./bug-claim-path.ts"
 import {
   finderInvocationsInPlan,
-  readJournaledInvocationsByPrefix,
 } from "./invocation-journal.ts"
-import { executeFinders, FinderCacheSettle } from "./finder-execution.ts"
+import {
+  executeFinders,
+  FinderCacheSettle,
+  FinderStageCheckpoint,
+} from "./finder-execution.ts"
 import { counted, coverageGapLine, wallSeconds } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
 
-export { FinderCacheSettle }
+export { FinderCacheSettle, FinderStageCheckpoint }
 
 const progress = Effect.fn("gauntlet.run_executor.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -49,11 +51,12 @@ export const executeReviewPlan = Effect.fn(
       yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
         const findersStartedAt = yield* DateTime.now
-        const results = yield* executeFinders({
+        const finderStage = yield* executeFinders({
           plan,
           paths,
           reviewWorkingDirectory,
         })
+        const results = finderStage.finders
 
         yield* progress(
           `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
@@ -92,25 +95,19 @@ export const executeReviewPlan = Effect.fn(
         yield* progress("assembling dossier")
         yield* writeArtifactJson(paths.dossier, Dossier, dossier)
 
-        const preloadOutcomes = yield* readJournaledInvocationsByPrefix({
-          journalDirectory: paths.journalDirectory,
-          runId: plan.runId,
-          invocationKeyPrefix: "finder-preload-",
-          output: PreloadOutput,
-        })
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
         const accounting = {
           costUsd: results.reduce(
             (total, result) => total + result.outcome.usage.costUsd,
-            preloadOutcomes.reduce(
+            finderStage.preloads.reduce(
               (total, outcome) => total + outcome.usage.costUsd,
               0,
             ),
           ) + bugClaimPath.costUsd + judgmentPath.costUsd,
           invocationCount:
             invocations.length +
-            preloadOutcomes.length +
+            finderStage.preloads.length +
             bugClaimPath.invocationCount +
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),

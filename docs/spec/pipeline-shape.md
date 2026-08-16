@@ -107,9 +107,11 @@ ones). Warmup/fan-out sequencing, session-key sharing,
 and cache diagnostics are operational mechanics (ADR 0002), not review
 semantics.
 
-The scheduler partitions unfinished Finders by the complete resolved Seat and
-shared context shape: ordinary context, or ordinary context plus the frozen
-ReviewSpecification. A singleton runs directly. A larger partition first runs
+The scheduler first loads one atomic completed-Finder-stage checkpoint. When
+it is absent or invalid, every planned Finder starts a fresh stage attempt and
+is partitioned by the complete resolved Seat and shared context shape: ordinary
+context, or ordinary context plus the frozen ReviewSpecification. A singleton
+runs directly. A larger partition first runs
 one bounded preload AgentInvocation with the same system prompt and tool
 definitions as its followers. The setup contract forbids analysis and tool
 execution; adapters enforce that prohibition before any tool can reach the
@@ -121,10 +123,12 @@ user/assistant prefix and appends only its Lens assignment as the last turn.
 One provider-neutral cache-group identifier names the partition; an adapter may
 map it to a native key. A missing or failed cache changes cost only: followers
 still receive the complete context and retain the ordinary invocation retry,
-termination, output, and coverage behavior. Every preload outcome is journaled
-as paid work, but never reused as evidence of transient provider cache state.
+termination, output, and coverage behavior. Preload outcomes are paid work in
+the current Finder-stage attempt, but never durable cache state.
 If the adapter cannot decode enough evidence to construct an honest typed
 outcome, the review fails rather than journaling fabricated accounting data.
-Resume reuses completed Finder outcomes and freshly preloads any partition that
-still has more than one unfinished Finder. Final accounting reads every valid
-sequenced preload artifact, including attempts from an interrupted execution.
+Only after every Finder completes does Gauntlet atomically persist the ordered
+Finder outcomes and that successful attempt's preload outcomes. Resume reuses
+the whole completed stage or reruns the whole stage; it never combines partial
+Finder work across process attempts. Dossier accounting includes the completed
+Finder attempt that supplied its results, not abandoned-attempt provider spend.

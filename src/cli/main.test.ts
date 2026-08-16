@@ -22,17 +22,16 @@ import {
   type ScriptedSession,
   usageRow,
 } from "../harness/scripted.ts"
-import { PreloadOutput } from "../harness/invoke.ts"
-import {
+import type {
   FindingsOutput,
-  type PoolOutput,
-  type VerdictsOutput,
+  PoolOutput,
+  VerdictsOutput,
 } from "../harness/output-contract.ts"
 import {
-  InvocationArtifact,
-  InvocationJournalCheckpoint,
-} from "../run/invocation-journal.ts"
-import { FinderCacheSettle } from "../run/review-executor.ts"
+  FinderCacheSettle,
+  FinderStageArtifact,
+  FinderStageCheckpoint,
+} from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
@@ -143,8 +142,6 @@ const makeDirtyRepo = Effect.gen(function* () {
   )
   return fixture
 })
-
-const FinderInvocationArtifact = InvocationArtifact(FindingsOutput)
 
 const FINDER_OUTPUT = {
   findings: [
@@ -368,7 +365,7 @@ const resume = (
   )
 
 describe("gauntlet review", () => {
-  it.effect("lands the frozen plan, invocation journal, candidates, and presentation", () =>
+  it.effect("lands the frozen plan, completed Finder stage, downstream journal, and presentation", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -390,6 +387,7 @@ describe("gauntlet review", () => {
       expect([...entries].sort()).toEqual([
         "dossier.json",
         "dossier.md",
+        "finder-stage.json",
         "journal",
         "plan.json",
         "run.log",
@@ -421,20 +419,21 @@ describe("gauntlet review", () => {
 
       const journalEntries = yield* fs.readDirectory(path.join(runDir, "journal"))
       expect(journalEntries.sort()).toEqual([
-        "finder-fixture-review.json",
         "judgment.json",
         "verification-bundle-1.json",
       ])
-      const journalText = yield* fs.readFileString(
-        path.join(runDir, "journal", "finder-fixture-review.json"),
+      const finderStageText = yield* fs.readFileString(
+        path.join(runDir, "finder-stage.json"),
       )
-      const journal = yield* Schema.decodeEffect(
-        Schema.fromJsonString(FinderInvocationArtifact),
-      )(journalText)
-      expect(journal.runId).toBe(plan.runId)
-      expect(journal.outcome.termination._tag).toBe("Completed")
-      expect(journal.outcome.output).toEqual(FINDER_OUTPUT)
-      expect(journal.outcome.usage.rawRows).toHaveLength(1)
+      const finderStage = yield* Schema.decodeEffect(
+        Schema.fromJsonString(FinderStageArtifact),
+      )(finderStageText)
+      expect(finderStage.runId).toBe(plan.runId)
+      expect(finderStage.finders).toHaveLength(1)
+      expect(finderStage.finders[0]?.outcome.termination._tag).toBe("Completed")
+      expect(finderStage.finders[0]?.outcome.output).toEqual(FINDER_OUTPUT)
+      expect(finderStage.finders[0]?.outcome.usage.rawRows).toHaveLength(1)
+      expect(finderStage.preloads).toEqual([])
 
       const dossierText = yield* fs.readFileString(path.join(runDir, "dossier.json"))
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
@@ -483,7 +482,7 @@ describe("gauntlet review", () => {
 
       // The diff is stored exactly once, in the plan (ADR 0006). Untracked
       // file bytes are not persisted anywhere in the run directory.
-      const runRecordText = planText + journalText + dossierText + report
+      const runRecordText = planText + finderStageText + dossierText + report
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
       expect(runRecordText).not.toContain("not in the diff")
 
@@ -605,6 +604,7 @@ describe("gauntlet review", () => {
       expect([...entries].sort()).toEqual([
         "dossier.json",
         "dossier.md",
+        "finder-stage.json",
         "journal",
         "plan.json",
         "run.log",
@@ -714,10 +714,12 @@ describe("gauntlet review", () => {
       const journals = yield* fs.readDirectory(
         path.join(fixture.runsRoot, runId, "journal"),
       )
-      expect(journals.sort()).toEqual([
-        "finder-fixture-local.json",
-        "finder-fixture-review.json",
-      ])
+      expect(journals).toEqual([])
+      expect(
+        yield* fs.exists(
+          path.join(fixture.runsRoot, runId, "finder-stage.json"),
+        ),
+      ).toBe(true)
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain(
@@ -829,14 +831,16 @@ describe("gauntlet review", () => {
       const journals = yield* fs.readDirectory(
         path.join(fixture.runsRoot, runId, "journal"),
       )
-      expect(journals.sort()).toEqual([
-        "finder-fixture-interpretive-one.json",
-        "finder-fixture-interpretive-two.json",
-        "finder-fixture-review.json",
-        "finder-fixture-standard-two.json",
-        "finder-preload-1-1.json",
-        "finder-preload-2-1.json",
-      ])
+      expect(journals).toEqual([])
+      const finderStage = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "finder-stage.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(FinderStageArtifact)),
+        ),
+      )
+      expect(finderStage.finders).toHaveLength(4)
+      expect(finderStage.preloads).toHaveLength(2)
       const dossier = yield* fs.readFileString(
         path.join(fixture.runsRoot, runId, "dossier.json"),
       ).pipe(
@@ -845,7 +849,85 @@ describe("gauntlet review", () => {
       expect(dossier.coverageGaps).toEqual([])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("reuses completed Finders on resume and freshly preloads the unfinished partition", () =>
+  it.effect("reruns the whole Finder stage when no completed checkpoint exists", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-resume-two.md"),
+        "fixture resume two tail\n",
+      )
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-resume-three.md"),
+        "fixture resume three tail\n",
+      )
+      const firstScripted = makeScripted({
+        sessions: [
+          successfulPreloadSession("-finders-1"),
+          successfulSession({ findings: [] }, "-finders-1"),
+          successfulSession({ findings: [] }, "-finders-1"),
+          successfulSession({ findings: [] }, "-finders-1"),
+        ],
+      })
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        [
+          "review",
+          "--lenses",
+          "fixture-review,fixture-resume-two,fixture-resume-three",
+        ],
+        firstScripted,
+      )
+      const firstFiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      const runId = yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(firstFiber)
+      yield* fs.remove(
+        path.join(fixture.runsRoot, runId, "finder-stage.json"),
+      )
+      expect(
+        yield* fs.exists(
+          path.join(fixture.runsRoot, runId, "finder-stage.json"),
+        ),
+      ).toBe(false)
+
+      const resumed = resume(
+        fixture,
+        runId,
+        makeScripted({
+          sessions: [
+            successfulPreloadSession("-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+          ],
+        }),
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(resumed.scripted.configs.map(({ mode }) => mode).sort()).toEqual([
+        "invocation",
+        "invocation",
+        "invocation",
+        "preload",
+      ])
+      expect(
+        yield* fs.exists(
+          path.join(fixture.runsRoot, runId, "finder-stage.json"),
+        ),
+      ).toBe(true)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("resumes only from a completed Finder stage", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -859,7 +941,7 @@ describe("gauntlet review", () => {
         "fixture resume three tail\n",
       )
 
-      const journaled = yield* Deferred.make<string>()
+      const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
         [
@@ -871,84 +953,46 @@ describe("gauntlet review", () => {
           sessions: [
             successfulPreloadSession("-finders-1"),
             successfulSession({ findings: [] }, "-finders-1"),
-            {
-              forSession: "-finders-1",
-              prompts: [{ events: [], settles: "never" }],
-              abortBehavior: "hangs",
-            },
-            {
-              forSession: "-finders-1",
-              prompts: [{ events: [], settles: "never" }],
-              abortBehavior: "hangs",
-            },
+            successfulSession({ findings: [] }, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
           ],
         }),
       )
       const firstFiber = yield* first.effect.pipe(
         Effect.provideService(
-          InvocationJournalCheckpoint,
-          (runId, invocationKey) =>
-            invocationKey === "finder-fixture-review"
-              ? Deferred.succeed(journaled, runId).pipe(
-                  Effect.andThen(Effect.never),
-                )
-              : Effect.void,
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
         ),
         Effect.forkChild,
       )
-      const runId = yield* Deferred.await(journaled)
+      const runId = yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(firstFiber)
       expect(
         yield* fs.exists(
-          path.join(
-            fixture.runsRoot,
-            runId,
-            "journal",
-            "finder-fixture-review.json",
-          ),
+          path.join(fixture.runsRoot, runId, "finder-stage.json"),
         ),
       ).toBe(true)
 
       const resumed = resume(
         fixture,
         runId,
-        makeScripted({
-          sessions: [
-            successfulPreloadSession("-finders-1"),
-            successfulSession({ findings: [] }, "-finders-1"),
-            successfulSession({ findings: [] }, "-finders-1"),
-          ],
-        }),
+        makeScripted({ sessions: [] }),
       )
       expect(yield* resumed.effect).toBe(0)
-      expect(resumed.scripted.configs.map(({ mode }) => mode).sort()).toEqual([
-        "invocation",
-        "invocation",
-        "preload",
-      ])
-      expect(resumed.scripted.prefixes).toHaveLength(1)
-      const followerPrefixes = resumed.scripted.configs.flatMap((config) =>
-        config.mode === "invocation" && config.conversationPrefix !== undefined
-          ? [config.conversationPrefix]
-          : [],
-      )
-      expect(followerPrefixes).toHaveLength(2)
-      expect(followerPrefixes[0]).toBe(followerPrefixes[1])
-      const journals = yield* fs.readDirectory(
-        path.join(fixture.runsRoot, runId, "journal"),
-      )
-      expect(journals).toContain("finder-preload-1-1.json")
-      expect(journals).toContain("finder-preload-1-2.json")
+      expect(resumed.scripted.configs).toEqual([])
       const dossierMarkdown = yield* fs.readFileString(
         path.join(fixture.runsRoot, runId, "dossier.md"),
       )
-      expect(dossierMarkdown).toContain("5 invocations")
+      expect(dossierMarkdown).toContain("4 invocations")
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "reusing finder fixture-review from journal",
+        "reusing completed Finder stage",
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("journals a paid preload rejection before degrading to direct Finder prompts", () =>
+  it.effect("checkpoints a paid preload rejection with the completed Finder stage", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -981,20 +1025,14 @@ describe("gauntlet review", () => {
       expect(yield* run.effect).toBe(0)
 
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-      const journalPath = path.join(
-        fixture.runsRoot,
-        runId,
-        "journal",
-        "finder-preload-1-1.json",
-      )
-      const stored = yield* fs.readFileString(journalPath).pipe(
+      const stored = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "finder-stage.json"),
+      ).pipe(
         Effect.flatMap(
-          Schema.decodeEffect(
-            Schema.fromJsonString(InvocationArtifact(PreloadOutput)),
-          ),
+          Schema.decodeEffect(Schema.fromJsonString(FinderStageArtifact)),
         ),
       )
-      expect(stored.outcome.termination._tag).toBe("ProviderFailed")
+      expect(stored.preloads[0]?.termination._tag).toBe("ProviderFailed")
       expect(
         scripted.configs.filter(({ mode }) => mode === "invocation"),
       ).toHaveLength(2)
@@ -1136,14 +1174,14 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("resumes the latest incomplete run without repaying its journaled finder", () =>
+  it.effect("resumes the latest incomplete run from its completed Finder stage", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const journaled = yield* Deferred.make<string>()
       const first = review(fixture)
       const fiber = yield* first.effect.pipe(
         Effect.provideService(
-          InvocationJournalCheckpoint,
+          FinderStageCheckpoint,
           (runId) =>
             Deferred.succeed(journaled, runId).pipe(
               Effect.andThen(Effect.never),
@@ -1160,9 +1198,7 @@ describe("gauntlet review", () => {
       const runDir = path.join(fixture.runsRoot, runId)
       expect(yield* fs.exists(path.join(runDir, "plan.json"))).toBe(true)
       expect(
-        yield* fs.exists(
-          path.join(runDir, "journal", "finder-fixture-review.json"),
-        ),
+        yield* fs.exists(path.join(runDir, "finder-stage.json")),
       ).toBe(true)
       expect(yield* fs.exists(path.join(runDir, "dossier.json"))).toBe(false)
       expect(yield* fs.exists(path.join(runDir, "dossier.md"))).toBe(false)
@@ -1198,7 +1234,7 @@ describe("gauntlet review", () => {
         "the added line breaks empty inputs",
       )
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "reusing finder fixture-review from journal",
+        "reusing completed Finder stage",
       )
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "gauntlet: finder fixture-review done — 2 candidates · 0s · $0.05",
@@ -1217,7 +1253,7 @@ describe("gauntlet review", () => {
       )
       const fiber = yield* first.effect.pipe(
         Effect.provideService(
-          InvocationJournalCheckpoint,
+          FinderStageCheckpoint,
           (runId) =>
             Deferred.succeed(journaled, runId).pipe(
               Effect.andThen(Effect.never),
@@ -1284,7 +1320,7 @@ describe("gauntlet review", () => {
       )
       const fiber = yield* first.effect.pipe(
         Effect.provideService(
-          InvocationJournalCheckpoint,
+          FinderStageCheckpoint,
           (runId) =>
             Deferred.succeed(journaled, runId).pipe(
               Effect.andThen(Effect.never),
@@ -1486,7 +1522,7 @@ describe("gauntlet review", () => {
       )
       const fiber = yield* first.effect.pipe(
         Effect.provideService(
-          InvocationJournalCheckpoint,
+          FinderStageCheckpoint,
           (runId) =>
             Deferred.succeed(journaled, runId).pipe(
               Effect.andThen(Effect.never),

@@ -4,16 +4,16 @@ Provenance on the old repo settled this ticket's biggest question before
 design started: its two cross-run aggregate logs (`log.jsonl`,
 `subjective-corpus.jsonl`) were appended on every run and **never read by any
 script** — "how did model X do?" was answered by eyeballing files. And the
-bench suite consumed exactly one thing from real runs: the per-invocation
-usage records. The rewrite therefore keeps the data and deletes the
-infrastructure.
+bench suite consumed exactly one thing from real runs: invocation usage
+records. The rewrite therefore keeps the data and deletes the infrastructure.
 
 ## The run directory
 
 ```
 ~/.gauntlet/runs/<run-id>/
   plan.json          # frozen ReviewPlan: recipe seats, lens texts, target diff
-  journal/*.json     # one per AgentInvocation: full AgentOutcome (ADR 0003)
+  finder-stage.json  # atomic completed Finder stage (ADR 0003)
+  journal/*.json     # downstream AgentOutcomes during the ADR 0003 transition
   dossier.json       # complete machine-readable Dossier
   dossier.md         # human-readable Dossier
   receipt.json       # DeliveryReceipt, when delivery was attempted
@@ -24,10 +24,11 @@ The old repo's 14-file zoo (`job/status/frozen-preset/request/scope/
 candidates/result/handoff/presentation` + per-stage logs) dissolves into
 plan + journal + dossier: most of it was inter-stage plumbing the journal
 already replaces, and `status.json` existed only for launchd-era polling.
-Plain JSON files, one per thing — **no JSONL anywhere**: the journal's
-one-file-per-invocation atomic writes are what make resume skip-what-exists;
-an append-format shared file would reintroduce the partial-write problem
-ADR 0003 designed out.
+Plain JSON files, one per thing — **no JSONL anywhere**. Semantic checkpoints
+use atomic sibling-temp-and-rename writes, so resume can distinguish a complete
+stage from an interrupted attempt. The remaining downstream per-invocation
+journal files are transitional under ADR 0003; an append-format shared file
+would still reintroduce ambiguous partial writes.
 
 ## No aggregate store
 
@@ -35,8 +36,8 @@ No log.jsonl, no corpus file, no SQLite, no index. The run directories are
 the history: each is schema-stable and self-contained, carrying strictly more
 than the old aggregate lines did (seats, lens texts, per-invocation usage,
 verdicts). "Bench later" means a ~20-line script that globs `runs/*/` and
-decodes `plan.json` + `dossier.json` + `journal/*.json` — written the day a
-reader actually exists.
+decodes `plan.json`, `finder-stage.json`, `dossier.json`, and any remaining
+downstream journal files — written the day a reader actually exists.
 
 ## No cost governance
 
@@ -48,14 +49,16 @@ selection remain review policy, not cost governance. What survives is not cost
 control: #7's per-lens candidate caps and corrective-turn limits are
 output-volume and runaway protections and stay where #7 put them.
 
-Accounting is modular by construction: each journal file carries the raw
-usage exactly as the harness reports it — input/output tokens, cache
-read/write, cost, duration — per invocation, unaggregated. Derived totals
-live in two durable places: one Dossier-header line
+Accounting is modular by construction: each persisted completed-stage or
+downstream invocation outcome carries raw usage exactly as the harness reports
+it — input/output tokens, cache read/write, cost, duration — unaggregated.
+Finder accounting describes the completed stage attempt whose outputs feed the
+Dossier, not abandoned process attempts. Derived totals live in two durable
+places: one Dossier-header line
 (`cost $0.84 · 12 invocations · 6m 10s`) and the digest tally's cost + wall
 time. Live stderr may echo duration and cost already present on an
 AgentOutcome, plus stage wall time, as progress narration — not a third
-accounting store. Any future cost model is a script over journal files.
+accounting store. Any future cost model is a script over run artifacts.
 
 ## The human-readable Dossier
 
