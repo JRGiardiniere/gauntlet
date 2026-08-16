@@ -24,6 +24,29 @@ export interface FinderPromptTemplates {
   readonly sharedPromptTemplate: string
 }
 
+export type ResolvedFinderContext =
+  | {
+      readonly key: "standard"
+      readonly specification?: undefined
+    }
+  | {
+      readonly key: "interpretive-with-review-specification"
+      readonly specification: ReviewSpecification
+    }
+
+// One decision owns both cache partition identity and rendered context. A new
+// context variant cannot affect one without being represented in the other.
+export const resolveFinderContext = (
+  lens: FrozenLens,
+  specification: ReviewSpecification | undefined,
+): ResolvedFinderContext =>
+  lens.finderClass === "interpretive" && specification !== undefined
+    ? {
+        key: "interpretive-with-review-specification",
+        specification,
+      }
+    : { key: "standard" }
+
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
 )(function* () {
@@ -56,12 +79,11 @@ export const loadFinderPromptTemplates = Effect.fn(
 // lens tail diverges, so multiple finder invocations can share a provider
 // cache prefix without lens labels, run ids, or timestamps leaking ahead of
 // it. A Standard Finder never receives specification material (issue #73).
-export const assembleFinderPrompt = (
+export const assembleFinderContext = (
   template: string,
   target: ReviewTarget,
   reviewRoot: string,
-  lens: FrozenLens,
-  specification: ReviewSpecification | undefined,
+  context: ResolvedFinderContext,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const shared = yield* renderPromptTemplate(
@@ -81,14 +103,36 @@ export const assembleFinderPrompt = (
       ],
     )
     const sections = [shared]
-    if (lens.finderClass === "interpretive" && specification !== undefined) {
-      sections.push(renderSpecificationSection(specification))
+    if (context.specification !== undefined) {
+      sections.push(renderSpecificationSection(context.specification))
     }
-    sections.push(lens.promptText)
+    return sections.join("\n\n")
+  })
+
+export const assembleFinderAssignment = (lens: FrozenLens): string => {
+  const sections = [lens.promptText]
     if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
       sections.push(
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
       )
     }
-    return sections.join("\n\n")
-  })
+  return sections.join("\n\n")
+}
+
+export const assembleFinderPrompt = (
+  template: string,
+  target: ReviewTarget,
+  reviewRoot: string,
+  lens: FrozenLens,
+  specification: ReviewSpecification | undefined,
+): Effect.Effect<string, PromptAssemblyError> =>
+  assembleFinderContext(
+    template,
+    target,
+    reviewRoot,
+    resolveFinderContext(lens, specification),
+  ).pipe(
+    Effect.map((context) =>
+      `${context}\n\n${assembleFinderAssignment(lens)}`
+    ),
+  )

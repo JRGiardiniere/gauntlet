@@ -129,6 +129,13 @@ const bashParameters = Type.Object({
 
 export type BashArgs = Static<typeof bashParameters>
 
+const bashToolMetadata = {
+  name: "bash",
+  label: "bash",
+  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
+  parameters: bashParameters,
+}
+
 const combinedOutput = (stdout: string, stderr: string): string => {
   if (stdout === "") return stderr
   if (stderr === "") return stdout
@@ -137,10 +144,7 @@ const combinedOutput = (stdout: string, stderr: string): string => {
 
 const makeBashTool = (bash: Bash): ToolDefinition =>
   defineTool({
-    name: "bash",
-    label: "bash",
-    description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
-    parameters: bashParameters,
+    ...bashToolMetadata,
     // @effect-diagnostics-next-line asyncFunction:off
     execute: async (_toolCallId, args: BashArgs, signal) => {
       const { command, timeout } = args

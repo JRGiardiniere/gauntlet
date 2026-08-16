@@ -104,11 +104,11 @@ export const executeJudgment = Effect.fn(
       )
       yield* progress("invoking Judgment")
       return yield* invoke({
+        invocationId: `${plan.runId}-judgment`,
         seat,
         cwd: reviewWorkingDirectory,
         systemPrompt: EVALUATION_SYSTEM_PROMPT,
         prompt,
-        sessionId: `${plan.runId}-judgment`,
         contract: EmitJudgments,
         tools: JUDGMENT_TOOLS,
         deadlines: REVIEW_INVOCATION_DEADLINES,

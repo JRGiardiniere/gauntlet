@@ -104,4 +104,32 @@ sits between the shared block and the tail: it is identical for every
 interpretive lens in the run, so it extends the shared prefix rather than
 breaking it (interpretive finders simply share a longer prefix than standard
 ones). Warmup/fan-out sequencing, session-key sharing,
-and cache diagnostics are adapter mechanics (ADR 0002), not review shape.
+and cache diagnostics are operational mechanics (ADR 0002), not review
+semantics.
+
+The scheduler first loads one atomic completed-Finder-stage checkpoint. When
+it is absent or invalid, every planned Finder starts a fresh stage attempt and
+is partitioned by the complete resolved Seat and shared context shape: ordinary
+context, or ordinary context plus the frozen ReviewSpecification. A singleton
+runs directly. A larger partition starts one ordinary Finder first. Its first
+successfully decoded usage-bearing assistant `message_end` produces the total
+`PrefixObserved` scheduling signal. If the invocation settles or fails before
+that evidence, finalization produces `PrefixNotObserved` instead, so the
+partition cannot deadlock. `PrefixObserved` starts a fixed 1,500 ms best-effort
+settle delay; then every remaining ordinary Finder starts while the first
+continues concurrently. `PrefixNotObserved` skips only the delay.
+
+One provider-neutral cache-group identifier names the partition; an adapter may
+map it to a native key. Every Finder receives a complete prompt whose system
+prompt, tools, and shared user prefix are byte-identical up to the Lens tail.
+A missing or failed cache changes cost only: all Finders retain the ordinary
+invocation retry, termination, output, and coverage behavior.
+If the adapter cannot decode enough evidence to construct an honest typed
+outcome, the review fails rather than journaling fabricated accounting data.
+Only after every Finder completes does Gauntlet atomically persist the ordered
+Finder outcomes. Resume reuses
+the whole completed stage or reruns the whole stage; it never combines partial
+Finder work across process attempts. Rerunning the stage invalidates every
+transitional downstream journal entry derived from the prior Finder output.
+Dossier accounting includes the completed Finder attempt that supplied its
+results, not abandoned-attempt provider spend.

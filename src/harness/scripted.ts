@@ -74,7 +74,7 @@ export interface ScriptedPrompt {
 }
 
 export interface ScriptedSession {
-  // Claimed by the first open whose config.sessionId contains this key —
+  // Claimed by the first open whose config.invocationId contains this key —
   // lets a script address one invocation of a concurrent fan-out. Unkeyed
   // sessions are consumed in open order, as before.
   readonly forSession?: string
@@ -95,12 +95,14 @@ export interface RecordedPrompt {
   // 1-based open order — pairs the prompt with configs[openIndex - 1] even
   // when concurrent sessions interleave their prompt calls.
   readonly openIndex: number
-  readonly sessionId: string | undefined
+  readonly invocationId: string
+  readonly cacheGroupId: string | undefined
   readonly text: string
 }
 
 export interface RecordedInspection {
-  readonly sessionId: string | undefined
+  readonly invocationId: string
+  readonly cacheGroupId: string | undefined
   readonly toolName: "read" | "bash"
   readonly args: unknown
   readonly isError: boolean
@@ -185,7 +187,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const claimed = new Set<number>()
 
   const claimSession = (
-    sessionId: string | undefined,
+    invocationId: string,
   ): ScriptedSession | undefined => {
     let unkeyed: number | undefined
     for (const [index, session] of behavior.sessions.entries()) {
@@ -194,7 +196,9 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         unkeyed = unkeyed ?? index
         continue
       }
-      if (sessionId !== undefined && sessionId.includes(session.forSession)) {
+      if (
+        invocationId.includes(session.forSession)
+      ) {
         claimed.add(index)
         return session
       }
@@ -207,7 +211,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const open: HarnessSessionFactoryContract["open"] = (config) =>
     Effect.gen(function* () {
       const sessionIndex = openIndex + 1
-      const behaviorForSession = claimSession(config.sessionId)
+      const behaviorForSession = claimSession(config.invocationId)
       openIndex += 1
       log.push(`open:${String(sessionIndex)}`)
       configs.push(config)
@@ -302,7 +306,9 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                     toolName: config.emitTool.name,
                     args: step.args,
                   })
-                  if (step.valid) config.emitTool.execute(step.args)
+                  if (step.valid) {
+                    config.emitTool.execute(step.args)
+                  }
                 })
                 break
               }
@@ -325,7 +331,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                   : yield* executeWorkspaceTool(workspace, config, step)
                 yield* Effect.sync(() => {
                   inspections.push({
-                    sessionId: config.sessionId,
+                    invocationId: config.invocationId,
+                    cacheGroupId: config.cacheGroupId,
                     toolName: step.toolName,
                     args: step.args,
                     isError: recorded.isError,
@@ -391,7 +398,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         prompt: (text) => {
           prompts.push({
             openIndex: sessionIndex,
-            sessionId: config.sessionId,
+            invocationId: config.invocationId,
+            cacheGroupId: config.cacheGroupId,
             text,
           })
           requestedPrompts += 1

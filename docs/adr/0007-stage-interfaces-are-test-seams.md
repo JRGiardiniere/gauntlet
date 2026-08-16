@@ -14,13 +14,13 @@ run-directory layout, resume, plus a small number of end-to-end journeys.
 
 The second half of the decision is proportionality. Gauntlet is a personal
 tool that emits a complete reportable chain on every run — frozen ReviewPlan,
-per-invocation journal artifacts (ADR 0003), run log, Dossier. Rare failure
-modes are diagnosable from those artifacts after the fact, which is cheaper
-than maintaining pre-emptive edge-case tests for them. Tests cover the happy
-path, load-bearing invariants (candidate accounting, journal reuse, degraded
-seats), and pure decision logic where cases are cheap; they do not chase
-exhaustiveness. This is the testing corollary of the no-speculative-safeguards
-directive (#8).
+completed-stage and downstream invocation artifacts (ADR 0003), run log, and
+Dossier. Rare failure modes are diagnosable from those artifacts after the
+fact, which is cheaper than maintaining pre-emptive edge-case tests for them.
+Tests cover the happy path, load-bearing invariants (candidate accounting,
+checkpoint reuse, degraded seats), and pure decision logic where cases are
+cheap; they do not chase exhaustiveness. This is the testing corollary of the
+no-speculative-safeguards directive (#8).
 
 ## Consequences
 

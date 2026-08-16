@@ -14,6 +14,7 @@ import { readOptionalArtifactText } from "./artifact.ts"
 export interface RunPaths {
   readonly root: string
   readonly plan: string
+  readonly finderStage: string
   readonly journalDirectory: string
   readonly dossier: string
   readonly dossierMarkdown: string
@@ -26,8 +27,8 @@ export interface LoadedRun {
   readonly plan: ReviewPlan
 }
 
-// Resume additionally needs to know whether unpaid work remains: a complete
-// run replays from its artifacts without paying for anything.
+// Resume additionally needs to know whether the final artifacts already exist:
+// a complete run replays them without re-entering the pipeline.
 export interface ResumableRun extends LoadedRun {
   readonly complete: boolean
 }
@@ -50,6 +51,7 @@ export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunP
   return {
     root,
     plan: path.join(root, "plan.json"),
+    finderStage: path.join(root, "finder-stage.json"),
     journalDirectory: path.join(root, "journal"),
     dossier: path.join(root, "dossier.json"),
     dossierMarkdown: path.join(root, "dossier.md"),

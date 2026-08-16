@@ -36,10 +36,10 @@ export const FrozenLens = Schema.Struct({
 export type FrozenLens = typeof FrozenLens.Type
 
 // The fully resolved instructions governing one review — semantics-and-spend
-// fields only — persisted once at submission; resume reuses completed paid
-// work when the target is unchanged, under the currently installed code
-// (CONTEXT.md). Delivery destination is not part of the plan, and neither
-// is any budget or cost field (ADR 0006).
+// fields only — persisted once at submission. Resume may continue from a
+// completed semantic checkpoint when the target is unchanged, under the
+// currently installed code (CONTEXT.md). Delivery destination is not part of
+// the plan, and neither is any budget or cost field (ADR 0006).
 export const ReviewPlan = Schema.Struct({
   runId: Schema.NonEmptyString,
   // The diff is stored exactly once, inside the target (ADR 0006).

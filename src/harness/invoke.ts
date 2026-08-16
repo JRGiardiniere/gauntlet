@@ -8,6 +8,7 @@ import * as Function from "effect/Function"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import {
   type AgentOutcome,
   type AgentUsage,
@@ -40,17 +41,30 @@ export interface InvocationDeadlines {
 }
 
 export interface InvokeInput<O> {
+  readonly invocationId: string
   readonly seat: Seat
   readonly cwd: string
   readonly systemPrompt: string
   readonly prompt: string
-  readonly sessionId?: string
+  readonly cacheGroupId?: string
   readonly contract: OutputContract<O>
   readonly tools: ReadonlyArray<"read" | "bash">
   readonly deadlines: InvocationDeadlines
   // Explicit cancellation provenance. Ordinary fiber interruption remains
   // interruption; it is not relabeled as an AgentOutcome.
   readonly signal?: AbortSignal
+}
+
+export type PrefixSignal = Data.TaggedEnum<{
+  PrefixObserved: Record<never, never>
+  PrefixNotObserved: Record<never, never>
+}>
+
+export const PrefixSignal = Data.taggedEnum<PrefixSignal>()
+
+export interface RunningInvocation<O> {
+  readonly firstResponse: Effect.Effect<PrefixSignal>
+  readonly outcome: Effect.Effect<AgentOutcome<O>, InvocationFailure>
 }
 
 interface TerminalEvidence {
@@ -145,7 +159,10 @@ const reduceCapture = (
           })
         }
         case "tool_execution_start": {
-          const active = { ...common, acceptedActivity: true }
+          const active = {
+            ...common,
+            acceptedActivity: true,
+          }
           if (event.toolName !== fact.emitToolName) {
             return withCommon(state, active)
           }
@@ -263,9 +280,14 @@ const bestEffortDispose = (
 
 const openCapturedSession = Effect.fn(
   "gauntlet.invocation.open_captured_session",
-)(function* <O>(input: InvokeInput<O>, capture: CaptureAccumulator) {
+)(function* <O>(
+  input: InvokeInput<O>,
+  capture: CaptureAccumulator,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
+) {
   const factory = yield* HarnessSessionFactory
   const openConfig = {
+    invocationId: input.invocationId,
     seat: input.seat,
     cwd: input.cwd,
     systemPrompt: input.systemPrompt,
@@ -280,12 +302,11 @@ const openCapturedSession = Effect.fn(
     toolTimeoutMillis: input.deadlines.toolMillis,
     bashTimeoutMillis: input.deadlines.bashMillis,
   }
+  const sessionConfig = input.cacheGroupId === undefined
+    ? openConfig
+    : { ...openConfig, cacheGroupId: input.cacheGroupId }
   const session = yield* Effect.acquireRelease(
-    factory.open(
-      input.sessionId === undefined
-        ? openConfig
-        : { ...openConfig, sessionId: input.sessionId },
-    ),
+    factory.open(sessionConfig),
     (opened) =>
       Effect.sync(() => {
         try {
@@ -310,6 +331,12 @@ const openCapturedSession = Effect.fn(
           event,
           emitToolName: input.contract.toolName,
         })
+        if (event.type === "message_end" && prefixSignal !== undefined) {
+          Deferred.doneUnsafe(
+            prefixSignal,
+            Effect.succeed(PrefixSignal.PrefixObserved()),
+          )
+        }
         Queue.offerUnsafe(events, event)
       }),
     ),
@@ -419,8 +446,9 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
   absoluteDeadline: number,
   capture: CaptureAccumulator,
   currentSession: CurrentSession,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
 ) {
-  const opened = yield* openCapturedSession(input, capture).pipe(
+  const opened = yield* openCapturedSession(input, capture, prefixSignal).pipe(
     Effect.timeoutOption(Duration.millis(input.deadlines.startupMillis)),
   )
   if (Option.isNone(opened)) {
@@ -709,13 +737,23 @@ const finalizeOutcome = <O>(
       : { ...outcome, output: output.value }
   })
 
-export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
+interface InvocationLifecycle {
+  readonly termination: TerminationType
+  readonly captures: ReadonlyArray<CaptureAccumulator>
+  readonly diagnostics: ReadonlyArray<string>
+  readonly durationMillis: number
+}
+
+// Startup, one fresh-session retry, cancellation, overall budget, disposal,
+// and timing stay in one engine for both ordinary and signaled invocations.
+const runInvocationLifecycle = <O>(
   input: InvokeInput<O>,
-): Effect.fn.Return<
-  AgentOutcome<O>,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
+): Effect.Effect<
+  InvocationLifecycle,
   InvocationFailure,
   HarnessSessionFactory
-> {
+> => Effect.gen(function* () {
   yield* validateInput(input)
   const startedAt = yield* Clock.currentTimeMillis
   const absoluteDeadline = startedAt + input.deadlines.overallMillis
@@ -727,7 +765,13 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
     const capture = makeCaptureAccumulator()
     captures.push(capture)
     return Effect.scoped(
-      runAttempt(input, absoluteDeadline, capture, currentSession),
+      runAttempt(
+        input,
+        absoluteDeadline,
+        capture,
+        currentSession,
+        prefixSignal,
+      ),
     ).pipe(
       Effect.ensuring(
         Effect.sync(() => {
@@ -800,11 +844,63 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
     Effect.raceFirst(budgetEnding, cancellationEnding),
   )
   const finishedAt = yield* Clock.currentTimeMillis
-  return yield* finalizeOutcome(
-    input,
+  return {
     termination,
     captures,
     diagnostics,
-    Math.max(0, finishedAt - startedAt),
+    durationMillis: Math.max(0, finishedAt - startedAt),
+  }
+})
+
+const invokeInternal = Effect.fn(
+  "gauntlet.invocation.invoke_internal",
+)(function* <O>(
+  input: InvokeInput<O>,
+  prefixSignal?: Deferred.Deferred<PrefixSignal>,
+): Effect.fn.Return<
+  AgentOutcome<O>,
+  InvocationFailure,
+  HarnessSessionFactory
+> {
+  const lifecycle = yield* runInvocationLifecycle(input, prefixSignal)
+  return yield* finalizeOutcome(
+    input,
+    lifecycle.termination,
+    lifecycle.captures,
+    lifecycle.diagnostics,
+    lifecycle.durationMillis,
   )
+})
+
+export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
+  input: InvokeInput<O>,
+): Effect.fn.Return<
+  AgentOutcome<O>,
+  InvocationFailure,
+  HarnessSessionFactory
+> {
+  return yield* invokeInternal(input)
+})
+
+// Starts one ordinary invocation in the current scope and exposes only the
+// one scheduling fact Finder orchestration needs. Provider events stay private
+// to this module, and joining `outcome` never starts a second invocation.
+export const invokeSignaled = Effect.fn(
+  "gauntlet.invocation.invoke_signaled",
+)(function* <O>(input: InvokeInput<O>): Effect.fn.Return<
+  RunningInvocation<O>,
+  never,
+  HarnessSessionFactory | Scope.Scope
+> {
+  const signal = yield* Deferred.make<PrefixSignal>()
+  const fiber = yield* invokeInternal(input, signal).pipe(
+    Effect.ensuring(
+      Deferred.succeed(signal, PrefixSignal.PrefixNotObserved()),
+    ),
+    Effect.forkScoped,
+  )
+  return {
+    firstResponse: Deferred.await(signal),
+    outcome: Fiber.join(fiber),
+  }
 })

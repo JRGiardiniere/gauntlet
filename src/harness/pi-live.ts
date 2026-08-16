@@ -254,9 +254,9 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             // Retry ownership is ADR 0002, stated here rather than inherited
             // from Pi defaults: agent-level retry on (3 attempts),
             // provider-level 0 — provider retries above 0 can absorb quota
-            // errors invisibly. Compaction off: it rewrites the shared
-            // conversation prefix every fan-out agent's cache warmup paid
-            // for; overflow surfaces honestly as a "length" stop instead.
+            // errors invisibly. Compaction off: it rewrites the shared prompt
+            // prefix each Finder partition relies on for cache reuse; overflow
+            // surfaces honestly as a "length" stop instead.
             const settingsManager = SettingsManager.inMemory({
               transport: "sse",
               compaction: { enabled: false },
@@ -317,37 +317,33 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             // one interpreter per session, discarded with it. Pi's non-tool
             // plumbing below (resource loader, session manager) keeps the
             // real snapshot path — host-side only, never model-visible.
-            // The workspace exists exactly when the session requested any
-            // filesystem tool; a tool-less session never pays for an overlay
-            // or interpreter.
             const workspace = session.tools.length === 0
               ? undefined
               : await makeReviewWorkspace(session.cwd)
-            const customTools = [
-              ...(workspace === undefined
-                ? []
-                : session.tools.map((tool) =>
-                    tool === "read"
-                      ? withToolCallDeadline(
-                          workspace.readTool,
-                          session.toolTimeoutMillis,
-                        )
-                      : withToolCallDeadline(
-                          workspace.bashTool,
-                          session.bashTimeoutMillis,
-                        ),
-                  )),
-              withToolCallDeadline(
-                emitToolDefinition,
-                session.toolTimeoutMillis,
-              ),
-            ]
+            const workspaceTools = workspace === undefined
+              ? []
+              : session.tools.map((tool) =>
+                  tool === "read"
+                    ? withToolCallDeadline(
+                        workspace.readTool,
+                        session.toolTimeoutMillis,
+                      )
+                    : withToolCallDeadline(
+                        workspace.bashTool,
+                        session.bashTimeoutMillis,
+                      ),
+                )
+            const emitTool = withToolCallDeadline(
+              emitToolDefinition,
+              session.toolTimeoutMillis,
+            )
+            const customTools = [...workspaceTools, emitTool]
 
             const sessionManager = SessionManager.inMemory(
               session.cwd,
-              session.sessionId === undefined
+              session.cacheGroupId === undefined
                 ? undefined
-                : { id: session.sessionId },
+                : { id: session.cacheGroupId },
             )
             // Every definition is already the non-generic `ToolDefinition`:
             // ReviewWorkspace exposes the erasure, and withToolCallDeadline

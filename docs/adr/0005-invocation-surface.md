@@ -26,11 +26,12 @@ specification-ingress spec (#70).
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
-  (skip-what-exists per ADR 0003), defaulting to the latest incomplete run.
-  It reuses completed paid work when the target is byte-identical, under the
-  currently installed shared prompts, schemas, tools, and pipeline code
-  (amended per #52). A changed target reports resume unavailable and starts
-  a new review.
+  (continue-from-checkpoint per ADR 0003), defaulting to the latest incomplete
+  run. It reuses completed semantic stages when the target is byte-identical,
+  under the currently installed shared prompts, schemas, tools, and pipeline
+  code (amended per #52). Active model conversations and partial Finder
+  fan-outs are never resumed. A changed target reports resume unavailable and
+  starts a new review.
 - `deliver` posts an already-completed run's Dossier to the PR — #8's
   "run directory is the backstop" made actionable, never re-paying a review.
 - `config set` and `config unset` explicitly manage the standing choices in

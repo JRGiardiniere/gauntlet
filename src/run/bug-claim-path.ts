@@ -134,11 +134,11 @@ export const executeBugClaimPath = Effect.fn(
           const prompt = yield* assemblePoolPrompt(promptTemplates.pool, claims)
           yield* progress("invoking Pool")
           return yield* invoke({
+            invocationId: `${plan.runId}-pool`,
             seat,
             cwd: reviewWorkingDirectory,
             systemPrompt: EVALUATION_SYSTEM_PROMPT,
             prompt,
-            sessionId: `${plan.runId}-pool`,
             contract: EmitPool,
             tools: POOL_TOOLS,
             deadlines: REVIEW_INVOCATION_DEADLINES,
@@ -213,13 +213,12 @@ export const executeBugClaimPath = Effect.fn(
                 `invoking Verification bundle ${String(bundleNumber)}`,
               )
               return yield* invoke({
+                invocationId:
+                  `${plan.runId}-verification-${String(bundleNumber)}`,
                 seat: verificationSeat,
                 cwd: reviewWorkingDirectory,
                 systemPrompt: EVALUATION_SYSTEM_PROMPT,
                 prompt,
-                // Bundles run concurrently, so a shared cache partition buys
-                // nothing; per-bundle ids keep logs and scripts attributable.
-                sessionId: `${plan.runId}-verification-${String(bundleNumber)}`,
                 contract: EmitVerdicts,
                 tools: VERIFICATION_TOOLS,
                 deadlines: REVIEW_INVOCATION_DEADLINES,

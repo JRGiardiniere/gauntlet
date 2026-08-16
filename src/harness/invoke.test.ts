@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -9,7 +10,13 @@ import {
   type EmitToolArgs,
   InvocationSetupError,
 } from "./harness-session.ts"
-import { invoke, type InvokeInput } from "./invoke.ts"
+import {
+  invoke,
+  invokeSignaled,
+  type InvokeInput,
+  PrefixSignal,
+  type RunningInvocation,
+} from "./invoke.ts"
 import {
   EmitFindings,
   type FindingsOutput,
@@ -23,6 +30,7 @@ import {
 } from "./scripted.ts"
 
 const INPUT: InvokeInput<FindingsOutput> = {
+  invocationId: "fixture-invocation",
   seat: "fixture/fixture-model:low",
   cwd: "/fixture/repo",
   systemPrompt: "finder system prompt",
@@ -126,7 +134,130 @@ const cleanStop = (): ScriptedPrompt => ({
   settles: "after-events",
 })
 
+const startSignaled = (scripted: ReturnType<typeof makeScripted>) =>
+  Effect.gen(function* () {
+    const started = yield* Deferred.make<RunningInvocation<FindingsOutput>>()
+    const owner = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const running = yield* invokeSignaled(INPUT).pipe(
+          Effect.provide(scriptedLayer(scripted)),
+        )
+        yield* Deferred.succeed(started, running)
+        return yield* Effect.never
+      }),
+    ).pipe(Effect.forkChild)
+    return { running: yield* Deferred.await(started), owner }
+  })
+
 describe("invoke (scripted HarnessSession, TestClock)", () => {
+  it.effect("signals the first metered response while the invocation keeps running", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [{
+          prompts: [{
+            events: [
+              { afterMillis: 100, kind: "message_start" },
+              { afterMillis: 200, kind: "message_end", stopReason: "stop" },
+            ],
+            settles: "never",
+          }],
+        }],
+      })
+      const { running, owner } = yield* startSignaled(scripted)
+      const signalFiber = yield* Effect.forkChild(running.firstResponse)
+      for (let step = 0; step < 8 && signalFiber.pollUnsafe() === undefined; step += 1) {
+        yield* TestClock.adjust("100 millis")
+        yield* Effect.yieldNow
+      }
+
+      expect(PrefixSignal.$is("PrefixObserved")(
+        yield* Fiber.join(signalFiber),
+      )).toBe(true)
+      expect(scripted.log).not.toContain("dispose:1")
+      yield* Fiber.interrupt(owner)
+    }))
+
+  it.effect("signals not-observed when setup fails", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [{ failOpen: "provider unavailable", prompts: [] }],
+      })
+      const running = yield* invokeSignaled(INPUT).pipe(
+        Effect.provide(scriptedLayer(scripted)),
+      )
+
+      expect(PrefixSignal.$is("PrefixNotObserved")(
+        yield* running.firstResponse,
+      )).toBe(true)
+      expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
+        InvocationSetupError,
+      )
+    }))
+
+  it.effect("signals not-observed when an invocation settles without metered usage", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [{
+          prompts: [{
+            events: [{ afterMillis: 0, kind: "message_start" }],
+            settles: "after-events",
+          }],
+        }],
+      })
+      const running = yield* invokeSignaled(INPUT).pipe(
+        Effect.provide(scriptedLayer(scripted)),
+      )
+
+      const signal = yield* running.firstResponse
+      expect(PrefixSignal.$is("PrefixNotObserved")(signal)).toBe(true)
+      expect(yield* running.firstResponse).toEqual(signal)
+      expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
+        AdapterContractViolation,
+      )
+    }))
+
+  it.effect("signals not-observed after the final first-response timeout", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [
+          { prompts: [{ events: [], settles: "never" }] },
+          { prompts: [{ events: [], settles: "never" }] },
+        ],
+      })
+      const running = yield* invokeSignaled(INPUT).pipe(
+        Effect.provide(scriptedLayer(scripted)),
+      )
+      const signalFiber = yield* Effect.forkChild(running.firstResponse)
+      yield* TestClock.adjust("20 seconds")
+      yield* Effect.yieldNow
+
+      expect(PrefixSignal.$is("PrefixNotObserved")(
+        yield* Fiber.join(signalFiber),
+      )).toBe(true)
+      const outcome = yield* running.outcome.pipe(Effect.orDie)
+      expect(Termination.guards.FirstResponseTimeout(outcome.termination)).toBe(
+        true,
+      )
+    }))
+
+  it.effect("finalizes the signal when its owning scope is interrupted", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [{ prompts: [{ events: [], settles: "never" }] }],
+      })
+      const { running, owner } = yield* startSignaled(scripted)
+      const signalFiber = yield* Effect.forkChild(running.firstResponse)
+      for (let step = 0; step < 8 && !scripted.log.includes("prompt:1.1"); step += 1) {
+        yield* Effect.yieldNow
+      }
+      expect(scripted.log).toContain("prompt:1.1")
+      yield* Fiber.interrupt(owner)
+
+      expect(PrefixSignal.$is("PrefixNotObserved")(
+        yield* Fiber.join(signalFiber),
+      )).toBe(true)
+    }))
+
   it.effect("retries one first-response stall in a fresh session", () =>
     Effect.gen(function* () {
       const { outcome, scripted } = yield* run({

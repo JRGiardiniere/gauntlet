@@ -8,11 +8,6 @@ export const Seat = Schema.String.check(
 )
 export type Seat = typeof Seat.Type
 
-// Thinking effort changes inference policy, not the provider/model cache
-// partition. The grammar guarantees the final colon introduces the effort.
-export const modelIdentityOfSeat = (seat: Seat): string =>
-  seat.slice(0, seat.lastIndexOf(":"))
-
 // The portable lowercase-kebab-case filename is the sole recipe name; the
 // JSON never repeats it (ADR 0005).
 export const RecipeName = Schema.String.check(

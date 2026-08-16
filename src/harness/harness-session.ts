@@ -107,6 +107,9 @@ export interface EmitToolSpec {
 }
 
 export interface SessionConfig {
+  // Stable identity for attribution, scripted selection, and diagnostics.
+  // It carries no provider cache semantics.
+  readonly invocationId: string
   // The invocation's resolved seat, frozen in ReviewPlan. The live adapter
   // resolves it through Pi; the factory carries no independently configured
   // ambient model.
@@ -119,10 +122,9 @@ export interface SessionConfig {
   // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
   // string as "use the stock prompt" (#4 §2).
   readonly systemPrompt: string
-  // The provider prompt-cache partition key (#4 §6). Absent means Pi mints a
-  // fresh id; fan-outs that want cache sharing pass one shared key per model
-  // group.
-  readonly sessionId?: string
+  // Provider-neutral cache partition identity. An adapter may map this to a
+  // native session/cache key. Ordinary invocations leave it absent.
+  readonly cacheGroupId?: string
   readonly emitTool: EmitToolSpec
   // The complete non-emit capability set — which tools the session gets,
   // always ReviewWorkspace-backed. These are recreated as custom Pi tools
