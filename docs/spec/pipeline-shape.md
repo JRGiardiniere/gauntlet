@@ -130,5 +130,7 @@ outcome, the review fails rather than journaling fabricated accounting data.
 Only after every Finder completes does Gauntlet atomically persist the ordered
 Finder outcomes and that successful attempt's preload outcomes. Resume reuses
 the whole completed stage or reruns the whole stage; it never combines partial
-Finder work across process attempts. Dossier accounting includes the completed
-Finder attempt that supplied its results, not abandoned-attempt provider spend.
+Finder work across process attempts. Rerunning the stage invalidates every
+transitional downstream journal entry derived from the prior Finder output.
+Dossier accounting includes the completed Finder attempt that supplied its
+results, not abandoned-attempt provider spend.

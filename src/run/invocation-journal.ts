@@ -1,6 +1,7 @@
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
@@ -53,6 +54,22 @@ const invocationPath = Effect.fn(
 )(function* (journalDirectory: string, invocationKey: string) {
   const path = yield* Path.Path
   return path.join(journalDirectory, `${encodeURIComponent(invocationKey)}.json`)
+})
+
+// Downstream outcomes depend on the exact completed Finder stage. When that
+// checkpoint cannot be reused, none of its dependent journal entries can be
+// reused either; clear the owned directory before the replacement fan-out.
+export const clearInvocationJournal = Effect.fn(
+  "gauntlet.invocation_journal.clear",
+)(function* (journalDirectory: string) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const entries = yield* fs.readDirectory(journalDirectory)
+  yield* Effect.forEach(
+    entries,
+    (entry) => fs.remove(path.join(journalDirectory, entry), { recursive: true }),
+    { concurrency: "unbounded", discard: true },
+  )
 })
 
 // `output` has the exact type of OutputContract.schema, so the contract that

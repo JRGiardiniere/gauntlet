@@ -906,6 +906,7 @@ export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
 interface PreloadAttempt {
   readonly termination: TerminationType
   readonly conversationPrefix?: ReplayableConversationPrefix
+  readonly acknowledgment?: string
 }
 
 const runPreloadAttempt = Effect.fn(
@@ -981,13 +982,13 @@ const runPreloadAttempt = Effect.fn(
 
   switch (common.terminal.stopReason) {
     case "stop": {
-      const conversationPrefix = session.captureConversationPrefix()
-      if (conversationPrefix === undefined) {
+      const captured = session.captureConversationPrefix()
+      if (captured === undefined) {
         return yield* new AdapterContractViolation({
           reason: "preload completed without a replayable assistant response",
         })
       }
-      if (conversationPrefix.assistantText !== input.expectedAcknowledgment) {
+      if (captured.assistantText !== input.expectedAcknowledgment) {
         capture.dispatch({
           type: "diagnostic",
           message: `preload acknowledgment did not exactly match the configured contract; no prefix was reused`,
@@ -998,7 +999,8 @@ const runPreloadAttempt = Effect.fn(
       }
       return {
         termination: Termination.cases.Completed.make({}),
-        conversationPrefix,
+        conversationPrefix: captured.prefix,
+        acknowledgment: captured.assistantText,
       } satisfies PreloadAttempt
     }
     case "length": {
@@ -1036,7 +1038,7 @@ const runPreloadAttempt = Effect.fn(
 
 const finalizePreloadOutcome = (
   termination: TerminationType,
-  conversationPrefix: ReplayableConversationPrefix | undefined,
+  acknowledgment: string | undefined,
   captures: ReadonlyArray<CaptureAccumulator>,
   globalDiagnostics: ReadonlyArray<string>,
   durationMillis: number,
@@ -1054,11 +1056,11 @@ const finalizePreloadOutcome = (
       durationMillis,
       diagnostics,
     }
-    return conversationPrefix === undefined
+    return acknowledgment === undefined
       ? outcome
       : {
           ...outcome,
-          output: { acknowledgment: conversationPrefix.assistantText },
+          output: { acknowledgment },
         }
   })
 
@@ -1082,7 +1084,7 @@ export const preloadConversation = Effect.fn(
   )
   const outcome = yield* finalizePreloadOutcome(
     lifecycle.result.termination,
-    lifecycle.result.conversationPrefix,
+    lifecycle.result.acknowledgment,
     lifecycle.captures,
     lifecycle.diagnostics,
     lifecycle.durationMillis,

@@ -6,12 +6,14 @@ import * as Queue from "effect/Queue"
 import { type BashArgs, makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import type { ReviewWorkspace } from "../workspace/review-workspace.ts"
 import {
+  type CapturedConversationPrefix,
   type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
+  makeReplayableConversationPrefix,
   type ReplayableConversationPrefix,
   type SessionConfig,
   type StopReason,
@@ -274,7 +276,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       const rows: Array<unknown> = []
       const promptRequests = yield* Queue.unbounded<PromptRequest>()
       let requestedPrompts = 0
-      let capturedPrefix: ReplayableConversationPrefix | undefined
+      let capturedPrefix: CapturedConversationPrefix | undefined
 
       const fire = (event: HarnessEvent) => {
         for (const listener of listeners) listener(event)
@@ -397,10 +399,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           yield* Effect.sync(() => {
             const assistantText = prompt.assistantText
             if (assistantText !== undefined && assistantText.trim() !== "") {
-              const prefix = {
-                assistantText,
-              }
-              capturedPrefix = prefix
+              const prefix = makeReplayableConversationPrefix()
+              capturedPrefix = { prefix, assistantText }
               prefixes.push({
                 prefix,
                 userPrompt: request.text,

@@ -21,12 +21,14 @@ import {
 } from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
+  type CapturedConversationPrefix,
   type EmitToolArgs,
   type HarnessEvent,
   type HarnessSession,
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
+  makeReplayableConversationPrefix,
   type ReplayableConversationPrefix,
   type SessionConfig,
   StopReason,
@@ -201,7 +203,7 @@ const assistantText = (message: PiAssistantMessage): string =>
 const capturePiConversationPrefix = (
   sessionManager: SessionManager,
   prefixes: WeakMap<ReplayableConversationPrefix, PiConversationPrefix>,
-): ReplayableConversationPrefix | undefined => {
+): CapturedConversationPrefix | undefined => {
   const entries = sessionManager.getEntries().filter(
     (entry): entry is SessionMessageEntry => entry.type === "message",
   )
@@ -212,9 +214,9 @@ const capturePiConversationPrefix = (
   }
   const text = assistantText(assistant)
   if (text.trim() === "") return undefined
-  const prefix = { assistantText: text }
+  const prefix = makeReplayableConversationPrefix()
   prefixes.set(prefix, { user, assistant })
-  return prefix
+  return { prefix, assistantText: text }
 }
 
 export const makeLivePiFactory = (): HarnessSessionFactoryContract => {

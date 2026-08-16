@@ -175,7 +175,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       expect(result.outcome.output).toEqual({
         acknowledgment: "Context loaded.",
       })
-      expect(result.conversationPrefix?.assistantText).toBe("Context loaded.")
+      expect(result.conversationPrefix).toBeDefined()
       expect(scripted.configs[0]?.mode).toBe("preload")
       expect(scripted.prefixes[0]?.userPrompt).toBe(
         "shared finder context\n\n## Finder context preload",

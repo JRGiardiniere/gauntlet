@@ -33,9 +33,16 @@ import {
   EmitFindings,
 } from "../harness/output-contract.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
-import { finderInvocationsInPlan } from "./invocation-journal.ts"
+import {
+  clearInvocationJournal,
+  finderInvocationsInPlan,
+} from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
-import { counted, invocationTrail } from "./progress-text.ts"
+import {
+  counted,
+  invocationTrail,
+  progressDetail,
+} from "./progress-text.ts"
 import type { RunPaths } from "./run-record.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
@@ -117,6 +124,11 @@ const readCompletedFinderStage = Effect.fn(
   return Option.some({ finders, preloads: decoded.value.preloads })
 })
 
+const reportFinderDone = (result: FinderResult) =>
+  progress(
+    `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome.durationMillis, result.outcome.usage.costUsd, result.outcome.termination)}`,
+  )
+
 // A completed Finder fan-out is the first resumable semantic checkpoint.
 // Partial Finder outcomes and preload attempts never participate in control
 // flow: absent or invalid stage state reruns the whole fan-out from scratch.
@@ -126,8 +138,13 @@ export const executeFinders = Effect.fn(
   const completed = yield* readCompletedFinderStage(plan, paths.finderStage)
   if (Option.isSome(completed)) {
     yield* progress("reusing completed Finder stage")
+    yield* Effect.forEach(completed.value.finders, reportFinderDone, {
+      discard: true,
+    })
     return completed.value
   }
+
+  yield* clearInvocationJournal(paths.journalDirectory)
 
   const invocations = finderInvocationsInPlan(plan)
   const templates = yield* Effect.cached(loadFinderPromptTemplates())
@@ -138,16 +155,19 @@ export const executeFinders = Effect.fn(
     invocation: (typeof invocations)[number],
     cacheGroupId: string,
     conversationPrefix: ReplayableConversationPrefix | undefined,
+    sharedContext: string | undefined,
   ) {
     const promptTemplates = yield* templates
     const prompt = conversationPrefix === undefined
-      ? yield* assembleFinderPrompt(
-          promptTemplates.sharedPromptTemplate,
-          plan.target,
-          REVIEW_WORKSPACE_ROOT,
-          invocation.lens,
-          plan.specification,
-        )
+      ? sharedContext === undefined
+        ? yield* assembleFinderPrompt(
+            promptTemplates.sharedPromptTemplate,
+            plan.target,
+            REVIEW_WORKSPACE_ROOT,
+            invocation.lens,
+            plan.specification,
+          )
+        : `${sharedContext}\n\n${assembleFinderAssignment(invocation.lens)}`
       : assembleFinderAssignment(invocation.lens)
     yield* progress(`invoking finder ${invocation.lens.name}`)
     const invokeInput = {
@@ -166,9 +186,7 @@ export const executeFinders = Effect.fn(
         : { ...invokeInput, conversationPrefix },
     )
     const outcome = enforceCandidateCap(invocation.lens, invoked)
-    yield* progress(
-      `finder ${invocation.lens.name} done — ${counted(outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
-    )
+    yield* reportFinderDone({ lens: invocation.lens, outcome })
     return { invocation, outcome }
   })
 
@@ -186,6 +204,7 @@ export const executeFinders = Effect.fn(
         const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
         let conversationPrefix: ReplayableConversationPrefix | undefined
         let preloadOutcome: AgentOutcomeType<PreloadOutput> | undefined
+        let sharedContext: string | undefined
         const [first, second] = group
         if (first !== undefined && second !== undefined) {
           const promptTemplates = yield* templates
@@ -195,6 +214,7 @@ export const executeFinders = Effect.fn(
             REVIEW_WORKSPACE_ROOT,
             resolveFinderContext(first.lens, plan.specification),
           )
+          sharedContext = context
           yield* progress(
             `invoking finder preload (${String(group.length)} followers)`,
           )
@@ -216,7 +236,9 @@ export const executeFinders = Effect.fn(
                   cacheGroupId,
                   reason: error.reason,
                 })
-                yield* progress(`finder preload unavailable — ${error.reason}`)
+                yield* progress(
+                  `finder preload unavailable — ${progressDetail(error.reason)}`,
+                )
                 return Option.none()
               })),
           )
@@ -240,6 +262,7 @@ export const executeFinders = Effect.fn(
               invocation,
               cacheGroupId,
               conversationPrefix,
+              sharedContext,
             ).pipe(Effect.mapError((error) => ({ invocation, error }))),
           { concurrency: "unbounded" },
         )

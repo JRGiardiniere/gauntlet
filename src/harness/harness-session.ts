@@ -81,7 +81,7 @@ export interface HarnessSession {
   // recent successful prompt. The token is opaque to orchestration: only the
   // factory that created it knows how to replay its transport messages.
   readonly captureConversationPrefix: () =>
-    | ReplayableConversationPrefix
+    | CapturedConversationPrefix
     | undefined
   // May never settle: Pi's abort awaits waitForIdle (#4 §4). Fire-and-forget
   // always — Gauntlet never re-prompts an aborted session (stall retry is a
@@ -95,12 +95,25 @@ export interface HarnessSession {
   readonly usageRows: () => ReadonlyArray<unknown>
 }
 
+const ReplayableConversationPrefixTypeId: unique symbol = Symbol.for(
+  "gauntlet/ReplayableConversationPrefix",
+)
+
+// An adapter-owned identity handle. It deliberately exposes no conversation
+// data: only the factory that registered the handle can resolve and replay it.
 export interface ReplayableConversationPrefix {
-  // Exact assistant text is retained for honest preload journaling and
-  // diagnostics. The object identity itself is the opaque adapter-owned
-  // replay key; orchestration never receives transport-specific messages.
+  readonly [ReplayableConversationPrefixTypeId]: true
+}
+
+export interface CapturedConversationPrefix {
+  readonly prefix: ReplayableConversationPrefix
   readonly assistantText: string
 }
+
+export const makeReplayableConversationPrefix = (
+): ReplayableConversationPrefix => ({
+  [ReplayableConversationPrefixTypeId]: true,
+})
 
 // The terminating emit tool's validated arguments, delivered by Pi after its
 // JSON-Schema coercion pass (#4 §5). JSON by construction, but still

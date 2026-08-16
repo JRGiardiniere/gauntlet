@@ -17,14 +17,10 @@ import {
 } from "./invocation-journal.ts"
 import {
   executeFinders,
-  FinderCacheSettle,
-  FinderStageCheckpoint,
 } from "./finder-execution.ts"
 import { counted, coverageGapLine, wallSeconds } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
-
-export { FinderCacheSettle, FinderStageCheckpoint }
 
 const progress = Effect.fn("gauntlet.run_executor.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),

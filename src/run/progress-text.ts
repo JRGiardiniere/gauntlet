@@ -6,6 +6,14 @@ import { Termination } from "../domain/agent-outcome.ts"
 export const counted = (count: number, singular: string): string =>
   `${String(count)} ${count === 1 ? singular : `${singular}s`}`
 
+// External diagnostic text must remain one inert terminal line. Control bytes
+// become spaces before ordinary whitespace is collapsed.
+export const progressDetail = (text: string): string =>
+  Array.from(text, (character) => {
+    const code = character.charCodeAt(0)
+    return code < 32 || (code >= 127 && code <= 159) ? " " : character
+  }).join("").replace(/\s+/g, " ").trim()
+
 export const invocationTrail = (
   durationMillis: number,
   costUsd: number,

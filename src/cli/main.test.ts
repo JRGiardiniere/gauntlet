@@ -900,6 +900,13 @@ describe("gauntlet review", () => {
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
         ),
       ).toBe(false)
+      const staleDownstreamArtifact = path.join(
+        fixture.runsRoot,
+        runId,
+        "journal",
+        "judgment.json",
+      )
+      yield* fs.writeFileString(staleDownstreamArtifact, "stale")
 
       const resumed = resume(
         fixture,
@@ -925,6 +932,7 @@ describe("gauntlet review", () => {
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
         ),
       ).toBe(true)
+      expect(yield* fs.exists(staleDownstreamArtifact)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes only from a completed Finder stage", () =>
@@ -975,6 +983,7 @@ describe("gauntlet review", () => {
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
         ),
       ).toBe(true)
+      const progressBeforeResume = (yield* TestConsole.errorLines).length
 
       const resumed = resume(
         fixture,
@@ -987,9 +996,15 @@ describe("gauntlet review", () => {
         path.join(fixture.runsRoot, runId, "dossier.md"),
       )
       expect(dossierMarkdown).toContain("4 invocations")
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+      const resumedProgress = (yield* TestConsole.errorLines)
+        .slice(progressBeforeResume)
+        .join("\n")
+      expect(resumedProgress).toContain(
         "reusing completed Finder stage",
       )
+      expect(resumedProgress).toContain("finder fixture-review done")
+      expect(resumedProgress).toContain("finder fixture-resume-two done")
+      expect(resumedProgress).toContain("finder fixture-resume-three done")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("checkpoints a paid preload rejection with the completed Finder stage", () =>
@@ -1044,6 +1059,39 @@ describe("gauntlet review", () => {
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         "finder preload unavailable — ProviderFailed",
       )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("keeps preload setup failures on one inert progress line", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-standard-two.md"),
+        "fixture standard two tail\n",
+      )
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,fixture-standard-two"],
+        makeScripted({
+          sessions: [
+            {
+              forSession: "-finders-1",
+              failOpen: "provider auth failed\nretry later\u001b[31m",
+              prompts: [],
+            },
+            successfulSession({ findings: [] }, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-1"),
+          ],
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "finder preload unavailable — provider auth failed retry later [31m",
+      )
+      expect(stderr).not.toContain("\u001b")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes seats from a positional recipe for every stage and both finder classes", () =>

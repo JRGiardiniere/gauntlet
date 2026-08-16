@@ -14,7 +14,10 @@ record of every Finder outcome plus the preload outcomes from the Finder-stage
 attempt that produced them. It is written atomically by temp file plus rename
 only after the complete fan-out returns. Missing, corrupt, foreign-run, or
 incomplete stage state reruns every Finder from scratch; resume never combines
-individual Finder outcomes or provider conversations across attempts.
+individual Finder outcomes or provider conversations across attempts. Because
+every downstream result depends on the exact Finder output, rejecting the
+Finder checkpoint also clears the transitional downstream journal before the
+replacement fan-out begins.
 
 Pool, Verification, and Judgment retain the existing per-invocation journal
 temporarily. A follow-up decision will apply the same completed-stage rule to
@@ -44,7 +47,8 @@ backgrounding use their own shell/harness.
 ## Consequences
 
 - The Finder fan-out is all-or-nothing for resume. A process interrupted before
-  the atomic checkpoint reruns every Finder and every eligible preload.
+  the atomic checkpoint reruns every Finder and every eligible preload, and
+  cannot reuse downstream artifacts derived from another Finder attempt.
 - Dossier accounting includes the completed Finder-stage attempt whose outputs
   it consumes. It is not a provider billing ledger for abandoned processes;
   an in-flight process can die before final usage exists at all.
