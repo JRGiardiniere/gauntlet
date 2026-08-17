@@ -125,11 +125,12 @@ prompt, tools, and shared user prefix are byte-identical up to the Lens tail.
 A missing or failed cache changes cost only: all Finders retain the ordinary
 invocation retry, termination, output, and coverage behavior.
 If the adapter cannot decode enough evidence to construct an honest typed
-outcome, the review fails rather than journaling fabricated accounting data.
+outcome, the review fails before a completed Finder checkpoint exists.
 Only after every Finder completes does Gauntlet atomically persist the ordered
-Finder outcomes. Resume reuses
-the whole completed stage or reruns the whole stage; it never combines partial
-Finder work across process attempts. Rerunning the stage invalidates every
-transitional downstream journal entry derived from the prior Finder output.
+Finder outcomes. Resume reuses the whole completed stage or reruns the whole
+stage; it never combines partial Finder work across process attempts. Pool,
+Verification, and Judgment have no intermediate checkpoints: after a completed
+Finder checkpoint they rerun as whole stages, so there is no downstream state
+to invalidate.
 Dossier accounting includes the completed Finder attempt that supplied its
 results, not abandoned-attempt provider spend.

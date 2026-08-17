@@ -27,11 +27,14 @@ specification-ingress spec (#70).
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
   (continue-from-checkpoint per ADR 0003), defaulting to the latest incomplete
-  run. It reuses completed semantic stages when the target is byte-identical,
-  under the currently installed shared prompts, schemas, tools, and pipeline
-  code (amended per #52). Active model conversations and partial Finder
-  fan-outs are never resumed. A changed target reports resume unavailable and
-  starts a new review.
+  run. When the target is byte-identical, it reuses only the completed Finder
+  stage; Pool, Verification, and Judgment always rerun as whole stages under
+  the currently installed shared prompts, schemas, tools, and pipeline code
+  (amended per #52). A complete Dossier is terminal and takes the fast path:
+  existing artifacts are delivered without re-entering the pipeline. Active
+  model conversations and partial Finder fan-outs are never resumed. A
+  changed target makes incomplete work unavailable for resume and starts a new
+  review.
 - `deliver` posts an already-completed run's Dossier to the PR — #8's
   "run directory is the backstop" made actionable, never re-paying a review.
 - `config set` and `config unset` explicitly manage the standing choices in
@@ -114,8 +117,8 @@ not add a special protection for an obviously empty review.
 
 Lens selections express membership, not priority or execution order. Planning
 produces a deterministic invocation array and the ReviewPlan records that
-resolved array because the journal and downstream candidate indexes consume
-it. The array's operational order stays stable within the Run, but callers are
+resolved array because downstream candidate indexes consume it. The array's
+operational order stays stable within the Run, but callers are
 not promised that configuration order controls scheduling, output, or cache
 behavior. The ReviewPlan does not retain the Default Lenses, Recipe selection
 mode, or source-catalog provenance after resolution.

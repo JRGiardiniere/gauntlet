@@ -7,8 +7,9 @@ import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 
 const reviewTargetEquivalence = Schema.toEquivalence(ReviewTarget)
 
-// The sole target comparison: resume must not replay a journal against a
-// change the developer has since altered. In-flight invocations need no
+// The sole target comparison: resume must not reuse a completed Finder stage
+// against a change the developer has since altered. In-flight invocations
+// need no
 // per-call check — they read the Run's frozen snapshot worktree, not the
 // live checkout (#56).
 export const liveTargetMatchesPlan = Effect.fn(

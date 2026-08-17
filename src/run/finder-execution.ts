@@ -39,10 +39,6 @@ import {
 } from "../harness/output-contract.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
-import {
-  clearInvocationJournal,
-  finderInvocationsInPlan,
-} from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import { counted, invocationTrail } from "./progress-text.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
@@ -93,6 +89,13 @@ export const FinderStageCheckpoint = Context.Reference<
 >("gauntlet/FinderStageCheckpoint", {
   defaultValue: () => () => Effect.void,
 })
+
+const finderInvocationsInPlan = (plan: ReviewPlan) =>
+  plan.lenses.map((lens) => ({
+    invocationKey: `finder-${lens.name}`,
+    lens,
+    seat: lens.seat,
+  }))
 
 const readCompletedFinderStage = Effect.fn(
   "gauntlet.finder_execution.read_completed_stage",
@@ -147,8 +150,6 @@ export const executeFinders = Effect.fn(
     })
     return completed.value
   }
-
-  yield* clearInvocationJournal(paths.journalDirectory)
 
   const invocations = finderInvocationsInPlan(plan)
   const templates = yield* Effect.cached(loadFinderPromptTemplates())

@@ -347,7 +347,7 @@ const resume = (
   )
 
 describe("gauntlet review", () => {
-  it.effect("lands the frozen plan, completed Finder stage, downstream journal, and presentation", () =>
+  it.effect("lands the frozen plan, completed Finder stage, and presentation", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -370,7 +370,6 @@ describe("gauntlet review", () => {
         "dossier.json",
         "dossier.md",
         "finder-stage.json",
-        "journal",
         "plan.json",
         "run.log",
       ])
@@ -399,11 +398,6 @@ describe("gauntlet review", () => {
       expect(plan.target.warnings).toHaveLength(1)
       expect(plan.target.warnings[0]).toContain("untracked.txt")
 
-      const journalEntries = yield* fs.readDirectory(path.join(runDir, "journal"))
-      expect(journalEntries.sort()).toEqual([
-        "judgment.json",
-        "verification-bundle-1.json",
-      ])
       const finderStageText = yield* fs.readFileString(
         path.join(runDir, "finder-stage.json"),
       )
@@ -581,7 +575,6 @@ describe("gauntlet review", () => {
         "dossier.json",
         "dossier.md",
         "finder-stage.json",
-        "journal",
         "plan.json",
         "run.log",
       ])
@@ -687,10 +680,6 @@ describe("gauntlet review", () => {
       expect(seatByLens.get("fixture-review")).toBe(FIXTURE_SEAT)
       expect(seatByLens.get("fixture-local")).toBe("fixture/local-model:medium")
 
-      const journals = yield* fs.readDirectory(
-        path.join(fixture.runsRoot, runId, "journal"),
-      )
-      expect(journals).toEqual([])
       expect(
         yield* fs.exists(
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
@@ -756,14 +745,6 @@ describe("gauntlet review", () => {
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
         ),
       ).toBe(false)
-      const staleDownstreamArtifact = path.join(
-        fixture.runsRoot,
-        runId,
-        "journal",
-        "judgment.json",
-      )
-      yield* fs.writeFileString(staleDownstreamArtifact, "stale")
-
       const resumed = resume(
         fixture,
         runId,
@@ -782,7 +763,6 @@ describe("gauntlet review", () => {
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
         ),
       ).toBe(true)
-      expect(yield* fs.exists(staleDownstreamArtifact)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes only from a completed Finder stage", () =>
@@ -987,20 +967,56 @@ describe("gauntlet review", () => {
   it.effect("resumes the latest incomplete run from its completed Finder stage", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
-      const journaled = yield* Deferred.make<string>()
-      const first = review(fixture)
+      const stageCommitted = yield* Deferred.make<string>()
+      const threeBugClaimsAndObservation = {
+        findings: [
+          {
+            file: "alpha.txt",
+            line: 2,
+            summary: "the added line breaks empty inputs",
+            failure_scenario: "an empty input reaches the new line and throws",
+          },
+          {
+            file: "alpha.txt",
+            line: 2,
+            summary: "the added line drops whitespace",
+            failure_scenario: "a padded input reaches the new line and truncates",
+          },
+          {
+            file: "alpha.txt",
+            line: 2,
+            summary: "the added line rejects unicode",
+            failure_scenario: "a unicode input reaches the new line and throws",
+          },
+          { file: "alpha.txt", summary: "the name hides the value's role" },
+        ],
+      } satisfies FindingsOutput
+      const poolOutput = {
+        clusters: [
+          {
+            indexes: [1, 2, 3],
+            summary: "the added line breaks valid inputs",
+          },
+        ],
+      } satisfies PoolOutput
+      const first = review(
+        fixture,
+        makeScripted({
+          sessions: [successfulSession(threeBugClaimsAndObservation)],
+        }),
+      )
       const fiber = yield* first.effect.pipe(
         Effect.provideService(
           FinderStageCheckpoint,
           (runId) =>
-            Deferred.succeed(journaled, runId).pipe(
+            Deferred.succeed(stageCommitted, runId).pipe(
               Effect.andThen(Effect.never),
             ),
         ),
         Effect.forkChild,
       )
 
-      const runId = yield* Deferred.await(journaled)
+      const runId = yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(fiber)
 
       const fs = yield* FileSystem.FileSystem
@@ -1026,15 +1042,31 @@ describe("gauntlet review", () => {
         fixture,
         undefined,
         makeScripted({
-          sessions: [successfulVerifierSession(), successfulJudgmentSession()],
+          sessions: [
+            emittingSession(poolOutput, "-pool"),
+            successfulVerifierSession(),
+            successfulJudgmentSession(),
+          ],
         }),
       )
       const exitCode = yield* resumed.effect
       expect(exitCode).toBe(0)
-      expect(resumed.scripted.configs).toHaveLength(2)
+      expect(resumed.scripted.configs).toHaveLength(3)
       for (const config of resumed.scripted.configs) {
         expect(config.seat).toBe(FIXTURE_SEAT)
       }
+      expect(resumed.scripted.configs.some(({ invocationId }) =>
+        invocationId.endsWith("-pool")
+      )).toBe(true)
+      expect(resumed.scripted.configs.some(({ invocationId }) =>
+        invocationId.includes("-verification-")
+      )).toBe(true)
+      expect(resumed.scripted.configs.some(({ invocationId }) =>
+        invocationId.endsWith("-judgment")
+      )).toBe(true)
+      expect(resumed.scripted.configs.some(({ invocationId }) =>
+        invocationId.includes("-finder-")
+      )).toBe(false)
 
       const dossierText = yield* fs.readFileString(path.join(runDir, "dossier.json"))
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
@@ -1047,7 +1079,7 @@ describe("gauntlet review", () => {
         "reusing completed Finder stage",
       )
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "gauntlet: finder fixture-review done — 2 candidates · 0s · $0.05",
+        "gauntlet: finder fixture-review done — 4 candidates · 0s · $0.05",
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -1055,7 +1087,7 @@ describe("gauntlet review", () => {
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       yield* writeRecipe(fixture, "fixture-alt", { default: FIXTURE_SEAT })
-      const journaled = yield* Deferred.make<string>()
+      const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
         ["review", "fixture-alt", "--lenses", "fixture-review"],
@@ -1065,13 +1097,13 @@ describe("gauntlet review", () => {
         Effect.provideService(
           FinderStageCheckpoint,
           (runId) =>
-            Deferred.succeed(journaled, runId).pipe(
+            Deferred.succeed(stageCommitted, runId).pipe(
               Effect.andThen(Effect.never),
             ),
         ),
         Effect.forkChild,
       )
-      const runId = yield* Deferred.await(journaled)
+      const runId = yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(fiber)
 
       const fs = yield* FileSystem.FileSystem
@@ -1122,7 +1154,7 @@ describe("gauntlet review", () => {
         path.join(fixture.repo, "stray.txt"),
         "original-untracked\n",
       )
-      const journaled = yield* Deferred.make<string>()
+      const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
         ["review", "--lenses", "fixture-review"],
@@ -1132,13 +1164,13 @@ describe("gauntlet review", () => {
         Effect.provideService(
           FinderStageCheckpoint,
           (runId) =>
-            Deferred.succeed(journaled, runId).pipe(
+            Deferred.succeed(stageCommitted, runId).pipe(
               Effect.andThen(Effect.never),
             ),
         ),
         Effect.forkChild,
       )
-      const runId = yield* Deferred.await(journaled)
+      const runId = yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(fiber)
 
       yield* fs.writeFileString(
@@ -1324,7 +1356,7 @@ describe("gauntlet review", () => {
       const needle = "ADDENDUM-REQUIREMENT: alpha.txt must stay sorted"
       yield* fs.writeFileString(addendumPath, `${needle}\n`)
 
-      const journaled = yield* Deferred.make<string>()
+      const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
         ["review", "--lenses", "fixture-review", "--spec", addendumPath],
@@ -1334,13 +1366,13 @@ describe("gauntlet review", () => {
         Effect.provideService(
           FinderStageCheckpoint,
           (runId) =>
-            Deferred.succeed(journaled, runId).pipe(
+            Deferred.succeed(stageCommitted, runId).pipe(
               Effect.andThen(Effect.never),
             ),
         ),
         Effect.forkChild,
       )
-      yield* Deferred.await(journaled)
+      yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(fiber)
 
       // The frozen value is the review input: deleting the file cannot
@@ -1364,7 +1396,7 @@ describe("gauntlet review", () => {
       expect(judgmentPrompt).toContain(needle)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("resumes an already-complete run without invoking its finder", () =>
+  it.effect("resumes an already-complete run from its artifacts", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const initial = review(fixture)
@@ -1374,21 +1406,22 @@ describe("gauntlet review", () => {
       const path = yield* Path.Path
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
       yield* fs.rename(
-        path.join(fixture.content, "prompts"),
-        path.join(fixture.content, "prompts-unavailable"),
+        fixture.content,
+        path.join(fixture.home, "content-unavailable"),
       )
-      // A complete run replays free even after the tree changes: the
-      // changed-target check only protects unpaid repository reads.
-      yield* fs.writeFileString(
-        path.join(fixture.repo, "alpha.txt"),
-        "first line\nneedle-added-line\nlater-edit\n",
+      yield* fs.rename(
+        fixture.repo,
+        path.join(fixture.home, "repository-unavailable"),
       )
       const completedResume = resume(fixture, runId)
       expect(yield* completedResume.effect).toBe(0)
       expect(completedResume.scripted.configs).toHaveLength(0)
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        `resuming run ${runId}`,
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        `run ${runId} is already complete`,
       )
+      expect(stderr).toContain(path.join(fixture.runsRoot, runId, "dossier.json"))
+      expect(stderr).toContain(path.join(fixture.runsRoot, runId, "dossier.md"))
       expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "dossier.md"))).toBe(
         true,
       )

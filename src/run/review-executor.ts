@@ -12,12 +12,7 @@ import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
 import { executeBugClaimPath } from "./bug-claim-path.ts"
-import {
-  finderInvocationsInPlan,
-} from "./invocation-journal.ts"
-import {
-  executeFinders,
-} from "./finder-execution.ts"
+import { executeFinders } from "./finder-execution.ts"
 import { counted, coverageGapLine, wallSeconds } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
@@ -35,7 +30,6 @@ export interface ReviewExecution {
 export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
-  const invocations = finderInvocationsInPlan(plan)
   yield* progress(`run ${plan.runId}`)
   yield* Effect.scoped(
     Effect.gen(function* () {
@@ -69,13 +63,11 @@ export const executeReviewPlan = Effect.fn(
           [
             executeBugClaimPath({
               plan,
-              paths,
               reviewWorkingDirectory,
               bugClaims: routed.bugClaims,
             }),
             executeJudgment({
               plan,
-              paths,
               reviewWorkingDirectory,
               observations: routed.observations,
             }),
@@ -99,7 +91,7 @@ export const executeReviewPlan = Effect.fn(
             0,
           ) + bugClaimPath.costUsd + judgmentPath.costUsd,
           invocationCount:
-            invocations.length +
+            plan.lenses.length +
             bugClaimPath.invocationCount +
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),

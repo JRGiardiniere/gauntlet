@@ -34,8 +34,9 @@ const usageNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 // demonstrated hazard (#4 §8) — so every field must decode finite and
 // non-negative. `reasoning` is a subset of `output` (never summed in) and is
 // genuinely absent for many providers. This is the DECODED accounting subset;
-// the verbatim rows the journal persists (ADR 0006) are the untouched
-// `unknown` values retained by the invocation accumulator.
+// the untouched `unknown` values retained by the invocation accumulator remain
+// available to persisted Finder outcomes and runtime Dossier accounting
+// (ADR 0006).
 export const UsageRow = Schema.Struct({
   input: usageNumber,
   output: usageNumber,

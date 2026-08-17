@@ -123,7 +123,7 @@ const executeFixture = (
         : { ...planCore, specification: options.specification },
     )
     const paths = runPaths(path.join(root, "runs"), runId, path)
-    yield* fs.makeDirectory(paths.journalDirectory, { recursive: true })
+    yield* fs.makeDirectory(paths.root, { recursive: true })
     const effect = executeFinders({
       plan,
       paths,

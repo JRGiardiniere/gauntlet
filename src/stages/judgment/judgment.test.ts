@@ -1,9 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
-import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
-import * as Path from "effect/Path"
 import * as TestConsole from "effect/testing/TestConsole"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
@@ -16,7 +14,6 @@ import {
   type ScriptedSession,
   usageRow,
 } from "../../harness/scripted.ts"
-import { runPaths } from "../../run/run-record.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { executeJudgment } from "./judgment.ts"
 
@@ -117,20 +114,12 @@ const runJudgment = (
         : { judgment: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
     }
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const runsRoot = yield* fs.makeTempDirectoryScoped({
-      prefix: "gauntlet-judgment-test-",
-    })
-    const paths = runPaths(runsRoot, plan.runId, path)
-    yield* fs.makeDirectory(paths.journalDirectory, { recursive: true })
     const result = yield* executeJudgment({
       plan,
-      paths,
       reviewWorkingDirectory: REVIEW_ROOT,
       observations,
     })
-    return { result, journalPath: path.join(paths.journalDirectory, "judgment.json") }
+    return { result }
   }).pipe(
     Effect.provide(
       Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
@@ -138,11 +127,11 @@ const runJudgment = (
   )
 
 describe("Judgment stage interface", () => {
-  it.effect("pays one journaled invocation against the shipped templates and resolves it", () =>
+  it.effect("pays one direct invocation against the shipped templates and resolves it", () =>
     Effect.gen(function* () {
       const scripted = makeScripted({ sessions: [keepingSession()] })
 
-      const { result, journalPath } = yield* runJudgment(scripted)
+      const { result } = yield* runJudgment(scripted)
 
       expect(result.observations).toHaveLength(1)
       expect(result.observations[0]?.judgment).toMatchObject({
@@ -175,9 +164,6 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
       expect(prompt).not.toContain(REVIEW_ROOT)
       expect(prompt).not.toContain(REPO_ROOT)
-
-      const fs = yield* FileSystem.FileSystem
-      expect(yield* fs.exists(journalPath)).toBe(true)
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain("gauntlet: invoking Judgment")

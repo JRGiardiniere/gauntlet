@@ -597,7 +597,7 @@ const decodeJsonValue = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Json),
 )
 
-// Normalizes a raw usage row into the journal's JSON contract. The
+// Normalizes a raw usage row into the usage-accounting JSON contract. The
 // stringify/parse round-trip drops undefined fields (as JSON.stringify
 // would) and throws on non-serializable rows.
 const jsonSafeRow = Function.compose(encodeJsonString, decodeJsonValue)

@@ -15,7 +15,6 @@ export interface RunPaths {
   readonly root: string
   readonly plan: string
   readonly finderStage: string
-  readonly journalDirectory: string
   readonly dossier: string
   readonly dossierMarkdown: string
   readonly receipt: string
@@ -28,7 +27,7 @@ export interface LoadedRun {
 }
 
 // Resume additionally needs to know whether the final artifacts already exist:
-// a complete run replays them without re-entering the pipeline.
+// a complete run reports or delivers them without re-entering the pipeline.
 export interface ResumableRun extends LoadedRun {
   readonly complete: boolean
 }
@@ -52,7 +51,6 @@ export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunP
     root,
     plan: path.join(root, "plan.json"),
     finderStage: path.join(root, "finder-stage.json"),
-    journalDirectory: path.join(root, "journal"),
     dossier: path.join(root, "dossier.json"),
     dossierMarkdown: path.join(root, "dossier.md"),
     receipt: path.join(root, "receipt.json"),
@@ -78,7 +76,6 @@ export const createRunDirectory = Effect.fn("gauntlet.run_record.create_run_dire
     // The run directory itself is created non-recursively: a colliding run ID
     // fails loudly here instead of two runs silently sharing artifacts.
     yield* fs.makeDirectory(paths.root)
-    yield* fs.makeDirectory(paths.journalDirectory)
     return paths
   },
 )

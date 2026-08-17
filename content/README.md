@@ -90,7 +90,7 @@ Deliberate changes made during the port:
   (`subjective-code`/`subjective-design`), bench files, and the jettisoned
   subjective corpus is gone; the operative prompt is intact. The
   `goodFind`/`cleanlyExplained` ratings are kept — per-run data in the
-  journal, the Observation path's only quality record.
+  Dossier, the Observation path's only quality record.
 - **Terminology**: preset → recipe, bug path → BugClaim path, subjective
   path → Observation path / Judgment, per CONTEXT.md.
 

@@ -85,5 +85,5 @@ duplicates, none omitted) —
 The `goodFind` / `cleanlyExplained` ratings are the Observation path's only
 quality record (it is deliberately not scored against an answer key — keys
 produced systematic disagreement on exactly these findings, 2026-08-04). They
-persist per run in the journal/Dossier; there is no aggregate corpus
+persist per run in the Dossier; there is no aggregate corpus
 (ADR 0006).

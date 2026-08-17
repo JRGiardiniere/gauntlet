@@ -8,7 +8,6 @@ import type { Dossier } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { invoke } from "../../harness/invoke.ts"
 import { viewObservations } from "../../render/dossier-view.ts"
-import { executeJournaledInvocation } from "../../run/invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
   counted,
@@ -16,7 +15,6 @@ import {
   invocationTrail,
   wallSeconds,
 } from "../../run/progress-text.ts"
-import type { RunPaths } from "../../run/run-record.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
@@ -38,7 +36,6 @@ const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
 
 export interface JudgmentExecution {
   readonly plan: ReviewPlan
-  readonly paths: RunPaths
   readonly reviewWorkingDirectory: string
   readonly observations: ReadonlyArray<Observation>
 }
@@ -56,7 +53,6 @@ export const executeJudgment = Effect.fn(
   "gauntlet.judgment.execute",
 )(function* ({
   observations,
-  paths,
   plan,
   reviewWorkingDirectory,
 }: JudgmentExecution) {
@@ -86,43 +82,34 @@ export const executeJudgment = Effect.fn(
   }
 
   const judgmentStartedAt = yield* DateTime.now
-  const journaled = yield* executeJournaledInvocation({
-    journalDirectory: paths.journalDirectory,
-    runId: plan.runId,
-    invocationKey: "judgment",
-    output: EmitJudgments.schema,
-    execute: Effect.gen(function* () {
-      const promptTemplates = yield* loadJudgmentPromptTemplates()
-      // The prompt shows the stable virtual root the tools expose; cwd
-      // carries the host snapshot path the overlay mounts on.
-      const prompt = yield* assembleJudgmentPrompt(
-        promptTemplates,
-        plan.target,
-        REVIEW_WORKSPACE_ROOT,
-        indexed,
-        plan.specification,
-      )
-      yield* progress("invoking Judgment")
-      return yield* invoke({
-        invocationId: `${plan.runId}-judgment`,
-        seat,
-        cwd: reviewWorkingDirectory,
-        systemPrompt: EVALUATION_SYSTEM_PROMPT,
-        prompt,
-        contract: EmitJudgments,
-        tools: JUDGMENT_TOOLS,
-        deadlines: REVIEW_INVOCATION_DEADLINES,
-      })
-    }),
+  const promptTemplates = yield* loadJudgmentPromptTemplates()
+  // The prompt shows the stable virtual root the tools expose; cwd
+  // carries the host snapshot path the overlay mounts on.
+  const prompt = yield* assembleJudgmentPrompt(
+    promptTemplates,
+    plan.target,
+    REVIEW_WORKSPACE_ROOT,
+    indexed,
+    plan.specification,
+  )
+  yield* progress("invoking Judgment")
+  const outcome = yield* invoke({
+    invocationId: `${plan.runId}-judgment`,
+    seat,
+    cwd: reviewWorkingDirectory,
+    systemPrompt: EVALUATION_SYSTEM_PROMPT,
+    prompt,
+    contract: EmitJudgments,
+    tools: JUDGMENT_TOOLS,
+    deadlines: REVIEW_INVOCATION_DEADLINES,
   })
-  if (journaled.reused) yield* progress("reusing Judgment from journal")
   yield* progress(
-    `Judgment done — ${invocationTrail(journaled.outcome.durationMillis, journaled.outcome.usage.costUsd, journaled.outcome.termination)}`,
+    `Judgment done — ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
   )
 
-  const repair = resolveJudgment(indexed, journaled.outcome.output)
-  const reason = journaled.outcome.output === undefined
-    ? describeMissingOutput("judgment", journaled.outcome)
+  const repair = resolveJudgment(indexed, outcome.output)
+  const reason = outcome.output === undefined
+    ? describeMissingOutput("judgment", outcome)
     : repairReason(repair.notes)
   if (reason !== undefined) {
     yield* progress(coverageGapLine({ reason }))
@@ -136,7 +123,7 @@ export const executeJudgment = Effect.fn(
     coverageGaps: reason === undefined
       ? []
       : [{ stage: "judgment", reason }],
-    costUsd: journaled.outcome.usage.costUsd,
+    costUsd: outcome.usage.costUsd,
     invocationCount: 1,
   } satisfies JudgmentResult
 })

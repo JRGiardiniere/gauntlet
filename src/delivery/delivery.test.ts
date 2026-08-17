@@ -116,7 +116,7 @@ const writeCompletedRun = (
     const path = yield* Path.Path
     const fs = yield* FileSystem.FileSystem
     const paths = runPaths(root, "run-fixture", path)
-    yield* fs.makeDirectory(paths.journalDirectory, { recursive: true })
+    yield* fs.makeDirectory(paths.root, { recursive: true })
     const plan = planFor(target)
     yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
     yield* writeArtifactJson(paths.dossier, Dossier, dossierFor(target))

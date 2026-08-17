@@ -35,7 +35,7 @@ export interface AgentUsage extends Schema.Schema.Type<typeof AgentUsage> {}
 
 // Everything one AgentInvocation yielded. The schema is a factory because
 // the same OutputContract schema owns the stage output here and in the emit
-// tool, journal, and resume decoder.
+// tool and Finder-stage checkpoint decoder.
 export interface AgentOutcome<O> {
   readonly termination: Termination
   readonly output?: O

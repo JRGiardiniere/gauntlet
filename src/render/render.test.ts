@@ -147,7 +147,6 @@ const paths: RunPaths = {
   root: "/runs/run-fixture",
   plan: "/runs/run-fixture/plan.json",
   finderStage: "/runs/run-fixture/finder-stage.json",
-  journalDirectory: "/runs/run-fixture/journal",
   dossier: "/runs/run-fixture/dossier.json",
   dossierMarkdown: "/runs/run-fixture/dossier.md",
   receipt: "/runs/run-fixture/receipt.json",

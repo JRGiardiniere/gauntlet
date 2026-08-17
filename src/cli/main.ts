@@ -171,31 +171,36 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
   if (destination === "pr") {
     yield* requirePullRequestTarget(resumable.plan)
   }
-  // A complete run replays from its artifacts and never reads the repository
-  // again, so only unpaid work needs the changed-target check.
-  if (!resumable.complete) {
-    const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
-    if (!targetUnchanged) {
-      yield* progress("resume unavailable, running a new review")
-      const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
-        ? Option.some(resumable.plan.target.number)
-        : Option.none()
-      // The replacement review reuses the abandoned plan's frozen
-      // specification verbatim: --resume never re-reads the addendum file.
-      yield* startReview(
-        Option.fromNullishOr(resumable.plan.recipeName),
-        undefined,
-        pr,
-        destination,
-        resumable.plan.specification,
-      ).pipe(
-        Effect.provideService(
-          InvocationDirectory,
-          resumable.plan.target.repoRoot,
-        ),
-      )
-      return
-    }
+  if (resumable.complete) {
+    yield* progress(
+      `run ${resumable.plan.runId} is already complete — ${resumable.paths.dossier} · ${resumable.paths.dossierMarkdown}`,
+    )
+    yield* maybeDeliver(destination, resumable)
+    return
+  }
+  // Only unfinished runs need the changed-target check before they resume
+  // paid work against the repository.
+  const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
+  if (!targetUnchanged) {
+    yield* progress("resume unavailable, running a new review")
+    const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
+      ? Option.some(resumable.plan.target.number)
+      : Option.none()
+    // The replacement review reuses the abandoned plan's frozen
+    // specification verbatim: --resume never re-reads the addendum file.
+    yield* startReview(
+      Option.fromNullishOr(resumable.plan.recipeName),
+      undefined,
+      pr,
+      destination,
+      resumable.plan.specification,
+    ).pipe(
+      Effect.provideService(
+        InvocationDirectory,
+        resumable.plan.target.repoRoot,
+      ),
+    )
+    return
   }
   yield* progress(`resuming run ${resumable.plan.runId}`)
   const startedAt = yield* DateTime.now
@@ -295,7 +300,7 @@ const review = Command.make(
       Flag.optional,
       Flag.withMetavar("[run-id]"),
       Flag.withDescription(
-        "Resume a run when the target is unchanged; omit run-id to select the latest incomplete run. A changed target starts a new review.",
+        "Resume unfinished work when the target is unchanged; omit run-id to select the latest incomplete run. A named complete run reports or delivers its existing artifacts without checking the target.",
       ),
     ),
     spec: Flag.string("spec").pipe(
@@ -409,10 +414,6 @@ export const runGauntlet = (
         progress(`could not configure — ${failure.reason}`).pipe(Effect.as(1)),
       RunError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
-      InvocationJournalReadError: (failure) =>
-        progress(`could not review — failed to read ${failure.path}`).pipe(
-          Effect.as(1),
-        ),
       PromptAssemblyError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       InvocationSetupError: (failure) =>

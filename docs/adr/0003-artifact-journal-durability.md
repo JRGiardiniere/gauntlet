@@ -1,28 +1,27 @@
-# Durability uses completed semantic checkpoints; no conversation resume or detachment
+# Durability uses one completed Finder-stage checkpoint; no conversation resume or detachment
 
 Gauntlet's durability requirement is narrow: a crashed or interrupted Run,
 re-run while the ReviewTarget is byte-identical, may continue only from a
 completed semantic checkpoint. An active model conversation cannot be resumed,
 and completed siblings from a partial fan-out are not a coherent stage result.
-A changed target is the staleness detector: resume reports that it is
-unavailable and starts a new review; the abandoned run directory stays under
-existing retention. Shared prompts, schemas, tools, deadlines, and pipeline
-code come from the currently installed application.
+For an incomplete Run, a changed target is the staleness detector: resume
+reports that it is unavailable and starts a new review; the abandoned run
+directory stays under existing retention. A complete Dossier is already
+terminal and needs no target check. Shared prompts, schemas, tools, deadlines,
+and pipeline code come from the currently installed application.
 
-The first checkpoint is `finder-stage.json`: one ordered, schema-validated
-record of every Finder outcome from the Finder-stage attempt that produced
-them. It is written atomically by temp file plus rename
-only after the complete fan-out returns. Missing, corrupt, foreign-run, or
+The sole intermediate checkpoint is `finder-stage.json`: one ordered,
+schema-validated record of every Finder outcome from the Finder-stage attempt
+that produced them. It is written atomically by temp file plus rename only
+after the complete fan-out returns. Missing, corrupt, foreign-run, or
 incomplete stage state reruns every Finder from scratch; resume never combines
-individual Finder outcomes or provider conversations across attempts. Because
-every downstream result depends on the exact Finder output, rejecting the
-Finder checkpoint also clears the transitional downstream journal before the
-replacement fan-out begins.
+individual Finder outcomes or provider conversations across attempts.
 
-Pool, Verification, and Judgment retain the existing per-invocation journal
-temporarily. A follow-up decision will apply the same completed-stage rule to
-those downstream paths without presuming that each warrants its own durable
-checkpoint. Deterministic Assembly and presentation remain free to rerun.
+Pool, Verification, and Judgment are never persisted as intermediate
+checkpoints. After a valid Finder checkpoint they always rerun as whole stages,
+followed by deterministic Assembly and presentation. A complete Dossier is
+terminal: resume reads the existing artifacts and does not re-enter the
+pipeline. No active model conversation or partial fan-out is resumed.
 
 Effect's durable-execution stack (`effect/unstable/workflow` + `cluster` +
 SQLite) was researched (#3) and rejected: the local single-runner + SQLite path
@@ -54,9 +53,9 @@ backgrounding use their own shell/harness.
   an in-flight process can die before final usage exists at all.
 - An adapter-contract violation (including undecodable usage) cannot produce
   an honest metered `AgentOutcome`; it fails the attempt before a completed
-  Finder checkpoint exists instead of inventing cost or termination data.
-- Downstream per-invocation journal reuse is transitional pending its own
-  bounded simplification task.
+  Finder checkpoint exists.
+- Pool, Verification, and Judgment have no resume artifacts: each reruns as a
+  whole stage after the Finder checkpoint.
 - Artifacts are Gauntlet's own schemas, human-readable with `cat`; invalid
   checkpoint content degrades to "stage not completed," never adopted output.
 - Revisit Effect workflows only if v4's workflow stack stabilizes and a

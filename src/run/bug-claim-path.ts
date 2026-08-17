@@ -30,7 +30,6 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
 import { viewBugClaims } from "../render/dossier-view.ts"
-import { executeJournaledInvocation } from "./invocation-journal.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
   counted,
@@ -38,7 +37,6 @@ import {
   invocationTrail,
   wallSeconds,
 } from "./progress-text.ts"
-import type { RunPaths } from "./run-record.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
 const progress = Effect.fn("gauntlet.bug_claim_path.progress")((text: string) =>
@@ -73,7 +71,6 @@ const repairedPoolReason = (repair: PoolRepair): string | undefined => {
 
 export interface BugClaimPathExecution {
   readonly plan: ReviewPlan
-  readonly paths: RunPaths
   readonly reviewWorkingDirectory: string
   readonly bugClaims: ReadonlyArray<BugClaim>
 }
@@ -90,7 +87,6 @@ export const executeBugClaimPath = Effect.fn(
   "gauntlet.bug_claim_path.execute",
 )(function* ({
   bugClaims,
-  paths,
   plan,
   reviewWorkingDirectory,
 }: BugClaimPathExecution) {
@@ -124,38 +120,27 @@ export const executeBugClaimPath = Effect.fn(
       yield* progress(coverageGapLine({ reason }))
     } else {
       poolStartedAt = yield* DateTime.now
-      const journaled = yield* executeJournaledInvocation({
-        journalDirectory: paths.journalDirectory,
-        runId: plan.runId,
-        invocationKey: "pool",
-        output: EmitPool.schema,
-        execute: Effect.gen(function* () {
-          const promptTemplates = yield* templates
-          const prompt = yield* assemblePoolPrompt(promptTemplates.pool, claims)
-          yield* progress("invoking Pool")
-          return yield* invoke({
-            invocationId: `${plan.runId}-pool`,
-            seat,
-            cwd: reviewWorkingDirectory,
-            systemPrompt: EVALUATION_SYSTEM_PROMPT,
-            prompt,
-            contract: EmitPool,
-            tools: POOL_TOOLS,
-            deadlines: REVIEW_INVOCATION_DEADLINES,
-          })
-        }),
+      const promptTemplates = yield* templates
+      const prompt = yield* assemblePoolPrompt(promptTemplates.pool, claims)
+      yield* progress("invoking Pool")
+      const outcome = yield* invoke({
+        invocationId: `${plan.runId}-pool`,
+        seat,
+        cwd: reviewWorkingDirectory,
+        systemPrompt: EVALUATION_SYSTEM_PROMPT,
+        prompt,
+        contract: EmitPool,
+        tools: POOL_TOOLS,
+        deadlines: REVIEW_INVOCATION_DEADLINES,
       })
-      if (journaled.reused) {
-        yield* progress("reusing Pool from journal")
-      }
       yield* progress(
-        `Pool done — ${invocationTrail(journaled.outcome.durationMillis, journaled.outcome.usage.costUsd, journaled.outcome.termination)}`,
+        `Pool done — ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
       )
-      repair = repairPoolOutput(claims, journaled.outcome.output)
-      poolCostUsd = journaled.outcome.usage.costUsd
+      repair = repairPoolOutput(claims, outcome.output)
+      poolCostUsd = outcome.usage.costUsd
       poolInvocationCount = 1
-      const repairReason = journaled.outcome.output === undefined
-        ? describeMissingOutput("pool", journaled.outcome)
+      const repairReason = outcome.output === undefined
+        ? describeMissingOutput("pool", outcome)
         : repairedPoolReason(repair)
       if (repairReason !== undefined) {
         coverageGaps.push({ stage: "pool", reason: repairReason })
@@ -191,52 +176,38 @@ export const executeBugClaimPath = Effect.fn(
       (bundle, index) =>
         Effect.gen(function* () {
           const bundleNumber = index + 1
-          const invocationKey = `verification-bundle-${String(bundleNumber)}`
-          const journaled = yield* executeJournaledInvocation({
-            journalDirectory: paths.journalDirectory,
-            runId: plan.runId,
-            invocationKey,
-            output: EmitVerdicts.schema,
-            execute: Effect.gen(function* () {
-              const promptTemplates = yield* templates
-              // The prompt shows the stable virtual root the tools expose;
-              // cwd carries the host snapshot path the overlay mounts on.
-              const prompt = yield* assembleVerifierPrompt(
-                promptTemplates,
-                plan.target,
-                REVIEW_WORKSPACE_ROOT,
-                claims,
-                bundle,
-                plan.specification,
-              )
-              yield* progress(
-                `invoking Verification bundle ${String(bundleNumber)}`,
-              )
-              return yield* invoke({
-                invocationId:
-                  `${plan.runId}-verification-${String(bundleNumber)}`,
-                seat: verificationSeat,
-                cwd: reviewWorkingDirectory,
-                systemPrompt: EVALUATION_SYSTEM_PROMPT,
-                prompt,
-                contract: EmitVerdicts,
-                tools: VERIFICATION_TOOLS,
-                deadlines: REVIEW_INVOCATION_DEADLINES,
-              })
-            }),
-          })
-          if (journaled.reused) {
-            yield* progress(
-              `reusing Verification bundle ${String(bundleNumber)} from journal`,
-            )
-          }
+          const promptTemplates = yield* templates
+          // The prompt shows the stable virtual root the tools expose;
+          // cwd carries the host snapshot path the overlay mounts on.
+          const prompt = yield* assembleVerifierPrompt(
+            promptTemplates,
+            plan.target,
+            REVIEW_WORKSPACE_ROOT,
+            claims,
+            bundle,
+            plan.specification,
+          )
           yield* progress(
-            `Verification bundle ${String(bundleNumber)} done — ${invocationTrail(journaled.outcome.durationMillis, journaled.outcome.usage.costUsd, journaled.outcome.termination)}`,
+            `invoking Verification bundle ${String(bundleNumber)}`,
+          )
+          const outcome = yield* invoke({
+            invocationId:
+              `${plan.runId}-verification-${String(bundleNumber)}`,
+            seat: verificationSeat,
+            cwd: reviewWorkingDirectory,
+            systemPrompt: EVALUATION_SYSTEM_PROMPT,
+            prompt,
+            contract: EmitVerdicts,
+            tools: VERIFICATION_TOOLS,
+            deadlines: REVIEW_INVOCATION_DEADLINES,
+          })
+          yield* progress(
+            `Verification bundle ${String(bundleNumber)} done — ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
           )
           return {
             bundleNumber,
             clusters: bundle,
-            outcome: journaled.outcome,
+            outcome,
           } satisfies VerificationResult
         }),
       { concurrency: "unbounded" },
