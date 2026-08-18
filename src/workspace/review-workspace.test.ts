@@ -420,6 +420,42 @@ describe("ReviewWorkspace", () => {
     }).pipe(Effect.scoped, Effect.provide(layer)))
 
   it.effect(
+    "allows large intermediate pipeline output when the final result is small",
+    () =>
+      Effect.gen(function* () {
+        const { snapshot } = yield* makeSnapshotFixture
+        const workspace = yield* Effect.promise(() =>
+          makeReviewWorkspace(snapshot),
+        )
+
+        expect(yield* bash(workspace, "cat data/blob.txt | wc -c")).toEqual({
+          isError: false,
+          text: "262144",
+        })
+      }).pipe(Effect.scoped, Effect.provide(layer)),
+  )
+
+  it.effect("bounds large Bash responses and keeps their tail", () =>
+    Effect.gen(function* () {
+      const { snapshot } = yield* makeSnapshotFixture
+      const workspace = yield* Effect.promise(() =>
+        makeReviewWorkspace(snapshot),
+      )
+
+      const result = yield* bash(
+        workspace,
+        `printf 'begin-marker\\n'; cat data/blob.txt; printf '\\nend-marker\\n'`,
+      )
+
+      expect(result.isError).toBe(false)
+      expect(result.text).not.toContain("begin-marker")
+      expect(result.text).toContain("end-marker")
+      expect(result.text).toContain("Output truncated")
+      expect(result.text).toContain("omitted output was not retained")
+      expect(result.text).toContain("Rerun with a narrower command")
+    }).pipe(Effect.scoped, Effect.provide(layer)))
+
+  it.effect(
     "turns every limit exhaustion into a tool error and leaves the snapshot alone",
     () =>
       Effect.gen(function* () {
@@ -440,7 +476,8 @@ describe("ReviewWorkspace", () => {
         }> = [
           {
             label: "captured output",
-            command: "cat data/blob.txt",
+            command:
+              "cat data/blob.txt data/blob.txt data/blob.txt data/blob.txt data/blob.txt",
             expects: /output size/i,
           },
           {

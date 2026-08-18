@@ -1,9 +1,11 @@
 import {
   createReadToolDefinition,
   DEFAULT_MAX_BYTES,
+  DEFAULT_MAX_LINES,
   defineTool,
   formatSize,
   type ToolDefinition,
+  truncateTail,
 } from "@earendil-works/pi-coding-agent"
 import * as Data from "effect/Data"
 import { Bash, type BashOptions, OverlayFs, type OverlayFsOptions } from "just-bash"
@@ -26,14 +28,14 @@ import {
 // not hardened VM-grade isolation against a hostile repository.
 
 // Execution limits: the `normal` profile wholesale, with exactly one
-// override. maxOutputSize drops from 256MiB to the cap Pi's own bash tool
-// truncates at today (DEFAULT_MAX_BYTES, 50KiB) — output beyond what the
-// host tool would show a model is pure interpreter spend. Exhaustion of any
-// limit is an ordinary tool error; nothing here can mutate the snapshot.
+// override. Pipelines may process substantially more output than the model
+// needs to see; the Bash tool separately bounds the finished response.
+export const WORKSPACE_EXECUTION_MAX_BYTES = 1024 * 1024
+
 export const WORKSPACE_EXECUTION_LIMITS: NonNullable<
   BashOptions["executionLimits"]
 > = {
-  maxOutputSize: DEFAULT_MAX_BYTES,
+  maxOutputSize: WORKSPACE_EXECUTION_MAX_BYTES,
 }
 
 // Ordinary tool errors (CONTEXT.md: Termination, not Failure): limit
@@ -132,7 +134,7 @@ export type BashArgs = Static<typeof bashParameters>
 const bashToolMetadata = {
   name: "bash",
   label: "bash",
-  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands whose output exceeds ${formatSize(DEFAULT_MAX_BYTES)} fail, and intermediate pipeline output counts — narrow at the source (more specific patterns, -m or -l style flags, fewer files) rather than piping to head, then retry. Optionally provide a timeout in seconds.`,
+  description: `Execute a bash command in the repository workspace at ${REVIEW_WORKSPACE_ROOT}. Returns stdout and stderr. Commands may process up to ${formatSize(WORKSPACE_EXECUTION_MAX_BYTES)} of aggregate output; finished responses are limited to the last ${String(DEFAULT_MAX_LINES)} lines or ${formatSize(DEFAULT_MAX_BYTES)}, whichever is reached first. Truncated output is not retained, so narrow at the source (more specific patterns, -m or -l style flags, fewer files) and retry. Optionally provide a timeout in seconds.`,
   parameters: bashParameters,
 }
 
@@ -140,6 +142,22 @@ const combinedOutput = (stdout: string, stderr: string): string => {
   if (stdout === "") return stderr
   if (stderr === "") return stdout
   return stdout.endsWith("\n") ? `${stdout}${stderr}` : `${stdout}\n${stderr}`
+}
+
+const boundBashResponse = (output: string): string => {
+  const truncation = truncateTail(output, {
+    maxBytes: DEFAULT_MAX_BYTES,
+    maxLines: DEFAULT_MAX_LINES,
+  })
+  if (!truncation.truncated) return output
+
+  const omittedBytes = truncation.totalBytes - truncation.outputBytes
+  const omittedLines = truncation.totalLines - truncation.outputLines
+  const responseLimit = truncation.truncatedBy === "lines"
+    ? `${String(DEFAULT_MAX_LINES)}-line`
+    : formatSize(DEFAULT_MAX_BYTES)
+
+  return `${truncation.content}\n\n[Output truncated by the ${responseLimit} response limit: showing the last ${String(truncation.outputLines)} of ${String(truncation.totalLines)} lines (${formatSize(truncation.outputBytes)} of ${formatSize(truncation.totalBytes)}). ${String(omittedLines)} lines (${formatSize(omittedBytes)}) omitted; the omitted output was not retained. Rerun with a narrower command to inspect it.]`
 }
 
 const makeBashTool = (bash: Bash): ToolDefinition =>
@@ -175,8 +193,9 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
               : failureMessage(cause),
           })
         })
-      const outputText = combinedOutput(result.stdout, result.stderr) ||
-        "(no output)"
+      const outputText = boundBashResponse(
+        combinedOutput(result.stdout, result.stderr) || "(no output)",
+      )
       if (result.exitCode !== 0) {
         // The interpreter may honor the abort by resolving with exit 124
         // instead of rejecting; report that as the timeout it is.
