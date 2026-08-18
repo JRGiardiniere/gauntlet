@@ -1,6 +1,9 @@
 import * as Schema from "effect/Schema"
 import { Seat } from "./recipe.ts"
-import { ReviewSpecification } from "./review-specification.ts"
+import {
+  ReviewSpecification,
+  SpecificationSourceDiagnostic,
+} from "./review-specification.ts"
 import { ReviewTarget } from "./review-target.ts"
 
 export const LensName = Schema.String.check(
@@ -60,5 +63,11 @@ export const ReviewPlan = Schema.Struct({
   // re-fetches issues or re-reads the addendum file, and a run without a
   // specification carries no field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),
+  // A branch binding is proof that a Specification Source exists. If that
+  // source cannot be reached, retain the typed cause beside the otherwise
+  // specification-less plan so the run and report do not imply quiet absence.
+  specificationSourceDiagnostic: Schema.optionalKey(
+    SpecificationSourceDiagnostic,
+  ),
 })
 export type ReviewPlan = typeof ReviewPlan.Type

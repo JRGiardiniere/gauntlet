@@ -204,6 +204,11 @@ export const renderDossierMarkdown = (
   if (commentBudget !== undefined) {
     headerFacts.push(`- Comment budget: ${commentBudget}`)
   }
+  if (plan.specificationSourceDiagnostic !== undefined) {
+    headerFacts.push(
+      `- Specification source: ${plan.specificationSourceDiagnostic.message}`,
+    )
+  }
   if (finderSelection.skipped.length > 0) {
     headerFacts.push(
       `- Skipped: ${finderSelection.skipped.map(({ name }) => name).join(", ")} — no ReviewSpecification`,

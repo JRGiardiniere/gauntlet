@@ -23,16 +23,20 @@ gauntlet config unset <key>
 ```
 
 - `review` runs the pipeline to completion. The default target is the working
-  tree's uncommitted changes; `--pr N` reviews that pull request's range and
-  resolves GitHub closing issues as the ReviewSpecification (native parent one
-  level, admitted maintainer comments, 20k comment budget). GitHub
-  unavailability or a PR with no closing issues stays quietly
-  specification-less. `--spec <file>` freezes a Caller Addendum beside any
-  fetched material. A positional recipe selects a named recipe from the
-  catalog; omitting it selects the configured `default-recipe`. Nothing else
-  selects a recipe — if neither resolves, the review fails and lists what is
-  available. `--destination` defaults to `local` (run directory + bounded
-  digest). `pr` keeps those local outputs and also posts `dossier.md`; it
+  tree's uncommitted changes; any target on a branch containing one Linear
+  issue ID resolves that issue as its current Slice, with one native parent,
+  sibling titles/states, and human comments. Set `LINEAR_API_KEY` to a Linear
+  personal API key. A detected Linear binding wins over GitHub; a missing or
+  rejected key leaves the review running but prints and reports an actionable
+  diagnostic. Without a Linear binding, `--pr N` resolves GitHub closing issues
+  as the ReviewSpecification (native parent one level, admitted maintainer
+  comments, 20k comment budget). GitHub unavailability or a PR with no closing
+  issues stays quietly specification-less. `--spec <file>` freezes a Caller
+  Addendum beside any fetched material. A positional recipe selects a named
+  recipe from the catalog; omitting it selects the configured `default-recipe`.
+  Nothing else selects a recipe — if neither resolves, the review fails and
+  lists what is available. `--destination` defaults to `local` (run directory
+  + bounded digest). `pr` keeps those local outputs and also posts `dossier.md`; it
   requires `--pr`. `--resume` continues from completed semantic checkpoints
   when the target is unchanged, under the currently installed code. The first
   such checkpoint is the complete Finder stage; an interrupted partial Finder
@@ -107,6 +111,8 @@ fan-outs. A changed target starts a new review.
 - pnpm + TypeScript 7 (tsgo), Node ≥ 23.6
 - GitHub CLI (`gh`), installed and authenticated — required for `review --pr`,
   `--destination pr`, and `deliver`
+- `LINEAR_API_KEY` — optional until the current branch contains a Linear issue
+  ID; then it authorizes automatic Linear ReviewSpecification acquisition
 - `effect` / `@effect/platform-node` / `@effect/vitest` pinned **exactly** to
   one shared version (enforced by `scripts/check-effect-pin.mjs`; bump with
   `pnpm add -E effect@rc @effect/platform-node@rc @effect/vitest@rc`)

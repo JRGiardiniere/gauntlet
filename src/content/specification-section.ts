@@ -21,6 +21,8 @@ const documentHeading = (document: SpecificationDocument): string => {
       return `### Caller Addendum (caller-provided: ${document.provenance})`
     case "parent":
       return issueHeading("Parent", document)
+    case "sibling":
+      return issueHeading("Sibling", document)
     case "slice":
       return issueHeading("Current Slice", document)
   }

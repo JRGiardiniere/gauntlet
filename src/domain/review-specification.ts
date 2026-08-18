@@ -1,12 +1,13 @@
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-export const IssueState = Schema.Literals(["OPEN", "CLOSED"])
+export const IssueState = Schema.NonEmptyString
 export type IssueState = typeof IssueState.Type
 
 export const SpecificationDocumentRole = Schema.Literals([
   "caller-addendum",
   "parent",
+  "sibling",
   "slice",
 ])
 export type SpecificationDocumentRole = typeof SpecificationDocumentRole.Type
@@ -51,3 +52,19 @@ export const ReviewSpecification = Schema.Struct({
   commentOmission: Schema.optionalKey(CommentOmission),
 })
 export type ReviewSpecification = typeof ReviewSpecification.Type
+
+export const SpecificationSourceDiagnostic = Schema.Struct({
+  source: Schema.Literals(["Linear"]),
+  branch: Schema.NonEmptyString,
+  issueIdentifier: Schema.NonEmptyString,
+  reason: Schema.Literals([
+    "invalid-api-key",
+    "invalid-response",
+    "missing-api-key",
+    "unreachable",
+    "unresolvable-issue",
+  ]),
+  message: Schema.NonEmptyString,
+})
+export type SpecificationSourceDiagnostic =
+  typeof SpecificationSourceDiagnostic.Type
