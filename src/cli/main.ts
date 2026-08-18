@@ -77,6 +77,16 @@ interface FrozenSpecificationState {
   readonly diagnostic: SpecificationSourceDiagnostic | undefined
 }
 
+interface StartReviewRequest {
+  readonly recipeName: Option.Option<string>
+  readonly selectedLensNames: ReadonlyArray<string> | undefined
+  readonly pr: Option.Option<number>
+  readonly destination: Destination
+  readonly addendum: ReviewSpecification | undefined
+  readonly githubSpec: boolean
+  readonly frozenSpecificationState: FrozenSpecificationState | undefined
+}
+
 const resolveSpecificationBranch = Effect.fn(
   "gauntlet.cli.resolve_specification_branch",
 )(function* (repoRoot: string) {
@@ -142,15 +152,15 @@ const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
   yield* progress(`posted ${receipt.url}`)
 })
 
-const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
-  recipeName: Option.Option<string>,
-  selectedLensNames: ReadonlyArray<string> | undefined,
-  pr: Option.Option<number>,
-  destination: Destination,
-  addendum: ReviewSpecification | undefined,
-  githubSpec: boolean,
-  frozenSpecificationState: FrozenSpecificationState | undefined,
-) {
+const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
+  addendum,
+  destination,
+  frozenSpecificationState,
+  githubSpec,
+  pr,
+  recipeName,
+  selectedLensNames,
+}: StartReviewRequest) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
   // recipe, otherwise the configured Default Recipe — nothing else.
@@ -307,21 +317,21 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       : Option.none()
     // The replacement review reuses the abandoned plan's frozen
     // specification verbatim: --resume never re-reads the addendum file.
-    yield* startReview(
-      Option.fromNullishOr(resumable.plan.recipeName),
-      undefined,
+    yield* startReview({
+      recipeName: Option.fromNullishOr(resumable.plan.recipeName),
+      selectedLensNames: undefined,
       pr,
       destination,
-      undefined,
-      false,
-      branchChanged
+      addendum: undefined,
+      githubSpec: false,
+      frozenSpecificationState: branchChanged
         ? undefined
         : {
             branch: resumable.plan.specificationSourceBranch ?? currentBranch,
             specification: resumable.plan.specification,
             diagnostic: resumable.plan.specificationSourceDiagnostic,
           },
-    ).pipe(
+    }).pipe(
       Effect.provideService(
         InvocationDirectory,
         resumable.plan.target.repoRoot,
@@ -401,17 +411,17 @@ const executeReviewCommand = Effect.fn(
   const specification = Option.isSome(spec)
     ? yield* loadCallerAddendum(yield* InvocationDirectory, spec.value)
     : undefined
-  yield* startReview(
-    recipe,
-    Option.isNone(lenses)
+  yield* startReview({
+    recipeName: recipe,
+    selectedLensNames: Option.isNone(lenses)
       ? undefined
       : lenses.value.split(",").map((name) => name.trim()),
     pr,
     destination,
-    specification,
+    addendum: specification,
     githubSpec,
-    undefined,
-  )
+    frozenSpecificationState: undefined,
+  })
 })
 
 const review = Command.make(

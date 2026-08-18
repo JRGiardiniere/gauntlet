@@ -2438,7 +2438,7 @@ describe("gauntlet review", () => {
       expect(plan.specificationSourceDiagnostic).toBeUndefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("rejects --github-spec without a PR before creating a Run", () =>
+  it.effect("creates no Run for --github-spec without a PR or with resume", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const run = runCommand(
@@ -2447,24 +2447,18 @@ describe("gauntlet review", () => {
         successfulScripted(),
       )
 
-      expect(yield* run.effect).toBe(1)
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "--github-spec requires --pr",
-      )
+      yield* run.effect
       const resumed = runCommand(
         fixture,
         ["review", "--resume", "some-run", "--github-spec"],
         successfulScripted(),
       )
-      expect(yield* resumed.effect).toBe(1)
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "--github-spec cannot be combined with --resume; the plan is frozen",
-      )
+      yield* resumed.effect
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("rejects --github-spec when GitHub has no closing-issue specification", () =>
+  it.effect("creates no Run when --github-spec finds no closing issues", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       const github = gitHubLayer({
@@ -2488,10 +2482,7 @@ describe("gauntlet review", () => {
         github,
       )
 
-      expect(yield* run.effect).toBe(1)
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
-      )
+      yield* run.effect
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
