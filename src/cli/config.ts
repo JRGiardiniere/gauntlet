@@ -31,7 +31,7 @@ import {
   writeSettings,
 } from "../config/settings.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
-import { InvocationDirectory } from "./invocation-directory.ts"
+import { resolveInvocationProjectRoot } from "./invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
   readonly reason: string
@@ -100,7 +100,7 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   const path = yield* settingsPath()
   const pathService = yield* Path.Path
   const catalogPath = yield* recipesDirectory()
-  const repoRoot = yield* InvocationDirectory
+  const repoRoot = yield* resolveInvocationProjectRoot()
   const entries = yield* listRecipes()
   const lenses = yield* loadFinderLensCatalog(repoRoot).pipe(
     Effect.catchTag("ContentLoadError", (failure) =>
@@ -211,8 +211,19 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
       })),
   )
   const entries = yield* listRecipes()
+  const repoRoot = yield* resolveInvocationProjectRoot()
 
   if (!settingsExists && entries.length === 0) {
+    yield* loadFinderLenses({
+      repoRoot,
+      names: INITIAL_DEFAULT_LENSES,
+    }).pipe(
+      Effect.catchTag("ContentLoadError", (failure) =>
+        new ConfigCommandError({
+          reason:
+            `initial default-lenses are unusable — ${failure.reason} (${failure.path})`,
+        })),
+    )
     yield* fs.makeDirectory(catalogPath, { recursive: true }).pipe(
       Effect.mapError((cause) =>
         new ConfigCommandError({
@@ -283,7 +294,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
     })
   }
   yield* loadFinderLenses({
-    repoRoot: yield* InvocationDirectory,
+    repoRoot,
     names: configured["default-lenses"],
   }).pipe(
     Effect.catchTag("ContentLoadError", (failure) =>
@@ -384,7 +395,7 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
       const selected = names.length === 0
         ? []
         : yield* loadFinderLenses({
-            repoRoot: yield* InvocationDirectory,
+            repoRoot: yield* resolveInvocationProjectRoot(),
             names,
           }).pipe(Effect.catchTag("ContentLoadError", lensConfigError))
       const defaultLenses = selected.map(({ name }) => name)

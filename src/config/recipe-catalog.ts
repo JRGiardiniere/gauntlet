@@ -8,7 +8,7 @@ import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { Recipe, RecipeName } from "../domain/recipe.ts"
-import { loadSettings, recipesDirectory, type Settings } from "./settings.ts"
+import { loadSettings, recipesDirectory } from "./settings.ts"
 
 // One invalid Recipe never disables the catalog: listing carries it as an
 // entry with its path and Schema error; only selecting it fails (ADR 0005).
@@ -19,10 +19,6 @@ export interface ValidRecipeEntry {
   readonly name: RecipeName
   readonly path: string
   readonly recipe: Recipe
-}
-
-export interface ResolvedReviewRecipe extends ValidRecipeEntry {
-  readonly settings: Settings
 }
 
 export interface InvalidRecipeEntry {
@@ -184,28 +180,26 @@ export const selectRecipe = Effect.fn("gauntlet.recipe_catalog.select")(
 export const resolveReviewRecipe = Effect.fn(
   "gauntlet.recipe_catalog.resolve_review",
 )(function* (positional: Option.Option<string>) {
+  if (Option.isSome(positional)) {
+    return yield* selectRecipe(positional.value)
+  }
   const settings = yield* loadSettings()
   if (Option.isNone(settings)) {
     const entries = yield* listRecipes()
     return yield* new RecipeSelectionError({
       reason:
-        "no review settings are configured — run `gauntlet config init`",
+        "no default recipe is configured — pass a recipe (`gauntlet review <recipe>`) or run `gauntlet config init`",
       available: availableRecipeNames(entries),
     })
   }
-  if (Option.isSome(positional)) {
-    const selected = yield* selectRecipe(positional.value)
-    return { ...selected, settings: settings.value } satisfies ResolvedReviewRecipe
-  }
   const name = settings.value["default-recipe"]
-  const selected = yield* selectRecipe(name).pipe(
+  return yield* selectRecipe(name).pipe(
     Effect.catchTag("RecipeSelectionError", (failure) =>
       new RecipeSelectionError({
         reason: `configured default-recipe is unusable — ${failure.reason}`,
         available: failure.available,
       })),
   )
-  return { ...selected, settings: settings.value } satisfies ResolvedReviewRecipe
 })
 
 // Renders a RecipeSelectionError's `available` payload for error messages.

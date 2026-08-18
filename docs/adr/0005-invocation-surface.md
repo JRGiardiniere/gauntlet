@@ -160,6 +160,9 @@ guess.
 
 Settings are strict JSON: required `default-recipe`, required `default-lenses`,
 required ordered `favorites` (possibly empty), and optional `runs-root`.
+An invocation that explicitly names both its Recipe and exact `--lenses` may
+run without settings because it needs neither standing selection; omitting
+either selection requires the corresponding configured default.
 `config set favorites` replaces the whole list, requires distinct available
 valid Recipe names, and `config unset favorites` clears it. Settings writes use
 the existing atomic sibling-temp-and-rename mechanism; the personal-tool use

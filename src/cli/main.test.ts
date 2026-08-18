@@ -491,6 +491,21 @@ const resume = (
   )
 
 describe("gauntlet review", () => {
+  it.effect("accepts fully explicit Recipe and Lens choices without settings", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.remove(fixture.settingsFile)
+
+      const run = runCommand(
+        fixture,
+        ["review", "fixture-recipe", "--lenses", "fixture-review"],
+        successfulScripted(),
+      )
+      expect(yield* run.effect).toBe(0)
+      expect(run.scripted.configs.length).toBeGreaterThan(0)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("lands the frozen plan, completed Finder stage, and presentation", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo

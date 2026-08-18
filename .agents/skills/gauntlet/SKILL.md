@@ -49,7 +49,7 @@ Dossier lives on disk.
 6. **Launch** as a background shell task:
 
    ```
-   gauntlet review [recipe] [--pr N] [--spec <markdown-file>] [--destination local|pr]
+   gauntlet review [recipe] [--pr N] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
    ```
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means

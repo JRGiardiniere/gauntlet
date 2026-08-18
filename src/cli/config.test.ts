@@ -13,6 +13,7 @@ import { Recipe } from "../domain/recipe.ts"
 import { unusedGitHubLayer } from "../github/github.ts"
 import { unusedLinearLayer } from "../linear/linear.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
+import { runGit } from "../target/git.ts"
 import { runGauntlet } from "./main.ts"
 import { InvocationDirectory } from "./invocation-directory.ts"
 
@@ -71,9 +72,13 @@ const writeSettings = (fixture: Fixture, settings: Settings) =>
     yield* fs.writeFileString(fixture.settingsFile, `${json}\n`)
   })
 
-const config = (fixture: Fixture, ...argv: Array<string>) =>
+const configAt = (
+  fixture: Fixture,
+  invocationDirectory: string,
+  ...argv: Array<string>
+) =>
   runGauntlet(["config", ...argv]).pipe(
-    Effect.provideService(InvocationDirectory, fixture.home),
+    Effect.provideService(InvocationDirectory, invocationDirectory),
     Effect.provideService(ContentDirectory, fixture.content),
     Effect.provide(
       Layer.mergeAll(
@@ -85,6 +90,9 @@ const config = (fixture: Fixture, ...argv: Array<string>) =>
       ),
     ),
   )
+
+const config = (fixture: Fixture, ...argv: Array<string>) =>
+  configAt(fixture, fixture.home, ...argv)
 
 const readSettings = (fixture: Fixture) =>
   Effect.gen(function* () {
@@ -180,6 +188,26 @@ describe("gauntlet config init", () => {
       expect(yield* fs.readFileString(fixture.settingsFile)).toBe("{not json\n")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("validates fresh Default Lenses before writing configuration", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const projectLenses = path.join(fixture.home, ".gauntlet", "lenses")
+      yield* fs.makeDirectory(projectLenses, { recursive: true })
+      yield* fs.writeFileString(
+        path.join(projectLenses, "subjective.md"),
+        "duplicate project Lens\n",
+      )
+
+      expect(yield* config(fixture, "init")).toBe(1)
+      expect(yield* stderr()).toContain(
+        "duplicate shipped/project lens name: subjective",
+      )
+      expect(yield* fs.exists(fixture.settingsFile)).toBe(false)
+      expect(yield* fs.exists(fixture.recipesDirectory)).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("rejects the retired deep-finders recipe key, not silently accepting it", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture
@@ -248,5 +276,39 @@ describe("gauntlet config init", () => {
       expect(yield* config(fixture)).toBe(1)
       expect(yield* stderr()).toContain("could not configure")
       expect(yield* stderr()).toContain("not admitted: routing")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("uses the Git repository root for project-local Lens discovery", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      expect(yield* config(fixture, "init")).toBe(0)
+      yield* runGit(fixture.home, ["init"])
+
+      const projectLenses = path.join(fixture.home, ".gauntlet", "lenses")
+      const nested = path.join(fixture.home, "packages", "app")
+      yield* fs.makeDirectory(projectLenses, { recursive: true })
+      yield* fs.makeDirectory(nested, { recursive: true })
+      yield* fs.writeFileString(
+        path.join(projectLenses, "project-local.md"),
+        "project-local prompt\n",
+      )
+
+      expect(yield* configAt(fixture, nested)).toBe(0)
+      expect(yield* stdout()).toContain("project Lens catalog:")
+      expect(yield* stdout()).toContain("- project-local")
+      expect(
+        yield* configAt(
+          fixture,
+          nested,
+          "set",
+          "default-lenses",
+          "project-local",
+        ),
+      ).toBe(0)
+      expect((yield* readSettings(fixture))["default-lenses"]).toEqual([
+        "project-local",
+      ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

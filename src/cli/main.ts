@@ -10,7 +10,7 @@ import {
   renderAvailable,
   resolveReviewRecipe,
 } from "../config/recipe-catalog.ts"
-import { resolveRunsRoot } from "../config/settings.ts"
+import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadFinderLenses } from "../content/lens.ts"
 import {
   deliverCompletedRun,
@@ -148,6 +148,18 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(recipeName)
   yield* progress(`using recipe ${selected.name}`)
+  const defaultLensNames = selectedLensNames === undefined
+    ? yield* Effect.gen(function* () {
+        const settings = yield* loadSettings()
+        if (Option.isNone(settings)) {
+          return yield* new ReviewCommandError({
+            reason:
+              "no Default Lenses are configured — pass --lenses or run `gauntlet config init`",
+          })
+        }
+        return settings.value["default-lenses"]
+      })
+    : []
   const directory = yield* InvocationDirectory
   const target = yield* Option.match(pr, {
     onNone: () => {
@@ -171,7 +183,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
 
   const resolvedLensNames = resolveLensNames(
     selectedLensNames,
-    selected.settings["default-lenses"],
+    defaultLensNames,
   )
   yield* progress(
     selectedLensNames === undefined

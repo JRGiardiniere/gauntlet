@@ -144,7 +144,7 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
   )
 })
 
-export interface FinderLensQuery {
+interface FinderLensQuery {
   readonly repoRoot: string
   readonly names: ReadonlyArray<string>
 }
@@ -203,7 +203,7 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
   function* ({ names, repoRoot }: FinderLensQuery) {
     const catalog = yield* discoverFinderLensSources(repoRoot)
     const seen = new Set<LensName>()
-    const selected: globalThis.Array<LoadedLens> = []
+    const selectedSources: globalThis.Array<LensSource> = []
     for (const name of names) {
       const decodedName = yield* Schema.decodeEffect(LensName)(name).pipe(
         Effect.mapError(
@@ -219,9 +219,13 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
           reason: `selected lens does not exist: ${decodedName}`,
         })
       }
-      selected.push(yield* loadLens(source.directory, source.name))
+      selectedSources.push(source)
     }
-    return selected
+    return yield* Effect.forEach(
+      selectedSources,
+      (source) => loadLens(source.directory, source.name),
+      { concurrency: 4 },
+    )
   },
 )
 
@@ -229,6 +233,13 @@ export const loadFinderLensCatalog = Effect.fn(
   "gauntlet.lens.load_finder_catalog",
 )(function* (repoRoot: string) {
   const catalog = yield* discoverFinderLensSources(repoRoot)
-  const names = Array.sort([...catalog.keys()], Order.String)
-  return yield* loadFinderLenses({ repoRoot, names })
+  const sources = Array.sort(
+    [...catalog.values()],
+    Order.mapInput(Order.String, (source: LensSource) => source.name),
+  )
+  return yield* Effect.forEach(
+    sources,
+    (source) => loadLens(source.directory, source.name),
+    { concurrency: 4 },
+  )
 })

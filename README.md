@@ -90,6 +90,9 @@ changes Lens membership without changing the selected Recipe's Seats. Adding a
 Markdown file under `content/lenses/` or `.gauntlet/lenses/` makes it available,
 not selected. Recipes remain Seat policy only.
 
+A fully explicit `gauntlet review <recipe> --lenses a,b` does not need a
+settings file. Omitting either choice requires its configured default.
+
 ## Recipes
 
 A recipe is one strict JSON file in `~/.gauntlet/recipes/`; the
