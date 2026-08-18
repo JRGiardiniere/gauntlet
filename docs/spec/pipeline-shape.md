@@ -29,7 +29,13 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    block and before the candidates.
 
 A run whose plan froze no ReviewSpecification carries no absence text in any
-prompt — nothing announces that no specification was supplied.
+prompt — nothing announces that no specification was supplied. A PullRequest
+review acquires GitHub closing issues as current Slices (native parent one
+level, owner/member/collaborator comments, shared 20k comment budget) before
+the plan is frozen; GitHub unavailability or a PR with no closing issues is
+the same quiet no-spec path. A Caller Addendum is appended after fetched
+material and never replaces it.
+
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
 ## Routing

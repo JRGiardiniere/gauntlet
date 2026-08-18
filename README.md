@@ -14,7 +14,7 @@ can symlink from `.claude/skills/` later.
 ## Commands
 
 ```
-gauntlet review [recipe] [--pr N] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
+gauntlet review [recipe] [--pr N] [--spec <file>] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
 gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
@@ -23,16 +23,20 @@ gauntlet config unset <key>
 ```
 
 - `review` runs the pipeline to completion. The default target is the working
-  tree's uncommitted changes; `--pr N` reviews that pull request's range. A
-  positional recipe selects a named recipe from the catalog; omitting it
-  selects the configured `default-recipe`. Nothing else selects a recipe —
-  if neither resolves, the review fails and lists what is available.
-  `--destination` defaults to `local` (run directory + bounded digest). `pr`
-  keeps those local outputs and also posts `dossier.md`; it requires `--pr`.
-  `--resume` continues from completed semantic checkpoints when the target is
-  unchanged, under the currently installed code. The first such checkpoint is
-  the complete Finder stage; an interrupted partial Finder fan-out reruns in
-  full. A changed target starts a new review.
+  tree's uncommitted changes; `--pr N` reviews that pull request's range and
+  resolves GitHub closing issues as the ReviewSpecification (native parent one
+  level, admitted maintainer comments, 20k comment budget). GitHub
+  unavailability or a PR with no closing issues stays quietly
+  specification-less. `--spec <file>` freezes a Caller Addendum beside any
+  fetched material. A positional recipe selects a named recipe from the
+  catalog; omitting it selects the configured `default-recipe`. Nothing else
+  selects a recipe — if neither resolves, the review fails and lists what is
+  available. `--destination` defaults to `local` (run directory + bounded
+  digest). `pr` keeps those local outputs and also posts `dossier.md`; it
+  requires `--pr`. `--resume` continues from completed semantic checkpoints
+  when the target is unchanged, under the currently installed code. The first
+  such checkpoint is the complete Finder stage; an interrupted partial Finder
+  fan-out reruns in full. A changed target starts a new review.
 - `deliver` posts an already-completed pull-request run's `dossier.md` as a
   single PR comment. A working-tree run has no PR destination and is refused.
   Re-delivering a Posted receipt is a no-op that returns the existing comment

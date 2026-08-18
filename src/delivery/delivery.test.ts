@@ -11,6 +11,7 @@ import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import {
   GitHubError,
   gitHubLayer,
+  unusedGitHubContract,
   type PostedComment,
 } from "../github/github.ts"
 import { writeArtifactJson, writeArtifactText } from "../run/artifact.ts"
@@ -95,8 +96,7 @@ const scriptedGitHub = (
   script: ScriptedGitHub,
 ) =>
   gitHubLayer({
-    viewPullRequest: () =>
-      Effect.fail(new GitHubError({ operation: "view", reason: "unused" })),
+    ...unusedGitHubContract,
     postComment: (cwd, number, body) => {
       script.posts.push({ cwd, number, body })
       return script.failPost === undefined

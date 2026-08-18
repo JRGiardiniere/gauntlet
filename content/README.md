@@ -31,7 +31,9 @@ and lens files, no plumbing. The companion specifications live in
   fence longer than any backtick run in the diff. The assembled finder prompt
   is system prompt + shared block + ReviewSpecification section (interpretive
   finders only, when the plan froze one) + lens tail (+ cap override, when
-  applicable). Every Finder receives that complete ordinary prompt. Within a
+  applicable). The specification section carries parent and current-Slice
+  documents, admitted comments, and any comment-budget omission marker. Every
+  Finder receives that complete ordinary prompt. Within a
   multi-Finder partition, one ordinary Finder starts first and the rest follow
   shortly after its first metered response so their byte-identical prefix can
   reuse provider caching. See `docs/spec/pipeline-shape.md`.

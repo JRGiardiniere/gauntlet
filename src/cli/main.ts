@@ -37,6 +37,8 @@ import {
 } from "../run/run-record.ts"
 import { liveTargetMatchesPlan } from "../run/target-consistency.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
+import { combineReviewSpecifications } from "../specification/combine.ts"
+import { loadGitHubSpecification } from "../specification/github-source.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
@@ -72,7 +74,8 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   selectedLensNames: ReadonlyArray<string> | undefined,
   pr: Option.Option<number>,
   destination: Destination,
-  specification: ReviewSpecification | undefined,
+  addendum: ReviewSpecification | undefined,
+  frozenSpecification: ReviewSpecification | undefined,
 ) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
@@ -132,6 +135,17 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       ? FrozenLens.make({ ...frozen, finderClass: lens.finderClass })
       : FrozenLens.make(frozen)
   })
+
+  // A changed-target resume reuses the abandoned plan's frozen specification
+  // verbatim (issue #73/#74): never re-fetch GitHub, never re-read --spec.
+  const specification = frozenSpecification !== undefined
+    ? frozenSpecification
+    : combineReviewSpecifications(
+        ReviewTarget.guards.PullRequest(target)
+          ? yield* loadGitHubSpecification(target.repoRoot, target.number)
+          : undefined,
+        addendum,
+      )
 
   const planFields = {
     runId,
@@ -193,6 +207,7 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       undefined,
       pr,
       destination,
+      undefined,
       resumable.plan.specification,
     ).pipe(
       Effect.provideService(
@@ -270,6 +285,7 @@ const executeReviewCommand = Effect.fn(
     pr,
     destination,
     specification,
+    undefined,
   )
 })
 

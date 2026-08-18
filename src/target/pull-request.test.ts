@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import { GitHubError, gitHubLayer, type PullRequestView } from "../github/github.ts"
+import { gitHubLayer, unusedGitHubContract, type PullRequestView } from "../github/github.ts"
 import { chompLine, runGit } from "./git.ts"
 import { resolvePullRequestTarget } from "./pull-request.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
@@ -48,12 +48,9 @@ describe("resolvePullRequestTarget", () => {
       const target = yield* resolvePullRequestTarget(repo, 7).pipe(
         Effect.provide(
           gitHubLayer({
+            ...unusedGitHubContract,
             viewPullRequest: () =>
               Effect.succeed(viewOf(7, headCommit, baseCommit)),
-            postComment: () =>
-              Effect.fail(
-                new GitHubError({ operation: "post", reason: "unused" }),
-              ),
           }),
         ),
       )
@@ -74,12 +71,9 @@ describe("resolvePullRequestTarget", () => {
       const failed = yield* resolvePullRequestTarget(repo, 7).pipe(
         Effect.provide(
           gitHubLayer({
+            ...unusedGitHubContract,
             viewPullRequest: () =>
               Effect.succeed(viewOf(7, headCommit, headCommit)),
-            postComment: () =>
-              Effect.fail(
-                new GitHubError({ operation: "post", reason: "unused" }),
-              ),
           }),
         ),
         Effect.flip,

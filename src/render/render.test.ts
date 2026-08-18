@@ -3,6 +3,7 @@ import { Candidate } from "../domain/candidate.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
+import { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 import { renderDigest } from "./digest.ts"
@@ -240,6 +241,34 @@ describe("dossier markdown rendering", () => {
     expect(markdown).toContain(
       "fixture-lens (fixture/override-model:high)",
     )
+  })
+
+  it("renders comment-budget omission in the header", () => {
+    const withOmission = ReviewPlan.make({
+      runId: plan.runId,
+      target: plan.target,
+      seats: plan.seats,
+      lenses: plan.lenses,
+      specification: ReviewSpecification.make({
+        documents: [{
+          role: "slice",
+          provenance: "https://github.com/example/repo/issues/74",
+          text: "slice body",
+          title: "github source",
+          state: "OPEN",
+        }],
+        comments: [],
+        commentOmission: {
+          droppedCount: 4,
+          droppedCharacters: 12480,
+          cutoff: "2026-08-15T12:00:00Z",
+        },
+      }),
+    })
+    expect(renderDossierMarkdown(withOmission, dossier, accounting)).toContain(
+      "- Comment budget: Dropped 4 earliest comments (12480 characters). Cutoff: 2026-08-15T12:00:00Z.",
+    )
+    expect(markdown).not.toContain("Comment budget:")
   })
 })
 

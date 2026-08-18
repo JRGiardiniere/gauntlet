@@ -56,8 +56,9 @@ export const ReviewPlan = Schema.Struct({
     judgment: Schema.optionalKey(Seat),
   }),
   lenses: Schema.Array(FrozenLens),
-  // Frozen exactly once at submission (issue #73): resume never re-reads the
-  // addendum file, and a run without one carries no field and no absence text.
+  // Frozen exactly once at submission (issues #73, #74): resume never
+  // re-fetches issues or re-reads the addendum file, and a run without a
+  // specification carries no field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),
 })
 export type ReviewPlan = typeof ReviewPlan.Type

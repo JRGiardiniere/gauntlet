@@ -44,5 +44,6 @@ export const loadCallerAddendum = Effect.fn(
   }
   return ReviewSpecification.make({
     documents: [{ role: "caller-addendum", provenance: resolved, text }],
+    comments: [],
   })
 })

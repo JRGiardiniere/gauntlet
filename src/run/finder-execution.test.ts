@@ -76,6 +76,7 @@ const specification: ReviewSpecification = {
     provenance: "finder execution test",
     text: "SPECIFICATION-NEEDLE: preserve stable ordering",
   }],
+  comments: [],
 }
 
 const executeFixture = (
