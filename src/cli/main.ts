@@ -75,6 +75,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   pr: Option.Option<number>,
   destination: Destination,
   addendum: ReviewSpecification | undefined,
+  frozenSpecification: ReviewSpecification | undefined,
 ) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
@@ -135,12 +136,16 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       : FrozenLens.make(frozen)
   })
 
-  // GitHub Specification Source (issue #74): PullRequest only. Failure or
-  // no closing issues is the quiet no-spec path and never blocks the review.
-  const fetched = ReviewTarget.guards.PullRequest(target)
-    ? yield* loadGitHubSpecification(target.repoRoot, target.number)
-    : undefined
-  const specification = combineReviewSpecifications(fetched, addendum)
+  // A changed-target resume reuses the abandoned plan's frozen specification
+  // verbatim (issue #73/#74): never re-fetch GitHub, never re-read --spec.
+  const specification = frozenSpecification !== undefined
+    ? frozenSpecification
+    : combineReviewSpecifications(
+        ReviewTarget.guards.PullRequest(target)
+          ? yield* loadGitHubSpecification(target.repoRoot, target.number)
+          : undefined,
+        addendum,
+      )
 
   const planFields = {
     runId,
@@ -202,6 +207,7 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       undefined,
       pr,
       destination,
+      undefined,
       resumable.plan.specification,
     ).pipe(
       Effect.provideService(
@@ -279,6 +285,7 @@ const executeReviewCommand = Effect.fn(
     pr,
     destination,
     specification,
+    undefined,
   )
 })
 

@@ -1756,4 +1756,69 @@ describe("gauntlet review", () => {
       expect(verifierPrompt).toContain("FROZEN-SLICE")
       expect(verifierPrompt).not.toContain("MUTATED-SLICE")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("changed-target PR resume reuses the frozen specification without re-fetching", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      let currentView = prView(7, headCommit, baseCommit)
+      let currentIssues: ReadonlyArray<GitHubClosingIssue> = [
+        closingIssue(74, "github source", "FROZEN-SLICE"),
+      ]
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () => Effect.succeed(currentView),
+        viewClosingIssues: () => Effect.succeed(currentIssues),
+      })
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        github,
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nlater-line\n",
+      )
+      yield* commitAll(fixture.repo, "later")
+      const laterCommit = chompLine(
+        yield* runGit(fixture.repo, ["rev-parse", "HEAD"]),
+      )
+      currentView = prView(7, laterCommit, baseCommit)
+      currentIssues = [closingIssue(74, "github source", "MUTATED-SLICE")]
+
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume"],
+        successfulScripted(),
+        Effect.void,
+        github,
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "resume unavailable, running a new review",
+      )
+      const [verifierPrompt = ""] = promptTextsFor(
+        resumed.scripted,
+        "-verification",
+      )
+      expect(verifierPrompt).toContain("FROZEN-SLICE")
+      expect(verifierPrompt).not.toContain("MUTATED-SLICE")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

@@ -430,19 +430,31 @@ const makeLive = Effect.gen(function* () {
         collected.push(...pullRequest.closingIssuesReferences.nodes)
         hasNextPage = pullRequest.closingIssuesReferences.pageInfo.hasNextPage
         after = pullRequest.closingIssuesReferences.pageInfo.endCursor
+        if (hasNextPage && after === null) break
       }
 
-      return yield* Effect.all(
-        collected.map((issue) =>
-          Effect.gen(function* () {
-            const snapshot = yield* completeIssue(cwd, issue)
-            const parent = issue.parent === null
-              ? undefined
-              : yield* completeIssue(cwd, issue.parent)
-            return { ...snapshot, parent } satisfies GitHubClosingIssue
-          })),
-        { concurrency: 2 },
+      const uniqueIssues = new Map<string, WireIssue>()
+      for (const issue of collected) {
+        uniqueIssues.set(issue.id, issue)
+        if (issue.parent !== null) uniqueIssues.set(issue.parent.id, issue.parent)
+      }
+      const completed = new Map(
+        yield* Effect.all(
+          [...uniqueIssues.entries()].map(([id, issue]) =>
+            completeIssue(cwd, issue).pipe(
+              Effect.map((snapshot) => [id, snapshot] as const),
+            )),
+          { concurrency: 2 },
+        ),
       )
+      return collected.flatMap((issue) => {
+        const snapshot = completed.get(issue.id)
+        if (snapshot === undefined) return []
+        const parent = issue.parent === null
+          ? undefined
+          : completed.get(issue.parent.id)
+        return [{ ...snapshot, parent } satisfies GitHubClosingIssue]
+      })
     },
   )
 

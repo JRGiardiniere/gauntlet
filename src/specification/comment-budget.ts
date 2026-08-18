@@ -18,7 +18,7 @@ const byChronology = (
 export const formatCommentOmission = (omission: CommentOmission): string =>
   `Dropped ${String(omission.droppedCount)} earliest comments (${String(omission.droppedCharacters)} characters). Cutoff: ${omission.cutoff}.`
 
-export interface TrimmedComments {
+interface TrimmedComments {
   readonly comments: ReadonlyArray<SpecificationComment>
   readonly commentOmission: CommentOmission | undefined
 }
