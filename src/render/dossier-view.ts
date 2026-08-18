@@ -1,9 +1,16 @@
 import * as Array from "effect/Array"
 import * as Record from "effect/Record"
-import type { BugClaim, Observation } from "../domain/candidate.ts"
-import type { Dossier, EvaluatedBugClaim } from "../domain/dossier.ts"
+import type { BugClaim, Candidate, Observation } from "../domain/candidate.ts"
+import {
+  DossierFinding,
+  DossierUnresolved,
+  type Dossier,
+  type EvaluatedBugClaim,
+  type JudgedObservation,
+  type TestSuggestion,
+} from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
-import { Verdict } from "../domain/verdict.ts"
+import { Verdict, type ReviewPriority } from "../domain/verdict.ts"
 
 export interface ConfirmedClaim {
   readonly candidate: BugClaim
@@ -29,9 +36,7 @@ export interface DroppedObservation {
   readonly judgment: typeof Judgment.cases.Dropped.Type
 }
 
-// One deterministic partition of the Dossier shared by report and digest —
-// presentation partitions, never filters silently (docs/spec/pipeline-shape.md).
-export interface DossierView {
+export interface EvaluationView {
   readonly confirmed: ReadonlyArray<ConfirmedClaim>
   readonly unverified: ReadonlyArray<UnverifiedClaim>
   readonly refuted: ReadonlyArray<RefutedClaim>
@@ -45,16 +50,28 @@ export interface DossierView {
 const substance = (candidate: BugClaim): number =>
   candidate.summary.length + candidate.failureScenario.length
 
+const representativeClaim = (
+  candidates: readonly [BugClaim, ...Array<BugClaim>],
+): BugClaim =>
+  candidates.slice(1).reduce(
+    (fullest, candidate) =>
+      substance(candidate) > substance(fullest) ? candidate : fullest,
+    candidates[0],
+  )
+
+const lensesOf = (
+  candidates: readonly [BugClaim, ...Array<BugClaim>],
+): ReadonlyArray<string> =>
+  Array.dedupe(candidates.map(({ lens }) => lens))
+
 interface ClusteredBugClaim extends EvaluatedBugClaim {
   readonly lenses: ReadonlyArray<string>
 }
 
-// Pool bundles duplicate claims into one cluster and Verification returns one
-// verdict per cluster, so cluster-mates are a single finding several lenses
-// raised. Presentation shows the fullest mate attributed to all of them; every
-// mate stays in the Dossier.
-const clusterBugClaims = (
-  bugClaims: Dossier["bugClaims"],
+// Stage progress still needs a tally before final Dossier assembly. Pool
+// cluster-mates count as one evaluated claim in that tally.
+const clusterEvaluatedBugClaims = (
+  bugClaims: ReadonlyArray<EvaluatedBugClaim>,
 ): ReadonlyArray<ClusteredBugClaim> =>
   Record.values(Array.groupBy(bugClaims, ({ cluster }) => String(cluster)))
     .map((mates) => ({
@@ -70,9 +87,9 @@ const clusterBugClaims = (
     }))
 
 export const viewBugClaims = (
-  bugClaims: Dossier["bugClaims"],
-): Pick<DossierView, "confirmed" | "unverified" | "refuted"> => {
-  const clustered = clusterBugClaims(bugClaims)
+  bugClaims: ReadonlyArray<EvaluatedBugClaim>,
+): Pick<EvaluationView, "confirmed" | "unverified" | "refuted"> => {
+  const clustered = clusterEvaluatedBugClaims(bugClaims)
   return {
     confirmed: clustered.flatMap(({ candidate, lenses, verdict }) =>
       Verdict.guards.Confirmed(verdict) ? [{ candidate, lenses, verdict }] : []
@@ -87,8 +104,8 @@ export const viewBugClaims = (
 }
 
 export const viewObservations = (
-  observations: Dossier["observations"],
-): Pick<DossierView, "kept" | "undecided" | "dropped"> => ({
+  observations: ReadonlyArray<JudgedObservation>,
+): Pick<EvaluationView, "kept" | "undecided" | "dropped"> => ({
   kept: observations.flatMap(({ candidate, judgment }) =>
     Judgment.guards.Kept(judgment) ? [{ candidate, judgment }] : []
   ),
@@ -100,7 +117,89 @@ export const viewObservations = (
   ),
 })
 
+export type DossierEntryTag =
+  | "confirmed"
+  | "judgment"
+  | "unverified"
+  | "undecided"
+  | "refuted"
+  | "dropped"
+
+export interface DossierEntryView {
+  readonly candidate: Candidate
+  readonly lenses: ReadonlyArray<string>
+  readonly tag: DossierEntryTag
+  readonly reviewPriority?: ReviewPriority
+  readonly detail?: string
+  readonly testSuggestion?: TestSuggestion
+}
+
+export interface DossierView {
+  readonly findings: ReadonlyArray<DossierEntryView>
+  readonly unresolved: ReadonlyArray<DossierEntryView>
+  readonly refutedClaims: ReadonlyArray<DossierEntryView>
+  readonly droppedObservations: ReadonlyArray<DossierEntryView>
+}
+
+const claimEntry = (
+  entry: {
+    readonly bugClaims: readonly [BugClaim, ...Array<BugClaim>]
+    readonly testSuggestion?: TestSuggestion
+  },
+  tag: "confirmed" | "unverified" | "refuted",
+  reviewPriority: ReviewPriority | undefined,
+  detail: string | undefined,
+): DossierEntryView => {
+  const core = {
+    candidate: representativeClaim(entry.bugClaims),
+    lenses: lensesOf(entry.bugClaims),
+    tag,
+    reviewPriority,
+    detail,
+  }
+  return entry.testSuggestion === undefined
+    ? core
+    : { ...core, testSuggestion: entry.testSuggestion }
+}
+
 export const viewDossier = (dossier: Dossier): DossierView => ({
-  ...viewBugClaims(dossier.bugClaims),
-  ...viewObservations(dossier.observations),
+  findings: dossier.findings.map((entry) =>
+    DossierFinding.guards.Confirmed(entry)
+      ? claimEntry(
+        entry,
+        "confirmed",
+        entry.verdict.reviewPriority,
+        entry.verdict.evidence,
+      )
+      : {
+        candidate: entry.candidate,
+        lenses: [entry.candidate.lens],
+        tag: "judgment",
+        reviewPriority: entry.judgment.reviewPriority,
+        detail: entry.judgment.reason,
+      }
+  ),
+  unresolved: dossier.unresolved.map((entry) =>
+    DossierUnresolved.guards.Unverified(entry)
+      ? claimEntry(
+        entry,
+        "unverified",
+        entry.verdict.reviewPriority,
+        entry.verdict.evidence,
+      )
+      : {
+        candidate: entry.candidate,
+        lenses: [entry.candidate.lens],
+        tag: "undecided",
+      }
+  ),
+  refutedClaims: dossier.rejected.refutedClaims.map((entry) =>
+    claimEntry(entry, "refuted", undefined, entry.verdict.evidence)
+  ),
+  droppedObservations: dossier.rejected.droppedObservations.map((entry) => ({
+    candidate: entry.candidate,
+    lenses: [entry.candidate.lens],
+    tag: "dropped",
+    detail: entry.judgment.reason,
+  })),
 })

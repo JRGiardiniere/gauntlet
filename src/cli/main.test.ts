@@ -51,6 +51,7 @@ import {
   FinderStageCheckpoint,
 } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
+import { viewDossier } from "../render/dossier-view.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
@@ -557,29 +558,28 @@ describe("gauntlet review", () => {
         dossierText,
       )
       expect(dossier.runId).toBe(plan.runId)
-      expect(dossier.bugClaims).toHaveLength(1)
-      expect(dossier.bugClaims[0]?.candidate._tag).toBe("BugClaim")
-      expect(dossier.bugClaims[0]?.candidate.id).toBe("fixture-review/1")
-      expect(dossier.bugClaims[0]?.verdict).toEqual({
-        _tag: "Confirmed",
+      const dossierView = viewDossier(dossier)
+      const confirmed = dossierView.findings.find(
+        ({ tag }) => tag === "confirmed",
+      )
+      expect(confirmed?.candidate._tag).toBe("BugClaim")
+      expect(confirmed?.candidate.id).toBe("fixture-review/1")
+      expect(confirmed).toMatchObject({
         reviewPriority: "P2",
-        evidence: "empty input reaches the added line and throws",
-      })
-      expect(dossier.testSuggestions).toEqual([
-        {
+        detail: "empty input reaches the added line and throws",
+        testSuggestion: {
           tests: ["the alpha input suite"],
           reason: "it exercises empty inputs against the added line",
           bugClaimIds: ["fixture-review/1"],
         },
-      ])
-      expect(dossier.observations).toHaveLength(1)
-      expect(dossier.observations[0]?.candidate._tag).toBe("Observation")
-      expect(dossier.observations[0]?.candidate.id).toBe("fixture-review/2")
-      expect(dossier.observations[0]?.judgment).toMatchObject({
-        _tag: "Kept",
+      })
+      const judgment = dossierView.findings.find(
+        ({ tag }) => tag === "judgment",
+      )
+      expect(judgment?.candidate._tag).toBe("Observation")
+      expect(judgment?.candidate.id).toBe("fixture-review/2")
+      expect(judgment).toMatchObject({
         reviewPriority: "P2",
-        goodFind: true,
-        cleanlyExplained: true,
       })
       expect(dossier.coverageGaps).toEqual([])
 
@@ -651,9 +651,9 @@ describe("gauntlet review", () => {
       expect(tally).toContain("working tree @")
       expect(tally).toContain("recipe: fixture-recipe")
       expect(tally).toMatch(/\$0\.15 · \d+s/)
-      expect(stdout).toContain("- [P2] alpha.txt:2")
+      expect(stdout).toContain("- [P2 confirmed] alpha.txt:2")
       expect(stdout).toContain(
-        "- [P2] alpha.txt — the name hides the value's role",
+        "- [P2 judgment] alpha.txt — the name hides the value's role",
       )
       expect(stdout).toContain(`dossier.md: ${fixture.runsRoot}`)
       expect(stdout).toContain("dossier.json")
@@ -724,13 +724,16 @@ describe("gauntlet review", () => {
       const dossier = yield* fs.readFileString(path.join(runDir, "dossier.json")).pipe(
         Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
       )
-      expect(dossier.testSuggestions).toEqual([
-        {
+      expect(viewDossier(dossier).findings).toEqual(
+        expect.arrayContaining([expect.objectContaining({
+          tag: "confirmed",
+          testSuggestion: {
           tests: ["the alpha input suite"],
           reason: "it exercises empty inputs against the added line",
           bugClaimIds: ["fixture-review/1"],
-        },
-      ])
+          },
+        })]),
+      )
       const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
       expect(report).toContain(
         "suggested tests: the alpha input suite — it exercises empty inputs against the added line",
@@ -1200,8 +1203,8 @@ describe("gauntlet review", () => {
           reason: "finder emitted nothing after 2 corrective turns",
         },
       ])
-      expect(dossier.bugClaims).toHaveLength(1)
-      expect(dossier.observations).toHaveLength(1)
+      const entries = viewDossier(dossier)
+      expect([...entries.findings, ...entries.unresolved]).toHaveLength(2)
       expect(run.scripted.configs).toHaveLength(4)
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
@@ -1321,7 +1324,8 @@ describe("gauntlet review", () => {
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
         dossierText,
       )
-      expect(dossier.bugClaims[0]?.candidate.summary).toBe(
+      const entries = viewDossier(dossier)
+      expect([...entries.findings, ...entries.unresolved][0]?.candidate.summary).toBe(
         "the added line breaks empty inputs",
       )
       expect((yield* TestConsole.errorLines).join("\n")).toContain(

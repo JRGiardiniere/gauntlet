@@ -25,7 +25,11 @@ import {
   VERIFICATION_TOOLS,
 } from "../content/evaluation-prompt.ts"
 import type { BugClaim } from "../domain/candidate.ts"
-import type { Dossier } from "../domain/dossier.ts"
+import type {
+  CoverageGap,
+  EvaluatedBugClaim,
+  TestSuggestion,
+} from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
@@ -76,9 +80,9 @@ export interface BugClaimPathExecution {
 }
 
 export interface BugClaimPathResult {
-  readonly bugClaims: Dossier["bugClaims"]
-  readonly testSuggestions: Dossier["testSuggestions"]
-  readonly coverageGaps: Dossier["coverageGaps"]
+  readonly bugClaims: ReadonlyArray<EvaluatedBugClaim>
+  readonly testSuggestions: ReadonlyArray<TestSuggestion>
+  readonly coverageGaps: ReadonlyArray<CoverageGap>
   readonly costUsd: number
   readonly invocationCount: number
 }
@@ -104,7 +108,7 @@ export const executeBugClaimPath = Effect.fn(
   }
 
   const templates = yield* Effect.cached(loadEvaluationPromptTemplates())
-  const coverageGaps: Array<Dossier["coverageGaps"][number]> = []
+  const coverageGaps: Array<CoverageGap> = []
   let repair = initialRepair(claims)
   let poolCostUsd = 0
   let poolInvocationCount = 0

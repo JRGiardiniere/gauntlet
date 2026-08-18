@@ -56,7 +56,10 @@ describe("Dossier Assembly", () => {
         bugClaims: [{
           candidate: bugClaim,
           cluster: 1,
-          verdict: Verdict.cases.Refuted.make({ evidence: "guarded" }),
+          verdict: Verdict.cases.Confirmed.make({
+            reviewPriority: "P2",
+            evidence: "reproduced",
+          }),
         }],
         testSuggestions: [{
           tests: ["src/fixture.test.ts"],
@@ -74,13 +77,76 @@ describe("Dossier Assembly", () => {
       },
     })
 
-    expect(dossier.bugClaims).toHaveLength(1)
-    expect(dossier.testSuggestions).toHaveLength(1)
-    expect(dossier.observations).toHaveLength(1)
+    expect(dossier.findings).toHaveLength(1)
+    expect(dossier.findings[0]).toMatchObject({
+      _tag: "Confirmed",
+      testSuggestion: { tests: ["src/fixture.test.ts"] },
+    })
+    expect(dossier.unresolved).toHaveLength(0)
+    expect(dossier.rejected.refutedClaims).toHaveLength(0)
+    expect(dossier.rejected.droppedObservations).toHaveLength(1)
     expect(dossier.coverageGaps.map(({ stage }) => stage)).toEqual([
       "finders",
       "verification",
       "judgment",
+    ])
+  })
+
+  it("orders the actionable queue by priority and Confirmed before Judgment", () => {
+    const priorities = ["P3", "P1", "P2"] as const
+    const bugClaims = priorities.map((reviewPriority, index) => ({
+      candidate: Candidate.cases.BugClaim.make({
+        id: `fixture/claim-${String(index + 1)}`,
+        lens: "fixture",
+        file: "src/fixture.ts",
+        summary: `${reviewPriority} claim`,
+        failureScenario: "input fails",
+      }),
+      cluster: index + 1,
+      verdict: Verdict.cases.Confirmed.make({
+        reviewPriority,
+        evidence: "reproduced",
+      }),
+    }))
+    const observations = priorities.map((reviewPriority, index) => ({
+      candidate: Candidate.cases.Observation.make({
+        id: `fixture/observation-${String(index + 1)}`,
+        lens: "fixture",
+        file: "src/fixture.ts",
+        summary: `${reviewPriority} observation`,
+      }),
+      judgment: Judgment.cases.Kept.make({
+        reviewPriority,
+        reason: "checked the call sites",
+        goodFind: true,
+        cleanlyExplained: true,
+        mergedCandidateIds: [],
+      }),
+    }))
+
+    const dossier = assembleDossier({
+      plan,
+      finderCoverageGaps: [],
+      bugClaimPath: {
+        bugClaims,
+        testSuggestions: [],
+        coverageGaps: [],
+      },
+      judgmentPath: { observations, coverageGaps: [] },
+    })
+
+    expect(dossier.findings.map((entry) => [
+      entry._tag,
+      entry._tag === "Confirmed"
+        ? entry.verdict.reviewPriority
+        : entry.judgment.reviewPriority,
+    ])).toEqual([
+      ["Confirmed", "P1"],
+      ["Judgment", "P1"],
+      ["Confirmed", "P2"],
+      ["Judgment", "P2"],
+      ["Confirmed", "P3"],
+      ["Judgment", "P3"],
     ])
   })
 })

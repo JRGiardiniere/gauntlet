@@ -95,9 +95,9 @@ Assembly is the deterministic aggregation of those results.
   affected candidates surface as unverified/undecided rather than silently
   relabeled.
 - A BugClaim whose verifier never returned a verdict is **unverified** — a
-  first-class Verdict, rendered tagged in the main findings section.
-- An Observation the judge said nothing about is **undecided** — kept and
-  rendered tagged, never silently dropped.
+  first-class Verdict rendered in Unresolved with its domain tag.
+- An Observation the judge said nothing about is **undecided** — retained in
+  Unresolved with its domain tag, never silently dropped.
 - Malformed Pool output is repaired (per #7): unclustered indexes become
   single-member clusters; a candidate may never be lost to a clustering error.
 - A Pool cluster renders as one finding: its fullest member states it, every
@@ -106,8 +106,8 @@ Assembly is the deterministic aggregation of those results.
   into an unknown keeper, or into a keeper that another merge removed.
 - Review Priority is judged downstream (verifier/judge), never self-reported by
   finders — a finder rates its own work and has seen only its own lens.
-- Refuted claims and judge drops are not discarded: they land in the Dossier
-  and render as Markdown Dossier appendices (ADR 0006).
+- Refuted claims and judge drops are not discarded: they land under the
+  Dossier's Rejected hierarchy and render in separate subsections (ADR 0006).
 
 ## The cache-prefix invariant (finder fan-out)
 

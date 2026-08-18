@@ -4,7 +4,11 @@ import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import type { AgentOutcome } from "../domain/agent-outcome.ts"
-import type { Dossier } from "../domain/dossier.ts"
+import type {
+  CoverageGap,
+  EvaluatedBugClaim,
+  TestSuggestion,
+} from "../domain/dossier.ts"
 import { Verdict } from "../domain/verdict.ts"
 import type { VerdictsOutput } from "../harness/output-contract.ts"
 import type {
@@ -22,9 +26,9 @@ export interface VerificationResult {
 }
 
 export interface ResolvedVerification {
-  readonly bugClaims: Dossier["bugClaims"]
-  readonly testSuggestions: Dossier["testSuggestions"]
-  readonly coverageGaps: Dossier["coverageGaps"]
+  readonly bugClaims: ReadonlyArray<EvaluatedBugClaim>
+  readonly testSuggestions: ReadonlyArray<TestSuggestion>
+  readonly coverageGaps: ReadonlyArray<CoverageGap>
 }
 
 const validateVerdicts = (
@@ -134,8 +138,8 @@ export const resolveVerification = (
   const idOfIndex = HashMap.fromIterable(
     Array.map(claims, ({ candidate, index }) => [index, candidate.id] as const),
   )
-  const coverageGaps: Array<Dossier["coverageGaps"][number]> = []
-  const testSuggestions: Array<Dossier["testSuggestions"][number]> = []
+  const coverageGaps: Array<CoverageGap> = []
+  const testSuggestions: Array<TestSuggestion> = []
 
   for (const result of results) {
     const validated = validateVerdicts(result)

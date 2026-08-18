@@ -44,9 +44,7 @@ describe("domain model", () => {
       expect(rejected._tag).toBe("SchemaError")
     }))
 
-  // Resume's completeness check decodes dossier.json artifacts written
-  // before TestSuggestions existed; they must not read as incomplete runs.
-  it.effect("decodes a pre-TestSuggestion dossier artifact", () =>
+  it.effect("decodes the current Dossier hierarchy", () =>
     Effect.gen(function* () {
       // @effect-diagnostics-next-line preferTypedSchemaDecoder:off
       const dossier = yield* Schema.decodeUnknownEffect(Dossier)({
@@ -56,14 +54,15 @@ describe("domain model", () => {
           repoRoot: "/fixture",
           headCommit: "abcdef0",
         },
-        bugClaims: [],
-        observations: [],
+        findings: [],
+        unresolved: [],
+        rejected: { refutedClaims: [], droppedObservations: [] },
         coverageGaps: [],
       })
-      expect(dossier.testSuggestions).toEqual([])
+      expect(dossier.findings).toEqual([])
     }))
 
-  it.effect("rejects a pre-change Dossier that still names severity", () =>
+  it.effect("rejects a pre-hierarchy Dossier without compatibility defaults", () =>
     Effect.gen(function* () {
       const rejected = yield* Effect.flip(
         Schema.decodeUnknownEffect(Dossier)({

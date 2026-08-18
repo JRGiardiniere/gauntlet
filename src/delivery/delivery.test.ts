@@ -63,9 +63,9 @@ const dossierFor = (target: ReviewTarget, runId = "run-fixture") =>
   Dossier.make({
     runId,
     target: targetIdentityOf(target),
-    bugClaims: [],
-    testSuggestions: [],
-    observations: [],
+    findings: [],
+    unresolved: [],
+    rejected: { refutedClaims: [], droppedObservations: [] },
     coverageGaps: [],
   })
 

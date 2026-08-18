@@ -1,4 +1,3 @@
-import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { BugClaim, Observation } from "./candidate.ts"
 import { Judgment } from "./judgment.ts"
@@ -42,20 +41,66 @@ export const TestSuggestion = Schema.Struct({
 })
 export type TestSuggestion = typeof TestSuggestion.Type
 
+const ClusteredBugClaim = {
+  cluster: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  bugClaims: Schema.NonEmptyArray(BugClaim),
+}
+
+const SuggestedBugClaim = {
+  ...ClusteredBugClaim,
+  testSuggestion: Schema.optionalKey(TestSuggestion),
+}
+
+// The machine Dossier uses the same reader-facing hierarchy as dossier.md.
+// Assembly orders this work queue by Review Priority and then by domain path.
+export const DossierFinding = Schema.TaggedUnion({
+  Confirmed: {
+    ...SuggestedBugClaim,
+    verdict: Verdict.cases.Confirmed,
+  },
+  Judgment: {
+    candidate: Observation,
+    judgment: Judgment.cases.Kept,
+  },
+})
+export type DossierFinding = typeof DossierFinding.Type
+
+export const DossierUnresolved = Schema.TaggedUnion({
+  Unverified: {
+    ...SuggestedBugClaim,
+    verdict: Verdict.cases.Unverified,
+  },
+  Undecided: {
+    candidate: Observation,
+    judgment: Judgment.cases.Undecided,
+  },
+})
+export type DossierUnresolved = typeof DossierUnresolved.Type
+
+export const RefutedClaim = Schema.TaggedStruct("Refuted", {
+  ...ClusteredBugClaim,
+  verdict: Verdict.cases.Refuted,
+})
+export type RefutedClaim = typeof RefutedClaim.Type
+
+export const DroppedObservation = Schema.TaggedStruct("Dropped", {
+  candidate: Observation,
+  judgment: Judgment.cases.Dropped,
+})
+export type DroppedObservation = typeof DroppedObservation.Type
+
 // The canonical, complete semantic result of one review (CONTEXT.md).
-// Refutations live in bugClaims as Refuted verdicts and drops in
-// observations as Dropped judgments — every candidate is accounted for
-// exactly once; presentation partitions, never filters silently.
+// Every evaluated cluster and judged observation is accounted for exactly
+// once in the hierarchy. Operational run notes deliberately live elsewhere.
 export const Dossier = Schema.Struct({
   runId: Schema.NonEmptyString,
   target: TargetIdentity,
-  bugClaims: Schema.Array(EvaluatedBugClaim),
-  // Decoding default: dossier.json artifacts written before TestSuggestions
-  // existed lack the key, and resume's completeness check decodes them.
-  testSuggestions: Schema.Array(TestSuggestion).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed([])),
-  ),
-  observations: Schema.Array(JudgedObservation),
+  findings: Schema.Array(DossierFinding),
+  unresolved: Schema.Array(DossierUnresolved),
+  rejected: Schema.Struct({
+    refutedClaims: Schema.Array(RefutedClaim),
+    droppedObservations: Schema.Array(DroppedObservation),
+  }),
   coverageGaps: Schema.Array(CoverageGap),
 })
 export type Dossier = typeof Dossier.Type

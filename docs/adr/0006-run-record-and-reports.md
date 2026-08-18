@@ -58,9 +58,16 @@ may echo duration and cost already present on an AgentOutcome, plus stage wall
 time, as progress narration. Any future cost model is a script over run
 artifacts.
 
+Finder cache health is another derived Run-accounting view over those completed
+outcomes. It groups the frozen Finder plan by Seat and context kind, excludes
+each partition's starter, and reads only each follower's first raw usage row.
+Low reuse is a soft report/digest note, never Dossier semantics, coverage, a
+warning on the ReviewTarget, or another persisted artifact.
+
 ## The human-readable Dossier
 
-`dossier.md` is rendered from the machine-readable Dossier alone. Consumer
+`dossier.md` is rendered deterministically from the machine-readable Dossier,
+frozen ReviewPlan header facts, and derived Run accounting. Consumer
 (#10): the agent opens it to act on a finding; the human reads it for the whole
 story. Both files are representations of the same Dossier, not separate domain
 objects.
@@ -68,15 +75,15 @@ objects.
 - Header: target identity, recipe + seats, runnable lens list with seats,
   the one cost/duration line, coverage gaps, and one skipped line when the
   selected `spec-conformance` Lens had no ReviewSpecification.
-- Findings grouped by Review Priority, each with evidence (confirmed BugClaims) or
-  keep-reason (kept Observations).
-- **Unverified and undecided render in the main findings section**, tagged
-  `[unverified]` / `[undecided]`, after confirmed/kept within their priority —
-  first-class per #6, not banished to an appendix; an unverified P1 is
-  exactly what a human should glance at. The digest already counts them.
-- Appendices for refuted claims and judge drops — kept because they cost
-  nothing (the data is in the Dossier) and keep dismissed findings
-  look-up-able without re-running.
+- Optional Run notes: low Finder cache reuse derived from completed Finder
+  outcomes, omitted when no partition meets the soft-warning threshold.
+- Findings: one P1-to-P3 work queue of Confirmed BugClaims and kept
+  Observations, tagged `[confirmed]` / `[judgment]`, with Confirmed first inside
+  a priority.
+- Unresolved: Unverified BugClaims and undecided Observations, retaining their
+  `[unverified]` / `[undecided]` tags and evidence when available.
+- Rejected: separate Refuted Claims and Dropped Observations subsections,
+  retaining `[refuted]` / `[dropped]` tags, verifier evidence, and judge reasons.
 
 ## In-flight logging
 

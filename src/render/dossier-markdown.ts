@@ -1,16 +1,24 @@
 import { Candidate } from "../domain/candidate.ts"
-import type { Dossier, TestSuggestion } from "../domain/dossier.ts"
+import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
-import type { ReviewPriority } from "../domain/verdict.ts"
+import type { FinderCacheHealth } from "../run/finder-cache-health.ts"
+import {
+  describeFinderCacheHealth,
+  lowFinderCacheHealth,
+} from "../run/finder-cache-health.ts"
 import { formatCommentOmission } from "../specification/comment-budget.ts"
-import { type DossierView, viewDossier } from "./dossier-view.ts"
+import {
+  type DossierEntryView,
+  viewDossier,
+} from "./dossier-view.ts"
 
 export interface RunAccounting {
   readonly costUsd: number
   readonly invocationCount: number
   readonly wallTimeSeconds: number
+  readonly finderCacheHealth: ReadonlyArray<FinderCacheHealth>
 }
 
 const shortCommit = (commit: string) => commit.slice(0, 7)
@@ -49,112 +57,24 @@ const explanation = (
   detail ??
     (Candidate.guards.BugClaim(candidate) ? candidate.failureScenario : undefined)
 
-const findingLine = (
-  candidate: Candidate,
-  lenses: ReadonlyArray<string>,
-  priority: ReviewPriority | undefined,
-  tag: string | undefined,
-  detail: string | undefined,
-  suggestion?: TestSuggestion,
-): string => {
-  const priorityLabel = priority === undefined ? "" : `**[${priority}]** `
-  const tagLabel = tag === undefined ? "" : `\`[${tag}]\` `
-  const explained = explanation(candidate, detail)
+const findingLine = (entry: DossierEntryView): string => {
+  const priorityLabel = entry.reviewPriority === undefined
+    ? ""
+    : `**[${entry.reviewPriority}]** `
+  const explained = explanation(entry.candidate, entry.detail)
   const detailLine = explained === undefined ? "" : `\n  - ${oneLine(explained)}`
   // A TestSuggestion stays next to the claim it serves, so the reason for
   // running a test remains visible with the finding's context.
-  const suggestionLine = suggestion === undefined
+  const suggestionLine = entry.testSuggestion === undefined
     ? ""
-    : `\n  - suggested tests: ${suggestion.tests.map(oneLine).join(", ")} — ${oneLine(suggestion.reason)}`
-  return `- ${priorityLabel}${tagLabel}${location(candidate)} — ${oneLine(candidate.summary)} _(${attribution(lenses)})_${detailLine}${suggestionLine}`
+    : `\n  - suggested tests: ${entry.testSuggestion.tests.map(oneLine).join(", ")} — ${oneLine(entry.testSuggestion.reason)}`
+  return `- ${priorityLabel}\`[${entry.tag}]\` ${location(entry.candidate)} — ${oneLine(entry.candidate.summary)} _(${attribution(entry.lenses)})_${detailLine}${suggestionLine}`
 }
 
-const reviewPriorityOrder: ReadonlyArray<ReviewPriority> = ["P1", "P2", "P3"]
-
-// Every cluster-mate's stable id maps to its cluster's suggestion, so the
-// lookup works from whichever mate presentation chose to render.
-const suggestionByClaimId = (
-  suggestions: Dossier["testSuggestions"],
-): ReadonlyMap<string, TestSuggestion> =>
-  new Map(
-    suggestions.flatMap((suggestion) =>
-      suggestion.bugClaimIds.map((id) => [id, suggestion] as const)
-    ),
-  )
-
-// Findings by Review Priority: confirmed/kept first within their priority, then
-// unverified/undecided tagged in the main section — first-class, never
-// banished to an appendix (ADR 0006).
-const renderFindings = (
-  view: DossierView,
-  suggestionFor: ReadonlyMap<string, TestSuggestion>,
-): string => {
-  const lines: Array<string> = []
-  for (const priority of reviewPriorityOrder) {
-    for (const entry of view.confirmed) {
-      if (entry.verdict.reviewPriority === priority) {
-        lines.push(
-          findingLine(
-            entry.candidate,
-            entry.lenses,
-            priority,
-            undefined,
-            entry.verdict.evidence,
-            suggestionFor.get(entry.candidate.id),
-          ),
-        )
-      }
-    }
-    for (const entry of view.kept) {
-      if (entry.judgment.reviewPriority === priority) {
-        lines.push(
-          findingLine(
-            entry.candidate,
-            [entry.candidate.lens],
-            priority,
-            undefined,
-            entry.judgment.reason,
-          ),
-        )
-      }
-    }
-    for (const entry of view.unverified) {
-      if (entry.verdict.reviewPriority === priority) {
-        lines.push(
-          findingLine(
-            entry.candidate,
-            entry.lenses,
-            priority,
-            "unverified",
-            entry.verdict.evidence,
-            suggestionFor.get(entry.candidate.id),
-          ),
-        )
-      }
-    }
-  }
-  for (const entry of view.unverified) {
-    if (entry.verdict.reviewPriority === undefined) {
-      lines.push(
-        findingLine(
-          entry.candidate,
-          entry.lenses,
-          undefined,
-          "unverified",
-          entry.verdict.evidence,
-          suggestionFor.get(entry.candidate.id),
-        ),
-      )
-    }
-  }
-  for (const candidate of view.undecided) {
-    lines.push(findingLine(candidate, [candidate.lens], undefined, "undecided", undefined))
-  }
-  return lines.length === 0 ? "No findings." : lines.join("\n")
-}
-
-const renderAppendix = (lines: ReadonlyArray<string>): string =>
-  lines.length === 0 ? "None." : lines.join("\n")
+const renderEntries = (
+  entries: ReadonlyArray<DossierEntryView>,
+  empty: string,
+): string => entries.length === 0 ? empty : entries.map(findingLine).join("\n")
 
 // Rendered from the Dossier alone plus the frozen plan's header facts —
 // deterministic presentation, no model calls (ADR 0006).
@@ -215,35 +135,35 @@ export const renderDossierMarkdown = (
     )
   }
 
-  const refutedLines = view.refuted.map((entry) =>
-    findingLine(entry.candidate, entry.lenses, undefined, "refuted", entry.verdict.evidence)
-  )
-  const droppedLines = view.dropped.map((entry) =>
-    findingLine(
-      entry.candidate,
-      [entry.candidate.lens],
-      undefined,
-      "dropped",
-      entry.judgment.reason,
-    )
-  )
+  const runNotes = lowFinderCacheHealth(accounting.finderCacheHealth)
+    .map((health) => `- Finder cache ${describeFinderCacheHealth(health)}.`)
+  const runNotesSection = runNotes.length === 0
+    ? []
+    : ["", "## Run notes", "", ...runNotes]
 
   return [
     `# Gauntlet review ${dossier.runId}`,
     "",
     ...headerFacts,
+    ...runNotesSection,
     "",
     "## Findings",
     "",
-    renderFindings(view, suggestionByClaimId(dossier.testSuggestions)),
+    renderEntries(view.findings, "No findings."),
     "",
-    "## Appendix: refuted claims",
+    "## Unresolved",
     "",
-    renderAppendix(refutedLines),
+    renderEntries(view.unresolved, "None."),
     "",
-    "## Appendix: dropped observations",
+    "## Rejected",
     "",
-    renderAppendix(droppedLines),
+    "### Refuted Claims",
+    "",
+    renderEntries(view.refutedClaims, "None."),
+    "",
+    "### Dropped Observations",
+    "",
+    renderEntries(view.droppedObservations, "None."),
     "",
   ].join("\n")
 }

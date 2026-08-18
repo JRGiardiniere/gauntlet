@@ -1,6 +1,7 @@
 import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
+import { finderCacheHealthDigestLine } from "../run/finder-cache-health.ts"
 import { viewDossier } from "./dossier-view.ts"
 import type { RunAccounting } from "./dossier-markdown.ts"
 import type { RunPaths } from "../run/run-record.ts"
@@ -42,30 +43,30 @@ export const renderDigest = (
 ): string => {
   const view = viewDossier(dossier)
   const recipeName = plan.recipeName ?? "none"
+  const confirmed = view.findings.filter(({ tag }) => tag === "confirmed")
+    .length
+  const kept = view.findings.filter(({ tag }) => tag === "judgment").length
+  const unverified = view.unresolved.filter(({ tag }) => tag === "unverified")
+    .length
+  const undecided = view.unresolved.filter(({ tag }) => tag === "undecided")
+    .length
   const tally =
-    `${view.confirmed.length} confirmed · ${view.kept.length} kept · ` +
-    `${view.unverified.length} unverified · ${view.undecided.length} undecided — ` +
+    `${String(confirmed)} confirmed · ${String(kept)} kept · ` +
+    `${String(unverified)} unverified · ${String(undecided)} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
     `$${accounting.costUsd.toFixed(2)} · ${accounting.wallTimeSeconds}s`
-  const surviving = [
-    ...view.confirmed.map((entry) => {
-      return `- [${entry.verdict.reviewPriority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
-    }),
-    ...view.kept.map((entry) => {
-      return `- [${entry.judgment.reviewPriority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
-    }),
-    ...view.unverified.map((entry) => {
-      const priority = entry.verdict.reviewPriority === undefined
-        ? "unverified"
-        : `${entry.verdict.reviewPriority} unverified`
-      return `- [${priority}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
-    }),
-    ...view.undecided.map((candidate) => {
-      return `- [undecided] ${candidateLocation(candidate)} — ${boundedLine(candidate.summary)}`
-    }),
-  ]
+  const surviving = [...view.findings, ...view.unresolved].map((entry) => {
+    const label = entry.reviewPriority === undefined
+      ? entry.tag
+      : `${entry.reviewPriority} ${entry.tag}`
+    return `- [${label}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
+  })
+  const cacheHealth = finderCacheHealthDigestLine(
+    accounting.finderCacheHealth,
+  )
   return [
     tally,
+    ...(cacheHealth === undefined ? [] : [cacheHealth]),
     ...surviving,
     "",
     `dossier.md: ${paths.dossierMarkdown}`,

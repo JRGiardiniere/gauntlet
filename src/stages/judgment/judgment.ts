@@ -4,7 +4,10 @@ import * as Effect from "effect/Effect"
 import { describeMissingOutput } from "../../assembly/outcome.ts"
 import { EVALUATION_SYSTEM_PROMPT } from "../../content/evaluation-prompt.ts"
 import type { Observation } from "../../domain/candidate.ts"
-import type { Dossier } from "../../domain/dossier.ts"
+import type {
+  CoverageGap,
+  JudgedObservation,
+} from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { invoke } from "../../harness/invoke.ts"
 import { viewObservations } from "../../render/dossier-view.ts"
@@ -41,8 +44,8 @@ export interface JudgmentExecution {
 }
 
 export interface JudgmentResult {
-  readonly observations: Dossier["observations"]
-  readonly coverageGaps: Dossier["coverageGaps"]
+  readonly observations: ReadonlyArray<JudgedObservation>
+  readonly coverageGaps: ReadonlyArray<CoverageGap>
   readonly costUsd: number
   readonly invocationCount: number
 }
