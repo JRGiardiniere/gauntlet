@@ -30,7 +30,7 @@ import {
   FinderCacheSettleDelay,
   FinderStageArtifact,
 } from "./finder-execution.ts"
-import { measureFinderCacheHealth } from "./finder-cache-health.ts"
+import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { runPaths } from "./run-record.ts"
 
 const SEAT = "fixture/fixture-model:low" as const
@@ -319,17 +319,17 @@ describe("Finder stage interface", () => {
       )
 
       const first = yield* fixture.effect
-      const firstHealth = measureFinderCacheHealth(
+      const firstHealth = measureLowFinderCacheHealth(
         fixture.plan,
         first.finders,
       )
       const resumed = yield* fixture.effect
 
-      expect(measureFinderCacheHealth(
+      expect(measureLowFinderCacheHealth(
         fixture.plan,
         resumed.finders,
       )).toEqual(firstHealth)
-      expect(firstHealth).toEqual([expect.objectContaining({ reuse: 0.1 })])
+      expect(firstHealth).toEqual(expect.objectContaining({ reuse: 0.1 }))
       expect(scripted.configs).toHaveLength(3)
     }).pipe(Effect.scoped))
 

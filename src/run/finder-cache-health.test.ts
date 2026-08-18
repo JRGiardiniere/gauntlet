@@ -11,10 +11,7 @@ import type { Seat } from "../domain/recipe.ts"
 import type { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
-import {
-  lowFinderCacheHealth,
-  measureFinderCacheHealth,
-} from "./finder-cache-health.ts"
+import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 
 const SEAT = "fixture/cache-model:low" as const
 const OTHER_SEAT = "fixture/other-model:low" as const
@@ -66,7 +63,7 @@ const specification: ReviewSpecification = {
   documents: [{
     role: "caller-addendum",
     provenance: "cache health test",
-    text: "keep the cache partitions distinct",
+    text: "aggregate cache health across the run",
   }],
   comments: [],
 }
@@ -115,7 +112,7 @@ const result = (
 ): FinderResult => ({ lens: plannedLens, outcome: outcome(rawRows) })
 
 describe("Finder cache health", () => {
-  it("reconstructs partitions and measures only each eligible follower's first raw row", () => {
+  it("measures one run-wide low-reuse signal from eligible followers", () => {
     const results = [
       result(standardStarter, [rawUsage(100, 0)]),
       // The second row is a corrective turn and must not lower this follower.
@@ -130,24 +127,17 @@ describe("Finder cache health", () => {
       result(singleton, [rawUsage(100, 0)]),
     ]
 
-    const measurements = measureFinderCacheHealth(plan, results)
-
-    expect(measurements).toEqual([
-      {
-        seat: SEAT,
-        contextKind: "ordinary",
-        reuse: 0.5,
-        eligibleFollowerCount: 2,
-        healthyFollowerCount: 1,
-      },
-      {
-        seat: SEAT,
-        contextKind: "ordinary plus frozen ReviewSpecification",
-        reuse: 0.1,
-        eligibleFollowerCount: 2,
-        healthyFollowerCount: 0,
-      },
-    ])
-    expect(lowFinderCacheHealth(measurements)).toEqual([measurements[1]])
+    expect(measureLowFinderCacheHealth(plan, results)).toEqual({
+      reuse: 0.3,
+      eligibleFollowerCount: 4,
+      healthyFollowerCount: 1,
+    })
+    expect(measureLowFinderCacheHealth(plan, [
+      result(standardHealthy, [rawUsage(20, 80)]),
+      result(standardLow, [rawUsage(80, 20)]),
+    ])).toBeUndefined()
+    expect(measureLowFinderCacheHealth(plan, [
+      result(standardHealthy, [rawUsage(20, 80)]),
+    ])).toBeUndefined()
   })
 })

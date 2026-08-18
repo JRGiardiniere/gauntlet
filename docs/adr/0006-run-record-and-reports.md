@@ -59,10 +59,11 @@ time, as progress narration. Any future cost model is a script over run
 artifacts.
 
 Finder cache health is another derived Run-accounting view over those completed
-outcomes. It groups the frozen Finder plan by Seat and context kind, excludes
-each partition's starter, and reads only each follower's first raw usage row.
-Low reuse is a soft report/digest note, never Dossier semantics, coverage, a
-warning on the ReviewTarget, or another persisted artifact.
+outcomes. It reconstructs the frozen Finder partitions only to exclude each
+starter, then aggregates every eligible follower across the Run using only its
+first raw usage row. Low reuse is a soft report/digest note, never Dossier
+semantics, coverage, a warning on the ReviewTarget, or another persisted
+artifact.
 
 ## The human-readable Dossier
 
@@ -75,8 +76,8 @@ objects.
 - Header: target identity, recipe + seats, runnable lens list with seats,
   the one cost/duration line, coverage gaps, and one skipped line when the
   selected `spec-conformance` Lens had no ReviewSpecification.
-- Optional Run notes: low Finder cache reuse derived from completed Finder
-  outcomes, omitted when no partition meets the soft-warning threshold.
+- Optional Run notes: low run-wide Finder cache reuse derived from completed
+  Finder outcomes, omitted when the soft-warning threshold is not met.
 - Findings: one P1-to-P3 work queue of Confirmed BugClaims and kept
   Observations, tagged `[confirmed]` / `[judgment]`, with Confirmed first inside
   a priority.

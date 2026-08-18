@@ -5,7 +5,6 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import {
   describeFinderCacheHealth,
-  lowFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { formatCommentOmission } from "../specification/comment-budget.ts"
@@ -128,11 +127,14 @@ export const renderDossierMarkdown = (
     )
   }
 
-  const runNotes = lowFinderCacheHealth(accounting.finderCacheHealth)
-    .map((health) => `- Finder cache ${describeFinderCacheHealth(health)}.`)
-  const runNotesSection = runNotes.length === 0
+  const runNotesSection = accounting.finderCacheHealth === undefined
     ? []
-    : ["", "## Run notes", "", ...runNotes]
+    : [
+      "",
+      "## Run notes",
+      "",
+      `- Finder cache ${describeFinderCacheHealth(accounting.finderCacheHealth)}.`,
+    ]
 
   return [
     `# Gauntlet review ${dossier.runId}`,

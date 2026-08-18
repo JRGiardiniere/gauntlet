@@ -163,18 +163,16 @@ const accounting: RunAccounting = {
   costUsd: 1.23,
   invocationCount: 7,
   wallTimeSeconds: 42,
-  finderCacheHealth: [],
+  finderCacheHealth: undefined,
 }
 
 const lowCacheAccounting: RunAccounting = {
   ...accounting,
-  finderCacheHealth: [{
-    seat: "fixture/cache-model:low",
-    contextKind: "ordinary",
+  finderCacheHealth: {
     reuse: 0.1,
     eligibleFollowerCount: 2,
     healthyFollowerCount: 0,
-  }],
+  },
 }
 
 const paths: RunPaths = {
@@ -276,7 +274,7 @@ describe("dossier markdown rendering", () => {
     )
   })
 
-  it("renders Run notes only for a measured low-reuse partition", () => {
+  it("renders Run notes only for measured low reuse", () => {
     expect(markdown).not.toContain("## Run notes")
     const withCacheNote = renderDossierMarkdown(
       plan,
@@ -285,7 +283,7 @@ describe("dossier markdown rendering", () => {
     )
     expect(withCacheNote).toContain("## Run notes")
     expect(withCacheNote).toContain(
-      "Finder cache fixture/cache-model:low (ordinary): 10% reuse across 2 eligible followers; 0/2 at or above 80%.",
+      "Finder cache 10% reuse across 2 eligible followers; 0/2 at or above 80%.",
     )
   })
 
@@ -373,9 +371,7 @@ describe("digest rendering", () => {
       line.startsWith("cache health:")
     )
     expect(cacheLines).toHaveLength(1)
-    expect(cacheLines[0]?.length).toBeLessThanOrEqual(240)
-    expect(cacheLines[0]).toContain(
-      "fixture/cache-model:low (ordinary): 10% reuse",
-    )
+    expect(cacheLines[0]?.length).toBeLessThanOrEqual(200)
+    expect(cacheLines[0]).toContain("10% reuse")
   })
 })

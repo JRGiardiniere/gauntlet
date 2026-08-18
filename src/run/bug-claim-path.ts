@@ -16,6 +16,7 @@ import {
   resolveVerification,
   type VerificationResult,
 } from "../assembly/verification.ts"
+import { clusterEvaluatedBugClaims } from "../assembly/bug-claim-cluster.ts"
 import {
   assemblePoolPrompt,
   assembleVerifierPrompt,
@@ -31,9 +32,9 @@ import type {
   TestSuggestion,
 } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
+import { Verdict } from "../domain/verdict.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
-import { viewBugClaims } from "../render/dossier-view.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
   counted,
@@ -223,9 +224,14 @@ export const executeBugClaimPath = Effect.fn(
     yield* progress(coverageGapLine(gap))
   }
   if (verificationStartedAt !== undefined) {
-    const tally = viewBugClaims(resolved.bugClaims)
+    const verdicts = clusterEvaluatedBugClaims(resolved.bugClaims).map(
+      ({ verdict }) => verdict,
+    )
+    const confirmed = verdicts.filter(Verdict.guards.Confirmed).length
+    const refuted = verdicts.filter(Verdict.guards.Refuted).length
+    const unverified = verdicts.filter(Verdict.guards.Unverified).length
     yield* progress(
-      `Verification finished — ${String(tally.confirmed.length)} confirmed · ${String(tally.refuted.length)} refuted · ${String(tally.unverified.length)} unverified · ${String(yield* wallSeconds(verificationStartedAt))}s`,
+      `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(unverified)} unverified · ${String(yield* wallSeconds(verificationStartedAt))}s`,
     )
   }
   return {

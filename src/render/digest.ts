@@ -1,7 +1,7 @@
 import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
-import { finderCacheHealthDigestLine } from "../run/finder-cache-health.ts"
+import { describeFinderCacheHealth } from "../run/finder-cache-health.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { viewDossier } from "./dossier-view.ts"
 import type { RunPaths } from "../run/run-record.ts"
@@ -61,9 +61,11 @@ export const renderDigest = (
       : `${entry.reviewPriority} ${entry.tag}`
     return `- [${label}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
   })
-  const cacheHealth = finderCacheHealthDigestLine(
-    accounting.finderCacheHealth,
-  )
+  const cacheHealth = accounting.finderCacheHealth === undefined
+    ? undefined
+    : boundedLine(
+      `cache health: ${describeFinderCacheHealth(accounting.finderCacheHealth)}`,
+    )
   return [
     tally,
     ...(cacheHealth === undefined ? [] : [cacheHealth]),

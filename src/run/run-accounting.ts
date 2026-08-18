@@ -4,5 +4,5 @@ export interface RunAccounting {
   readonly costUsd: number
   readonly invocationCount: number
   readonly wallTimeSeconds: number
-  readonly finderCacheHealth: ReadonlyArray<FinderCacheHealth>
+  readonly finderCacheHealth: FinderCacheHealth | undefined
 }
