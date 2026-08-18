@@ -970,6 +970,64 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("skips spec-conformance without a ReviewSpecification while other Finders run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "spec-conformance.md"),
+        "---\nfinder-class: interpretive\n---\nfixture conformance tail\n",
+      )
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review,spec-conformance"],
+        makeScripted({
+          sessions: [successfulSession({ findings: [] })],
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const runDir = path.join(fixture.runsRoot, runId)
+      const plan = yield* fs.readFileString(path.join(runDir, "plan.json")).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.lenses.map(({ name }) => name)).toEqual([
+        "fixture-review",
+        "spec-conformance",
+      ])
+      const finderStage = yield* fs.readFileString(
+        path.join(runDir, "finder-stage.json"),
+      ).pipe(
+        Effect.flatMap(
+          Schema.decodeEffect(Schema.fromJsonString(FinderStageArtifact)),
+        ),
+      )
+      expect(finderStage.finders.map(({ invocationKey }) => invocationKey)).toEqual([
+        "finder-fixture-review",
+      ])
+      expect(run.scripted.configs).toHaveLength(1)
+
+      const dossier = yield* fs.readFileString(path.join(runDir, "dossier.json")).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+      )
+      expect(dossier.coverageGaps).toEqual([])
+      const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
+      expect(report).toContain(
+        `- Lenses: fixture-review (${FIXTURE_SEAT})`,
+      )
+      expect(report).not.toContain(`spec-conformance (${FIXTURE_SEAT})`)
+      expect(report.match(/^- Skipped: spec-conformance — no ReviewSpecification$/gm))
+        .toHaveLength(1)
+      expect(report).toContain("1 invocations")
+      expect(report).not.toContain("2 invocations")
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain("gauntlet: invoking finder fixture-review")
+      expect(stderr).not.toContain("invoking finder spec-conformance")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo

@@ -91,7 +91,7 @@ export const executeReviewPlan = Effect.fn(
             0,
           ) + bugClaimPath.costUsd + judgmentPath.costUsd,
           invocationCount:
-            plan.lenses.length +
+            results.length +
             bugClaimPath.invocationCount +
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),

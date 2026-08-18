@@ -43,6 +43,12 @@ schemas, tool sets, and
 applicability tags are banned from lens files by design — reintroducing them
 rebuilds the old anatomy.
 
+The restored `spec-conformance` Lens has one intrinsic execution rule: without
+a frozen ReviewSpecification, its selected Finder is skipped and reported once
+instead of invoked. That rule is attached to the known Lens identity in plan
+execution; it does not add an applicability field to Lens content or alter how
+any emitted Candidate routes.
+
 The shipped `subjective` and `refactoring-checklist` Lenses opt into
 `interpretive`; restored `spec-conformance` does too. They all reason over
 broader intent rather than running only a bounded mechanical sweep, though
@@ -60,10 +66,11 @@ run used — the frozen text travels with the run.
 
 ## Consequences
 
-- Adding a lens = adding one markdown file, which makes it available for
-  selection. It can never require touching schemas, routing, or core stages,
-  and tests must never key assertions to real lens names (fixture lenses
-  only).
+- Adding an ordinary lens = adding one markdown file, which makes it available
+  for selection. It can never require touching schemas, routing, or core
+  stages, and tests use fixture content rather than the shipped catalog. The
+  named `spec-conformance` no-specification skip is the sole built-in
+  applicability exception.
 - The per-project coding-style lens (fast-follow) is just a project-local
   file; the loader ships in v1.
 - A finder's emit schema keeps `failure_scenario` optional — that optionality

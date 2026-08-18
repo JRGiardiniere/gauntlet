@@ -65,7 +65,7 @@ files don't):
 | angle-F | presentation-environment |
 | cleanup | cleanup |
 | cleanup-v2 (absence section) | absence |
-| spec | spec-conformance (removed, #52) |
+| spec | spec-conformance |
 | subjective | subjective |
 
 Deliberate changes made during the port:
@@ -111,6 +111,7 @@ review skill):
   category (`correctness` / `cleanup` / `judgment`); ADR 0004 and
   CONTEXT.md amended accordingly. It is live catalog metadata, not a
   FrozenLens field (#52).
-- **`spec-conformance` removed** (#52) — the shipped `needs-spec` lens and
-  frontmatter flag had no reachable CLI path. Reintroduce with a real
-  spec-ingress design.
+- **`spec-conformance` restored** (#76) — now an Interpretive Finder backed by
+  the frozen ReviewSpecification ingress. When selected without one, it is
+  skipped explicitly rather than invoked without requirements or presented as
+  completed coverage.

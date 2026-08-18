@@ -1,5 +1,6 @@
 import { Candidate } from "../domain/candidate.ts"
 import type { Dossier, TestSuggestion } from "../domain/dossier.ts"
+import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
@@ -163,9 +164,10 @@ export const renderDossierMarkdown = (
   accounting: RunAccounting,
 ): string => {
   const view = viewDossier(dossier)
-  const lensList = plan.lenses.length === 0
+  const finderSelection = selectRunnableFinders(plan)
+  const lensList = finderSelection.runnable.length === 0
     ? "none"
-    : plan.lenses
+    : finderSelection.runnable
       .map((lens) => `${lens.name} (${lens.seat})`)
       .join(", ")
   const seatList = Object.entries(plan.seats)
@@ -201,6 +203,11 @@ export const renderDossierMarkdown = (
   ]
   if (commentBudget !== undefined) {
     headerFacts.push(`- Comment budget: ${commentBudget}`)
+  }
+  if (finderSelection.skipped.length > 0) {
+    headerFacts.push(
+      `- Skipped: ${finderSelection.skipped.map(({ name }) => name).join(", ")} — no ReviewSpecification`,
+    )
   }
 
   const refutedLines = view.refuted.map((entry) =>
