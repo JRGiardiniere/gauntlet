@@ -4,6 +4,8 @@ import * as Schema from "effect/Schema"
 import { routeFinderResults } from "../assembly/finders.ts"
 import { Termination } from "../domain/agent-outcome.ts"
 import { FrozenLens } from "../domain/review-plan.ts"
+import { ReviewSpecification } from "../domain/review-specification.ts"
+import { renderSpecificationSection } from "../content/specification-section.ts"
 import {
   EmitFindings,
   EmitPool,
@@ -64,6 +66,28 @@ describe("output contracts", () => {
         "The current Slice requires entries to retain chronological order."
       const parentOnlyRequirement =
         "A later Slice will add cross-run compaction."
+      const specification = ReviewSpecification.make({
+        documents: [
+          {
+            role: "parent",
+            provenance: "https://example.test/parent",
+            text: parentOnlyRequirement,
+            title: "Parent specification",
+          },
+          {
+            role: "slice",
+            provenance: "https://example.test/slice",
+            text: [missingRequirement, wrongRequirement].join("\n"),
+            title: "Current Slice",
+          },
+        ],
+        comments: [],
+      })
+      // The later parent concern is present in the frozen input but is not a
+      // current-Slice obligation, so the conformance output must omit it.
+      expect(renderSpecificationSection(specification)).toContain(
+        parentOnlyRequirement,
+      )
       const output = yield* strictDecode(EmitFindings.schema)({
         findings: [
           {

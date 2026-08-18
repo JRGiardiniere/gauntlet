@@ -1,5 +1,5 @@
 ---
-category: spec
+category: correctness
 finder-class: interpretive
 ---
 

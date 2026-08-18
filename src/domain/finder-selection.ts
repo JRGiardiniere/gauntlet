@@ -1,6 +1,6 @@
 import type { FrozenLens, ReviewPlan } from "./review-plan.ts"
 
-const SPEC_CONFORMANCE_LENS = "spec-conformance"
+export const SPEC_CONFORMANCE_LENS_NAME = "spec-conformance"
 
 export interface FinderSelection {
   readonly runnable: ReadonlyArray<FrozenLens>
@@ -15,7 +15,7 @@ export const selectRunnableFinders = (plan: ReviewPlan): FinderSelection => {
   const skipped: Array<FrozenLens> = []
   for (const lens of plan.lenses) {
     if (
-      lens.name === SPEC_CONFORMANCE_LENS &&
+      lens.name === SPEC_CONFORMANCE_LENS_NAME &&
       plan.specification === undefined
     ) {
       skipped.push(lens)

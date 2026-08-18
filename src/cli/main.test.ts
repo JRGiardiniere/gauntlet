@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
 import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
+import { SPEC_CONFORMANCE_LENS_NAME } from "../domain/finder-selection.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
@@ -970,18 +971,58 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("skips spec-conformance without a ReviewSpecification while other Finders run", () =>
+  it.effect("keeps spec-conformance out of implicit Lens selection until Default Lenses owns membership", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       yield* fs.writeFileString(
-        path.join(fixture.content, "lenses", "spec-conformance.md"),
+        path.join(
+          fixture.content,
+          "lenses",
+          `${SPEC_CONFORMANCE_LENS_NAME}.md`,
+        ),
         "---\nfinder-class: interpretive\n---\nfixture conformance tail\n",
       )
       const run = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review,spec-conformance"],
+        ["review"],
+        makeScripted({
+          sessions: [successfulSession({ findings: [] })],
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.lenses.map(({ name }) => name)).toEqual(["fixture-review"])
+      expect(run.scripted.configs).toHaveLength(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("skips explicitly selected spec-conformance without a ReviewSpecification while other Finders run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(
+          fixture.content,
+          "lenses",
+          `${SPEC_CONFORMANCE_LENS_NAME}.md`,
+        ),
+        "---\nfinder-class: interpretive\n---\nfixture conformance tail\n",
+      )
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--lenses",
+          `fixture-review,${SPEC_CONFORMANCE_LENS_NAME}`,
+        ],
         makeScripted({
           sessions: [successfulSession({ findings: [] })],
         }),
@@ -995,7 +1036,7 @@ describe("gauntlet review", () => {
       )
       expect(plan.lenses.map(({ name }) => name)).toEqual([
         "fixture-review",
-        "spec-conformance",
+        SPEC_CONFORMANCE_LENS_NAME,
       ])
       const finderStage = yield* fs.readFileString(
         path.join(runDir, "finder-stage.json"),
@@ -1017,15 +1058,24 @@ describe("gauntlet review", () => {
       expect(report).toContain(
         `- Lenses: fixture-review (${FIXTURE_SEAT})`,
       )
-      expect(report).not.toContain(`spec-conformance (${FIXTURE_SEAT})`)
-      expect(report.match(/^- Skipped: spec-conformance — no ReviewSpecification$/gm))
+      expect(report).not.toContain(
+        `${SPEC_CONFORMANCE_LENS_NAME} (${FIXTURE_SEAT})`,
+      )
+      expect(
+        report.split("\n").filter((line) =>
+          line ===
+            `- Skipped: ${SPEC_CONFORMANCE_LENS_NAME} — no ReviewSpecification`
+        ),
+      )
         .toHaveLength(1)
       expect(report).toContain("1 invocations")
       expect(report).not.toContain("2 invocations")
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain("gauntlet: invoking finder fixture-review")
-      expect(stderr).not.toContain("invoking finder spec-conformance")
+      expect(stderr).not.toContain(
+        `invoking finder ${SPEC_CONFORMANCE_LENS_NAME}`,
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("narrows comma-separated lenses and turns a missing emit into a coverage gap without losing its sibling", () =>
