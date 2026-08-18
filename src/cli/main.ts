@@ -96,10 +96,14 @@ const acquireSpecification = Effect.fn(
 )(function* (
   target: ReviewTarget,
   addendum: ReviewSpecification | undefined,
+  githubSpec: boolean,
 ) {
   const branch = yield* resolveSpecificationBranch(target.repoRoot)
-  const linear = yield* loadLinearSpecification(branch)
-  if (LinearSpecificationResolution.$is("Resolved")(linear)) {
+  const linear = githubSpec ? undefined : yield* loadLinearSpecification(branch)
+  if (
+    linear !== undefined &&
+    LinearSpecificationResolution.$is("Resolved")(linear)
+  ) {
     return {
       branch,
       specification: combineReviewSpecifications(
@@ -109,20 +113,23 @@ const acquireSpecification = Effect.fn(
       diagnostic: undefined,
     } satisfies FrozenSpecificationState
   }
-  if (LinearSpecificationResolution.$is("Unreachable")(linear)) {
-    return {
-      branch,
-      specification: combineReviewSpecifications(undefined, addendum),
-      diagnostic: linear.diagnostic,
-    } satisfies FrozenSpecificationState
-  }
+  const diagnostic = linear !== undefined &&
+      LinearSpecificationResolution.$is("Unreachable")(linear)
+    ? linear.diagnostic
+    : undefined
   const fetched = ReviewTarget.guards.PullRequest(target)
     ? yield* loadGitHubSpecification(target.repoRoot, target.number)
     : undefined
+  if (githubSpec && fetched === undefined) {
+    return yield* new ReviewCommandError({
+      reason:
+        "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
+    })
+  }
   return {
     branch,
     specification: combineReviewSpecifications(fetched, addendum),
-    diagnostic: undefined,
+    diagnostic,
   } satisfies FrozenSpecificationState
 })
 
@@ -141,6 +148,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   pr: Option.Option<number>,
   destination: Destination,
   addendum: ReviewSpecification | undefined,
+  githubSpec: boolean,
   frozenSpecificationState: FrozenSpecificationState | undefined,
 ) {
   const startedAt = yield* DateTime.now
@@ -195,9 +203,6 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     names: resolvedLensNames,
   })
 
-  const runsRoot = yield* resolveRunsRoot()
-  const runId = yield* makeRunId()
-  const paths = yield* createRunDirectory(runsRoot, runId)
   // Each lens freezes its final recipe-resolved seat: the recipe maps the
   // lens's finder class to a seat, and later recipe edits never change a
   // resumed run (ADR 0004/0005).
@@ -218,11 +223,14 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   // A changed-target resume reuses the abandoned plan's frozen specification
   // verbatim (issue #73/#74): never re-fetch GitHub, never re-read --spec.
   const specificationState = frozenSpecificationState ??
-    (yield* acquireSpecification(target, addendum))
+    (yield* acquireSpecification(target, addendum, githubSpec))
   if (specificationState.diagnostic !== undefined) {
     yield* progress(`warning — ${specificationState.diagnostic.message}`)
   }
 
+  const runsRoot = yield* resolveRunsRoot()
+  const runId = yield* makeRunId()
+  const paths = yield* createRunDirectory(runsRoot, runId)
   const planFields = {
     runId,
     target,
@@ -305,6 +313,7 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       pr,
       destination,
       undefined,
+      false,
       branchChanged
         ? undefined
         : {
@@ -340,6 +349,7 @@ const executeReviewCommand = Effect.fn(
   pr: Option.Option<number>,
   destination: Destination,
   spec: Option.Option<string>,
+  githubSpec: boolean,
 ) {
   if (Option.isSome(resume)) {
     if (Option.isSome(lenses)) {
@@ -362,6 +372,12 @@ const executeReviewCommand = Effect.fn(
         reason: "--spec cannot be combined with --resume; the plan is frozen",
       })
     }
+    if (githubSpec) {
+      return yield* new ReviewCommandError({
+        reason:
+          "--github-spec cannot be combined with --resume; the plan is frozen",
+      })
+    }
     yield* resumeReview(
       resume.value === LATEST_RESUME_SENTINEL
         ? Option.none()
@@ -373,6 +389,11 @@ const executeReviewCommand = Effect.fn(
   if (destination === "pr" && Option.isNone(pr)) {
     return yield* new ReviewCommandError({
       reason: "--destination pr requires --pr",
+    })
+  }
+  if (githubSpec && Option.isNone(pr)) {
+    return yield* new ReviewCommandError({
+      reason: "--github-spec requires --pr",
     })
   }
   // An explicitly named unusable addendum fails here, before any Run exists
@@ -388,6 +409,7 @@ const executeReviewCommand = Effect.fn(
     pr,
     destination,
     specification,
+    githubSpec,
     undefined,
   )
 })
@@ -431,9 +453,22 @@ const review = Command.make(
         "Caller Addendum: a Markdown requirements file frozen into the plan and shown to interpretive finders, verification, and judgment",
       ),
     ),
+    githubSpec: Flag.boolean("github-spec").pipe(
+      Flag.withDescription(
+        "Use only GitHub closing issues as the automatic ReviewSpecification source for this Run",
+      ),
+    ),
   },
-  ({ destination, lenses, pr, recipe, resume, spec }) =>
-    executeReviewCommand(recipe, lenses, resume, pr, destination, spec),
+  ({ destination, githubSpec, lenses, pr, recipe, resume, spec }) =>
+    executeReviewCommand(
+      recipe,
+      lenses,
+      resume,
+      pr,
+      destination,
+      spec,
+      githubSpec,
+    ),
 ).pipe(
   Command.withDescription(
     "Review the working tree or a named pull request",

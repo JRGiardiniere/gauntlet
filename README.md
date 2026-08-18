@@ -14,7 +14,7 @@ can symlink from `.claude/skills/` later.
 ## Commands
 
 ```
-gauntlet review [recipe] [--pr N] [--spec <file>] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
+gauntlet review [recipe] [--pr N] [--github-spec] [--spec <file>] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
 gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
@@ -26,15 +26,18 @@ gauntlet config unset <key>
   tree's uncommitted changes; a new review on a branch containing one Linear
   issue ID resolves that issue as its current Slice, with one native parent,
   sibling titles/states, and human comments. Set `LINEAR_API_KEY` to a Linear
-  personal API key. A detected Linear binding wins over GitHub; a missing or
-  rejected key leaves the review running but prints and reports an actionable
-  diagnostic. Resume keeps the frozen source unless the branch changed, which
-  starts a fresh review. Without a Linear binding, `--pr N` resolves GitHub
-  closing issues as the ReviewSpecification (native parent one level, admitted
-  maintainer comments, 20k comment budget). GitHub unavailability or a PR with
-  no closing issues stays quietly specification-less. `--spec <file>` freezes a Caller
-  Addendum beside any fetched material. A positional recipe selects a named
-  recipe from the catalog; omitting it selects the configured `default-recipe`.
+  personal API key. A resolved Linear binding wins over GitHub. When Linear is
+  absent or unreachable, `--pr N` falls back to GitHub closing issues as the
+  ReviewSpecification (native parent one level, admitted maintainer comments,
+  20k comment budget); an unreachable Linear binding still prints and reports
+  its actionable diagnostic. `--github-spec` is the exact per-run override: it
+  requires `--pr`, skips Linear, and fails before Run creation unless GitHub
+  closing issues produce a specification. Otherwise GitHub unavailability or a
+  PR with no closing issues stays quietly specification-less. Resume keeps the
+  frozen source unless the branch changed, which starts a fresh review. `--spec
+  <file>` freezes a Caller Addendum beside any fetched material. A positional
+  recipe selects a named recipe from the catalog; omitting it selects the
+  configured `default-recipe`.
   Nothing else selects a recipe — if neither resolves, the review fails and
   lists what is available. `--destination` defaults to `local` (run directory
   + bounded digest). `pr` keeps those local outputs and also posts `dossier.md`; it
