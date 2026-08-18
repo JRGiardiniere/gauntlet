@@ -8,7 +8,13 @@ import * as Config from "effect/Config"
 import * as Result from "effect/Result"
 import * as Argument from "effect/unstable/cli/Argument"
 import * as Command from "effect/unstable/cli/Command"
+import {
+  loadFinderLensCatalog,
+  loadFinderLenses,
+} from "../content/lens.ts"
+import { resolveLensNames } from "../domain/lens-selection.ts"
 import { Recipe, type RecipeName } from "../domain/recipe.ts"
+import type { LensName } from "../domain/review-plan.ts"
 import {
   type CatalogEntry,
   listRecipes,
@@ -25,6 +31,7 @@ import {
   writeSettings,
 } from "../config/settings.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
+import { InvocationDirectory } from "./invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
   readonly reason: string
@@ -49,7 +56,21 @@ const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
 
 const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
 
-const SETTINGS_KEYS = "default-recipe, favorites, runs-root"
+const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
+  "absence",
+  "cleanup",
+  "cross-file",
+  "diff-scan",
+  "language-pitfalls",
+  "presentation-environment",
+  "refactoring-checklist",
+  "removed-behavior",
+  "spec-conformance",
+  "subjective",
+  "wrapper-proxy",
+]
+
+const SETTINGS_KEYS = "default-recipe, default-lenses, favorites, runs-root"
 
 // One line per recipe: the default seat plus whichever overrides are present,
 // in the recipe's admitted field order.
@@ -77,8 +98,16 @@ const describeEntry = (
 // so a malformed settings file can still be found and repaired.
 const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   const path = yield* settingsPath()
+  const pathService = yield* Path.Path
   const catalogPath = yield* recipesDirectory()
+  const repoRoot = yield* InvocationDirectory
   const entries = yield* listRecipes()
+  const lenses = yield* loadFinderLensCatalog(repoRoot).pipe(
+    Effect.catchTag("ContentLoadError", (failure) =>
+      new ConfigCommandError({
+        reason: `${failure.reason} (${failure.path})`,
+      })),
+  )
   const settingsResult = yield* Effect.result(loadSettings())
 
   const lines: Array<string> = []
@@ -90,6 +119,9 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
     lines.push(`settings: ${path}`)
   }
   lines.push(`recipe catalog: ${catalogPath}`)
+  lines.push(
+    `project Lens catalog: ${pathService.join(repoRoot, ".gauntlet", "lenses")}`,
+  )
 
   const settings = Result.isFailure(settingsResult)
     ? Option.none<Settings>()
@@ -101,9 +133,25 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   lines.push(`runs root: ${runsRoot ?? (yield* defaultRunsRoot())}`)
 
   const byName = new Map(entries.map((entry) => [entry.name, entry]))
+  const availableLensNames = new Set(lenses.map(({ name }) => name))
+  const defaultLenses = Option.match(settings, {
+    onNone: () => new Set<LensName>(),
+    onSome: (value) => new Set(value["default-lenses"]),
+  })
+
+  lines.push("", "lenses:")
+  if (lenses.length === 0) lines.push("- none")
+  for (const lens of lenses) {
+    lines.push(
+      `- ${lens.name}${defaultLenses.has(lens.name) ? " (default Lens)" : ""}`,
+    )
+  }
 
   if (Option.isSome(settings)) {
     const defaultRecipe = settings.value["default-recipe"]
+    const missingDefaultLenses = settings.value["default-lenses"].filter(
+      (name) => !availableLensNames.has(name),
+    )
     const favorites = settings.value.favorites
     const missing = favorites.filter((name) => !byName.has(name))
     if (byName.get(defaultRecipe)?._tag !== "ValidRecipe") {
@@ -113,6 +161,11 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
     }
     if (missing.length > 0) {
       lines.push(`warning: favorites name missing recipes: ${missing.join(", ")}`)
+    }
+    if (missingDefaultLenses.length > 0) {
+      lines.push(
+        `warning: default-lenses names unavailable in this Lens Catalog: ${missingDefaultLenses.join(", ")}`,
+      )
     }
     const present = favorites.flatMap((name) => {
       const entry = byName.get(name)
@@ -174,6 +227,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
     )
     yield* writeSettings({
       "default-recipe": INITIAL_DEFAULT_RECIPE,
+      "default-lenses": INITIAL_DEFAULT_LENSES,
       favorites: SEEDED_RECIPES.map(([name]) => name),
     })
     yield* Console.log(
@@ -181,7 +235,9 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
         `initialized ${catalogPath} with recipes ${
           SEEDED_RECIPES.map(([name]) => name).join(", ")
         }`,
-        `default-recipe: ${INITIAL_DEFAULT_RECIPE} · favorites: ${
+        `default-recipe: ${INITIAL_DEFAULT_RECIPE} · default-lenses: ${
+          INITIAL_DEFAULT_LENSES.join(", ")
+        } · favorites: ${
           SEEDED_RECIPES.map(([name]) => name).join(", ")
         }`,
         "the seeded files are yours to edit; init never touches them again",
@@ -196,7 +252,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
     return yield* new ConfigCommandError({
       reason:
         `recipe catalog ${catalogPath} already has recipes but ${settingsFile} is missing — ` +
-        `write settings.json ({"default-recipe": <name>, "favorites": []}) or remove the catalog and rerun init`,
+        `write settings.json ({"default-recipe": <name>, "default-lenses": [], "favorites": []}) or remove the catalog and rerun init`,
     })
   }
   const settings = yield* loadSettings().pipe(
@@ -207,24 +263,35 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
         reason: `${failure.reason} (${failure.path}) — fix settings.json, then rerun init`,
       })),
   )
-  const defaultRecipe = Option.map(settings, (value) => value["default-recipe"])
-  if (Option.isNone(defaultRecipe)) {
+  if (Option.isNone(settings)) {
     // exists() said the file is there; a concurrent delete is the only path
     // here, and re-running init is the honest advice.
     return yield* new ConfigCommandError({
       reason: `${settingsFile} disappeared while init ran — rerun init`,
     })
   }
+  const configured = settings.value
+  const defaultRecipe = configured["default-recipe"]
   const entry = entries.find((candidate) =>
-    candidate.name === defaultRecipe.value
+    candidate.name === defaultRecipe
   )
   if (entry === undefined || entry._tag === "InvalidRecipe") {
     return yield* new ConfigCommandError({
       reason:
-        `default-recipe ${defaultRecipe.value} does not name an available valid recipe — ` +
-        `\`gauntlet config set default-recipe <name>\` or fix ${catalogPath}/${defaultRecipe.value}.json`,
+        `default-recipe ${defaultRecipe} does not name an available valid recipe — ` +
+        `\`gauntlet config set default-recipe <name>\` or fix ${catalogPath}/${defaultRecipe}.json`,
     })
   }
+  yield* loadFinderLenses({
+    repoRoot: yield* InvocationDirectory,
+    names: configured["default-lenses"],
+  }).pipe(
+    Effect.catchTag("ContentLoadError", (failure) =>
+      new ConfigCommandError({
+        reason:
+          `default-lenses are unusable — ${failure.reason} (${failure.path})`,
+      })),
+  )
   yield* Console.log(
     "configuration already initialized — nothing to do (run `gauntlet config` to inspect it)",
   )
@@ -286,6 +353,14 @@ const asConfigError = (failure: RecipeSelectionError) =>
     reason: `${failure.reason}${renderAvailable(failure.available)}`,
   })
 
+const lensConfigError = (failure: {
+  readonly path: string
+  readonly reason: string
+}) =>
+  new ConfigCommandError({
+    reason: `${failure.reason} (${failure.path})`,
+  })
+
 const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
   key: string,
   values: ReadonlyArray<string>,
@@ -302,6 +377,21 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
       )
       yield* writeSettings({ ...settings, "default-recipe": entry.name })
       yield* Console.log(`default-recipe = ${entry.name}`)
+      return
+    }
+    case "default-lenses": {
+      const names = resolveLensNames(values, [])
+      const selected = names.length === 0
+        ? []
+        : yield* loadFinderLenses({
+            repoRoot: yield* InvocationDirectory,
+            names,
+          }).pipe(Effect.catchTag("ContentLoadError", lensConfigError))
+      const defaultLenses = selected.map(({ name }) => name)
+      yield* writeSettings({ ...settings, "default-lenses": defaultLenses })
+      yield* Console.log(
+        `default-lenses = ${defaultLenses.join(", ") || "(none)"}`,
+      )
       return
     }
     case "favorites": {
@@ -354,6 +444,11 @@ const runUnset = Effect.fn("gauntlet.cli.config_unset")(function* (
         reason:
           "default-recipe cannot be unset — set a different recipe with `gauntlet config set default-recipe <name>`",
       })
+    case "default-lenses":
+      return yield* new ConfigCommandError({
+        reason:
+          "default-lenses cannot be unset — replace it with `gauntlet config set default-lenses <name...>` or pass no names for an empty selection",
+      })
     case "favorites":
       yield* writeSettings({ ...settings, favorites: [] })
       yield* Console.log("favorites cleared")
@@ -361,6 +456,7 @@ const runUnset = Effect.fn("gauntlet.cli.config_unset")(function* (
     case "runs-root": {
       yield* writeSettings({
         "default-recipe": settings["default-recipe"],
+        "default-lenses": settings["default-lenses"],
         favorites: settings.favorites,
       })
       yield* Console.log(`runs-root = ${yield* defaultRunsRoot()} (default)`)
@@ -396,7 +492,7 @@ const unset = Command.make(
   ({ key }) => runUnset(key),
 ).pipe(
   Command.withDescription(
-    "Clear a settings key (favorites, runs-root; default-recipe is rejected)",
+    "Clear a settings key (favorites, runs-root; defaults are rejected)",
   ),
 )
 
@@ -407,6 +503,6 @@ export const configCommand = Command.make(
 ).pipe(
   Command.withSubcommands([init, set, unset]),
   Command.withDescription(
-    "Print the settings path, recipe catalog, and all recipes",
+    "Print settings, available and Default Lenses, and all recipes",
   ),
 )

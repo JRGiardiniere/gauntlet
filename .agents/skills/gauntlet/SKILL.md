@@ -17,11 +17,16 @@ Dossier lives on disk.
    `git diff HEAD` is empty, ask which PR before launching.
 2. **Recipe.** Omit the positional name so the configured Default Recipe is
    used, unless the user named a Recipe.
-3. **Destination.** Local artifacts always land. Default is `--destination
+3. **Lenses.** Omit `--lenses` to use the configured Default Lenses. When the
+   user names perspectives for this run, pass one exact comma-separated
+   `--lenses a,b` list; it replaces Default Lenses without changing Recipe
+   Seats. Adding a Lens file only makes it available. Run `gauntlet config` to
+   discover available and Default names.
+4. **Destination.** Local artifacts always land. Default is `--destination
    local`. `--destination pr` only when the user asked to post a PR comment; it
    requires `--pr`. `review --pr`, `--destination pr`, and `deliver` need the
    GitHub CLI (`gh`) installed and authenticated.
-4. **Specification.** Any target whose current branch contains one Linear
+5. **Specification.** Any target whose current branch contains one Linear
    issue ID resolves it as the current Slice, plus one native parent, sibling
    titles/states, and human comments. This needs `LINEAR_API_KEY`. A matching
    branch wins over GitHub; a missing/invalid key or unreachable issue keeps
@@ -41,7 +46,7 @@ Dossier lives on disk.
    is read once and frozen into the plan; a missing, unreadable, or empty file
    fails before any run is created, and `--spec` cannot be combined with
    `--resume`.
-5. **Launch** as a background shell task:
+6. **Launch** as a background shell task:
 
    ```
    gauntlet review [recipe] [--pr N] [--spec <markdown-file>] [--destination local|pr]
@@ -49,7 +54,7 @@ Dossier lives on disk.
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed.
-6. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
+7. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
    local delivery → link `dossier.md` from the digest paths. A PR destination
    that posted (stderr `posted <url>`) → say the review was delivered as a
    comment on the PR.
@@ -79,6 +84,16 @@ When configuration or a new Recipe is needed:
 4. Run `gauntlet config` again to validate it.
 
 `gauntlet config init` only for a genuinely fresh setup.
+
+## Lenses
+
+Default Lenses are the standing membership for ordinary reviews. Replace them
+with `gauntlet config set default-lenses <name...>`; pass no names for a valid
+empty selection. `default-lenses` cannot be unset.
+
+Use exact `--lenses a,b` for one targeted run. Recipes choose Seats only. Create
+or improve a Lens by editing its Markdown directly, then run `gauntlet config`
+to validate and discover it; availability never selects it automatically.
 
 ## Deliver
 

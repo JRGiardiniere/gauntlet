@@ -8,17 +8,34 @@ import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
 import { Settings } from "../config/settings.ts"
+import { ContentDirectory } from "../content/lens.ts"
 import { Recipe } from "../domain/recipe.ts"
 import { unusedGitHubLayer } from "../github/github.ts"
 import { unusedLinearLayer } from "../linear/linear.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { runGauntlet } from "./main.ts"
+import { InvocationDirectory } from "./invocation-directory.ts"
 
 interface Fixture {
   readonly home: string
+  readonly content: string
   readonly recipesDirectory: string
   readonly settingsFile: string
 }
+
+const INITIAL_DEFAULT_LENSES = [
+  "absence",
+  "cleanup",
+  "cross-file",
+  "diff-scan",
+  "language-pitfalls",
+  "presentation-environment",
+  "refactoring-checklist",
+  "removed-behavior",
+  "spec-conformance",
+  "subjective",
+  "wrapper-proxy",
+] as const
 
 const makeFixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -26,8 +43,20 @@ const makeFixture = Effect.gen(function* () {
   const home = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-config-test-",
   })
+  const content = path.join(home, "content")
+  yield* fs.makeDirectory(path.join(content, "lenses"), { recursive: true })
+  yield* Effect.forEach(
+    [...INITIAL_DEFAULT_LENSES, "fixture-review"],
+    (name) =>
+      fs.writeFileString(
+        path.join(content, "lenses", `${name}.md`),
+        `${name} tail\n`,
+      ),
+    { discard: true },
+  )
   return {
     home,
+    content,
     recipesDirectory: path.join(home, ".gauntlet", "recipes"),
     settingsFile: path.join(home, ".gauntlet", "settings.json"),
   }
@@ -44,6 +73,8 @@ const writeSettings = (fixture: Fixture, settings: Settings) =>
 
 const config = (fixture: Fixture, ...argv: Array<string>) =>
   runGauntlet(["config", ...argv]).pipe(
+    Effect.provideService(InvocationDirectory, fixture.home),
+    Effect.provideService(ContentDirectory, fixture.content),
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
@@ -104,6 +135,7 @@ describe("gauntlet config init", () => {
       })
       expect(yield* readSettings(fixture)).toEqual({
         "default-recipe": "medium",
+        "default-lenses": INITIAL_DEFAULT_LENSES,
         favorites: ["quick", "low", "medium", "high"],
       })
       expect(yield* stdout()).toContain("initialized")
@@ -133,6 +165,7 @@ describe("gauntlet config init", () => {
       // Settings present, default recipe dangling.
       yield* writeSettings(fixture, {
         "default-recipe": "gone",
+        "default-lenses": [],
         favorites: [],
       })
       expect(yield* config(fixture, "init")).toBe(1)
@@ -168,5 +201,52 @@ describe("gauntlet config init", () => {
       // Recipe decoding rejects unknown keys, so a rejected override fails
       // instead of silently inheriting the default seat.
       expect(yield* stdout()).toContain("deep-finders")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("lists, replaces, empties, and refuses to unset Default Lenses", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture
+      expect(yield* config(fixture, "init")).toBe(0)
+
+      expect(
+        yield* config(
+          fixture,
+          "set",
+          "default-lenses",
+          "subjective",
+          "fixture-review",
+          "subjective",
+        ),
+      ).toBe(0)
+      expect((yield* readSettings(fixture))["default-lenses"]).toEqual([
+        "subjective",
+        "fixture-review",
+      ])
+
+      expect(yield* config(fixture)).toBe(0)
+      expect(yield* stdout()).toContain("- fixture-review (default Lens)")
+      expect(yield* stdout()).toContain("- subjective (default Lens)")
+
+      expect(yield* config(fixture, "set", "default-lenses")).toBe(0)
+      expect((yield* readSettings(fixture))["default-lenses"]).toEqual([])
+      expect(yield* config(fixture, "unset", "default-lenses")).toBe(1)
+      expect(yield* stderr()).toContain("default-lenses cannot be unset")
+
+      expect(
+        yield* config(fixture, "set", "default-lenses", "missing-lens"),
+      ).toBe(1)
+      expect(yield* stderr()).toContain(
+        "selected lens does not exist: missing-lens",
+      )
+      expect((yield* readSettings(fixture))["default-lenses"]).toEqual([])
+
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.writeFileString(
+        `${fixture.content}/lenses/invalid.md`,
+        "---\nrouting: bugs\n---\ninvalid prompt\n",
+      )
+      expect(yield* config(fixture)).toBe(1)
+      expect(yield* stderr()).toContain("could not configure")
+      expect(yield* stderr()).toContain("not admitted: routing")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

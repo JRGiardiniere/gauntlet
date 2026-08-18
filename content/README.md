@@ -113,8 +113,6 @@ review skill):
   CONTEXT.md amended accordingly. It is live catalog metadata, not a
   FrozenLens field (#52).
 - **`spec-conformance` restored** (#76) — now an Interpretive Finder backed by
-  the frozen ReviewSpecification ingress. It is available through explicit
-  selection but excluded from the legacy implicit-all selection until Default
-  Lenses (#81) owns standing membership. When selected without a specification,
-  it is skipped explicitly rather than invoked without requirements or
-  presented as completed coverage.
+  the frozen ReviewSpecification ingress and a member of the initial Default
+  Lenses (#81). When selected without a specification, it is skipped explicitly
+  rather than invoked without requirements or presented as completed coverage.

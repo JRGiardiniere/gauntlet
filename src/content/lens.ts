@@ -8,7 +8,6 @@ import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
-import { SPEC_CONFORMANCE_LENS_NAME } from "../domain/finder-selection.ts"
 import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
 
@@ -145,76 +144,91 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
   )
 })
 
-const loadLensDirectory = Effect.fn("gauntlet.lens.load_directory")(
-  function* (lensesDirectory: string, optionalDirectory: boolean) {
-    const names = yield* listLensNames(lensesDirectory, optionalDirectory)
-    return yield* Effect.forEach(
-      names,
-      (name) => loadLens(lensesDirectory, name),
-      { concurrency: 4 },
-    )
-  },
-)
-
 export interface FinderLensQuery {
   readonly repoRoot: string
-  readonly names?: ReadonlyArray<string>
+  readonly names: ReadonlyArray<string>
 }
 
-// Shipped and project-local lenses are ordinary directories using the same
-// loader and format. Selection happens after the combined catalog is decoded.
-export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
-  function* ({ names, repoRoot }: FinderLensQuery) {
+interface LensSource {
+  readonly directory: string
+  readonly name: LensName
+}
+
+// Discovery records only identities and locations. Review selection decodes
+// the chosen Markdown, while bare config deliberately decodes the full catalog
+// as its fail-fast validation surface.
+const discoverFinderLensSources = Effect.fn(
+  "gauntlet.lens.discover_finder_sources",
+)(function* (repoRoot: string) {
     const contentRoot = yield* ContentDirectory
     const path = yield* Path.Path
     const shippedDirectory = path.join(contentRoot, "lenses")
     const projectDirectory = path.join(repoRoot, ".gauntlet", "lenses")
-    const [shipped, project] = yield* Effect.all(
+    const [shippedNames, projectNames] = yield* Effect.all(
       [
-        loadLensDirectory(shippedDirectory, false),
-        loadLensDirectory(projectDirectory, true),
+        listLensNames(shippedDirectory, false),
+        listLensNames(projectDirectory, true),
       ],
       { concurrency: 2 },
     )
 
-    const catalog = new Map<LensName, LoadedLens>()
-    for (const lens of [...shipped, ...project]) {
-      if (catalog.has(lens.name)) {
-        return yield* new ContentLoadError({
-          path: projectDirectory,
-          reason: `duplicate shipped/project lens name: ${lens.name}`,
-        })
-      }
-      catalog.set(lens.name, lens)
-    }
-
-    // Until Default Lenses (#81) owns standing membership, preserve the
-    // pre-restoration implicit selection. The restored spec-conformance Lens
-    // is available by explicit name without silently joining ordinary runs.
-    const selectedNames = names === undefined
-      ? [...catalog.keys()].filter(
-          (name) => name !== SPEC_CONFORMANCE_LENS_NAME,
-        )
-      : yield* Effect.forEach(names, (name) =>
-        Schema.decodeEffect(LensName)(name).pipe(
+    const catalog = new Map<LensName, LensSource>()
+    for (const [directory, names] of [
+      [shippedDirectory, shippedNames],
+      [projectDirectory, projectNames],
+    ] as const) {
+      for (const name of names) {
+        const decodedName = yield* Schema.decodeEffect(LensName)(name).pipe(
           Effect.mapError(
-            contentLoadError(repoRoot, `invalid selected lens name: ${name}`),
+            contentLoadError(directory, `invalid lens filename: ${name}.md`),
           ),
-        ))
+        )
+        if (catalog.has(decodedName)) {
+          return yield* new ContentLoadError({
+            path: projectDirectory,
+            reason: `duplicate shipped/project lens name: ${decodedName}`,
+          })
+        }
+        catalog.set(decodedName, { directory, name: decodedName })
+      }
+    }
+    return catalog
+  })
+
+// Shipped and project-local lenses remain one effective availability catalog,
+// but only names chosen by Default Lenses or the exact caller override are
+// decoded for a review. A project-local file is therefore available, not
+// implicitly selected.
+export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
+  function* ({ names, repoRoot }: FinderLensQuery) {
+    const catalog = yield* discoverFinderLensSources(repoRoot)
     const seen = new Set<LensName>()
     const selected: globalThis.Array<LoadedLens> = []
-    for (const name of selectedNames) {
-      if (seen.has(name)) continue
-      seen.add(name)
-      const lens = catalog.get(name)
-      if (lens === undefined) {
+    for (const name of names) {
+      const decodedName = yield* Schema.decodeEffect(LensName)(name).pipe(
+        Effect.mapError(
+          contentLoadError(repoRoot, `invalid selected lens name: ${name}`),
+        ),
+      )
+      if (seen.has(decodedName)) continue
+      seen.add(decodedName)
+      const source = catalog.get(decodedName)
+      if (source === undefined) {
         return yield* new ContentLoadError({
           path: repoRoot,
-          reason: `selected lens does not exist: ${name}`,
+          reason: `selected lens does not exist: ${decodedName}`,
         })
       }
-      selected.push(lens)
+      selected.push(yield* loadLens(source.directory, source.name))
     }
     return selected
   },
 )
+
+export const loadFinderLensCatalog = Effect.fn(
+  "gauntlet.lens.load_finder_catalog",
+)(function* (repoRoot: string) {
+  const catalog = yield* discoverFinderLensSources(repoRoot)
+  const names = Array.sort([...catalog.keys()], Order.String)
+  return yield* loadFinderLenses({ repoRoot, names })
+})
