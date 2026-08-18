@@ -67,9 +67,9 @@ export const ReviewPlan = Schema.Struct({
   // retain it so resume can invalidate a frozen specification when the branch
   // changes even if the reviewed commit and diff do not.
   specificationSourceBranch: Schema.optionalKey(Schema.String),
-  // A branch binding is proof that a Specification Source exists. If that
-  // source cannot be reached, retain the typed cause beside the otherwise
-  // specification-less plan so the run and report do not imply quiet absence.
+  // A branch binding is proof that a Specification Source exists. If Linear
+  // cannot be reached, retain the typed cause beside any GitHub fallback
+  // material or quiet absence so the run and report preserve that degradation.
   specificationSourceDiagnostic: Schema.optionalKey(
     SpecificationSourceDiagnostic,
   ),

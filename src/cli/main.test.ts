@@ -472,6 +472,18 @@ const runCommand = (
   ),
 })
 
+const readOnlyRunPlan = Effect.fnUntraced(function* (fixture: Fixture) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+  const plan = yield* fs.readFileString(
+    path.join(fixture.runsRoot, runId, "plan.json"),
+  ).pipe(
+    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+  )
+  return { plan, runId }
+})
+
 const review = (fixture: Fixture, scripted = successfulScripted()) =>
   runCommand(
     fixture,
@@ -2325,6 +2337,163 @@ describe("gauntlet review", () => {
         .join("\n") ?? ""
       expect(specification).toContain("LINEAR-SLICE-BODY")
       expect(specification).not.toContain("GITHUB-SLICE-BODY")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("falls back to GitHub while retaining an unreachable Linear diagnostic", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () =>
+          Effect.succeed(prView(7, headCommit, baseCommit)),
+        viewClosingIssues: () =>
+          Effect.succeed([
+            closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
+          ]),
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        github,
+        Linear.Fake({
+          viewIssue: () =>
+            Effect.fail(
+              new LinearError({
+                reason: "missing-api-key",
+                detail: "LINEAR_API_KEY is not set",
+              }),
+            ),
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { plan, runId } = yield* readOnlyRunPlan(fixture)
+      expect(plan.specification?.documents.map(({ text }) => text)).toContain(
+        "GITHUB-SLICE-BODY",
+      )
+      expect(plan.specificationSourceDiagnostic?.reason).toBe("missing-api-key")
+      const diagnostic = plan.specificationSourceDiagnostic?.message ?? ""
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(diagnostic)
+      expect(yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "dossier.md"),
+      )).toContain(`- Specification source: ${diagnostic}`)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("uses only GitHub when --github-spec overrides a resolved Linear source", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () =>
+          Effect.succeed(prView(7, headCommit, baseCommit)),
+        viewClosingIssues: () =>
+          Effect.succeed([
+            closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
+          ]),
+      })
+      let linearCalls = 0
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--pr",
+          "7",
+          "--github-spec",
+          "--lenses",
+          "fixture-review",
+        ],
+        successfulScripted(),
+        Effect.void,
+        github,
+        Linear.Fake({
+          viewIssue: () => {
+            linearCalls += 1
+            return Effect.succeed(linearBranchIssue())
+          },
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      expect(linearCalls).toBe(0)
+      const { plan } = yield* readOnlyRunPlan(fixture)
+      const specification = plan.specification?.documents
+        .map(({ text }) => text)
+        .join("\n") ?? ""
+      expect(specification).toContain("GITHUB-SLICE-BODY")
+      expect(specification).not.toContain("LINEAR-SLICE-BODY")
+      expect(plan.specificationSourceDiagnostic).toBeUndefined()
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("rejects --github-spec without a PR before creating a Run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const run = runCommand(
+        fixture,
+        ["review", "--github-spec", "--lenses", "fixture-review"],
+        successfulScripted(),
+      )
+
+      expect(yield* run.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "--github-spec requires --pr",
+      )
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume", "some-run", "--github-spec"],
+        successfulScripted(),
+      )
+      expect(yield* resumed.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "--github-spec cannot be combined with --resume; the plan is frozen",
+      )
+      const fs = yield* FileSystem.FileSystem
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("rejects --github-spec when GitHub has no closing-issue specification", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () =>
+          Effect.succeed(prView(7, headCommit, baseCommit)),
+        viewClosingIssues: () => Effect.succeed([]),
+      })
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--pr",
+          "7",
+          "--github-spec",
+          "--lenses",
+          "fixture-review",
+        ],
+        successfulScripted(),
+        Effect.void,
+        github,
+      )
+
+      expect(yield* run.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
+      )
+      const fs = yield* FileSystem.FileSystem
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("reports a matching branch whose Linear API key is missing without blocking review", () =>

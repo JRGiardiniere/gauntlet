@@ -27,14 +27,17 @@ Dossier lives on disk.
    requires `--pr`. `review --pr`, `--destination pr`, and `deliver` need the
    GitHub CLI (`gh`) installed and authenticated.
 5. **Specification.** Any target whose current branch contains one Linear
-   issue ID resolves it as the current Slice, plus one native parent, sibling
-   titles/states, and human comments. This needs `LINEAR_API_KEY`. A matching
-   branch wins over GitHub; a missing/invalid key or unreachable issue keeps
-   the review running while an actionable diagnostic prints and lands in the
-   report. With no Linear binding, a `--pr` review resolves GitHub closing
-   issues as the current Slices (native parent one level;
+   issue ID tries to resolve it as the current Slice, plus one native parent,
+   sibling titles/states, and human comments. This needs `LINEAR_API_KEY`. A
+   resolved Linear issue wins over GitHub. When Linear is absent or unreachable, a
+   `--pr` review falls back to GitHub closing issues as the current Slices
+   (native parent one level;
    owner/member/collaborator comments under a 20,000-character earliest-first
-   budget). GitHub unavailability or a PR with no closing issues stays quietly
+   budget). An unreachable Linear issue still prints and reports its actionable
+   diagnostic beside any GitHub material. When the user explicitly chooses
+   GitHub for this Run, pass `--github-spec`; it requires `--pr`, skips Linear,
+   and fails unless GitHub closing issues produce a specification. Otherwise
+   GitHub unavailability or a PR with no closing issues stays quietly
    specification-less. When you hold
    additional requirements context — acceptance criteria, explicit deferrals,
    local notes — write it as a Markdown Caller Addendum and pass
@@ -49,7 +52,7 @@ Dossier lives on disk.
 6. **Launch** as a background shell task:
 
    ```
-   gauntlet review [recipe] [--pr N] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
+   gauntlet review [recipe] [--pr N] [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
    ```
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means

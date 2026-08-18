@@ -10,7 +10,7 @@ flags documented-but-unexercised.
 ## Verbs
 
 ```
-gauntlet review [recipe] <target> [--spec <file>] [--destination local|pr] [--resume [run-id]] [--lenses a,b]
+gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination local|pr] [--resume [run-id]] [--lenses a,b]
   <target> = --working-tree | --pr <number> | --commits <base>[..<head>]
 gauntlet deliver <run-id>
 gauntlet config
@@ -22,7 +22,9 @@ gauntlet config unset <key>
 `<target>` is one required, mutually exclusive selection: `--working-tree`
 (uncommitted changes vs HEAD), `--pr <number>`, or `--commits
 <base>[..<head>]`. `--spec <file>` supplies a Caller Addendum per the
-specification-ingress spec (#70).
+specification-ingress spec (#70). `--github-spec` is an exact per-Run source
+override admitted only with `--pr`: it skips Linear and requires GitHub closing
+issues to produce the automatic ReviewSpecification before Run creation.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
@@ -62,6 +64,13 @@ requirement is implemented alongside the commit-range ticket so the CLI breaks
 once, not twice. Target selection is independent of Specification Source
 resolution (which keys on machine-recoverable signals like the current branch
 name, not on which target kind was named).
+
+Automatic Specification Source resolution gives a resolved branch-bound Linear
+issue precedence. When Linear is absent or unreachable, a PullRequest falls back
+to GitHub closing issues; an unreachable Linear diagnostic remains frozen beside
+any GitHub material and visible in progress and the report. This deterministic
+chain replaces a standing source-preference setting: the common path has no
+configuration, and the exceptional GitHub-only choice is explicit on the Run.
 
 The commit range mirrors the PullRequest target's mechanics (settled
 2026-08-14, #82): `<head>` defaults to `HEAD`, either end accepts any
