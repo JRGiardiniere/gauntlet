@@ -1,11 +1,12 @@
+import * as Array from "effect/Array"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import { resolveFinderContext } from "../content/finder-prompt.ts"
-import { selectRunnableFinders } from "../domain/finder-selection.ts"
+import type { ResolvedFinderContext } from "../content/finder-prompt.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import type { Seat } from "../domain/recipe.ts"
 import type { FinderResult } from "../assembly/finders.ts"
 import { UsageRow } from "../harness/harness-session.ts"
+import { finderPartitionsInPlan } from "./finder-partitions.ts"
 
 export type FinderContextKind =
   | "ordinary"
@@ -20,15 +21,9 @@ export interface FinderCacheHealth {
 }
 
 const contextKindOf = (
-  key: ReturnType<typeof resolveFinderContext>["key"],
+  key: ResolvedFinderContext["key"],
 ): FinderContextKind =>
   key === "standard" ? "ordinary" : "ordinary plus frozen ReviewSpecification"
-
-interface PlannedFinder {
-  readonly seat: Seat
-  readonly contextKind: FinderContextKind
-  readonly outcome: FinderResult["outcome"] | undefined
-}
 
 interface EligibleUsage {
   readonly promptTokens: number
@@ -48,7 +43,7 @@ const firstEligibleUsage = (
     : { promptTokens, cacheRead: decoded.value.cacheRead }
 }
 
-// Rebuild the scheduler's partitions from the frozen plan. The first planned
+// Consume the scheduler's partitions from the frozen plan. The first planned
 // Finder in each larger partition is the cache-warming starter and never
 // contributes to the measurement.
 export const measureFinderCacheHealth = (
@@ -58,28 +53,15 @@ export const measureFinderCacheHealth = (
   const outcomeByLens = new Map(
     results.map(({ lens, outcome }) => [lens.name, outcome] as const),
   )
-  const partitions = new Map<string, Array<PlannedFinder>>()
-  for (const lens of selectRunnableFinders(plan).runnable) {
-    const context = resolveFinderContext(lens, plan.specification)
-    const partitionKey = `${lens.seat}\u0000${context.key}`
-    const planned = {
-      seat: lens.seat,
-      contextKind: contextKindOf(context.key),
-      outcome: outcomeByLens.get(lens.name),
-    }
-    const partition = partitions.get(partitionKey)
-    if (partition === undefined) partitions.set(partitionKey, [planned])
-    else partition.push(planned)
-  }
 
   const measurements: Array<FinderCacheHealth> = []
-  for (const partition of partitions.values()) {
-    const first = partition[0]
-    if (first === undefined || partition.length === 1) continue
+  for (const partition of finderPartitionsInPlan(plan)) {
+    if (partition.length === 1) continue
+    const first = Array.headNonEmpty(partition)
     const eligible = partition
       .slice(1)
-      .flatMap(({ outcome }) => {
-        const usage = firstEligibleUsage(outcome)
+      .flatMap(({ lens }) => {
+        const usage = firstEligibleUsage(outcomeByLens.get(lens.name))
         return usage === undefined ? [] : [usage]
       })
     if (eligible.length === 0) continue
@@ -93,7 +75,7 @@ export const measureFinderCacheHealth = (
     )
     measurements.push({
       seat: first.seat,
-      contextKind: first.contextKind,
+      contextKind: contextKindOf(first.context.key),
       reuse: totalCacheRead / totalPromptTokens,
       eligibleFollowerCount: eligible.length,
       healthyFollowerCount: eligible.filter(

@@ -1,5 +1,8 @@
-import * as Array from "effect/Array"
-import * as Record from "effect/Record"
+import {
+  type BugClaimCluster,
+  clusterEvaluatedBugClaims,
+  projectBugClaimCluster,
+} from "../assembly/bug-claim-cluster.ts"
 import type { BugClaim, Candidate, Observation } from "../domain/candidate.ts"
 import {
   DossierFinding,
@@ -44,47 +47,6 @@ export interface EvaluationView {
   readonly undecided: ReadonlyArray<Observation>
   readonly dropped: ReadonlyArray<DroppedObservation>
 }
-
-// Longer text carries more of the claim: summary and failure scenario are the
-// two model-authored fields a cluster-mate can state more fully than the rest.
-const substance = (candidate: BugClaim): number =>
-  candidate.summary.length + candidate.failureScenario.length
-
-const representativeClaim = (
-  candidates: readonly [BugClaim, ...Array<BugClaim>],
-): BugClaim =>
-  candidates.slice(1).reduce(
-    (fullest, candidate) =>
-      substance(candidate) > substance(fullest) ? candidate : fullest,
-    candidates[0],
-  )
-
-const lensesOf = (
-  candidates: readonly [BugClaim, ...Array<BugClaim>],
-): ReadonlyArray<string> =>
-  Array.dedupe(candidates.map(({ lens }) => lens))
-
-interface ClusteredBugClaim extends EvaluatedBugClaim {
-  readonly lenses: ReadonlyArray<string>
-}
-
-// Stage progress still needs a tally before final Dossier assembly. Pool
-// cluster-mates count as one evaluated claim in that tally.
-const clusterEvaluatedBugClaims = (
-  bugClaims: ReadonlyArray<EvaluatedBugClaim>,
-): ReadonlyArray<ClusteredBugClaim> =>
-  Record.values(Array.groupBy(bugClaims, ({ cluster }) => String(cluster)))
-    .map((mates) => ({
-      ...Array.reduce(
-        mates,
-        Array.headNonEmpty(mates),
-        (fullest, mate) =>
-          substance(mate.candidate) > substance(fullest.candidate)
-            ? mate
-            : fullest,
-      ),
-      lenses: Array.dedupe(Array.map(mates, ({ candidate }) => candidate.lens)),
-    }))
 
 export const viewBugClaims = (
   bugClaims: ReadonlyArray<EvaluatedBugClaim>,
@@ -143,16 +105,16 @@ export interface DossierView {
 
 const claimEntry = (
   entry: {
-    readonly bugClaims: readonly [BugClaim, ...Array<BugClaim>]
+    readonly bugClaims: BugClaimCluster
     readonly testSuggestion?: TestSuggestion
   },
   tag: "confirmed" | "unverified" | "refuted",
   reviewPriority: ReviewPriority | undefined,
   detail: string | undefined,
 ): DossierEntryView => {
+  const projection = projectBugClaimCluster(entry.bugClaims)
   const core = {
-    candidate: representativeClaim(entry.bugClaims),
-    lenses: lensesOf(entry.bugClaims),
+    ...projection,
     tag,
     reviewPriority,
     detail,

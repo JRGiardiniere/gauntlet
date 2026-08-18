@@ -12,11 +12,9 @@ import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
+import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderDigest } from "./digest.ts"
-import {
-  renderDossierMarkdown,
-  type RunAccounting,
-} from "./dossier-markdown.ts"
+import { renderDossierMarkdown } from "./dossier-markdown.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (

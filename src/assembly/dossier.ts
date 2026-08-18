@@ -1,4 +1,3 @@
-import type { BugClaim } from "../domain/candidate.ts"
 import {
   Dossier,
   DossierFinding,
@@ -14,6 +13,7 @@ import { Judgment } from "../domain/judgment.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict, type ReviewPriority } from "../domain/verdict.ts"
+import { clusterEvaluatedBugClaims } from "./bug-claim-cluster.ts"
 
 interface AssembledPath {
   readonly coverageGaps: ReadonlyArray<CoverageGap>
@@ -35,47 +35,13 @@ export interface DossierAssembly {
   readonly judgmentPath: AssembledJudgmentPath
 }
 
-interface ClaimCluster {
-  readonly cluster: number
-  readonly bugClaims: readonly [BugClaim, ...Array<BugClaim>]
-  readonly verdict: EvaluatedBugClaim["verdict"]
-  readonly testSuggestion?: TestSuggestion
-}
-
-const clusterBugClaims = (
-  bugClaims: ReadonlyArray<EvaluatedBugClaim>,
+const suggestionFor = (
+  bugClaimIds: ReadonlySet<string>,
   testSuggestions: ReadonlyArray<TestSuggestion>,
-): ReadonlyArray<ClaimCluster> => {
-  const byCluster = new Map<number, Array<EvaluatedBugClaim>>()
-  for (const claim of bugClaims) {
-    const cluster = byCluster.get(claim.cluster)
-    if (cluster === undefined) byCluster.set(claim.cluster, [claim])
-    else cluster.push(claim)
-  }
-
-  return [...byCluster.entries()]
-    .sort(([left], [right]) => left - right)
-    .flatMap(([cluster, entries]) => {
-      const first = entries[0]
-      if (first === undefined) return []
-      const candidates: [BugClaim, ...Array<BugClaim>] = [
-        first.candidate,
-        ...entries.slice(1).map(({ candidate }) => candidate),
-      ]
-      const candidateIds = new Set(candidates.map(({ id }) => id))
-      const testSuggestion = testSuggestions.find(({ bugClaimIds }) =>
-        bugClaimIds.some((id) => candidateIds.has(id))
-      )
-      const core = {
-        cluster,
-        bugClaims: candidates,
-        verdict: first.verdict,
-      }
-      return [testSuggestion === undefined
-        ? core
-        : { ...core, testSuggestion }]
-    })
-}
+): TestSuggestion | undefined =>
+  testSuggestions.find(({ bugClaimIds: suggestedIds }) =>
+    suggestedIds.some((id) => bugClaimIds.has(id))
+  )
 
 const priorityRank = {
   P1: 0,
@@ -115,11 +81,14 @@ export const assembleDossier = ({
   const refutedClaims: Array<RefutedClaim> = []
   const droppedObservations: Array<DroppedObservation> = []
 
-  for (const cluster of clusterBugClaims(
+  for (const { bugClaims, cluster, verdict } of clusterEvaluatedBugClaims(
     bugClaimPath.bugClaims,
-    bugClaimPath.testSuggestions,
   )) {
-    const { testSuggestion, verdict, ...clusterCore } = cluster
+    const clusterCore = { bugClaims, cluster }
+    const testSuggestion = suggestionFor(
+      new Set(bugClaims.map(({ id }) => id)),
+      bugClaimPath.testSuggestions,
+    )
     const suggestedCore = testSuggestion === undefined
       ? clusterCore
       : { ...clusterCore, testSuggestion }

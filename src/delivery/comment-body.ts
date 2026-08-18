@@ -26,8 +26,8 @@ const truncateToBytes = (text: string, budget: number): string => {
   return text.slice(0, end)
 }
 
-// Split on the findings heading so the header (target, recipe, run id) is
-// never the first thing cut. Evidence is everything from that heading on.
+// Split on the findings heading so evidence is cut first. If the prefix alone
+// exceeds the budget, keep its leading identity and the truncation note.
 export const fitPostedDossier = (markdown: string): FittedComment => {
   if (utf8Bytes(markdown) <= SAFE_PR_COMMENT_BYTES) {
     return { body: markdown, truncated: false }
@@ -35,11 +35,16 @@ export const fitPostedDossier = (markdown: string): FittedComment => {
   const findingsAt = markdown.indexOf(FINDINGS_HEADING)
   const identity = findingsAt === -1 ? markdown : markdown.slice(0, findingsAt)
   const evidence = findingsAt === -1 ? "" : markdown.slice(findingsAt)
-  const prefix = `${identity.trimEnd()}\n\n${FULL_DOSSIER_NOTE}`
-  const remaining = SAFE_PR_COMMENT_BYTES - utf8Bytes(`${prefix}\n`)
+  const note = `\n\n${FULL_DOSSIER_NOTE}`
+  const fittedIdentity = truncateToBytes(
+    identity.trimEnd(),
+    SAFE_PR_COMMENT_BYTES - utf8Bytes(note),
+  )
+  const prefix = `${fittedIdentity}${note}`
+  const remaining = SAFE_PR_COMMENT_BYTES - utf8Bytes(prefix)
   const fittedEvidence = truncateToBytes(evidence, remaining)
   return {
-    body: fittedEvidence === "" ? `${prefix}\n` : `${prefix}${fittedEvidence}`,
+    body: `${prefix}${fittedEvidence}`,
     truncated: true,
   }
 }

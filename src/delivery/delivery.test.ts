@@ -143,6 +143,17 @@ describe("fitPostedDossier", () => {
     expect(fitted.body).not.toContain("e".repeat(70_000))
     expect(utf8Bytes(fitted.body)).toBeLessThanOrEqual(SAFE_PR_COMMENT_BYTES)
   })
+
+  it("bounds an oversized pre-Findings prefix", () => {
+    const markdown = `# Gauntlet review run-fixture\n\n${"n".repeat(70_000)}\n## Findings\n\n- finding`
+    const fitted = fitPostedDossier(markdown)
+
+    expect(fitted.truncated).toBe(true)
+    expect(fitted.body).toContain("Gauntlet review run-fixture")
+    expect(fitted.body).toContain(FULL_DOSSIER_NOTE)
+    expect(fitted.body).not.toContain("- finding")
+    expect(utf8Bytes(fitted.body)).toBeLessThanOrEqual(SAFE_PR_COMMENT_BYTES)
+  })
 })
 
 describe("deliverCompletedRun", () => {

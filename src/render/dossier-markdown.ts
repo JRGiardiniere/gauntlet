@@ -3,23 +3,16 @@ import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
-import type { FinderCacheHealth } from "../run/finder-cache-health.ts"
 import {
   describeFinderCacheHealth,
   lowFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
+import type { RunAccounting } from "../run/run-accounting.ts"
 import { formatCommentOmission } from "../specification/comment-budget.ts"
 import {
   type DossierEntryView,
   viewDossier,
 } from "./dossier-view.ts"
-
-export interface RunAccounting {
-  readonly costUsd: number
-  readonly invocationCount: number
-  readonly wallTimeSeconds: number
-  readonly finderCacheHealth: ReadonlyArray<FinderCacheHealth>
-}
 
 const shortCommit = (commit: string) => commit.slice(0, 7)
 
