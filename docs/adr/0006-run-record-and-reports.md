@@ -13,7 +13,7 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
 ~/.gauntlet/runs/<run-id>/
   plan.json          # frozen ReviewPlan: recipe seats, lens texts, target diff
   finder-stage.json  # atomic completed Finder stage (ADR 0003)
-  dossier.json       # complete machine-readable Dossier
+  dossier.json       # machine-readable Dossier side artifact
   dossier.md         # human-readable Dossier
   receipt.json       # DeliveryReceipt, when delivery was attempted
   run.log            # in-flight Effect log
@@ -27,6 +27,10 @@ per thing — **no JSONL anywhere**. The Finder-stage checkpoint uses atomic
 sibling-temp-and-rename writes, so resume can distinguish a complete stage
 from an interrupted attempt. Pool, Verification, and Judgment are recomputed
 as whole stages and have no persisted intermediate files.
+
+`dossier.md` is written last and is the Run's completion signal. Resume does
+not decode `dossier.json`; that file is an additive machine-readable artifact,
+not pipeline control state.
 
 ## No aggregate store
 

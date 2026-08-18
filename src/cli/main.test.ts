@@ -1659,6 +1659,12 @@ describe("gauntlet review", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      // Markdown is the completion signal. The JSON remains an additive machine
+      // artifact and does not control resume.
+      yield* fs.writeFileString(
+        path.join(fixture.runsRoot, runId, "dossier.json"),
+        "not valid JSON",
+      )
       yield* fs.rename(
         fixture.content,
         path.join(fixture.home, "content-unavailable"),

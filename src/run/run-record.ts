@@ -7,7 +7,6 @@ import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Random from "effect/Random"
 import * as Schema from "effect/Schema"
-import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { readOptionalArtifactText } from "./artifact.ts"
 
@@ -83,10 +82,6 @@ export const createRunDirectory = Effect.fn("gauntlet.run_record.create_run_dire
 const decodePlanOption = Schema.decodeOption(
   Schema.fromJsonString(ReviewPlan),
 )
-const decodeDossierOption = Schema.decodeOption(
-  Schema.fromJsonString(Dossier),
-)
-
 const loadPlanOption = Effect.fn("gauntlet.run_record.load_plan_option")(
   function* (paths: RunPaths, expectedRunId: string) {
     const source = yield* readOptionalArtifactText(paths.plan)
@@ -98,19 +93,9 @@ const loadPlanOption = Effect.fn("gauntlet.run_record.load_plan_option")(
 )
 
 const runIsComplete = Effect.fn("gauntlet.run_record.is_complete")(
-  function* (paths: RunPaths, runId: string) {
-    const [dossierSource, markdownSource] = yield* Effect.all(
-      [
-        readOptionalArtifactText(paths.dossier),
-        readOptionalArtifactText(paths.dossierMarkdown),
-      ],
-      { concurrency: 2 },
-    )
-    const dossier = Option.flatMap(dossierSource, decodeDossierOption).pipe(
-      Option.filter((value) => value.runId === runId),
-    )
-    return Option.isSome(dossier) &&
-      Option.exists(markdownSource, (markdown) => markdown.length > 0)
+  function* (paths: RunPaths) {
+    const markdownSource = yield* readOptionalArtifactText(paths.dossierMarkdown)
+    return Option.exists(markdownSource, (markdown) => markdown.length > 0)
   },
 )
 
@@ -169,7 +154,7 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
         runId,
       )
     }
-    const complete = yield* runIsComplete(paths, runId).pipe(
+    const complete = yield* runIsComplete(paths).pipe(
       Effect.mapError((cause) =>
         runError(
           "load-plan",
@@ -219,7 +204,7 @@ const loadLatestIncompleteRun = Effect.fn(
         )),
     )
     if (Option.isNone(plan)) continue
-    const complete = yield* runIsComplete(paths, runId).pipe(
+    const complete = yield* runIsComplete(paths).pipe(
       Effect.mapError((cause) =>
         runError(
           "find-latest",
