@@ -93,9 +93,9 @@ a user preference that points to a Recipe, never part of that Recipe.
 _Avoid_: default, fallback recipe, default model
 
 **Default Lenses**:
-The required standing selection of Lenses applied when neither the selected
-Recipe nor the caller chooses otherwise. It is a user preference, never
-inferred from every available Lens and never part of a Recipe.
+The required standing selection of Lenses applied when the caller does not use
+the exact `--lenses` override. It is a user preference, never inferred from
+every available Lens and never part of a Recipe.
 _Avoid_: baseline lenses, default Lens set, Lens roster
 
 **Candidate**:

@@ -145,6 +145,7 @@ const makeFixture = Effect.gen(function* () {
   yield* writeRecipe(fixture, "fixture-recipe", { default: FIXTURE_SEAT })
   yield* writeSettings(fixture, {
     "default-recipe": "fixture-recipe",
+    "default-lenses": ["fixture-review"],
     favorites: [],
   })
   return fixture
@@ -490,6 +491,21 @@ const resume = (
   )
 
 describe("gauntlet review", () => {
+  it.effect("accepts fully explicit Recipe and Lens choices without settings", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.remove(fixture.settingsFile)
+
+      const run = runCommand(
+        fixture,
+        ["review", "fixture-recipe", "--lenses", "fixture-review"],
+        successfulScripted(),
+      )
+      expect(yield* run.effect).toBe(0)
+      expect(run.scripted.configs.length).toBeGreaterThan(0)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("lands the frozen plan, completed Finder stage, and presentation", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
@@ -777,7 +793,7 @@ describe("gauntlet review", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("loads the full shipped and project-local catalog and freezes seats", () =>
+  it.effect("loads configured shipped and project-local Default Lenses and freezes seats", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -791,6 +807,11 @@ describe("gauntlet review", () => {
       yield* writeRecipe(fixture, "fixture-recipe", {
         default: FIXTURE_SEAT,
         "interpretive-finders": "fixture/local-model:medium",
+      })
+      yield* writeSettings(fixture, {
+        "default-recipe": "fixture-recipe",
+        "default-lenses": ["fixture-review", "fixture-local"],
+        favorites: [],
       })
 
       // One standard + one interpretive seat keeps each model group size-1,
@@ -1035,7 +1056,7 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("keeps spec-conformance out of implicit Lens selection until Default Lenses owns membership", () =>
+  it.effect("selects configured defaults rather than every available Lens", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -1065,6 +1086,34 @@ describe("gauntlet review", () => {
       )
       expect(plan.lenses.map(({ name }) => name)).toEqual(["fixture-review"])
       expect(run.scripted.configs).toHaveLength(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("produces an ordinary zero-result Dossier from empty Default Lenses", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* writeSettings(fixture, {
+        "default-recipe": "fixture-recipe",
+        "default-lenses": [],
+        favorites: [],
+      })
+
+      const run = runCommand(
+        fixture,
+        ["review"],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* run.effect).toBe(0)
+      expect(run.scripted.configs).toEqual([])
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const runDirectory = path.join(fixture.runsRoot, runId)
+      const plan = yield* fs.readFileString(path.join(runDirectory, "plan.json")).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.lenses).toEqual([])
+      expect(yield* fs.exists(path.join(runDirectory, "dossier.md"))).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("skips explicitly selected spec-conformance without a ReviewSpecification while other Finders run", () =>
@@ -1289,6 +1338,11 @@ describe("gauntlet review", () => {
       // seats at submission (ADR 0005).
       yield* writeRecipe(fixture, "fixture-recipe", {
         default: "fixture/edited-model:high",
+      })
+      yield* writeSettings(fixture, {
+        "default-recipe": "fixture-recipe",
+        "default-lenses": [],
+        favorites: [],
       })
       const resumed = resume(
         fixture,

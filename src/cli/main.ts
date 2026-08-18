@@ -1,5 +1,4 @@
 import * as Console from "effect/Console"
-import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -11,7 +10,7 @@ import {
   renderAvailable,
   resolveReviewRecipe,
 } from "../config/recipe-catalog.ts"
-import { resolveRunsRoot } from "../config/settings.ts"
+import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadFinderLenses } from "../content/lens.ts"
 import {
   deliverCompletedRun,
@@ -19,6 +18,7 @@ import {
   requirePullRequestTarget,
 } from "../delivery/delivery.ts"
 import { finderSeat, stageSeat } from "../domain/recipe.ts"
+import { resolveLensNames } from "../domain/lens-selection.ts"
 import {
   candidateCapForLens,
   FrozenLens,
@@ -57,13 +57,9 @@ import {
   TargetUnresolvable,
 } from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
+import { InvocationDirectory } from "./invocation-directory.ts"
 
-// The directory the review was invoked from — ambient with a real default,
-// overridable in tests (which must not chdir).
-export const InvocationDirectory = Context.Reference<string>(
-  "gauntlet/InvocationDirectory",
-  { defaultValue: () => globalThis.process.cwd() },
-)
+export { InvocationDirectory } from "./invocation-directory.ts"
 
 export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
   readonly reason: string
@@ -152,6 +148,18 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(recipeName)
   yield* progress(`using recipe ${selected.name}`)
+  const defaultLensNames = selectedLensNames === undefined
+    ? yield* Effect.gen(function* () {
+        const settings = yield* loadSettings()
+        if (Option.isNone(settings)) {
+          return yield* new ReviewCommandError({
+            reason:
+              "no Default Lenses are configured — pass --lenses or run `gauntlet config init`",
+          })
+        }
+        return settings.value["default-lenses"]
+      })
+    : []
   const directory = yield* InvocationDirectory
   const target = yield* Option.match(pr, {
     onNone: () => {
@@ -173,18 +181,19 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
     yield* progress(`warning — ${warning}`)
   }
 
+  const resolvedLensNames = resolveLensNames(
+    selectedLensNames,
+    defaultLensNames,
+  )
   yield* progress(
     selectedLensNames === undefined
-      ? "loading applicable finder lenses"
-      : `loading finder lenses ${selectedLensNames.join(", ")}`,
+      ? `loading Default Lenses ${resolvedLensNames.join(", ") || "(none)"}`
+      : `loading exact caller Lenses ${resolvedLensNames.join(", ") || "(none)"}`,
   )
-  // `names` is admitted only when a --lenses selection narrows the catalog;
-  // omitting it means every shipped and project-local lens loads.
-  const lenses = yield* loadFinderLenses(
-    selectedLensNames === undefined
-      ? { repoRoot: target.repoRoot }
-      : { repoRoot: target.repoRoot, names: selectedLensNames },
-  )
+  const lenses = yield* loadFinderLenses({
+    repoRoot: target.repoRoot,
+    names: resolvedLensNames,
+  })
 
   const runsRoot = yield* resolveRunsRoot()
   const runId = yield* makeRunId()
@@ -404,7 +413,9 @@ const review = Command.make(
     ),
     lenses: Flag.string("lenses").pipe(
       Flag.optional,
-      Flag.withDescription("Run comma-separated named finder lenses"),
+      Flag.withDescription(
+        "Use exactly these comma-separated Lenses instead of Default Lenses",
+      ),
     ),
     resume: Flag.string("resume").pipe(
       Flag.optional,

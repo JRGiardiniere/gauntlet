@@ -11,7 +11,12 @@ import {
   assembleFinderPrompt,
   FINDER_TOOLS,
 } from "./finder-prompt.ts"
-import { loadLens } from "./lens.ts"
+import {
+  ContentDirectory,
+  loadFinderLensCatalog,
+  loadFinderLenses,
+  loadLens,
+} from "./lens.ts"
 
 const withFixtureDirectory = <A, E, R>(
   use: (directory: string) => Effect.Effect<A, E, R>,
@@ -153,6 +158,38 @@ describe("lens content", () => {
         expect(prompt).toContain("fixture prompt v1")
         expect(prompt).not.toContain("fixture prompt v2")
         expect(prompt).toContain("{{MODEL_AUTHORED_TOKEN}}")
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)))
+
+  it.effect("decodes selected content for review and the full catalog for config", () =>
+    withFixtureDirectory((directory) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        const content = `${directory}/content`
+        const repo = `${directory}/repo`
+        yield* fs.makeDirectory(`${content}/lenses`, { recursive: true })
+        yield* fs.makeDirectory(`${repo}/.gauntlet/lenses`, { recursive: true })
+        yield* fs.writeFileString(
+          `${content}/lenses/selected.md`,
+          "selected prompt\n",
+        )
+        yield* fs.writeFileString(
+          `${repo}/.gauntlet/lenses/unselected.md`,
+          "---\nrouting: bugs\n---\ninvalid unselected prompt\n",
+        )
+
+        const selected = yield* loadFinderLenses({
+          repoRoot: repo,
+          names: ["selected"],
+        }).pipe(Effect.provideService(ContentDirectory, content))
+        expect(selected.map(({ name }) => name)).toEqual(["selected"])
+
+        const catalogFailure = yield* loadFinderLensCatalog(repo).pipe(
+          Effect.provideService(ContentDirectory, content),
+          Effect.flip,
+        )
+        expect(catalogFailure.reason).toContain("not admitted: routing")
+        expect(catalogFailure.path).toContain("unselected.md")
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
 })

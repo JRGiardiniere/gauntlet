@@ -7,6 +7,7 @@ import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { RecipeName } from "../domain/recipe.ts"
+import { LensName } from "../domain/review-plan.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 
 // `runs-root` is persisted as a normalized absolute path; `config set` owns
@@ -14,10 +15,14 @@ import { writeArtifactJson } from "../run/artifact.ts"
 // than silently resolved against the invocation directory.
 export const RunsRoot = Schema.String.check(Schema.isPattern(/^\//))
 
-// The standing choices in ~/.gauntlet/settings.json (ADR 0005): the Default
-// Recipe and ordered Favorites are settings metadata, never recipe anatomy.
+// The standing choices in ~/.gauntlet/settings.json (ADR 0005): Default Recipe,
+// Default Lenses, and ordered Favorites are settings metadata, never recipe
+// anatomy.
 export const Settings = Schema.Struct({
   "default-recipe": RecipeName,
+  // Membership rather than priority: config writes collapse repeated names,
+  // while the check keeps direct edits from encoding the same Lens twice.
+  "default-lenses": Schema.Array(LensName).check(Schema.isUnique()),
   // Ordered and distinct: `config set` enforces distinctness up front, and
   // the check keeps a directly edited duplicate from decoding as valid.
   favorites: Schema.Array(RecipeName).check(Schema.isUnique()),

@@ -106,22 +106,22 @@ Default Seat. Trialling a model is writing one file directly — agents do not
 need a recipe CRUD command. There are no per-stage override flags or config
 overlay file (the old one shipped literally empty).
 
-A Recipe may also carry one Lens selection: `lenses.extend` adds named Lenses
-to the configured Default Lenses, while `lenses.only` selects exactly the named
-Lenses. Omission uses the configured Default Lenses unchanged. The runtime
-`--lenses` flag remains the single exact caller override and supersedes the
-Recipe's Lens selection. Resolved names are validated before a Run is created.
-An empty Default Lens selection or `lenses.only` list is valid: the Run has no
-Finder invocations and produces the ordinary zero-result Dossier. Gauntlet does
-not add a special protection for an obviously empty review.
+Amended by #81's 2026-08-18 complexity challenge: Recipes remain Seat policy
+only. No installed Recipe or project-local Lens demonstrated a repeated Lens
+policy, so `lenses.extend` and `lenses.only` were deferred rather than reserved
+in the schema. The configured Default Lenses apply unless the caller supplies
+the exact `--lenses` override. Resolved names are validated before a Run is
+created. An empty Default Lens selection is valid: the Run has no Finder
+invocations and produces the ordinary zero-result Dossier. Gauntlet adds no
+special protection for an obviously empty review.
 
 Lens selections express membership, not priority or execution order. Planning
 produces a deterministic invocation array and the ReviewPlan records that
 resolved array because downstream candidate indexes consume it. The array's
 operational order stays stable within the Run, but callers are
 not promised that configuration order controls scheduling, output, or cache
-behavior. The ReviewPlan does not retain the Default Lenses, Recipe selection
-mode, or source-catalog provenance after resolution.
+behavior. The ReviewPlan does not retain the Default Lenses or source-catalog
+provenance after resolution.
 
 One invalid Recipe never disables the catalog: bare `config` marks its file
 invalid with the Schema error, selecting it fails before a Run is created, and
@@ -138,8 +138,10 @@ the rest of the catalog. No separate machine-output mode exists without a real
 consumer.
 
 Bare `config` is also the Lens discovery surface: it lists the effective Lens
-Catalog, identifies the Default Lenses, and reports invalid Lens content. Help
-text explains selection semantics; it does not embed a mutable catalog listing.
+Catalog and identifies the Default Lenses. It decodes the complete catalog and
+fails with the first invalid file's path and reason rather than maintaining a
+second error-tolerant Lens-entry model. Help text explains selection semantics;
+it does not embed a mutable catalog listing.
 
 Selection precedence is exactly: a Recipe named positionally, otherwise the
 configured Default Recipe. If neither resolves, review fails and lists the
@@ -158,6 +160,9 @@ guess.
 
 Settings are strict JSON: required `default-recipe`, required `default-lenses`,
 required ordered `favorites` (possibly empty), and optional `runs-root`.
+An invocation that explicitly names both its Recipe and exact `--lenses` may
+run without settings because it needs neither standing selection; omitting
+either selection requires the corresponding configured default.
 `config set favorites` replaces the whole list, requires distinct available
 valid Recipe names, and `config unset favorites` clears it. Settings writes use
 the existing atomic sibling-temp-and-rename mechanism; the personal-tool use

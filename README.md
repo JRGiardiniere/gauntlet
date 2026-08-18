@@ -46,18 +46,21 @@ gauntlet config unset <key>
   single PR comment. A working-tree run has no PR destination and is refused.
   Re-delivering a Posted receipt is a no-op that returns the existing comment
   URL; a NotPosted attempt may be retried.
-- `config` prints the settings path, the recipe catalog path, the effective
-  runs root, and every recipe — favorites in configured order first, the rest
-  alphabetically, invalid files marked with their Schema error. This is where
-  agents discover the edit locations.
+- `config` prints the settings path, the effective Lens Catalog with Default
+  Lenses annotated, the recipe catalog, the effective runs root, and every
+  recipe. Lens content is validated fail-fast; recipes remain listed with
+  invalid files marked by their Schema error.
 - `config init` seeds a fresh `~/.gauntlet` with ordinary `quick`, `low`,
   `medium`, and `high` recipes (default `medium`, all four favorites). The
-  seeded files are user-owned; init is a no-op when the configuration is
-  already valid and refuses a partial one with repair guidance.
+  initial Default Lenses explicitly name all eleven shipped Lenses, including
+  `spec-conformance`. The settings and seeded files are user-owned; init is a
+  no-op when the configuration is already valid and refuses a partial one with
+  repair guidance.
 - `config set` / `config unset` manage `~/.gauntlet/settings.json`:
   `default-recipe` (must name an available valid recipe; cannot be unset),
-  `favorites` (ordered, distinct, replaced as a whole), and `runs-root`
-  (absolute or `~/` path; unset restores `~/.gauntlet/runs`).
+  `default-lenses` (replaced as a whole; no names writes an empty selection;
+  cannot be unset), `favorites` (ordered, distinct, replaced as a whole), and
+  `runs-root` (absolute or `~/` path; unset restores `~/.gauntlet/runs`).
 
 ## Dossier
 
@@ -74,6 +77,21 @@ unless `runs-root` says otherwise). Delivery to a PR is additive.
 
 Exit 0 means a review was produced (zero findings included). Exit 1 means
 it could not review or delivery failed. Findings never affect the exit code.
+
+## Lenses
+
+Default Lenses are the required standing membership for ordinary reviews.
+`gauntlet config` lists every shipped and current project-local Lens and marks
+the defaults. `gauntlet config set default-lenses <name...>` replaces the list;
+passing no names writes a valid empty selection.
+
+`--lenses a,b` is the one runtime control and means exactly those names. It
+changes Lens membership without changing the selected Recipe's Seats. Adding a
+Markdown file under `content/lenses/` or `.gauntlet/lenses/` makes it available,
+not selected. Recipes remain Seat policy only.
+
+A fully explicit `gauntlet review <recipe> --lenses a,b` does not need a
+settings file. Omitting either choice requires its configured default.
 
 ## Recipes
 

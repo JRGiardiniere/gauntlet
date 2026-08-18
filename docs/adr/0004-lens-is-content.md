@@ -16,9 +16,11 @@ editing every preset. We decided none of that is lens anatomy:
 - **Spend policy** (caps) belongs to the ReviewPlan (#7).
 - **Selection policy** belongs outside the Lens. Making a Lens available does
   not itself select it for every review; the standing user preference, the
-  selected Recipe, or the caller determines which available Lenses enter the
-  ReviewPlan. Availability scope comes from which Lens Catalog contains the
-  file, never from a global/repository tag in its frontmatter.
+  caller's exact override determines which available Lenses enter the
+  ReviewPlan. Recipe Lens policy was deliberately deferred by #81's 2026-08-18
+  complexity challenge because no repeated policy had earned that schema and
+  precedence layer. Availability scope comes from which Lens Catalog contains
+  the file, never from a global/repository tag in its frontmatter.
 - **Interpretive policy** belongs to one stable Finder Class, not a subjective
   path or name allowlist. A Lens may declare `interpretive` when it needs broad
   reasoning over intent and context; omission means `standard`. Interpretive
