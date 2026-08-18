@@ -16,6 +16,7 @@ import {
   resolveVerification,
   type VerificationResult,
 } from "../assembly/verification.ts"
+import { clusterEvaluatedBugClaims } from "../assembly/bug-claim-cluster.ts"
 import {
   assemblePoolPrompt,
   assembleVerifierPrompt,
@@ -25,11 +26,15 @@ import {
   VERIFICATION_TOOLS,
 } from "../content/evaluation-prompt.ts"
 import type { BugClaim } from "../domain/candidate.ts"
-import type { Dossier } from "../domain/dossier.ts"
+import type {
+  CoverageGap,
+  EvaluatedBugClaim,
+  TestSuggestion,
+} from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
+import { Verdict } from "../domain/verdict.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
-import { viewBugClaims } from "../render/dossier-view.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
   counted,
@@ -76,9 +81,9 @@ export interface BugClaimPathExecution {
 }
 
 export interface BugClaimPathResult {
-  readonly bugClaims: Dossier["bugClaims"]
-  readonly testSuggestions: Dossier["testSuggestions"]
-  readonly coverageGaps: Dossier["coverageGaps"]
+  readonly bugClaims: ReadonlyArray<EvaluatedBugClaim>
+  readonly testSuggestions: ReadonlyArray<TestSuggestion>
+  readonly coverageGaps: ReadonlyArray<CoverageGap>
   readonly costUsd: number
   readonly invocationCount: number
 }
@@ -104,7 +109,7 @@ export const executeBugClaimPath = Effect.fn(
   }
 
   const templates = yield* Effect.cached(loadEvaluationPromptTemplates())
-  const coverageGaps: Array<Dossier["coverageGaps"][number]> = []
+  const coverageGaps: Array<CoverageGap> = []
   let repair = initialRepair(claims)
   let poolCostUsd = 0
   let poolInvocationCount = 0
@@ -219,9 +224,14 @@ export const executeBugClaimPath = Effect.fn(
     yield* progress(coverageGapLine(gap))
   }
   if (verificationStartedAt !== undefined) {
-    const tally = viewBugClaims(resolved.bugClaims)
+    const verdicts = clusterEvaluatedBugClaims(resolved.bugClaims).map(
+      ({ verdict }) => verdict,
+    )
+    const confirmed = verdicts.filter(Verdict.guards.Confirmed).length
+    const refuted = verdicts.filter(Verdict.guards.Refuted).length
+    const unverified = verdicts.filter(Verdict.guards.Unverified).length
     yield* progress(
-      `Verification finished — ${String(tally.confirmed.length)} confirmed · ${String(tally.refuted.length)} refuted · ${String(tally.unverified.length)} unverified · ${String(yield* wallSeconds(verificationStartedAt))}s`,
+      `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(unverified)} unverified · ${String(yield* wallSeconds(verificationStartedAt))}s`,
     )
   }
   return {

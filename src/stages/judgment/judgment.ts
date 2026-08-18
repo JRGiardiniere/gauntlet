@@ -4,10 +4,13 @@ import * as Effect from "effect/Effect"
 import { describeMissingOutput } from "../../assembly/outcome.ts"
 import { EVALUATION_SYSTEM_PROMPT } from "../../content/evaluation-prompt.ts"
 import type { Observation } from "../../domain/candidate.ts"
-import type { Dossier } from "../../domain/dossier.ts"
+import type {
+  CoverageGap,
+  JudgedObservation,
+} from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
+import { Judgment } from "../../domain/judgment.ts"
 import { invoke } from "../../harness/invoke.ts"
-import { viewObservations } from "../../render/dossier-view.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
   counted,
@@ -41,8 +44,8 @@ export interface JudgmentExecution {
 }
 
 export interface JudgmentResult {
-  readonly observations: Dossier["observations"]
-  readonly coverageGaps: Dossier["coverageGaps"]
+  readonly observations: ReadonlyArray<JudgedObservation>
+  readonly coverageGaps: ReadonlyArray<CoverageGap>
   readonly costUsd: number
   readonly invocationCount: number
 }
@@ -114,9 +117,12 @@ export const executeJudgment = Effect.fn(
   if (reason !== undefined) {
     yield* progress(coverageGapLine({ reason }))
   }
-  const tally = viewObservations(repair.observations)
+  const judgments = repair.observations.map(({ judgment }) => judgment)
+  const kept = judgments.filter(Judgment.guards.Kept).length
+  const dropped = judgments.filter(Judgment.guards.Dropped).length
+  const undecided = judgments.filter(Judgment.guards.Undecided).length
   yield* progress(
-    `Judgment finished — ${String(tally.kept.length)} kept · ${String(tally.dropped.length)} dropped · ${String(tally.undecided.length)} undecided · ${String(yield* wallSeconds(judgmentStartedAt))}s`,
+    `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(yield* wallSeconds(judgmentStartedAt))}s`,
   )
   return {
     observations: repair.observations,

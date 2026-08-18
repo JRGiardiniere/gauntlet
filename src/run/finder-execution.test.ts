@@ -30,6 +30,7 @@ import {
   FinderCacheSettleDelay,
   FinderStageArtifact,
 } from "./finder-execution.ts"
+import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { runPaths } from "./run-record.ts"
 
 const SEAT = "fixture/fixture-model:low" as const
@@ -64,6 +65,32 @@ const successfulSession = (forSession: string): ScriptedSession => ({
         kind: "message_end",
         stopReason: "toolUse",
         usage: usageRow(),
+      },
+    ],
+    settles: "after-events",
+  }],
+})
+
+const successfulSessionWithUsage = (
+  forSession: string,
+  input: number,
+  cacheRead: number,
+): ScriptedSession => ({
+  forSession,
+  prompts: [{
+    events: [
+      { afterMillis: 0, kind: "message_start" },
+      {
+        afterMillis: 0,
+        kind: "emit",
+        args: { findings: [] },
+        valid: true,
+      },
+      {
+        afterMillis: 0,
+        kind: "message_end",
+        stopReason: "toolUse",
+        usage: usageRow({ input, cacheRead }),
       },
     ],
     settles: "after-events",
@@ -139,7 +166,7 @@ const executeFixture = (
         ),
       ),
     )
-    return { effect, fs, paths }
+    return { effect, fs, paths, plan }
   }).pipe(Effect.provide(NodeServices.layer))
 
 describe("Finder stage interface", () => {
@@ -271,6 +298,39 @@ describe("Finder stage interface", () => {
 
       yield* TestClock.adjust("5 seconds")
       expect((yield* Fiber.join(fiber)).finders).toHaveLength(2)
+    }).pipe(Effect.scoped))
+
+  it.effect("derives the same cache health after reusing a completed Finder checkpoint", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [
+          successfulSessionWithUsage("standard-one", 100, 0),
+          successfulSessionWithUsage("standard-two", 100, 0),
+          successfulSessionWithUsage("standard-three", 80, 20),
+        ],
+      })
+      const fixture = yield* executeFixture(
+        [
+          lens("standard-one", "standard one tail"),
+          lens("standard-two", "standard two tail"),
+          lens("standard-three", "standard three tail"),
+        ],
+        scripted,
+      )
+
+      const first = yield* fixture.effect
+      const firstHealth = measureLowFinderCacheHealth(
+        fixture.plan,
+        first.finders,
+      )
+      const resumed = yield* fixture.effect
+
+      expect(measureLowFinderCacheHealth(
+        fixture.plan,
+        resumed.finders,
+      )).toEqual(firstHealth)
+      expect(firstHealth).toEqual(expect.objectContaining({ reuse: 0.1 }))
+      expect(scripted.configs).toHaveLength(3)
     }).pipe(Effect.scoped))
 
   it.effect("launches each follower once when the starter fails before metered usage", () =>

@@ -4,7 +4,7 @@ import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import type { Observation } from "../../domain/candidate.ts"
-import type { Dossier } from "../../domain/dossier.ts"
+import type { JudgedObservation } from "../../domain/dossier.ts"
 import { Judgment } from "../../domain/judgment.ts"
 import type { JudgmentsOutput } from "./output-contract.ts"
 
@@ -16,7 +16,7 @@ export interface IndexedObservation {
 type ReportedJudgment = JudgmentsOutput["decisions"][number]
 
 export interface JudgmentResolution {
-  readonly observations: Dossier["observations"]
+  readonly observations: ReadonlyArray<JudgedObservation>
   readonly notes: ReadonlyArray<string>
 }
 
@@ -114,7 +114,7 @@ const planMerges = (
 // Phase 3 — walk the observations in order and produce exactly one Kept,
 // Dropped, or Undecided entry per unmerged index.
 interface Materialized {
-  readonly observations: Dossier["observations"]
+  readonly observations: ReadonlyArray<JudgedObservation>
   readonly undecidedIndexes: ReadonlyArray<number>
   readonly discardedQualityNotes: ReadonlyArray<number>
 }
@@ -136,7 +136,7 @@ const materialize = (
   const discardedQualityNotes: Array<number> = []
   const resolved = Array.flatMap(
     observations,
-    ({ candidate, index }): Dossier["observations"] => {
+    ({ candidate, index }): ReadonlyArray<JudgedObservation> => {
       if (HashMap.has(plan.mergedInto, index)) return []
       const decision = HashMap.get(ledger.decided, index)
       if (Option.isNone(decision)) {

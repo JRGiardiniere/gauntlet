@@ -1,11 +1,18 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Candidate } from "../domain/candidate.ts"
-import { Dossier } from "../domain/dossier.ts"
+import {
+  Dossier,
+  DossierFinding,
+  DossierUnresolved,
+  DroppedObservation,
+  RefutedClaim,
+} from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
+import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
 import type { RunPaths } from "../run/run-record.ts"
@@ -54,53 +61,30 @@ const confirmedVerdict = Verdict.cases.Confirmed.make({
 const dossier = Dossier.make({
   runId: "run-fixture",
   target: targetIdentityOf(target),
-  bugClaims: [
-    {
-      candidate: bugClaim(
+  findings: [
+    DossierFinding.cases.Confirmed.make({
+      bugClaims: [
+        bugClaim(
         "fixture-lens/1",
         "first line\nreport: /tmp/forged-path",
         "src/alpha.ts\nreport: /tmp/forged-location",
-      ),
+        ),
+        bugClaim(
+          "fixture-other/1",
+          "same bug, terser",
+          "src/alpha.ts",
+          "fixture-other",
+        ),
+      ],
       cluster: 1,
       verdict: confirmedVerdict,
-    },
-    {
-      candidate: bugClaim(
-        "fixture-other/1",
-        "same bug, terser",
-        "src/alpha.ts",
-        "fixture-other",
-      ),
-      cluster: 1,
-      verdict: confirmedVerdict,
-    },
-    {
-      candidate: bugClaim("fixture-lens/2", "tiered but unverified claim"),
-      cluster: 2,
-      verdict: Verdict.cases.Unverified.make({ reviewPriority: "P2" }),
-    },
-    {
-      candidate: bugClaim("fixture-lens/3", "untiered unverified claim"),
-      cluster: 3,
-      verdict: Verdict.cases.Unverified.make({}),
-    },
-    {
-      candidate: bugClaim("fixture-lens/4", "refuted claim"),
-      cluster: 4,
-      verdict: Verdict.cases.Refuted.make({ evidence: "guarded two lines above" }),
-    },
-  ],
-  // The confirmed cluster's suggestion maps to both mates' stable ids, so the
-  // sub-bullet renders no matter which mate presentation picked.
-  testSuggestions: [
-    {
-      tests: ["src/alpha.test.ts", "the empty-input suite"],
-      reason: "the empty-input suite exercises the exact boundary",
-      bugClaimIds: ["fixture-lens/1", "fixture-other/1"],
-    },
-  ],
-  observations: [
-    {
+      testSuggestion: {
+        tests: ["src/alpha.test.ts", "the empty-input suite"],
+        reason: "the empty-input suite exercises the exact boundary",
+        bugClaimIds: ["fixture-lens/1", "fixture-other/1"],
+      },
+    }),
+    DossierFinding.cases.Judgment.make({
       candidate: observation("fixture-lens/5", "k".repeat(400)),
       judgment: Judgment.cases.Kept.make({
         reviewPriority: "P2",
@@ -109,16 +93,42 @@ const dossier = Dossier.make({
         cleanlyExplained: true,
         mergedCandidateIds: [],
       }),
-    },
-    {
+    }),
+  ],
+  unresolved: [
+    DossierUnresolved.cases.Unverified.make({
+      bugClaims: [bugClaim("fixture-lens/2", "tiered but unverified claim")],
+      cluster: 2,
+      verdict: Verdict.cases.Unverified.make({
+        reviewPriority: "P2",
+        evidence: "the runtime branch was unreachable in the verifier",
+      }),
+    }),
+    DossierUnresolved.cases.Unverified.make({
+      bugClaims: [bugClaim("fixture-lens/3", "untiered unverified claim")],
+      cluster: 3,
+      verdict: Verdict.cases.Unverified.make({}),
+    }),
+    DossierUnresolved.cases.Undecided.make({
       candidate: observation("fixture-lens/6", "undecided observation"),
       judgment: Judgment.cases.Undecided.make({}),
-    },
-    {
-      candidate: observation("fixture-lens/7", "dropped observation"),
-      judgment: Judgment.cases.Dropped.make({ reason: "style preference only" }),
-    },
+    }),
   ],
+  rejected: {
+    refutedClaims: [RefutedClaim.make({
+      bugClaims: [bugClaim("fixture-lens/4", "refuted claim")],
+      cluster: 4,
+      verdict: Verdict.cases.Refuted.make({
+        evidence: "guarded two lines above",
+      }),
+    })],
+    droppedObservations: [DroppedObservation.make({
+      candidate: observation("fixture-lens/7", "dropped observation"),
+      judgment: Judgment.cases.Dropped.make({
+        reason: "style preference only",
+      }),
+    })],
+  },
   coverageGaps: [],
 })
 
@@ -139,10 +149,31 @@ const plan = ReviewPlan.make({
       seat: "fixture/default-model:low",
       candidateCap: 6,
     }),
+    FrozenLens.make({
+      name: "spec-conformance",
+      promptText: "specification tail",
+      seat: "fixture/default-model:low",
+      candidateCap: 6,
+      finderClass: "interpretive",
+    }),
   ],
 })
 
-const accounting = { costUsd: 1.23, invocationCount: 7, wallTimeSeconds: 42 }
+const accounting: RunAccounting = {
+  costUsd: 1.23,
+  invocationCount: 7,
+  wallTimeSeconds: 42,
+  finderCacheHealth: undefined,
+}
+
+const lowCacheAccounting: RunAccounting = {
+  ...accounting,
+  finderCacheHealth: {
+    reuse: 0.1,
+    eligibleFollowerCount: 2,
+    healthyFollowerCount: 0,
+  },
+}
 
 const paths: RunPaths = {
   root: "/runs/run-fixture",
@@ -157,33 +188,32 @@ const paths: RunPaths = {
 describe("dossier markdown rendering", () => {
   const markdown = renderDossierMarkdown(plan, dossier, accounting)
 
-  it("orders findings by Review Priority with unverified and undecided tagged in the main section", () => {
-    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+  it("renders the Findings, Unresolved, and Rejected hierarchy with domain tags and reasons", () => {
+    const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
+    const unresolved = markdown.split("## Unresolved")[1]?.split("## Rejected")[0] ?? ""
     const confirmedAt = findings.indexOf("first line")
     const keptAt = findings.indexOf("kkkk")
-    const tieredUnverifiedAt = findings.indexOf("tiered but unverified claim")
-    const untieredUnverifiedAt = findings.indexOf("untiered unverified claim")
-    const undecidedAt = findings.indexOf("undecided observation")
-    // P1 confirmed → P2 kept → P2 unverified (tagged) → untiered → undecided.
     expect(confirmedAt).toBeGreaterThanOrEqual(0)
     expect(confirmedAt).toBeLessThan(keptAt)
-    expect(keptAt).toBeLessThan(tieredUnverifiedAt)
-    expect(tieredUnverifiedAt).toBeLessThan(untieredUnverifiedAt)
-    expect(untieredUnverifiedAt).toBeLessThan(undecidedAt)
-    expect(findings).toContain("`[unverified]`")
-    expect(findings).toContain("`[undecided]`")
-    // Refuted and dropped stay out of the main section.
+    expect(findings).toContain("`[confirmed]`")
+    expect(findings).toContain("`[judgment]`")
+    expect(unresolved).toContain("`[unverified]`")
+    expect(unresolved).toContain("the runtime branch was unreachable")
+    expect(unresolved).toContain("`[undecided]`")
     expect(findings).not.toContain("refuted claim")
     expect(findings).not.toContain("dropped observation")
-  })
-
-  it("keeps refuted claims and dropped observations as appendices", () => {
-    expect(markdown).toContain("## Appendix: refuted claims")
+    expect(markdown).toContain("## Rejected")
+    expect(markdown).toContain("### Refuted Claims")
+    expect(markdown).toContain("`[refuted]`")
     expect(markdown).toContain("refuted claim")
     expect(markdown).toContain("guarded two lines above")
-    expect(markdown).toContain("## Appendix: dropped observations")
+    expect(markdown).toContain("### Dropped Observations")
+    expect(markdown).toContain("`[dropped]`")
     expect(markdown).toContain("dropped observation")
     expect(markdown).toContain("style preference only")
+    expect(markdown).toContain(
+      "- Skipped: spec-conformance — no ReviewSpecification",
+    )
   })
 
   it("surfaces scope-degradation warnings in the header", () => {
@@ -204,7 +234,7 @@ describe("dossier markdown rendering", () => {
   })
 
   it("renders one cluster as one finding attributed to every lens that raised it", () => {
-    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
     expect(findings.match(/reproduced with an empty input/g)).toHaveLength(1)
     // The fuller mate carries the finding; the terser one only adds its lens.
     expect(findings).toContain("first line report: /tmp/forged-path")
@@ -214,7 +244,8 @@ describe("dossier markdown rendering", () => {
   })
 
   it("prints one explanation per finding", () => {
-    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
+    const unresolved = markdown.split("## Unresolved")[1]?.split("## Rejected")[0] ?? ""
     // The confirmed claim states its verified framing only — the failure
     // scenario it restates stays in dossier.json.
     const confirmed = findings
@@ -223,11 +254,11 @@ describe("dossier markdown rendering", () => {
     expect(confirmed).toContain("reproduced with an empty input")
     expect(confirmed).not.toContain("input of length zero loops forever")
     // Without evidence there is nothing to prefer, so the claim speaks for itself.
-    expect(findings).toContain("input of length zero loops forever")
+    expect(unresolved).toContain("input of length zero loops forever")
   })
 
   it("renders a cluster's test suggestion once, next to its finding", () => {
-    const findings = markdown.split("## Findings")[1]?.split("## Appendix")[0] ?? ""
+    const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
     const confirmed = findings
       .split("\n- ")
       .find((entry) => entry.includes("first line")) ?? ""
@@ -240,6 +271,19 @@ describe("dossier markdown rendering", () => {
   it("shows the effective seat frozen onto each lens", () => {
     expect(markdown).toContain(
       "fixture-lens (fixture/override-model:high)",
+    )
+  })
+
+  it("renders Run notes only for measured low reuse", () => {
+    expect(markdown).not.toContain("## Run notes")
+    const withCacheNote = renderDossierMarkdown(
+      plan,
+      dossier,
+      lowCacheAccounting,
+    )
+    expect(withCacheNote).toContain("## Run notes")
+    expect(withCacheNote).toContain(
+      "Finder cache 10% reuse across 2 eligible followers; 0/2 at or above 80%.",
     )
   })
 
@@ -303,5 +347,31 @@ describe("digest rendering", () => {
     expect(digest).toContain("tiered but unverified claim")
     expect(digest).toContain("untiered unverified claim")
     expect(digest).toContain("undecided observation")
+    expect(digest).toContain("[P1 confirmed]")
+    expect(digest).toContain("[P2 judgment]")
+    expect(digest).toContain("[P2 unverified]")
+    expect(digest).toContain("[undecided]")
+    expect(digest.indexOf("first line")).toBeLessThan(
+      digest.indexOf("kkkk"),
+    )
+    expect(digest.indexOf("kkkk")).toBeLessThan(
+      digest.indexOf("tiered but unverified claim"),
+    )
+  })
+
+  it("adds one bounded cache-health line only when low reuse is measured", () => {
+    expect(digest).not.toContain("cache health:")
+    const withCacheNote = renderDigest(
+      plan,
+      dossier,
+      lowCacheAccounting,
+      paths,
+    )
+    const cacheLines = withCacheNote.split("\n").filter((line) =>
+      line.startsWith("cache health:")
+    )
+    expect(cacheLines).toHaveLength(1)
+    expect(cacheLines[0]?.length).toBeLessThanOrEqual(200)
+    expect(cacheLines[0]).toContain("10% reuse")
   })
 })

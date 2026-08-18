@@ -5,7 +5,6 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as HashMap from "effect/HashMap"
 import * as Option from "effect/Option"
-import * as Record from "effect/Record"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import {
@@ -17,13 +16,11 @@ import {
   assembleFinderContext,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
-  resolveFinderContext,
 } from "../content/finder-prompt.ts"
 import {
   AgentOutcome,
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
-import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import type {
   HarnessSessionFactory,
@@ -41,6 +38,10 @@ import {
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
+import {
+  finderInvocationsInPlan,
+  finderPartitionsInPlan,
+} from "./finder-partitions.ts"
 import { counted, invocationTrail } from "./progress-text.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 
@@ -90,13 +91,6 @@ export const FinderStageCheckpoint = Context.Reference<
 >("gauntlet/FinderStageCheckpoint", {
   defaultValue: () => () => Effect.void,
 })
-
-const finderInvocationsInPlan = (plan: ReviewPlan) =>
-  selectRunnableFinders(plan).runnable.map((lens) => ({
-    invocationKey: `finder-${lens.name}`,
-    lens,
-    seat: lens.seat,
-  }))
 
 const readCompletedFinderStage = Effect.fn(
   "gauntlet.finder_execution.read_completed_stage",
@@ -207,13 +201,7 @@ export const executeFinders = Effect.fn(
     return yield* finishFinder(invocation, invoke(input))
   })
 
-  const groups = Record.values(
-    Array.groupBy(
-      invocations,
-      (invocation) =>
-        `${invocation.seat}\u0000${resolveFinderContext(invocation.lens, plan.specification).key}`,
-    ),
-  )
+  const groups = finderPartitionsInPlan(plan)
   const groupResults = yield* Effect.forEach(
     groups,
     (group, groupIndex) =>
@@ -225,7 +213,7 @@ export const executeFinders = Effect.fn(
           promptTemplates.sharedPromptTemplate,
           plan.target,
           REVIEW_WORKSPACE_ROOT,
-          resolveFinderContext(starter.lens, plan.specification),
+          starter.context,
         )
         if (group.length === 1) {
           const [failed, completed] = yield* Effect.partition(

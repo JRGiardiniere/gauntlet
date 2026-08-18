@@ -13,7 +13,7 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
 ~/.gauntlet/runs/<run-id>/
   plan.json          # frozen ReviewPlan: recipe seats, lens texts, target diff
   finder-stage.json  # atomic completed Finder stage (ADR 0003)
-  dossier.json       # complete machine-readable Dossier
+  dossier.json       # machine-readable Dossier side artifact
   dossier.md         # human-readable Dossier
   receipt.json       # DeliveryReceipt, when delivery was attempted
   run.log            # in-flight Effect log
@@ -27,6 +27,10 @@ per thing — **no JSONL anywhere**. The Finder-stage checkpoint uses atomic
 sibling-temp-and-rename writes, so resume can distinguish a complete stage
 from an interrupted attempt. Pool, Verification, and Judgment are recomputed
 as whole stages and have no persisted intermediate files.
+
+`dossier.md` is written last and is the Run's completion signal. Resume does
+not decode `dossier.json`; that file is an additive machine-readable artifact,
+not pipeline control state.
 
 ## No aggregate store
 
@@ -58,9 +62,17 @@ may echo duration and cost already present on an AgentOutcome, plus stage wall
 time, as progress narration. Any future cost model is a script over run
 artifacts.
 
+Finder cache health is another derived Run-accounting view over those completed
+outcomes. It reconstructs the frozen Finder partitions only to exclude each
+starter, then aggregates every eligible follower across the Run using only its
+first raw usage row. Low reuse is a soft report/digest note, never Dossier
+semantics, coverage, a warning on the ReviewTarget, or another persisted
+artifact.
+
 ## The human-readable Dossier
 
-`dossier.md` is rendered from the machine-readable Dossier alone. Consumer
+`dossier.md` is rendered deterministically from the machine-readable Dossier,
+frozen ReviewPlan header facts, and derived Run accounting. Consumer
 (#10): the agent opens it to act on a finding; the human reads it for the whole
 story. Both files are representations of the same Dossier, not separate domain
 objects.
@@ -68,15 +80,15 @@ objects.
 - Header: target identity, recipe + seats, runnable lens list with seats,
   the one cost/duration line, coverage gaps, and one skipped line when the
   selected `spec-conformance` Lens had no ReviewSpecification.
-- Findings grouped by Review Priority, each with evidence (confirmed BugClaims) or
-  keep-reason (kept Observations).
-- **Unverified and undecided render in the main findings section**, tagged
-  `[unverified]` / `[undecided]`, after confirmed/kept within their priority —
-  first-class per #6, not banished to an appendix; an unverified P1 is
-  exactly what a human should glance at. The digest already counts them.
-- Appendices for refuted claims and judge drops — kept because they cost
-  nothing (the data is in the Dossier) and keep dismissed findings
-  look-up-able without re-running.
+- Optional Run notes: low run-wide Finder cache reuse derived from completed
+  Finder outcomes, omitted when the soft-warning threshold is not met.
+- Findings: one P1-to-P3 work queue of Confirmed BugClaims and kept
+  Observations, tagged `[confirmed]` / `[judgment]`, with Confirmed first inside
+  a priority.
+- Unresolved: Unverified BugClaims and undecided Observations, retaining their
+  `[unverified]` / `[undecided]` tags and evidence when available.
+- Rejected: separate Refuted Claims and Dropped Observations subsections,
+  retaining `[refuted]` / `[dropped]` tags, verifier evidence, and judge reasons.
 
 ## In-flight logging
 
