@@ -24,7 +24,10 @@ import {
   FrozenLens,
   ReviewPlan,
 } from "../domain/review-plan.ts"
-import type { ReviewSpecification } from "../domain/review-specification.ts"
+import type {
+  ReviewSpecification,
+  SpecificationSourceDiagnostic,
+} from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
@@ -39,8 +42,20 @@ import { liveTargetMatchesPlan } from "../run/target-consistency.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { combineReviewSpecifications } from "../specification/combine.ts"
 import { loadGitHubSpecification } from "../specification/github-source.ts"
+import {
+  LinearSpecificationResolution,
+  loadLinearSpecification,
+} from "../specification/linear-source.ts"
+import {
+  chompLine,
+  describeGitFailure,
+  runGit,
+} from "../target/git.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
-import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
+import {
+  resolveWorkingTreeTarget,
+  TargetUnresolvable,
+} from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
 
 // The directory the review was invoked from — ambient with a real default,
@@ -60,6 +75,61 @@ const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
 
 type Destination = "local" | "pr"
 
+interface FrozenSpecificationState {
+  readonly branch: string
+  readonly specification: ReviewSpecification | undefined
+  readonly diagnostic: SpecificationSourceDiagnostic | undefined
+}
+
+const resolveSpecificationBranch = Effect.fn(
+  "gauntlet.cli.resolve_specification_branch",
+)(function* (repoRoot: string) {
+  return yield* runGit(repoRoot, ["branch", "--show-current"]).pipe(
+    Effect.map(chompLine),
+    Effect.mapError((cause) =>
+      new TargetUnresolvable({
+        reason: describeGitFailure("could not resolve the current branch", cause),
+        cause,
+      })
+    ),
+  )
+})
+
+const acquireSpecification = Effect.fn(
+  "gauntlet.cli.acquire_specification",
+)(function* (
+  target: ReviewTarget,
+  addendum: ReviewSpecification | undefined,
+) {
+  const branch = yield* resolveSpecificationBranch(target.repoRoot)
+  const linear = yield* loadLinearSpecification(branch)
+  if (LinearSpecificationResolution.$is("Resolved")(linear)) {
+    return {
+      branch,
+      specification: combineReviewSpecifications(
+        linear.specification,
+        addendum,
+      ),
+      diagnostic: undefined,
+    } satisfies FrozenSpecificationState
+  }
+  if (LinearSpecificationResolution.$is("Unreachable")(linear)) {
+    return {
+      branch,
+      specification: combineReviewSpecifications(undefined, addendum),
+      diagnostic: linear.diagnostic,
+    } satisfies FrozenSpecificationState
+  }
+  const fetched = ReviewTarget.guards.PullRequest(target)
+    ? yield* loadGitHubSpecification(target.repoRoot, target.number)
+    : undefined
+  return {
+    branch,
+    specification: combineReviewSpecifications(fetched, addendum),
+    diagnostic: undefined,
+  } satisfies FrozenSpecificationState
+})
+
 const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
   destination: Destination,
   loaded: LoadedRun,
@@ -75,7 +145,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   pr: Option.Option<number>,
   destination: Destination,
   addendum: ReviewSpecification | undefined,
-  frozenSpecification: ReviewSpecification | undefined,
+  frozenSpecificationState: FrozenSpecificationState | undefined,
 ) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
@@ -138,14 +208,11 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
 
   // A changed-target resume reuses the abandoned plan's frozen specification
   // verbatim (issue #73/#74): never re-fetch GitHub, never re-read --spec.
-  const specification = frozenSpecification !== undefined
-    ? frozenSpecification
-    : combineReviewSpecifications(
-        ReviewTarget.guards.PullRequest(target)
-          ? yield* loadGitHubSpecification(target.repoRoot, target.number)
-          : undefined,
-        addendum,
-      )
+  const specificationState = frozenSpecificationState ??
+    (yield* acquireSpecification(target, addendum))
+  if (specificationState.diagnostic !== undefined) {
+    yield* progress(`warning — ${specificationState.diagnostic.message}`)
+  }
 
   const planFields = {
     runId,
@@ -159,10 +226,25 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
       judgment: stageSeat(selected.recipe, "judgment"),
     },
     lenses: frozenLenses,
+    specificationSourceBranch: specificationState.branch,
   }
-  const plan = specification === undefined
-    ? ReviewPlan.make(planFields)
-    : ReviewPlan.make({ ...planFields, specification })
+  const plan = specificationState.specification === undefined
+    ? specificationState.diagnostic === undefined
+      ? ReviewPlan.make(planFields)
+      : ReviewPlan.make({
+          ...planFields,
+          specificationSourceDiagnostic: specificationState.diagnostic,
+        })
+    : specificationState.diagnostic === undefined
+      ? ReviewPlan.make({
+          ...planFields,
+          specification: specificationState.specification,
+        })
+      : ReviewPlan.make({
+          ...planFields,
+          specification: specificationState.specification,
+          specificationSourceDiagnostic: specificationState.diagnostic,
+        })
   yield* progress("freezing review plan")
   yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
 
@@ -195,7 +277,13 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
   // Only unfinished runs need the changed-target check before they resume
   // paid work against the repository.
   const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
-  if (!targetUnchanged) {
+  const currentBranch = yield* resolveSpecificationBranch(
+    resumable.plan.target.repoRoot,
+  )
+  const branchChanged =
+    resumable.plan.specificationSourceBranch !== undefined &&
+    currentBranch !== resumable.plan.specificationSourceBranch
+  if (!targetUnchanged || branchChanged) {
     yield* progress("resume unavailable, running a new review")
     const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
       ? Option.some(resumable.plan.target.number)
@@ -208,7 +296,13 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       pr,
       destination,
       undefined,
-      resumable.plan.specification,
+      branchChanged
+        ? undefined
+        : {
+            branch: resumable.plan.specificationSourceBranch ?? currentBranch,
+            specification: resumable.plan.specification,
+            diagnostic: resumable.plan.specificationSourceDiagnostic,
+          },
     ).pipe(
       Effect.provideService(
         InvocationDirectory,

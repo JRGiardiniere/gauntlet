@@ -1,6 +1,9 @@
 import * as Schema from "effect/Schema"
 import { Seat } from "./recipe.ts"
-import { ReviewSpecification } from "./review-specification.ts"
+import {
+  ReviewSpecification,
+  SpecificationSourceDiagnostic,
+} from "./review-specification.ts"
 import { ReviewTarget } from "./review-target.ts"
 
 export const LensName = Schema.String.check(
@@ -58,7 +61,17 @@ export const ReviewPlan = Schema.Struct({
   lenses: Schema.Array(FrozenLens),
   // Frozen exactly once at submission (issues #73, #74): resume never
   // re-fetches issues or re-reads the addendum file, and a run without a
-  // specification carries no field and no absence text.
+  // specification carries no specification field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),
+  // Branch discovery is an input to specification acquisition. New plans
+  // retain it so resume can invalidate a frozen specification when the branch
+  // changes even if the reviewed commit and diff do not.
+  specificationSourceBranch: Schema.optionalKey(Schema.String),
+  // A branch binding is proof that a Specification Source exists. If that
+  // source cannot be reached, retain the typed cause beside the otherwise
+  // specification-less plan so the run and report do not imply quiet absence.
+  specificationSourceDiagnostic: Schema.optionalKey(
+    SpecificationSourceDiagnostic,
+  ),
 })
 export type ReviewPlan = typeof ReviewPlan.Type

@@ -23,6 +23,14 @@ import {
   type GitHubIssueComment,
   type PullRequestView,
 } from "../github/github.ts"
+import {
+  LinearError,
+  Linear,
+  unusedLinearLayer,
+  type LinearBranchIssue,
+  type LinearCommentSnapshot,
+  type LinearIssueSnapshot,
+} from "../linear/linear.ts"
 import { formatCommentOmission } from "../specification/comment-budget.ts"
 import {
   makeScripted,
@@ -223,6 +231,57 @@ const githubForPr = (
     viewClosingIssues: () => Effect.succeed(issues),
   })
 
+const linearComment = (
+  body: string,
+  createdAt: string,
+  isBot = false,
+): LinearCommentSnapshot => ({
+  url: `https://linear.app/example/comment/${body.replaceAll(" ", "-")}`,
+  body,
+  createdAt,
+  isBot,
+})
+
+const linearIssue = (
+  identifier: string,
+  title: string,
+  body: string,
+  state: string,
+  comments: ReadonlyArray<LinearCommentSnapshot> = [],
+): LinearIssueSnapshot => ({
+  id: `id-${identifier}`,
+  identifier,
+  url: `https://linear.app/example/issue/${identifier}`,
+  title,
+  body,
+  state,
+  comments,
+})
+
+const linearBranchIssue = (): LinearBranchIssue => ({
+  ...linearIssue(
+    "ENG-75",
+    "Linear source",
+    "LINEAR-SLICE-BODY",
+    "In Progress",
+    [
+      linearComment("newer human", "2026-01-03T00:00:00Z"),
+      linearComment("linkback bot", "2026-01-02T00:00:00Z", true),
+    ],
+  ),
+  parent: linearIssue(
+    "ENG-70",
+    "Review specification",
+    "LINEAR-PARENT-BODY",
+    "Todo",
+    [linearComment("older human", "2026-01-01T00:00:00Z")],
+  ),
+  siblings: [
+    linearIssue("ENG-76", "Conformance", "NOT-FETCHED", "Done"),
+    linearIssue("ENG-74", "GitHub source", "NOT-FETCHED", "Canceled"),
+  ],
+})
+
 const FINDER_OUTPUT = {
   findings: [
     {
@@ -392,6 +451,7 @@ const runCommand = (
   scripted: Scripted,
   finderCacheSettle: Effect.Effect<void> = Effect.void,
   github = unusedGitHubLayer,
+  linear = unusedLinearLayer,
 ) => ({
   scripted,
   effect: runGauntlet(argv).pipe(
@@ -404,6 +464,7 @@ const runCommand = (
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         scriptedLayer(scripted),
         github,
+        linear,
       ),
     ),
   ),
@@ -1928,5 +1989,325 @@ describe("gauntlet review", () => {
       )
       expect(verifierPrompt).toContain("FROZEN-SLICE")
       expect(verifierPrompt).not.toContain("MUTATED-SLICE")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("changed-target PR resume also freezes quiet specification absence", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      let currentView = prView(7, headCommit, baseCommit)
+      let currentIssues: ReadonlyArray<GitHubClosingIssue> = []
+      let specificationCalls = 0
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () => Effect.succeed(currentView),
+        viewClosingIssues: () => {
+          specificationCalls += 1
+          return Effect.succeed(currentIssues)
+        },
+      })
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        github,
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nlater-line\n",
+      )
+      yield* commitAll(fixture.repo, "later")
+      currentView = prView(
+        7,
+        chompLine(yield* runGit(fixture.repo, ["rev-parse", "HEAD"])),
+        baseCommit,
+      )
+      currentIssues = [
+        closingIssue(74, "github source", "LATE-SLICE"),
+      ]
+
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume"],
+        successfulScripted(),
+        Effect.void,
+        github,
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(specificationCalls).toBe(1)
+      expect(
+        resumed.scripted.prompts.map(({ text }) => text).join("\n"),
+      ).not.toContain("LATE-SLICE")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("freezes a branch-bound Linear specification for a WorkingTree review", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-interpretive.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive tail\n",
+      )
+      const requested: Array<string> = []
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--lenses",
+          "fixture-review,fixture-interpretive",
+        ],
+        makeScripted({
+          sessions: [
+            successfulSession(FINDER_OUTPUT, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-2"),
+            successfulVerifierSession(),
+            successfulJudgmentSession(),
+          ],
+        }),
+        Effect.void,
+        unusedGitHubLayer,
+        Linear.Fake({
+          viewIssue: (identifier) => {
+            requested.push(identifier)
+            return Effect.succeed(linearBranchIssue())
+          },
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      expect(requested).toEqual(["ENG-75"])
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(
+        plan.specification?.documents.map(({ role, state, text }) => ({
+          role,
+          state,
+          text,
+        })),
+      ).toEqual([
+        { role: "parent", state: "Todo", text: "LINEAR-PARENT-BODY" },
+        {
+          role: "slice",
+          state: "In Progress",
+          text: "LINEAR-SLICE-BODY",
+        },
+        { role: "sibling", state: "Canceled", text: "" },
+        { role: "sibling", state: "Done", text: "" },
+      ])
+      expect(plan.specification?.comments.map(({ text }) => text)).toEqual([
+        "older human",
+        "newer human",
+      ])
+      expect(plan.specificationSourceDiagnostic).toBeUndefined()
+
+      const [standardPrompt = ""] = promptTextsFor(run.scripted, "-finders-1")
+      const [interpretivePrompt = ""] = promptTextsFor(
+        run.scripted,
+        "-finders-2",
+      )
+      const [verifierPrompt = ""] = promptTextsFor(
+        run.scripted,
+        "-verification",
+      )
+      const [judgmentPrompt = ""] = promptTextsFor(run.scripted, "-judgment")
+      expect(standardPrompt).not.toContain("LINEAR-SLICE-BODY")
+      for (const prompt of [interpretivePrompt, verifierPrompt, judgmentPrompt]) {
+        expect(prompt).toContain("LINEAR-PARENT-BODY")
+        expect(prompt).toContain("LINEAR-SLICE-BODY")
+        expect(prompt).toContain("Sibling: GitHub source")
+        expect(prompt).toContain("older human")
+        expect(prompt).toContain("newer human")
+        expect(prompt).not.toContain("linkback bot")
+        expect(prompt).not.toContain("NOT-FETCHED")
+      }
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("starts a fresh review when the branch-bound Linear issue changes", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      const requested: Array<string> = []
+      const linear = Linear.Fake({
+        viewIssue: (identifier) => {
+          requested.push(identifier)
+          return Effect.succeed({
+            ...linearBranchIssue(),
+            id: `id-${identifier}`,
+            identifier,
+            body: `LINEAR-SLICE-${identifier}`,
+          })
+        },
+      })
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        unusedGitHubLayer,
+        linear,
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-76-follow-up",
+      ])
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume"],
+        successfulScripted(),
+        Effect.void,
+        unusedGitHubLayer,
+        linear,
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(requested).toEqual(["ENG-75", "ENG-76"])
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "resume unavailable, running a new review",
+      )
+      const resumedPrompts = resumed.scripted.prompts
+        .map(({ text }) => text)
+        .join("\n")
+      expect(resumedPrompts).toContain("LINEAR-SLICE-ENG-76")
+      expect(resumedPrompts).not.toContain("LINEAR-SLICE-ENG-75")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("prefers the branch-bound Linear source when a PR also has GitHub closing issues", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      let githubSpecificationCalls = 0
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () =>
+          Effect.succeed(prView(7, headCommit, baseCommit)),
+        viewClosingIssues: () => {
+          githubSpecificationCalls += 1
+          return Effect.succeed([
+            closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
+          ])
+        },
+      })
+      const run = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        github,
+        Linear.Fake({
+          viewIssue: () => Effect.succeed(linearBranchIssue()),
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      expect(githubSpecificationCalls).toBe(0)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      const specification = plan.specification?.documents
+        .map(({ text }) => text)
+        .join("\n") ?? ""
+      expect(specification).toContain("LINEAR-SLICE-BODY")
+      expect(specification).not.toContain("GITHUB-SLICE-BODY")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reports a matching branch whose Linear API key is missing without blocking review", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      const run = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        unusedGitHubLayer,
+        Linear.Fake({
+          viewIssue: () =>
+            Effect.fail(
+              new LinearError({
+                reason: "missing-api-key",
+                detail: "LINEAR_API_KEY is not set",
+              }),
+            ),
+        }),
+      )
+
+      expect(yield* run.effect).toBe(0)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.specification).toBeUndefined()
+      expect(plan.specificationSourceDiagnostic?.reason).toBe("missing-api-key")
+      const diagnostic = plan.specificationSourceDiagnostic?.message ?? ""
+      expect(diagnostic).toContain("LINEAR_API_KEY is not set")
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(diagnostic)
+      const markdown = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "dossier.md"),
+      )
+      expect(markdown).toContain(`- Specification source: ${diagnostic}`)
+      expect(run.scripted.prompts.map(({ text }) => text).join("\n")).not.toContain(
+        "Review Specification",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

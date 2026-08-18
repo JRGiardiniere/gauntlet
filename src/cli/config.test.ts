@@ -10,6 +10,7 @@ import * as TestConsole from "effect/testing/TestConsole"
 import { Settings } from "../config/settings.ts"
 import { Recipe } from "../domain/recipe.ts"
 import { unusedGitHubLayer } from "../github/github.ts"
+import { unusedLinearLayer } from "../linear/linear.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { runGauntlet } from "./main.ts"
 
@@ -49,6 +50,7 @@ const config = (fixture: Fixture, ...argv: Array<string>) =>
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         scriptedLayer(makeScripted({ sessions: [] })),
         unusedGitHubLayer,
+        unusedLinearLayer,
       ),
     ),
   )
@@ -168,4 +170,3 @@ describe("gauntlet config init", () => {
       expect(yield* stdout()).toContain("deep-finders")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
-

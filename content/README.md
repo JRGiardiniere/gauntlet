@@ -32,7 +32,8 @@ and lens files, no plumbing. The companion specifications live in
   is system prompt + shared block + ReviewSpecification section (interpretive
   finders only, when the plan froze one) + lens tail (+ cap override, when
   applicable). The specification section carries parent and current-Slice
-  documents, admitted comments, and any comment-budget omission marker. Every
+  documents, sibling titles/states when supplied by the source, admitted
+  comments, and any comment-budget omission marker. Every
   Finder receives that complete ordinary prompt. Within a
   multi-Finder partition, one ordinary Finder starts first and the rest follow
   shortly after its first metered response so their byte-identical prefix can

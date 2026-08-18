@@ -21,10 +21,16 @@ Dossier lives on disk.
    local`. `--destination pr` only when the user asked to post a PR comment; it
    requires `--pr`. `review --pr`, `--destination pr`, and `deliver` need the
    GitHub CLI (`gh`) installed and authenticated.
-4. **Specification.** A `--pr` review resolves GitHub closing issues as the
-   current Slices (native parent one level; owner/member/collaborator comments
-   under a 20,000-character earliest-first budget). GitHub unavailability or a
-   PR with no closing issues stays quietly specification-less. When you hold
+4. **Specification.** Any target whose current branch contains one Linear
+   issue ID resolves it as the current Slice, plus one native parent, sibling
+   titles/states, and human comments. This needs `LINEAR_API_KEY`. A matching
+   branch wins over GitHub; a missing/invalid key or unreachable issue keeps
+   the review running while an actionable diagnostic prints and lands in the
+   report. With no Linear binding, a `--pr` review resolves GitHub closing
+   issues as the current Slices (native parent one level;
+   owner/member/collaborator comments under a 20,000-character earliest-first
+   budget). GitHub unavailability or a PR with no closing issues stays quietly
+   specification-less. When you hold
    additional requirements context — acceptance criteria, explicit deferrals,
    local notes — write it as a Markdown Caller Addendum and pass
    `--spec <path>`. Write the file to a temporary location **outside the
