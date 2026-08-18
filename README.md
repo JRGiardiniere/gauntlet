@@ -23,15 +23,16 @@ gauntlet config unset <key>
 ```
 
 - `review` runs the pipeline to completion. The default target is the working
-  tree's uncommitted changes; any target on a branch containing one Linear
+  tree's uncommitted changes; a new review on a branch containing one Linear
   issue ID resolves that issue as its current Slice, with one native parent,
   sibling titles/states, and human comments. Set `LINEAR_API_KEY` to a Linear
   personal API key. A detected Linear binding wins over GitHub; a missing or
   rejected key leaves the review running but prints and reports an actionable
-  diagnostic. Without a Linear binding, `--pr N` resolves GitHub closing issues
-  as the ReviewSpecification (native parent one level, admitted maintainer
-  comments, 20k comment budget). GitHub unavailability or a PR with no closing
-  issues stays quietly specification-less. `--spec <file>` freezes a Caller
+  diagnostic. Resume keeps the frozen source unless the branch changed, which
+  starts a fresh review. Without a Linear binding, `--pr N` resolves GitHub
+  closing issues as the ReviewSpecification (native parent one level, admitted
+  maintainer comments, 20k comment budget). GitHub unavailability or a PR with
+  no closing issues stays quietly specification-less. `--spec <file>` freezes a Caller
   Addendum beside any fetched material. A positional recipe selects a named
   recipe from the catalog; omitting it selects the configured `default-recipe`.
   Nothing else selects a recipe — if neither resolves, the review fails and

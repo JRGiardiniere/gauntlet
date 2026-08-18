@@ -7,7 +7,7 @@ import * as Effect from "effect/Effect"
 import { runGauntlet } from "../src/cli/main.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
 import { livePiLayer } from "../src/harness/pi-live.ts"
-import { liveLinearLayer } from "../src/linear/linear.ts"
+import { Linear } from "../src/linear/linear.ts"
 
 NodeRuntime.runMain(
   runGauntlet(process.argv.slice(2)).pipe(
@@ -15,7 +15,7 @@ NodeRuntime.runMain(
       process.exitCode = exitCode
     }),
     Effect.provide(livePiLayer),
-    Effect.provide(liveLinearLayer),
+    Effect.provide(Linear.Default),
     Effect.provide(liveGitHubLayer),
     Effect.provide(NodeServices.layer),
   ),

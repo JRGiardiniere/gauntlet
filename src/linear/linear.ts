@@ -6,9 +6,11 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
+import * as Stream from "effect/Stream"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
 
 export type LinearErrorReason =
   | "invalid-api-key"
@@ -50,25 +52,6 @@ export interface LinearContract {
     identifier: string,
   ) => Effect.Effect<LinearBranchIssue, LinearError>
 }
-
-export class Linear extends Context.Service<Linear, LinearContract>()(
-  "gauntlet/Linear",
-) {}
-
-export const linearLayer = (impl: LinearContract) =>
-  Layer.succeed(Linear, Linear.of(impl))
-
-export const unusedLinearContract: LinearContract = {
-  viewIssue: () =>
-    Effect.fail(
-      new LinearError({
-        reason: "unreachable",
-        detail: "Linear not scripted",
-      }),
-    ),
-}
-
-export const unusedLinearLayer = linearLayer(unusedLinearContract)
 
 const PageInfo = Schema.Struct({
   hasNextPage: Schema.Boolean,
@@ -178,11 +161,30 @@ query GauntletLinearChildren($id: String!, $after: String) {
 
 const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql"
 const MAX_CONNECTION_PAGES = 100
+const MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+
+interface ConnectionPage<A> {
+  readonly nodes: ReadonlyArray<A>
+  readonly pageInfo: typeof PageInfo.Type
+}
+
+interface CollectedBody {
+  readonly chunks: Array<Uint8Array>
+  readonly bytes: number
+}
+
+class ResponseBodyTooLarge extends Data.TaggedError("ResponseBodyTooLarge")<{
+  readonly bytes: number
+}> {}
 
 const invalidResponse = (detail: string, cause?: unknown) =>
   cause === undefined
     ? new LinearError({ reason: "invalid-response", detail })
     : new LinearError({ reason: "invalid-response", detail, cause })
+
+const decodeJsonText = Schema.decodeEffect(
+  Schema.fromJsonString(Schema.Json),
+)
 
 const checkGraphQlErrors = (
   errors: ReadonlyArray<typeof GraphQlError.Type> | undefined,
@@ -193,9 +195,17 @@ const checkGraphQlErrors = (
     error.extensions?.code === "AUTHENTICATION_ERROR" ||
     /api key|authenticat|unauthoriz/i.test(error.message)
   )
+  const unresolvableIssue = errors.some((error) =>
+    error.extensions?.code === "ENTITY_NOT_FOUND" ||
+    /issue.*not found|not found.*issue/i.test(error.message)
+  )
   return Effect.fail(
     new LinearError({
-      reason: invalidKey ? "invalid-api-key" : "unreachable",
+      reason: invalidKey
+        ? "invalid-api-key"
+        : unresolvableIssue
+          ? "unresolvable-issue"
+          : "unreachable",
       detail,
     }),
   )
@@ -217,7 +227,47 @@ const flattenIssue = (
 const makeLive = Effect.gen(function* () {
   const apiKey = yield* Config.option(Config.redacted("LINEAR_API_KEY"))
   const client = (yield* HttpClient.HttpClient).pipe(
+    HttpClient.transformResponse((attempt) =>
+      attempt.pipe(Effect.timeout("15 seconds"))
+    ),
     HttpClient.retryTransient({ times: 2 }),
+  )
+
+  const readBoundedJson = Effect.fn("gauntlet.linear.read_bounded_json")(
+    function* (response: HttpClientResponse.HttpClientResponse) {
+      const body = yield* Stream.runFoldEffect(
+        response.stream,
+        (): CollectedBody => ({ chunks: [], bytes: 0 }),
+        (accumulator, chunk) => {
+          const bytes = accumulator.bytes + chunk.byteLength
+          if (bytes > MAX_RESPONSE_BYTES) {
+            return Effect.fail(new ResponseBodyTooLarge({ bytes }))
+          }
+          accumulator.chunks.push(chunk)
+          return Effect.succeed({ chunks: accumulator.chunks, bytes })
+        },
+      ).pipe(
+        Effect.mapError((cause) =>
+          cause instanceof ResponseBodyTooLarge
+            ? invalidResponse(
+                `Linear response exceeded ${String(MAX_RESPONSE_BYTES)} bytes`,
+              )
+            : invalidResponse("could not read the Linear response body", cause)
+        ),
+      )
+      const bytes = new Uint8Array(body.bytes)
+      let offset = 0
+      for (const chunk of body.chunks) {
+        bytes.set(chunk, offset)
+        offset += chunk.byteLength
+      }
+      const text = new TextDecoder().decode(bytes)
+      return yield* decodeJsonText(text).pipe(
+        Effect.mapError((cause) =>
+          invalidResponse("Linear returned invalid JSON", cause)
+        ),
+      )
+    },
   )
 
   const graphql = Effect.fn("gauntlet.linear.graphql")(function* (
@@ -242,7 +292,6 @@ const makeLive = Effect.gen(function* () {
       ),
     )
     const response = yield* client.execute(request).pipe(
-      Effect.timeout("15 seconds"),
       Effect.mapError((cause) =>
         new LinearError({
           reason: "unreachable",
@@ -251,91 +300,122 @@ const makeLive = Effect.gen(function* () {
         })
       ),
     )
-    if (response.status === 401 || response.status === 403) {
+    if (response.status === 401) {
       return yield* new LinearError({
         reason: "invalid-api-key",
         detail: `Linear rejected the API key with HTTP ${String(response.status)}`,
       })
     }
+    if (response.status === 403) {
+      return yield* new LinearError({
+        reason: "unresolvable-issue",
+        detail: "Linear denied access to the issue with HTTP 403",
+      })
+    }
     if (response.status < 200 || response.status >= 300) {
       return yield* new LinearError({
-        reason: "unreachable",
+        reason: response.status >= 500 || response.status === 429
+          ? "unreachable"
+          : "invalid-response",
         detail: `Linear returned HTTP ${String(response.status)}`,
       })
     }
-    return yield* response.json.pipe(
-      Effect.mapError((cause) =>
-        invalidResponse("Linear returned invalid JSON", cause)
-      ),
+    return yield* readBoundedJson(response).pipe(
+      Effect.timeoutOrElse({
+        duration: "15 seconds",
+        orElse: () =>
+          Effect.fail(
+            new LinearError({
+              reason: "unreachable",
+              detail: "reading the Linear response body timed out",
+            }),
+          ),
+      }),
     )
   })
+
+  const collectConnection = <A>(
+    noun: string,
+    load: (
+      after: string | null,
+    ) => Effect.Effect<ConnectionPage<A>, LinearError>,
+  ): Effect.Effect<ReadonlyArray<A>, LinearError> =>
+    Effect.gen(function* () {
+      const nodes: Array<A> = []
+      let after: string | null = null
+      for (let page = 0; page < MAX_CONNECTION_PAGES; page += 1) {
+        const connection: ConnectionPage<A> = yield* load(after)
+        nodes.push(...connection.nodes)
+        if (!connection.pageInfo.hasNextPage) return nodes
+        if (connection.pageInfo.endCursor === null) {
+          return yield* invalidResponse(
+            `Linear ${noun} page had no next cursor`,
+          )
+        }
+        after = connection.pageInfo.endCursor
+      }
+      return yield* invalidResponse(
+        `Linear ${noun} exceeded ${String(MAX_CONNECTION_PAGES)} pages`,
+      )
+    })
 
   const commentsFor = Effect.fn("gauntlet.linear.comments_for")(function* (
     issueId: string,
   ) {
-    const comments: Array<LinearCommentSnapshot> = []
-    let after: string | null = null
-    for (let page = 0; page < MAX_CONNECTION_PAGES; page += 1) {
-      const envelope: typeof CommentsEnvelope.Type = yield* graphql(COMMENTS_QUERY, { id: issueId, after }).pipe(
-        Effect.flatMap((json) => decodeCommentsEnvelope(json)),
-        Effect.catchTag("SchemaError", (cause) =>
-          Effect.fail(
-            invalidResponse("Linear returned undecodable comments", cause),
+    const comments = yield* collectConnection(
+      "comments",
+      (after) =>
+        Effect.gen(function* () {
+          const envelope: typeof CommentsEnvelope.Type = yield* graphql(
+            COMMENTS_QUERY,
+            { id: issueId, after },
+          ).pipe(
+            Effect.flatMap((json) => decodeCommentsEnvelope(json)),
+            Effect.catchTag("SchemaError", (cause) =>
+              Effect.fail(
+                invalidResponse("Linear returned undecodable comments", cause),
+              )
+            ),
           )
-        ),
-      )
-      yield* checkGraphQlErrors(envelope.errors)
-      const connection: typeof CommentConnection.Type | undefined =
-        envelope.data?.issue?.comments
-      if (connection === undefined) {
-        return yield* invalidResponse("Linear comment page was missing")
-      }
-      comments.push(...connection.nodes.map((comment) => ({
+          yield* checkGraphQlErrors(envelope.errors)
+          const connection = envelope.data?.issue?.comments
+          return connection === undefined
+            ? yield* invalidResponse("Linear comment page was missing")
+            : connection
+        }),
+    )
+    return comments.map((comment) => ({
         url: comment.url,
         body: comment.body,
         createdAt: comment.createdAt,
         isBot: comment.botActor !== null || comment.user === null,
-      })))
-      if (!connection.pageInfo.hasNextPage) return comments
-      if (connection.pageInfo.endCursor === null) {
-        return yield* invalidResponse("Linear comment page had no next cursor")
-      }
-      after = connection.pageInfo.endCursor
-    }
-    return yield* invalidResponse(
-      `Linear comments exceeded ${String(MAX_CONNECTION_PAGES)} pages`,
-    )
+      }))
   })
 
   const childrenFor = Effect.fn("gauntlet.linear.children_for")(function* (
     issueId: string,
   ) {
-    const children: Array<WireIssueSummary> = []
-    let after: string | null = null
-    for (let page = 0; page < MAX_CONNECTION_PAGES; page += 1) {
-      const envelope: typeof ChildrenEnvelope.Type = yield* graphql(CHILDREN_QUERY, { id: issueId, after }).pipe(
-        Effect.flatMap((json) => decodeChildrenEnvelope(json)),
-        Effect.catchTag("SchemaError", (cause) =>
-          Effect.fail(
-            invalidResponse("Linear returned undecodable siblings", cause),
+    return yield* collectConnection(
+      "siblings",
+      (after) =>
+        Effect.gen(function* () {
+          const envelope: typeof ChildrenEnvelope.Type = yield* graphql(
+            CHILDREN_QUERY,
+            { id: issueId, after },
+          ).pipe(
+            Effect.flatMap((json) => decodeChildrenEnvelope(json)),
+            Effect.catchTag("SchemaError", (cause) =>
+              Effect.fail(
+                invalidResponse("Linear returned undecodable siblings", cause),
+              )
+            ),
           )
-        ),
-      )
-      yield* checkGraphQlErrors(envelope.errors)
-      const connection: typeof IssueConnection.Type | undefined =
-        envelope.data?.issue?.children
-      if (connection === undefined) {
-        return yield* invalidResponse("Linear sibling page was missing")
-      }
-      children.push(...connection.nodes)
-      if (!connection.pageInfo.hasNextPage) return children
-      if (connection.pageInfo.endCursor === null) {
-        return yield* invalidResponse("Linear sibling page had no next cursor")
-      }
-      after = connection.pageInfo.endCursor
-    }
-    return yield* invalidResponse(
-      `Linear siblings exceeded ${String(MAX_CONNECTION_PAGES)} pages`,
+          yield* checkGraphQlErrors(envelope.errors)
+          const connection = envelope.data?.issue?.children
+          return connection === undefined
+            ? yield* invalidResponse("Linear sibling page was missing")
+            : connection
+        }),
     )
   })
 
@@ -376,9 +456,28 @@ const makeLive = Effect.gen(function* () {
     } satisfies LinearBranchIssue
   })
 
-  return Linear.of({ viewIssue })
+  return { viewIssue } satisfies LinearContract
 })
 
-export const liveLinearLayer = Layer.effect(Linear, makeLive).pipe(
-  Layer.provide(FetchHttpClient.layer),
-)
+export class Linear extends Context.Service<Linear, LinearContract>()(
+  "gauntlet/Linear",
+) {
+  static Default = Layer.effect(Linear, makeLive).pipe(
+    Layer.provide(FetchHttpClient.layer),
+  )
+
+  static Fake = (impl: LinearContract) =>
+    Layer.succeed(Linear, Linear.of(impl))
+}
+
+export const unusedLinearContract: LinearContract = {
+  viewIssue: () =>
+    Effect.fail(
+      new LinearError({
+        reason: "unreachable",
+        detail: "Linear not scripted",
+      }),
+    ),
+}
+
+export const unusedLinearLayer = Linear.Fake(unusedLinearContract)

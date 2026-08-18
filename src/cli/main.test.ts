@@ -25,7 +25,7 @@ import {
 } from "../github/github.ts"
 import {
   LinearError,
-  linearLayer,
+  Linear,
   unusedLinearLayer,
   type LinearBranchIssue,
   type LinearCommentSnapshot,
@@ -2088,7 +2088,7 @@ describe("gauntlet review", () => {
         }),
         Effect.void,
         unusedGitHubLayer,
-        linearLayer({
+        Linear.Fake({
           viewIssue: (identifier) => {
             requested.push(identifier)
             return Effect.succeed(linearBranchIssue())
@@ -2148,6 +2148,73 @@ describe("gauntlet review", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("starts a fresh review when the branch-bound Linear issue changes", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-75-linear-source",
+      ])
+      const requested: Array<string> = []
+      const linear = Linear.Fake({
+        viewIssue: (identifier) => {
+          requested.push(identifier)
+          return Effect.succeed({
+            ...linearBranchIssue(),
+            id: `id-${identifier}`,
+            identifier,
+            body: `LINEAR-SLICE-${identifier}`,
+          })
+        },
+      })
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        unusedGitHubLayer,
+        linear,
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+
+      yield* runGit(fixture.repo, [
+        "switch",
+        "-c",
+        "john/eng-76-follow-up",
+      ])
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume"],
+        successfulScripted(),
+        Effect.void,
+        unusedGitHubLayer,
+        linear,
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(requested).toEqual(["ENG-75", "ENG-76"])
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "resume unavailable, running a new review",
+      )
+      const resumedPrompts = resumed.scripted.prompts
+        .map(({ text }) => text)
+        .join("\n")
+      expect(resumedPrompts).toContain("LINEAR-SLICE-ENG-76")
+      expect(resumedPrompts).not.toContain("LINEAR-SLICE-ENG-75")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("prefers the branch-bound Linear source when a PR also has GitHub closing issues", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
@@ -2174,7 +2241,7 @@ describe("gauntlet review", () => {
         successfulScripted(),
         Effect.void,
         github,
-        linearLayer({
+        Linear.Fake({
           viewIssue: () => Effect.succeed(linearBranchIssue()),
         }),
       )
@@ -2210,7 +2277,7 @@ describe("gauntlet review", () => {
         successfulScripted(),
         Effect.void,
         unusedGitHubLayer,
-        linearLayer({
+        Linear.Fake({
           viewIssue: () =>
             Effect.fail(
               new LinearError({

@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import {
   LinearError,
-  linearLayer,
+  Linear,
   type LinearBranchIssue,
   type LinearCommentSnapshot,
   type LinearIssueSnapshot,
@@ -138,7 +138,7 @@ describe("loadLinearSpecification", () => {
         "john/eng-75-linear-source",
       ).pipe(
         Effect.provide(
-          linearLayer({
+          Linear.Fake({
             viewIssue: (identifier) => {
               requested.push(identifier)
               return Effect.succeed(branchIssue())
@@ -159,7 +159,7 @@ describe("loadLinearSpecification", () => {
         "john/eng-75-linear-source",
       ).pipe(
         Effect.provide(
-          linearLayer({
+          Linear.Fake({
             viewIssue: () =>
               Effect.fail(
                 new LinearError({

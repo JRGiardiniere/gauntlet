@@ -24,6 +24,7 @@ export const LinearSpecificationResolution =
   Data.taggedEnum<LinearSpecificationResolution>()
 
 const ISSUE_IDENTIFIER = /(?:^|[^A-Za-z0-9])([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[^A-Za-z0-9])/g
+// Avoid treating Gauntlet/GitHub branches such as issue-75 as Linear bindings.
 const GENERIC_BRANCH_KEYS = new Set(["ISSUE", "PR", "SLICE"])
 
 // Linear links a branch by the issue identifier contained in its name. The
@@ -108,11 +109,11 @@ const diagnosticMessage = (
     case "invalid-api-key":
       return `${prefix} Linear rejected LINEAR_API_KEY. Replace the key and rerun the review.`
     case "unresolvable-issue":
-      return `${prefix} the issue could not be resolved. Check the branch issue ID and API-key workspace access.`
+      return `${prefix} the issue could not be resolved (${error.detail}). Check the branch issue ID and API-key workspace access.`
     case "invalid-response":
-      return `${prefix} Linear returned an invalid response. Retry, then check the Linear API if it persists.`
+      return `${prefix} Linear returned an invalid response (${error.detail}). Retry, then check the Linear API if it persists.`
     case "unreachable":
-      return `${prefix} Linear could not be reached. Check connectivity and rerun the review.`
+      return `${prefix} the Linear request failed (${error.detail}). Check connectivity or Linear service status and rerun the review.`
   }
 }
 

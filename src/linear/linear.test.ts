@@ -3,7 +3,7 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import type * as Schema from "effect/Schema"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import { Linear, liveLinearLayer } from "./linear.ts"
+import { Linear } from "./linear.ts"
 
 const jsonResponse = (body: Schema.Json, status = 200) =>
   Promise.resolve(
@@ -30,7 +30,7 @@ const issue = (
 
 const pageInfo = { hasNextPage: false, endCursor: null }
 
-describe("liveLinearLayer", () => {
+describe("Linear.Default", () => {
   it.effect("decodes the branch issue, parent, siblings, and human/bot authors", () => {
     const requests: Array<string> = []
     const fakeFetch: typeof globalThis.fetch = (input, init) =>
@@ -133,7 +133,7 @@ describe("liveLinearLayer", () => {
       expect(result.comments.map(({ isBot }) => isBot)).toEqual([false, true])
       expect(requests).toHaveLength(4)
     }).pipe(
-      Effect.provide(liveLinearLayer),
+      Effect.provide(Linear.Default),
       Effect.provideService(FetchHttpClient.Fetch, fakeFetch),
       Effect.provide(
         ConfigProvider.layer(
@@ -149,7 +149,7 @@ describe("liveLinearLayer", () => {
       const error = yield* linear.viewIssue("ENG-75").pipe(Effect.flip)
       expect(error.reason).toBe("missing-api-key")
     }).pipe(
-      Effect.provide(liveLinearLayer),
+      Effect.provide(Linear.Default),
       Effect.provideService(
         FetchHttpClient.Fetch,
         () => jsonResponse({}, 401),
@@ -165,7 +165,7 @@ describe("liveLinearLayer", () => {
       const error = yield* linear.viewIssue("ENG-75").pipe(Effect.flip)
       expect(error.reason).toBe("invalid-api-key")
     }).pipe(
-      Effect.provide(liveLinearLayer),
+      Effect.provide(Linear.Default),
       Effect.provideService(
         FetchHttpClient.Fetch,
         () => jsonResponse({}, 401),
@@ -173,6 +173,70 @@ describe("liveLinearLayer", () => {
       Effect.provide(
         ConfigProvider.layer(
           ConfigProvider.fromUnknown({ LINEAR_API_KEY: "bad-key" }),
+        ),
+      ),
+    ))
+
+  it.effect("classifies denied workspace access separately from a bad key", () =>
+    Effect.gen(function* () {
+      const linear = yield* Linear
+      const error = yield* linear.viewIssue("ENG-75").pipe(Effect.flip)
+      expect(error.reason).toBe("unresolvable-issue")
+      expect(error.detail).toContain("HTTP 403")
+    }).pipe(
+      Effect.provide(Linear.Default),
+      Effect.provideService(
+        FetchHttpClient.Fetch,
+        () => jsonResponse({}, 403),
+      ),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ LINEAR_API_KEY: "valid-other-workspace" }),
+        ),
+      ),
+    ))
+
+  it.effect("classifies GraphQL issue-not-found errors as unresolvable", () =>
+    Effect.gen(function* () {
+      const linear = yield* Linear
+      const error = yield* linear.viewIssue("ENG-404").pipe(Effect.flip)
+      expect(error.reason).toBe("unresolvable-issue")
+      expect(error.detail).toContain("Issue not found")
+    }).pipe(
+      Effect.provide(Linear.Default),
+      Effect.provideService(
+        FetchHttpClient.Fetch,
+        () =>
+          jsonResponse({
+            data: { issue: null },
+            errors: [{
+              message: "Issue not found",
+              extensions: { code: "ENTITY_NOT_FOUND" },
+            }],
+          }),
+      ),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ LINEAR_API_KEY: "test-key" }),
+        ),
+      ),
+    ))
+
+  it.effect("rejects an oversized response before JSON decoding", () =>
+    Effect.gen(function* () {
+      const linear = yield* Linear
+      const error = yield* linear.viewIssue("ENG-75").pipe(Effect.flip)
+      expect(error.reason).toBe("invalid-response")
+      expect(error.detail).toContain("exceeded 5242880 bytes")
+    }).pipe(
+      Effect.provide(Linear.Default),
+      Effect.provideService(
+        FetchHttpClient.Fetch,
+        () => Promise.resolve(new Response("x".repeat(5 * 1024 * 1024 + 1))),
+      ),
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ LINEAR_API_KEY: "test-key" }),
         ),
       ),
     ))
