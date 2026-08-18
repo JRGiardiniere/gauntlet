@@ -23,6 +23,7 @@ import {
   AgentOutcome,
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
+import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import type {
   HarnessSessionFactory,
@@ -91,7 +92,7 @@ export const FinderStageCheckpoint = Context.Reference<
 })
 
 const finderInvocationsInPlan = (plan: ReviewPlan) =>
-  plan.lenses.map((lens) => ({
+  selectRunnableFinders(plan).runnable.map((lens) => ({
     invocationKey: `finder-${lens.name}`,
     lens,
     seat: lens.seat,

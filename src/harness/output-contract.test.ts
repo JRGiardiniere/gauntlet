@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { routeFinderResults } from "../assembly/finders.ts"
+import { Termination } from "../domain/agent-outcome.ts"
+import { FrozenLens } from "../domain/review-plan.ts"
+import { ReviewSpecification } from "../domain/review-specification.ts"
+import { renderSpecificationSection } from "../content/specification-section.ts"
 import {
   EmitFindings,
   EmitPool,
@@ -51,6 +56,94 @@ describe("output contracts", () => {
         ],
       })
       expect(output.findings[0]?.file).toBe("not-in-the-changed-file-list.ts")
+    }))
+
+  it.effect("routes conformance output by failure scenario and excludes parent-only work", () =>
+    Effect.gen(function* () {
+      const missingRequirement =
+        "The current Slice requires persisted audit entries."
+      const wrongRequirement =
+        "The current Slice requires entries to retain chronological order."
+      const parentOnlyRequirement =
+        "A later Slice will add cross-run compaction."
+      const specification = ReviewSpecification.make({
+        documents: [
+          {
+            role: "parent",
+            provenance: "https://example.test/parent",
+            text: parentOnlyRequirement,
+            title: "Parent specification",
+          },
+          {
+            role: "slice",
+            provenance: "https://example.test/slice",
+            text: [missingRequirement, wrongRequirement].join("\n"),
+            title: "Current Slice",
+          },
+        ],
+        comments: [],
+      })
+      // The later parent concern is present in the frozen input but is not a
+      // current-Slice obligation, so the conformance output must omit it.
+      expect(renderSpecificationSection(specification)).toContain(
+        parentOnlyRequirement,
+      )
+      const output = yield* strictDecode(EmitFindings.schema)({
+        findings: [
+          {
+            file: "src/audit.ts",
+            summary: `"${missingRequirement}" is not implemented.`,
+            failure_scenario: "a completed action leaves no persisted entry",
+          },
+          {
+            file: "src/audit.ts",
+            summary: `"${wrongRequirement}" is implemented in reverse.`,
+            failure_scenario: "two actions render newest-first",
+          },
+          {
+            file: "src/cache.ts",
+            summary:
+              "The current Slice asks only for audit entries; the new cache is scope creep.",
+          },
+        ],
+      })
+      const routed = routeFinderResults([{
+        lens: FrozenLens.make({
+          name: "fixture-conformance",
+          promptText: "fixture conformance tail",
+          seat: "fixture/fixture-model:low",
+          candidateCap: 6,
+          finderClass: "interpretive",
+        }),
+        outcome: {
+          termination: Termination.cases.Completed.make({}),
+          output,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            reasoning: 0,
+            costUsd: 0,
+            rawRows: [],
+          },
+          durationMillis: 1,
+          diagnostics: [],
+        },
+      }])
+
+      expect(routed.bugClaims).toHaveLength(2)
+      expect(routed.observations).toHaveLength(1)
+      expect(routed.bugClaims.map(({ summary }) => summary)).toEqual([
+        `"${missingRequirement}" is not implemented.`,
+        `"${wrongRequirement}" is implemented in reverse.`,
+      ])
+      const routedSummaries = [
+        ...routed.bugClaims,
+        ...routed.observations,
+      ].map(({ summary }) => summary).join(" ")
+      expect(routedSummaries).not.toContain(parentOnlyRequirement)
+      expect(routed.coverageGaps).toEqual([])
     }))
 
   it.effect("canonicalizes model-authored text used by line-oriented prompts", () =>

@@ -8,6 +8,7 @@ import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
+import { SPEC_CONFORMANCE_LENS_NAME } from "../domain/finder-selection.ts"
 import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
 
@@ -187,8 +188,13 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
       catalog.set(lens.name, lens)
     }
 
+    // Until Default Lenses (#81) owns standing membership, preserve the
+    // pre-restoration implicit selection. The restored spec-conformance Lens
+    // is available by explicit name without silently joining ordinary runs.
     const selectedNames = names === undefined
-      ? [...catalog.keys()]
+      ? [...catalog.keys()].filter(
+          (name) => name !== SPEC_CONFORMANCE_LENS_NAME,
+        )
       : yield* Effect.forEach(names, (name) =>
         Schema.decodeEffect(LensName)(name).pipe(
           Effect.mapError(

@@ -65,8 +65,9 @@ artifacts.
 story. Both files are representations of the same Dossier, not separate domain
 objects.
 
-- Header: target identity, recipe + seats, lens list with seats,
-  the one cost/duration line, coverage gaps.
+- Header: target identity, recipe + seats, runnable lens list with seats,
+  the one cost/duration line, coverage gaps, and one skipped line when the
+  selected `spec-conformance` Lens had no ReviewSpecification.
 - Findings grouped by Review Priority, each with evidence (confirmed BugClaims) or
   keep-reason (kept Observations).
 - **Unverified and undecided render in the main findings section**, tagged

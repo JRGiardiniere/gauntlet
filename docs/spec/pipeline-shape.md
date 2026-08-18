@@ -11,11 +11,11 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
         └─► (Observations) ─────────► Judgment ───────┴─► Assembly
 ```
 
-1. **Finders** — one AgentInvocation per lens, fanned out in parallel over the
-   same frozen diff. Prompt = finder system prompt + shared block +
-   ReviewSpecification (Interpretive Finders only, when the plan froze one) +
-   lens tail (see the cache invariant below). Standard Finders never receive
-   specification material. Each emits Candidates via `emit_findings`.
+1. **Finders** — one AgentInvocation per runnable selected lens, fanned out in
+   parallel over the same frozen diff. Prompt = finder system prompt + shared
+   block + ReviewSpecification (Interpretive Finders only, when the plan froze
+   one) + lens tail (see the cache invariant below). Standard Finders never
+   receive specification material. Each emits Candidates via `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
    no ReviewSpecification.
@@ -35,6 +35,12 @@ level, owner/member/collaborator comments, shared 20k comment budget) before
 the plan is frozen; GitHub unavailability or a PR with no closing issues is
 the same quiet no-spec path. A Caller Addendum is appended after fetched
 material and never replaces it.
+
+The selected `spec-conformance` Lens is the one applicability exception: when
+the plan froze no ReviewSpecification it creates no AgentInvocation and no
+coverage gap. Other selected Finders run normally. The human-readable Dossier
+lists only runnable Finders as completed coverage and adds one concise skipped
+line for `spec-conformance`; invocation accounting counts only work that ran.
 
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
@@ -114,10 +120,11 @@ and cache diagnostics are operational mechanics (ADR 0002), not review
 semantics.
 
 The scheduler first loads one atomic completed-Finder-stage checkpoint. When
-it is absent or invalid, every planned Finder starts a fresh stage attempt and
-is partitioned by the complete resolved Seat and shared context shape: ordinary
-context, or ordinary context plus the frozen ReviewSpecification. A singleton
-runs directly. A larger partition starts one ordinary Finder first. Its first
+it is absent or invalid, every runnable planned Finder starts a fresh stage
+attempt and is partitioned by the complete resolved Seat and shared context
+shape: ordinary context, or ordinary context plus the frozen
+ReviewSpecification. A singleton runs directly. A larger partition starts one
+ordinary Finder first. Its first
 successfully decoded usage-bearing assistant `message_end` produces the total
 `PrefixObserved` scheduling signal. If the invocation settles or fails before
 that evidence, finalization produces `PrefixNotObserved` instead, so the

@@ -22,7 +22,10 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
   sanctioned test seam; the CLI suite covers CLI-shaped contracts (exit codes,
   stdout, run-dir layout, resume) plus a few end-to-end journeys — not every
   Stage behavior. Scripted HarnessSession adapter and a real temp filesystem.
-  TestClock never auto-advances. Fixture lenses only — never real lens names
+  TestClock never auto-advances. Tests provide fixture lens content rather than
+  loading the shipped catalog. A production Lens identity appears only when a
+  contract is intrinsically attached to that identity (`spec-conformance` skip
+  and opt-in selection); all ordinary lens assertions use fixture names
 - Lenses are pure content per ADR-0004 (markdown, content-frozen per run) —
   code loads them, never edits them. Stage prompt templates may live with and
   be owned by their Stage module; prompt text is still plain markdown with
