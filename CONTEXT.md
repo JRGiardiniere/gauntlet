@@ -35,6 +35,12 @@ An authority that supplies requirement material and relationships for a
 ReviewSpecification without defining what system must host that material.
 _Avoid_: issue provider, tracker integration, spec resolver
 
+**Comment Omission**:
+The record that admitted comments were dropped to fit the aggregate bound —
+what was dropped, how much, and the cutoff — carried on the ReviewSpecification
+for contextual prompts and the report.
+_Avoid_: truncation notice, comment summary, budget overflow
+
 **AgentInvocation**:
 One bounded request to an agent for one structured output — inclusive of
 harness-internal retries and corrective turns on the same session. Warmup calls

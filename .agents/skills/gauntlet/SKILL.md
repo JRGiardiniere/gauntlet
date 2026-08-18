@@ -21,15 +21,20 @@ Dossier lives on disk.
    local`. `--destination pr` only when the user asked to post a PR comment; it
    requires `--pr`. `review --pr`, `--destination pr`, and `deliver` need the
    GitHub CLI (`gh`) installed and authenticated.
-4. **Specification.** When you hold requirements context the review should
-   judge against — the issue or spec behind the change, acceptance criteria,
-   explicit deferrals — write it as a Markdown Caller Addendum and pass
+4. **Specification.** A `--pr` review resolves GitHub closing issues as the
+   current Slices (native parent one level; owner/member/collaborator comments
+   under a 20,000-character earliest-first budget). GitHub unavailability or a
+   PR with no closing issues stays quietly specification-less. When you hold
+   additional requirements context — acceptance criteria, explicit deferrals,
+   local notes — write it as a Markdown Caller Addendum and pass
    `--spec <path>`. Write the file to a temporary location **outside the
    reviewed repository** (a scratch or temp directory), never into the
    worktree under review: an addendum inside the repo becomes an untracked
-   review input by accident. The file is read once and frozen into the plan;
-   a missing, unreadable, or empty file fails before any run is created, and
-   `--spec` cannot be combined with `--resume`.
+   review input by accident. The addendum is carried beside fetched material
+   and labeled caller-provided; fetched text remains the authority. The file
+   is read once and frozen into the plan; a missing, unreadable, or empty file
+   fails before any run is created, and `--spec` cannot be combined with
+   `--resume`.
 5. **Launch** as a background shell task:
 
    ```

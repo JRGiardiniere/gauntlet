@@ -13,7 +13,16 @@ import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
-import { unusedGitHubLayer } from "../github/github.ts"
+import {
+  GitHubError,
+  gitHubLayer,
+  unusedGitHubContract,
+  unusedGitHubLayer,
+  type GitHubClosingIssue,
+  type GitHubIssueComment,
+  type PullRequestView,
+} from "../github/github.ts"
+import { formatCommentOmission } from "../specification/comment-budget.ts"
 import {
   makeScripted,
   scriptedLayer,
@@ -33,6 +42,7 @@ import {
   FinderStageCheckpoint,
 } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
+import { chompLine, runGit } from "../target/git.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
@@ -142,6 +152,75 @@ const makeDirtyRepo = Effect.gen(function* () {
   )
   return fixture
 })
+
+const makePrReviewFixture = Effect.gen(function* () {
+  const fixture = yield* makeFixture
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
+  yield* commitAll(fixture.repo, "base")
+  const baseCommit = chompLine(yield* runGit(fixture.repo, ["rev-parse", "HEAD"]))
+  yield* fs.writeFileString(
+    path.join(fixture.repo, "alpha.txt"),
+    "first line\nneedle-added-line\n",
+  )
+  yield* commitAll(fixture.repo, "head")
+  const headCommit = chompLine(yield* runGit(fixture.repo, ["rev-parse", "HEAD"]))
+  return { baseCommit, fixture, headCommit }
+})
+
+const prView = (
+  number: number,
+  headRefOid: string,
+  baseRefOid: string,
+): PullRequestView => ({
+  number,
+  headRefOid,
+  baseRefOid,
+  baseRefName: "main",
+  url: `https://github.com/example/repo/pull/${String(number)}`,
+})
+
+const issueUrl = (number: number) =>
+  `https://github.com/example/repo/issues/${String(number)}`
+
+const githubComment = (
+  association: string,
+  createdAt: string,
+  body: string,
+  number = 74,
+): GitHubIssueComment => ({
+  url: `${issueUrl(number)}#issuecomment-${createdAt}`,
+  body,
+  createdAt,
+  authorAssociation: association,
+})
+
+const closingIssue = (
+  number: number,
+  title: string,
+  body: string,
+  comments: ReadonlyArray<GitHubIssueComment> = [],
+  parent: GitHubClosingIssue["parent"] = undefined,
+): GitHubClosingIssue => ({
+  number,
+  url: issueUrl(number),
+  title,
+  body,
+  state: "OPEN",
+  comments,
+  parent,
+})
+
+const githubForPr = (
+  view: PullRequestView,
+  issues: ReadonlyArray<GitHubClosingIssue>,
+) =>
+  gitHubLayer({
+    ...unusedGitHubContract,
+    viewPullRequest: () => Effect.succeed(view),
+    viewClosingIssues: () => Effect.succeed(issues),
+  })
 
 const FINDER_OUTPUT = {
   findings: [
@@ -311,6 +390,7 @@ const runCommand = (
   argv: ReadonlyArray<string>,
   scripted: Scripted,
   finderCacheSettle: Effect.Effect<void> = Effect.void,
+  github = unusedGitHubLayer,
 ) => ({
   scripted,
   effect: runGauntlet(argv).pipe(
@@ -322,7 +402,7 @@ const runCommand = (
         NodeServices.layer,
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         scriptedLayer(scripted),
-        unusedGitHubLayer,
+        github,
       ),
     ),
   ),
@@ -1260,6 +1340,7 @@ describe("gauntlet review", () => {
             text: `${needle}\n`,
           },
         ],
+        comments: [],
       })
       const classByLens = new Map(
         plan.lenses.map((lens) => [lens.name, lens.finderClass]),
@@ -1425,5 +1506,254 @@ describe("gauntlet review", () => {
       expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "dossier.md"))).toBe(
         true,
       )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("freezes GitHub closing issues beside a Caller Addendum on a PR review", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-interpretive.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive tail\n",
+      )
+      yield* writeRecipe(fixture, "fixture-recipe", {
+        default: FIXTURE_SEAT,
+        "interpretive-finders": "fixture/interpretive-model:high",
+      })
+      const addendumPath = path.join(fixture.home, "addendum.md")
+      const addendumNeedle = "ADDENDUM-REQUIREMENT: keep the caller note"
+      yield* fs.writeFileString(addendumPath, `${addendumNeedle}\n`)
+      const parent = closingIssue(70, "parent spec", "PARENT-BODY")
+      const issues = [
+        closingIssue(74, "github source", "SLICE-BODY", [
+          githubComment("OWNER", "2026-01-01T00:00:00Z", "OWNER-COMMENT"),
+          githubComment("CONTRIBUTOR", "2026-01-02T00:00:00Z", "CONTRIBUTOR-COMMENT"),
+          githubComment("MEMBER", "2026-01-03T00:00:00Z", "MEMBER-COMMENT"),
+        ], parent),
+      ]
+      const threeBugClaims = {
+        findings: [
+          ...[1, 2, 3].map((line) => ({
+            file: "alpha.txt",
+            line,
+            summary: `claim ${String(line)}`,
+            failure_scenario: `input ${String(line)} breaks`,
+          })),
+          { file: "alpha.txt", summary: "the name hides the value's role" },
+        ],
+      } satisfies FindingsOutput
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--pr",
+          "7",
+          "--lenses",
+          "fixture-review,fixture-interpretive",
+          "--spec",
+          addendumPath,
+        ],
+        makeScripted({
+          sessions: [
+            successfulSession(threeBugClaims, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-2"),
+            emittingSession(
+              { clusters: [{ indexes: [1, 2, 3], summary: "one shared defect" }] },
+              "-pool",
+            ),
+            successfulVerifierSession(),
+            successfulJudgmentSession(),
+          ],
+        }),
+        Effect.void,
+        githubForPr(prView(7, headCommit, baseCommit), issues),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.specification?.documents.map((document) => document.role)).toEqual([
+        "parent",
+        "slice",
+        "caller-addendum",
+      ])
+      expect(plan.specification?.comments.map((entry) => entry.text)).toEqual([
+        "OWNER-COMMENT",
+        "MEMBER-COMMENT",
+      ])
+
+      const [standardPrompt = ""] = promptTextsFor(run.scripted, "-finders-1")
+      const [poolPrompt = ""] = promptTextsFor(run.scripted, "-pool")
+      const [interpretivePrompt = ""] = promptTextsFor(run.scripted, "-finders-2")
+      for (const prompt of [standardPrompt, poolPrompt]) {
+        expect(prompt).not.toContain("SLICE-BODY")
+        expect(prompt).not.toContain(addendumNeedle)
+        expect(prompt).not.toContain("Review Specification")
+      }
+      expect(interpretivePrompt).toContain("PARENT-BODY")
+      expect(interpretivePrompt).toContain("SLICE-BODY")
+      expect(interpretivePrompt).toContain("OWNER-COMMENT")
+      expect(interpretivePrompt).toContain("MEMBER-COMMENT")
+      expect(interpretivePrompt).not.toContain("CONTRIBUTOR-COMMENT")
+      expect(interpretivePrompt.indexOf("SLICE-BODY")).toBeLessThan(
+        interpretivePrompt.indexOf(addendumNeedle),
+      )
+      expect(interpretivePrompt).toContain(
+        "### Caller Addendum (caller-provided:",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("GitHub specification unavailability leaves the ordinary review specification-less", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      const run = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        gitHubLayer({
+          ...unusedGitHubContract,
+          viewPullRequest: () =>
+            Effect.succeed(prView(7, headCommit, baseCommit)),
+          viewClosingIssues: () =>
+            Effect.fail(
+              new GitHubError({
+                operation: "specification",
+                reason: "GitHub unavailable",
+              }),
+            ),
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      expect(plan.specification).toBeUndefined()
+      const prompts = run.scripted.prompts.map(({ text }) => text).join("\n")
+      expect(prompts).not.toContain("Review Specification")
+      expect(prompts).not.toContain("GitHub unavailable")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("comment-budget omission reaches the frozen spec, prompts, and report", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "fixture-interpretive.md"),
+        "---\nfinder-class: interpretive\n---\nfixture interpretive tail\n",
+      )
+      yield* writeRecipe(fixture, "fixture-recipe", {
+        default: FIXTURE_SEAT,
+        "interpretive-finders": "fixture/interpretive-model:high",
+      })
+      const issues = [
+        closingIssue(74, "github source", "SLICE-BODY-INTACT", [
+          githubComment("OWNER", "2026-01-01T00:00:00Z", "o".repeat(8_000)),
+          githubComment("OWNER", "2026-01-02T00:00:00Z", "m".repeat(8_000)),
+          githubComment("OWNER", "2026-01-03T00:00:00Z", "n".repeat(8_000)),
+        ]),
+      ]
+      const run = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review,fixture-interpretive"],
+        makeScripted({
+          sessions: [
+            successfulSession(FINDER_OUTPUT, "-finders-1"),
+            successfulSession({ findings: [] }, "-finders-2"),
+            successfulVerifierSession(),
+            successfulJudgmentSession(),
+          ],
+        }),
+        Effect.void,
+        githubForPr(prView(7, headCommit, baseCommit), issues),
+      )
+      expect(yield* run.effect).toBe(0)
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const plan = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "plan.json"),
+      ).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
+      )
+      const omission = formatCommentOmission({
+        droppedCount: 1,
+        droppedCharacters: 8_000,
+        cutoff: "2026-01-02T00:00:00Z",
+      })
+      expect(plan.specification?.commentOmission).toEqual({
+        droppedCount: 1,
+        droppedCharacters: 8_000,
+        cutoff: "2026-01-02T00:00:00Z",
+      })
+      expect(plan.specification?.documents[0]?.text).toBe("SLICE-BODY-INTACT")
+      const [interpretivePrompt = ""] = promptTextsFor(run.scripted, "-finders-2")
+      expect(interpretivePrompt).toContain(omission)
+      expect(interpretivePrompt).toContain("SLICE-BODY-INTACT")
+      const markdown = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "dossier.md"),
+      )
+      expect(markdown).toContain(`- Comment budget: ${omission}`)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("resume of a PR review keeps the frozen GitHub specification", () =>
+    Effect.gen(function* () {
+      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      let currentIssues: ReadonlyArray<GitHubClosingIssue> = [
+        closingIssue(74, "github source", "FROZEN-SLICE"),
+      ]
+      const github = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () =>
+          Effect.succeed(prView(7, headCommit, baseCommit)),
+        viewClosingIssues: () => Effect.succeed(currentIssues),
+      })
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--lenses", "fixture-review"],
+        successfulScripted(),
+        Effect.void,
+        github,
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+      currentIssues = [closingIssue(74, "github source", "MUTATED-SLICE")]
+
+      const resumed = runCommand(
+        fixture,
+        ["review", "--resume"],
+        makeScripted({
+          sessions: [successfulVerifierSession(), successfulJudgmentSession()],
+        }),
+        Effect.void,
+        github,
+      )
+      expect(yield* resumed.effect).toBe(0)
+      const [verifierPrompt = ""] = promptTextsFor(
+        resumed.scripted,
+        "-verification",
+      )
+      expect(verifierPrompt).toContain("FROZEN-SLICE")
+      expect(verifierPrompt).not.toContain("MUTATED-SLICE")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

@@ -3,6 +3,7 @@ import type { Dossier, TestSuggestion } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
+import { formatCommentOmission } from "../specification/comment-budget.ts"
 import { type DossierView, viewDossier } from "./dossier-view.ts"
 
 export interface RunAccounting {
@@ -186,6 +187,21 @@ export const renderDossierMarkdown = (
   const warnings = plan.target.warnings.length === 0
     ? "none"
     : plan.target.warnings.join("; ")
+  const commentBudget = plan.specification?.commentOmission === undefined
+    ? undefined
+    : formatCommentOmission(plan.specification.commentOmission)
+
+  const headerFacts = [
+    `- Target: ${describeTargetIdentity(dossier.target)}`,
+    `- Recipe: ${recipeLine}`,
+    `- Lenses: ${lensList}`,
+    `- Cost: $${accounting.costUsd.toFixed(2)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
+    `- Coverage gaps: ${coverageGaps}`,
+    `- Warnings: ${warnings}`,
+  ]
+  if (commentBudget !== undefined) {
+    headerFacts.push(`- Comment budget: ${commentBudget}`)
+  }
 
   const refutedLines = view.refuted.map((entry) =>
     findingLine(entry.candidate, entry.lenses, undefined, "refuted", entry.verdict.evidence)
@@ -203,12 +219,7 @@ export const renderDossierMarkdown = (
   return [
     `# Gauntlet review ${dossier.runId}`,
     "",
-    `- Target: ${describeTargetIdentity(dossier.target)}`,
-    `- Recipe: ${recipeLine}`,
-    `- Lenses: ${lensList}`,
-    `- Cost: $${accounting.costUsd.toFixed(2)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
-    `- Coverage gaps: ${coverageGaps}`,
-    `- Warnings: ${warnings}`,
+    ...headerFacts,
     "",
     "## Findings",
     "",
