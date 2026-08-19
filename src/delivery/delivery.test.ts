@@ -364,7 +364,7 @@ describe("deliverCompletedRun", () => {
 
       expect(failed).toBeInstanceOf(DeliveryError)
       expect(failed.operation).toBe("load")
-      expect(failed.reason).toContain("working-tree review")
+      expect(failed.reason).toContain("not a pull-request review")
       expect(script.posts).toHaveLength(0)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

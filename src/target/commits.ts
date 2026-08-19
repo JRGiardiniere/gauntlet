@@ -64,7 +64,13 @@ export const resolveCommitsTarget = Effect.fn(
       ),
       // Tracked edits and untracked files alike are outside a committed
       // range; --no-renames keeps each entry one path so they can be counted.
-      runGit(repoRoot, ["status", "--porcelain", "--no-renames", "-z"]).pipe(
+      runGit(repoRoot, [
+        "status",
+        "--porcelain",
+        "--untracked-files=normal",
+        "--no-renames",
+        "-z",
+      ]).pipe(
         explainGit("could not inspect the working tree"),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
       ),

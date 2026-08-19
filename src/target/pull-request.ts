@@ -99,7 +99,14 @@ export const resolvePullRequestTarget = Effect.fn(
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(
         explainGit(`could not diff PR #${String(number)}`),
       ),
-      runGit(repoRoot, ["diff", "--name-only", "-z", baseCommit, headCommit]).pipe(
+      runGit(repoRoot, [
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        baseCommit,
+        headCommit,
+      ]).pipe(
         explainGit(`could not list changed files for PR #${String(number)}`),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
       ),
