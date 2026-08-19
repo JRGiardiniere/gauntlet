@@ -10,16 +10,14 @@ type WorkingTreeTarget = Extract<ReviewTarget, { readonly _tag: "WorkingTree" }>
 
 // Filesystem-facing agent tools observe the Run's frozen inputs, never the
 // developer's live checkout: a detached worktree at the frozen head commit,
-// plus — for a WorkingTree target — the overlay patch persisted in the run
+// plus — for a WorkingTree target — the overlay persisted in the run
 // directory. Git already retains every committed byte under the head commit,
-// so the overlay carries only what it cannot reconstruct: the tracked edits
-// and included untracked files present at submission. Submodule contents are
-// never materialized: the gitlink stays an unpopulated directory and
-// resolution carries the scope-degradation warning.
+// so the overlay carries only what it cannot: the uncommitted state at
+// submission. Submodule contents are never materialized — the gitlink stays
+// an unpopulated directory, under the target's scope-degradation warning.
 
-// Staging into a scratch index keeps tracked edits, deletions, mode and
-// symlink changes, binary content, and included untracked files in one patch
-// that `git apply` replays whole.
+// Staging into a scratch index puts tracked edits and the included untracked
+// files in one patch, so reconstruction is a single `git apply`.
 export const captureWorkspaceOverlay = Effect.fn(
   "gauntlet.review_working_directory.capture_overlay",
 )(function* (target: WorkingTreeTarget) {

@@ -193,8 +193,8 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
   for (const warning of target.warnings) {
     yield* progress(`warning — ${warning}`)
   }
-  // Captured beside the target it belongs to: uncommitted state is the one
-  // input Git cannot reconstruct from the frozen head commit.
+  // Uncommitted state is the one input Git cannot reconstruct from the frozen
+  // head commit, so it is captured while the resolved target is still current.
   const overlay = ReviewTarget.guards.WorkingTree(target)
     ? yield* Effect.scoped(captureWorkspaceOverlay(target))
     : undefined

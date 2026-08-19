@@ -936,6 +936,8 @@ describe("gauntlet review", () => {
       )
       expect(yield* resumed.effect).toBe(0)
       expect(resumed.scripted.configs).toHaveLength(3)
+      // Reruns inside the same Run: the checkpoint returns to its own run dir.
+      expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       expect(
         yield* fs.exists(
           path.join(fixture.runsRoot, runId, "finder-stage.json"),
