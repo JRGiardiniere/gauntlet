@@ -29,14 +29,14 @@ issues to produce the automatic ReviewSpecification before Run creation.
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
   (continue-from-checkpoint per ADR 0003), defaulting to the latest incomplete
-  run. When the target is byte-identical, it reuses only the completed Finder
-  stage; Pool, Verification, and Judgment always rerun as whole stages under
-  the currently installed shared prompts, schemas, tools, and pipeline code
-  (amended per #52). A complete Dossier is terminal and takes the fast path:
-  existing artifacts are delivered without re-entering the pipeline. Active
-  model conversations and partial Finder fan-outs are never resumed. A
-  changed target makes incomplete work unavailable for resume and starts a new
-  review.
+  run. It continues that exact Run from its frozen inputs — never its own
+  target re-resolved, never a replacement Run. It reuses only the completed
+  Finder stage; a missing checkpoint reruns Finders in the same Run, and Pool,
+  Verification, and Judgment always rerun as whole stages under the currently
+  installed shared prompts, schemas, tools, and pipeline code (amended per
+  #52). A complete Dossier is terminal and takes the fast path: existing
+  artifacts are delivered without re-entering the pipeline. Active model
+  conversations and partial Finder fan-outs are never resumed.
 - `deliver` posts an already-completed run's Dossier to the PR — #8's
   "run directory is the backstop" made actionable, never re-paying a review.
 - `config set` and `config unset` explicitly manage the standing choices in
@@ -75,11 +75,11 @@ configuration, and the exceptional GitHub-only choice is explicit on the Run.
 The commit range mirrors the PullRequest target's mechanics (settled
 2026-08-14, #82): `<head>` defaults to `HEAD`, either end accepts any
 committish, the diff base is `merge-base(base, head)`, and both ends resolve
-to commit SHAs at submission. The frozen target identity is that SHA pair —
-resume's unchanged-target check is SHA-pair equality, immune to moving refs.
-The reviewed snapshot is the head commit's tree; uncommitted working-tree
-edits are ignored with one scope-degradation warning (the mirror of the
-working tree's untracked-files warning), never inferred into the review. An
+to commit SHAs at submission. The frozen target identity is that SHA pair, so
+the Run stays aimed at the same commits when refs move. The reviewed tree is
+the head commit's; uncommitted working-tree edits are ignored with one
+scope-degradation warning (the mirror of the working tree's untracked-files
+warning), never inferred into the review. An
 unresolvable ref fails before a Run is created; a range whose merge-base
 equals its head is "nothing to review" — the clean-working-tree treatment.
 Commit-range and working-tree runs are local-destination; `pr` still requires
@@ -156,8 +156,8 @@ Selection precedence is exactly: a Recipe named positionally, otherwise the
 configured Default Recipe. If neither resolves, review fails and lists the
 available Recipes. Environment variables, flags, and a hidden built-in
 fallback do not select a Recipe. The ReviewPlan freezes the resolved seats at
-submission (#6), so editing a Recipe never changes an in-flight run or a
-resumed run whose target is unchanged (amended per #52).
+submission (#6), so editing a Recipe never changes an in-flight or resumed run
+(amended per #52).
 
 `config set default-recipe` accepts only an available valid Recipe and
 `config unset default-recipe` is rejected. `config set default-lenses` replaces

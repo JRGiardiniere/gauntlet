@@ -9,8 +9,6 @@ import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import { runGit } from "./git.ts"
 import { resolveWorkingTreeTarget } from "./working-tree.ts"
 
-const reviewTargetEquivalence = Schema.toEquivalence(ReviewTarget)
-
 const makeDirtyRepo = Effect.gen(function* () {
   const { repo } = yield* makeGitFixture({ prefix: "gauntlet-working-tree-" })
   const fs = yield* FileSystem.FileSystem
@@ -25,38 +23,28 @@ const makeDirtyRepo = Effect.gen(function* () {
 })
 
 describe("resolveWorkingTreeTarget", () => {
-  it.effect("records a content digest for each included untracked file", () =>
+  it.effect("names included untracked files without carrying their bytes", () =>
     Effect.gen(function* () {
       const repo = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const payload = "stray-untracked-payload\n"
-      yield* fs.writeFileString(path.join(repo, "stray.txt"), payload)
+      yield* fs.writeFileString(
+        path.join(repo, "stray.txt"),
+        "stray-untracked-payload\n",
+      )
 
       const target = yield* resolveWorkingTreeTarget(repo)
       expect(target._tag).toBe("WorkingTree")
-      expect(target.untrackedFiles).toHaveLength(1)
-      expect(target.untrackedFiles[0]?.path).toBe("stray.txt")
-      expect(target.untrackedFiles[0]?.digest).toMatch(/^[a-f0-9]{64}$/)
+      expect(target.untrackedFiles).toEqual(["stray.txt"])
       expect(target.warnings).toEqual([
         "1 untracked file(s) not included in the diff: stray.txt",
       ])
+      // Untracked content reaches /repo through the workspace overlay, never
+      // through the target.
       const encoded = yield* Schema.encodeEffect(
         Schema.fromJsonString(ReviewTarget),
       )(target)
-      // Identity stores hashes, never the file bytes.
       expect(encoded).not.toContain("stray-untracked-payload")
-
-      const unchanged = yield* resolveWorkingTreeTarget(repo)
-      expect(reviewTargetEquivalence(target, unchanged)).toBe(true)
-
-      yield* fs.writeFileString(path.join(repo, "stray.txt"), "edited-payload\n")
-      const drifted = yield* resolveWorkingTreeTarget(repo)
-      expect(drifted.untrackedFiles[0]?.path).toBe("stray.txt")
-      expect(drifted.untrackedFiles[0]?.digest).not.toBe(
-        target.untrackedFiles[0]?.digest,
-      )
-      expect(reviewTargetEquivalence(target, drifted)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("omits files ignored only through core.excludesFile", () =>
@@ -81,9 +69,7 @@ describe("resolveWorkingTreeTarget", () => {
       yield* fs.writeFileString(path.join(repo, "ignored.txt"), "gitignore\n")
 
       const target = yield* resolveWorkingTreeTarget(repo)
-      expect(target.untrackedFiles.map((file) => file.path)).toEqual([
-        "visible.txt",
-      ])
+      expect(target.untrackedFiles).toEqual(["visible.txt"])
       expect(target.warnings.join("\n")).toContain("visible.txt")
       const encoded = yield* Schema.encodeEffect(
         Schema.fromJsonString(ReviewTarget),
@@ -109,10 +95,7 @@ describe("resolveWorkingTreeTarget", () => {
       )
 
       const target = yield* resolveWorkingTreeTarget(repo)
-      expect(target.untrackedFiles.map((file) => file.path)).toEqual([
-        "at-cap.bin",
-        "small.txt",
-      ])
+      expect(target.untrackedFiles).toEqual(["at-cap.bin", "small.txt"])
       expect(target.warnings).toEqual([
         "2 untracked file(s) not included in the diff: at-cap.bin, small.txt",
         "1 untracked file(s) exceed 10MB and are excluded from the review: huge.bin",
@@ -133,10 +116,7 @@ describe("resolveWorkingTreeTarget", () => {
       yield* runGit(nested, ["init"])
 
       const target = yield* resolveWorkingTreeTarget(repo)
-      expect(target.untrackedFiles.map((file) => file.path)).toEqual([
-        "dangling",
-      ])
-      expect(target.untrackedFiles[0]?.digest).toMatch(/^[a-f0-9]{64}$/)
+      expect(target.untrackedFiles).toEqual(["dangling"])
       expect(target.warnings[0]).toContain("dangling")
       expect(target.warnings[0]).toContain("nested")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))

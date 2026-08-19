@@ -1,14 +1,33 @@
 # Durability uses one completed Finder-stage checkpoint; no conversation resume or detachment
 
 Gauntlet's durability requirement is narrow: a crashed or interrupted Run,
-re-run while the ReviewTarget is byte-identical, may continue only from a
-completed semantic checkpoint. An active model conversation cannot be resumed,
-and completed siblings from a partial fan-out are not a coherent stage result.
-For an incomplete Run, a changed target is the staleness detector: resume
-reports that it is unavailable and starts a new review; the abandoned run
-directory stays under existing retention. A complete Dossier is already
-terminal and needs no target check. Shared prompts, schemas, tools, deadlines,
-and pipeline code come from the currently installed application.
+re-run, may continue only from a completed semantic checkpoint. An active model
+conversation cannot be resumed, and completed siblings from a partial fan-out
+are not a coherent stage result.
+
+A Run owns frozen inputs. `review --resume` continues that exact Run: it never
+changes its target and never silently starts another review. The resumed Run
+reads its target, diff, ReviewSpecification, Lens text, and Seats from
+`plan.json` — the live repository, GitHub, and Linear are never consulted
+again. Shared prompts, schemas, tools, deadlines, and pipeline code still come
+from the currently installed application.
+
+`/repo` is likewise reconstructed from frozen inputs: a detached worktree at
+the saved head commit, plus — for a WorkingTree target — one
+`workspace-overlay.patch` replayed with `git apply`. Git already retains every
+committed byte under that commit, so the overlay persists only what Git cannot
+reconstruct: the tracked edits and included untracked files present at
+submission. It is captured beside the target and applied by the same code path
+on a fresh review, so resume exercises nothing that ordinary runs do not. It is
+a distinct artifact from `plan.target.diff`, which remains the single stored
+copy of the review diff supplied to agents. Nothing else about the repository
+is stored: no snapshot store, hidden refs, synthetic commits, bundles, or GC
+protection.
+
+A required frozen input that cannot be reconstructed — a head commit no longer
+in the object store, a missing or corrupt overlay — fails the Run with a
+message naming it, before any paid work. Gauntlet never fetches, re-resolves,
+falls back to current state, or starts a replacement review.
 
 The sole intermediate checkpoint is `finder-stage.json`: one ordered,
 schema-validated record of every Finder outcome from the Finder-stage attempt
@@ -21,7 +40,8 @@ Pool, Verification, and Judgment are never persisted as intermediate
 checkpoints. After a valid Finder checkpoint they always rerun as whole stages,
 followed by deterministic Assembly and presentation. A complete Dossier is
 terminal: resume reads the existing artifacts and does not re-enter the
-pipeline. No active model conversation or partial fan-out is resumed.
+pipeline — no repository, target, prompt, or external-source work at all. No
+active model conversation or partial fan-out is resumed.
 
 Effect's durable-execution stack (`effect/unstable/workflow` + `cluster` +
 SQLite) was researched (#3) and rejected: the local single-runner + SQLite path
@@ -56,6 +76,10 @@ backgrounding use their own shell/harness.
   Finder checkpoint exists.
 - Pool, Verification, and Judgment have no resume artifacts: each reruns as a
   whole stage after the Finder checkpoint.
+- Resuming a Run whose repository has since moved on reviews the original
+  change, not the current one. Reviewing newer work is a fresh `review`.
+- The run directory holds the uncommitted bytes of a WorkingTree review for as
+  long as it is retained.
 - Artifacts are Gauntlet's own schemas, human-readable with `cat`; invalid
   checkpoint content degrades to "stage not completed," never adopted output.
 - Revisit Effect workflows only if v4's workflow stack stabilizes and a

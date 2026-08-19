@@ -38,6 +38,7 @@ export const executeReviewPlan = Effect.fn(
       const reviewWorkingDirectory = yield* acquireReviewWorkingDirectory(
         plan.target,
         plan.runId,
+        paths.workspaceOverlay,
       )
       yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)

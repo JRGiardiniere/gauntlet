@@ -61,9 +61,9 @@ different trust and capability boundary), jail, container
 **ReviewPlan**:
 The fully resolved instructions governing one review — semantics-and-spend
 fields only (lenses, models/recipes, caps, tool capabilities) —
-persisted once at submission; resume reuses completed paid work when the
-target is unchanged, under the currently installed code. Delivery
-destination is not part of the plan.
+persisted once at submission. A Run owns these frozen inputs: resume continues
+that exact Run from them, reusing completed paid work, under the currently
+installed code. Delivery destination is not part of the plan.
 _Avoid_: configuration snapshot, settings, options
 
 **Recipe**:
