@@ -212,7 +212,7 @@ describe("working-tree review working directory", () => {
       yield* fs.makeDirectory(inRepo("reshaped"))
       yield* fs.writeFileString(inRepo("reshaped/child.txt"), "dir child\n")
 
-      const target = yield* resolveWorkingTreeTarget(repo)
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(ReviewTarget.guards.WorkingTree(target)).toBe(true)
       expect(target.changedFiles).toContain("old-name.txt")
       expect(target.changedFiles).toContain("new-name.txt")
@@ -308,7 +308,7 @@ describe("working-tree review working directory", () => {
       yield* commitAll(repo, "add submodule")
       yield* fs.writeFileString(path.join(repo, "alpha.txt"), "base\nchanged\n")
 
-      const target = yield* resolveWorkingTreeTarget(repo)
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target.warnings).toContain(
         "1 submodule(s) whose contents are not included in the review: sub",
       )

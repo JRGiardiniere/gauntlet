@@ -1,9 +1,13 @@
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import type { ReviewTarget } from "../domain/review-target.ts"
-import { describeGitFailure, runGit } from "../target/git.ts"
-import { TargetUnresolvable } from "../target/working-tree.ts"
+import { ReviewTarget } from "../domain/review-target.ts"
+import {
+  describeGitFailure,
+  explainGit,
+  runGit,
+  TargetUnresolvable,
+} from "../target/git.ts"
 import { RunError } from "./run-record.ts"
 
 type WorkingTreeTarget = Extract<ReviewTarget, { readonly _tag: "WorkingTree" }>
@@ -41,17 +45,34 @@ export const captureWorkspaceOverlay = Effect.fn(
         })
       ),
     )
+  // The overlay is relative to headCommit, so it stages the files that differ
+  // from headCommit — not target.changedFiles, which starts at the review
+  // diff's base and, in the combined commits-plus-working-tree form, names
+  // paths the head commit no longer has. Read through the real index so a
+  // staged addition counts as changed, exactly as target resolution saw it.
+  const changedFiles = yield* runGit(target.repoRoot, [
+    "diff",
+    "--name-only",
+    "--no-renames",
+    "-z",
+    target.headCommit,
+  ]).pipe(
+    explainGit("could not list the files to capture in the overlay"),
+    Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+  )
   yield* git(["read-tree", target.headCommit])
   // :(literal) keeps bracketed or colon-prefixed filenames from being read
-  // as pathspec magic.
-  yield* git([
-    "add",
-    "-A",
-    "--",
-    ...[...target.changedFiles, ...target.untrackedFiles].map(
-      (file) => `:(literal)${file}`,
-    ),
-  ])
+  // as pathspec magic. An empty pathspec would mean "everything", so a clean
+  // tree under a commit range captures an empty overlay instead.
+  const staged = [...changedFiles, ...target.untrackedFiles]
+  if (staged.length > 0) {
+    yield* git([
+      "add",
+      "-A",
+      "--",
+      ...staged.map((file) => `:(literal)${file}`),
+    ])
+  }
   yield* git([
     "diff",
     "--binary",
@@ -75,9 +96,11 @@ export const acquireReviewWorkingDirectory = Effect.fn(
 )(function* (target: ReviewTarget, runId: string, overlayPath: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const label = target._tag === "WorkingTree"
-    ? "the working tree"
-    : `PR #${String(target.number)}`
+  const label = ReviewTarget.match(target, {
+    WorkingTree: () => "the working tree",
+    Commits: ({ headCommit }) => `commit ${headCommit}`,
+    PullRequest: ({ number }) => `PR #${String(number)}`,
+  })
   const runFailure = (reason: string, cause?: unknown) =>
     new RunError({ operation: "execute-plan", reason, runId, cause })
   const scratchDirectory = yield* fs.makeTempDirectoryScoped({
@@ -124,6 +147,8 @@ export const acquireReviewWorkingDirectory = Effect.fn(
   yield* runGit(directory, [
     "apply",
     "--binary",
+    // A commit range plus a clean working tree captures an empty overlay.
+    "--allow-empty",
     "--whitespace=nowarn",
     overlayPath,
   ]).pipe(

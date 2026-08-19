@@ -487,7 +487,7 @@ const readOnlyRunPlan = Effect.fnUntraced(function* (fixture: Fixture) {
 const review = (fixture: Fixture, scripted = successfulScripted()) =>
   runCommand(
     fixture,
-    ["review", "--lenses", "fixture-review"],
+    ["review", "--working-tree", "--lenses", "fixture-review"],
     scripted,
   )
 
@@ -511,7 +511,7 @@ describe("gauntlet review", () => {
 
       const run = runCommand(
         fixture,
-        ["review", "fixture-recipe", "--lenses", "fixture-review"],
+        ["review", "fixture-recipe", "--working-tree", "--lenses", "fixture-review"],
         successfulScripted(),
       )
       expect(yield* run.effect).toBe(0)
@@ -830,7 +830,7 @@ describe("gauntlet review", () => {
       // so the cache settle never fires and this stays free of TestClock.
       const run = runCommand(
         fixture,
-        ["review"],
+        ["review", "--working-tree"],
         makeScripted({
           sessions: [
             successfulSession({ findings: [] }, "-finders-1"),
@@ -898,6 +898,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-resume-two,fixture-resume-three",
         ],
@@ -964,6 +965,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-resume-two,fixture-resume-three",
         ],
@@ -1037,7 +1039,7 @@ describe("gauntlet review", () => {
       })
       const run = runCommand(
         fixture,
-        ["review", "fixture-full", "--lenses", "fixture-review,fixture-interpretive"],
+        ["review", "fixture-full", "--working-tree", "--lenses", "fixture-review,fixture-interpretive"],
         makeScripted({
           sessions: [
             successfulSession({ findings: [] }, "-finders-1"),
@@ -1085,7 +1087,7 @@ describe("gauntlet review", () => {
       )
       const run = runCommand(
         fixture,
-        ["review"],
+        ["review", "--working-tree"],
         makeScripted({
           sessions: [successfulSession({ findings: [] })],
         }),
@@ -1115,7 +1117,7 @@ describe("gauntlet review", () => {
 
       const run = runCommand(
         fixture,
-        ["review"],
+        ["review", "--working-tree"],
         makeScripted({ sessions: [] }),
       )
       expect(yield* run.effect).toBe(0)
@@ -1147,6 +1149,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           `fixture-review,${SPEC_CONFORMANCE_LENS_NAME}`,
         ],
@@ -1248,7 +1251,7 @@ describe("gauntlet review", () => {
       })
       const run = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review,fixture-other"],
+        ["review", "--working-tree", "--lenses", "fixture-review,fixture-other"],
         scripted,
       )
       expect(yield* run.effect).toBe(0)
@@ -1555,6 +1558,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-interpretive",
           "--spec",
@@ -1635,7 +1639,7 @@ describe("gauntlet review", () => {
 
       const missing = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review", "--spec", path.join(fixture.home, "missing.md")],
+        ["review", "--working-tree", "--lenses", "fixture-review", "--spec", path.join(fixture.home, "missing.md")],
         makeScripted({ sessions: [] }),
       )
       expect(yield* missing.effect).toBe(1)
@@ -1645,7 +1649,7 @@ describe("gauntlet review", () => {
       yield* fs.writeFileString(emptyPath, "  \n\n")
       const empty = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review", "--spec", emptyPath],
+        ["review", "--working-tree", "--lenses", "fixture-review", "--spec", emptyPath],
         makeScripted({ sessions: [] }),
       )
       expect(yield* empty.effect).toBe(1)
@@ -1686,7 +1690,7 @@ describe("gauntlet review", () => {
       const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review", "--spec", addendumPath],
+        ["review", "--working-tree", "--lenses", "fixture-review", "--spec", addendumPath],
         successfulScripted(),
       )
       const fiber = yield* first.effect.pipe(
@@ -2102,6 +2106,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-interpretive",
         ],
@@ -2198,7 +2203,7 @@ describe("gauntlet review", () => {
       const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review"],
+        ["review", "--working-tree", "--lenses", "fixture-review"],
         successfulScripted(),
         Effect.void,
         unusedGitHubLayer,
@@ -2393,7 +2398,7 @@ describe("gauntlet review", () => {
       const fixture = yield* makeDirtyRepo
       const run = runCommand(
         fixture,
-        ["review", "--github-spec", "--lenses", "fixture-review"],
+        ["review", "--working-tree", "--github-spec", "--lenses", "fixture-review"],
         successfulScripted(),
       )
 
@@ -2447,7 +2452,7 @@ describe("gauntlet review", () => {
       ])
       const run = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review"],
+        ["review", "--working-tree", "--lenses", "fixture-review"],
         successfulScripted(),
         Effect.void,
         unusedGitHubLayer,

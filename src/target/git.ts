@@ -10,6 +10,13 @@ export class GitCommandError extends Data.TaggedError("GitCommandError")<{
   readonly cause: unknown
 }> {}
 
+// No ReviewTarget can be resolved at all — not a repo, no HEAD to diff
+// against, an unresolvable ref, or nothing changed. "Could not review", exit 1.
+export class TargetUnresolvable extends Data.TaggedError("TargetUnresolvable")<{
+  readonly reason: string
+  readonly cause: unknown
+}> {}
+
 // rev-parse and friends terminate with a single newline. Strip exactly that
 // — trim() would also eat whitespace that is legally part of a path.
 export const chompLine = (out: string) => out.replace(/\n$/, "")
@@ -45,6 +52,20 @@ export const describeGitFailure = (
     : cause.stderr.trim() === ""
     ? reason
     : `${reason}: ${cause.stderr.trim()}`
+
+// Every target resolver reads git the same way: a failed command is a reason
+// the caller's aim could not be honored, never a defect.
+export const explainGit = (reason: string) =>
+<A, R>(
+  self: Effect.Effect<A, GitCommandError, R>,
+): Effect.Effect<A, TargetUnresolvable, R> =>
+  Effect.catchTag(self, "GitCommandError", (cause) =>
+    Effect.fail(
+      new TargetUnresolvable({
+        reason: describeGitFailure(reason, cause),
+        cause,
+      }),
+    ))
 
 // The repository is selected by cwd alone. Git hooks export GIT_DIR,
 // GIT_WORK_TREE, and friends into the environment, and those silently
@@ -104,6 +125,31 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
           new GitCommandError({ args, exitCode: undefined, stderr: "", cause }),
         ),
       ),
+    )
+  },
+)
+
+// Resolves one caller-submitted committish — branch, tag, or revision
+// expression — to the commit SHA frozen in its place (ADR 0005).
+export const resolveCommittish = Effect.fn("gauntlet.git.resolve_committish")(
+  function* (repoRoot: string, committish: string) {
+    return yield* runGit(repoRoot, [
+      "rev-parse",
+      "--verify",
+      "--end-of-options",
+      `${committish}^{commit}`,
+    ]).pipe(
+      explainGit(`could not resolve ${committish}`),
+      Effect.map(chompLine),
+    )
+  },
+)
+
+export const mergeBaseOf = Effect.fn("gauntlet.git.merge_base_of")(
+  function* (repoRoot: string, base: string, head: string) {
+    return yield* runGit(repoRoot, ["merge-base", base, head]).pipe(
+      explainGit(`could not resolve the merge-base of ${base} and ${head}`),
+      Effect.map(chompLine),
     )
   },
 )
