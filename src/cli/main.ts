@@ -273,10 +273,11 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
           specificationSourceDiagnostic: specificationState.diagnostic,
         })
   yield* progress("freezing review plan")
-  yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
+  // Overlay first: a persisted plan implies its overlay exists.
   if (overlay !== undefined) {
     yield* writeArtifactBytes(paths.workspaceOverlay, overlay)
   }
+  yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
 
   yield* executeReviewPlan({
     plan,

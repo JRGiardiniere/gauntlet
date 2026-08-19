@@ -203,6 +203,8 @@ describe("working-tree review working directory", () => {
       yield* fs.writeFileString(inRepo("staged.txt"), "staged addition\n")
       yield* runGit(repo, ["add", "staged.txt"])
       yield* fs.writeFileString(inRepo("stray.txt"), "untracked payload\n")
+      // Bracketed name: must be staged literally, not as pathspec magic.
+      yield* fs.writeFileString(inRepo("notes[1].txt"), "bracketed\n")
       yield* fs.symlink("alpha.txt", inRepo("stray-link"))
       yield* fs.writeFileString(inRepo("ignored.txt"), "invisible\n")
       // Tracked file replaced by a plain directory holding untracked files.
@@ -247,6 +249,9 @@ describe("working-tree review working directory", () => {
             "untracked payload\n",
           )
           expect(yield* fs.readLink(inSnapshot("stray-link"))).toBe("alpha.txt")
+          expect(yield* fs.readFileString(inSnapshot("notes[1].txt"))).toBe(
+            "bracketed\n",
+          )
           expect(yield* fs.exists(inSnapshot("ignored.txt"))).toBe(false)
           expect((yield* fs.stat(inSnapshot("reshaped"))).type).toBe(
             "Directory",

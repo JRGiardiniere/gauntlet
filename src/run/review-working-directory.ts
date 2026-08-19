@@ -42,12 +42,15 @@ export const captureWorkspaceOverlay = Effect.fn(
       ),
     )
   yield* git(["read-tree", target.headCommit])
+  // :(literal) keeps bracketed or colon-prefixed filenames from being read
+  // as pathspec magic.
   yield* git([
     "add",
     "-A",
     "--",
-    ...target.changedFiles,
-    ...target.untrackedFiles,
+    ...[...target.changedFiles, ...target.untrackedFiles].map(
+      (file) => `:(literal)${file}`,
+    ),
   ])
   yield* git([
     "diff",
