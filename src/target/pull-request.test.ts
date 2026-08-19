@@ -4,10 +4,9 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import { gitHubLayer, unusedGitHubContract, type PullRequestView } from "../github/github.ts"
-import { chompLine, runGit } from "./git.ts"
+import { chompLine, runGit, TargetUnresolvable } from "./git.ts"
 import { resolvePullRequestTarget } from "./pull-request.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
-import { TargetUnresolvable } from "./working-tree.ts"
 
 const viewOf = (
   number: number,

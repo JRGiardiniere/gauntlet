@@ -53,7 +53,7 @@ export const requirePullRequestTarget = (
       new DeliveryError({
         operation: "load",
         reason:
-          `run ${plan.runId} is a working-tree review and has no pull-request destination`,
+          `run ${plan.runId} is not a pull-request review and has no pull-request destination`,
         runId: plan.runId,
       }),
     )

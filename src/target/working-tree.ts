@@ -1,4 +1,3 @@
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -6,29 +5,14 @@ import * as Path from "effect/Path"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
   chompLine,
-  describeGitFailure,
-  type GitCommandError,
+  explainGit,
   gitlinkPaths,
+  mergeBaseOf,
+  resolveCommittish,
   runGit,
   submoduleWarning,
+  TargetUnresolvable,
 } from "./git.ts"
-
-// The working tree cannot yield a ReviewTarget at all — not a repo, no HEAD
-// to diff against, or nothing changed. "Could not review", exit 1.
-export class TargetUnresolvable extends Data.TaggedError("TargetUnresolvable")<{
-  readonly reason: string
-  readonly cause: unknown
-}> {}
-
-const explainGit = (reason: string) =>
-<A, R>(self: Effect.Effect<A, GitCommandError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
-  Effect.catchTag(self, "GitCommandError", (cause) =>
-    Effect.fail(
-      new TargetUnresolvable({
-        reason: describeGitFailure(reason, cause),
-        cause,
-      }),
-    ))
 
 const explainUntrackedFile = (reason: string) =>
 <A, R>(
@@ -64,12 +48,15 @@ const inspectUntrackedFile = Effect.fn(
     : { kind: "included" as const, path: relativePath }
 })
 
-// Resolves the working-tree target: uncommitted changes vs HEAD, diff frozen
-// at submission (ADR 0005). Untracked files are outside the diff; they surface
-// as a scope-degradation warning on the target, never silently.
+// Resolves the working-tree target: the review diff ends at the working tree
+// as submitted, frozen there (ADR 0005). `--working-tree` alone starts that
+// diff at HEAD; the combined `--commits <base> --working-tree` form starts it
+// at merge-base(base, HEAD), so one target serves both — the persisted overlay
+// stays relative to headCommit either way. Untracked files are outside the
+// diff; they surface as a scope-degradation warning, never silently.
 export const resolveWorkingTreeTarget = Effect.fn(
   "gauntlet.working_tree.resolve_working_tree_target",
-)(function* (directory: string) {
+)(function* (directory: string, base: string | undefined) {
   const repoRoot = yield* runGit(directory, ["rev-parse", "--show-toplevel"]).pipe(
     explainGit("not inside a git repository"),
     Effect.map(chompLine),
@@ -78,21 +65,27 @@ export const resolveWorkingTreeTarget = Effect.fn(
     explainGit("repository has no HEAD commit to diff against"),
     Effect.map(chompLine),
   )
+  const baseCommit = base === undefined ? undefined : yield* mergeBaseOf(
+    repoRoot,
+    yield* resolveCommittish(repoRoot, base),
+    headCommit,
+  )
+  const diffBase = baseCommit ?? headCommit
   // Diff against the resolved hash, not symbolic HEAD — a commit landing
   // between the two commands must not desynchronize identity and diff.
   // --no-renames keeps both sides of a rename in changedFiles (the snapshot
   // must delete the old path) and makes the list independent of diff.renames.
   const [diff, changedFiles, untracked, submodules] = yield* Effect.all(
     [
-      runGit(repoRoot, ["diff", headCommit]).pipe(
-        explainGit("could not diff the working tree against HEAD"),
+      runGit(repoRoot, ["diff", diffBase]).pipe(
+        explainGit("could not diff the working tree"),
       ),
       runGit(repoRoot, [
         "diff",
         "--name-only",
         "--no-renames",
         "-z",
-        headCommit,
+        diffBase,
       ]).pipe(
         explainGit("could not list changed files"),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
@@ -110,10 +103,13 @@ export const resolveWorkingTreeTarget = Effect.fn(
   )
 
   if (diff === "") {
+    const nothing = base === undefined
+      ? "working tree has no uncommitted changes to review"
+      : `${base} has no committed or uncommitted changes to review`
     return yield* new TargetUnresolvable({
       reason: untracked.length === 0
-        ? "working tree has no uncommitted changes to review"
-        : `working tree has no uncommitted changes to review (${untracked.length} untracked file(s) are not part of the diff)`,
+        ? nothing
+        : `${nothing} (${untracked.length} untracked file(s) are not part of the diff)`,
       cause: undefined,
     })
   }
@@ -145,12 +141,15 @@ export const resolveWorkingTreeTarget = Effect.fn(
     ...submoduleWarning(submodules),
   ]
 
-  return ReviewTarget.cases.WorkingTree.make({
+  const fields = {
     repoRoot,
     headCommit,
     changedFiles,
     diff,
     untrackedFiles,
     warnings,
-  })
+  }
+  return ReviewTarget.cases.WorkingTree.make(
+    baseCommit === undefined ? fields : { ...fields, baseCommit },
+  )
 })

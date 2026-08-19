@@ -10,7 +10,12 @@ const shortCommit = (commit: string) => commit.slice(0, 7)
 
 const describeTargetShort = (target: TargetIdentity): string =>
   TargetIdentity.match(target, {
-    WorkingTree: ({ headCommit }) => `working tree @ ${shortCommit(headCommit)}`,
+    WorkingTree: ({ baseCommit, headCommit }) =>
+      `working tree @ ${shortCommit(headCommit)}${
+        baseCommit === undefined ? "" : ` since ${shortCommit(baseCommit)}`
+      }`,
+    Commits: ({ baseCommit, headCommit }) =>
+      `commits ${shortCommit(baseCommit)}..${shortCommit(headCommit)}`,
     PullRequest: ({ number }) => `PR #${number}`,
   })
 

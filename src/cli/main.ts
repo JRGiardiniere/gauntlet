@@ -46,16 +46,15 @@ import {
   LinearSpecificationResolution,
   loadLinearSpecification,
 } from "../specification/linear-source.ts"
+import { resolveCommitsTarget } from "../target/commits.ts"
 import {
   chompLine,
   describeGitFailure,
   runGit,
+  TargetUnresolvable,
 } from "../target/git.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
-import {
-  resolveWorkingTreeTarget,
-  TargetUnresolvable,
-} from "../target/working-tree.ts"
+import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { configCommand } from "./config.ts"
 import { InvocationDirectory } from "./invocation-directory.ts"
 
@@ -80,10 +79,40 @@ interface StartReviewRequest {
   readonly recipeName: Option.Option<string>
   readonly selectedLensNames: ReadonlyArray<string> | undefined
   readonly pr: Option.Option<number>
+  readonly commits: Option.Option<string>
+  readonly workingTree: boolean
   readonly destination: Destination
   readonly addendum: ReviewSpecification | undefined
   readonly githubSpec: boolean
 }
+
+// The caller aims explicitly (ADR 0005). `--commits` with `--working-tree` is
+// one target: the committed range extended to the working tree as submitted.
+const resolveTarget = Effect.fn("gauntlet.cli.resolve_target")(function* ({
+  commits,
+  pr,
+  workingTree,
+}: Pick<StartReviewRequest, "commits" | "pr" | "workingTree">) {
+  const directory = yield* InvocationDirectory
+  if (Option.isSome(pr)) {
+    yield* progress(`resolving PR #${String(pr.value)} review target`)
+    return yield* resolvePullRequestTarget(directory, pr.value)
+  }
+  if (Option.isSome(commits)) {
+    if (!workingTree) {
+      yield* progress(`resolving ${commits.value} review target`)
+      return yield* resolveCommitsTarget(directory, commits.value)
+    }
+    yield* progress(
+      `resolving ${commits.value} plus working-tree review target`,
+    )
+    return yield* resolveWorkingTreeTarget(directory, commits.value)
+  }
+  // Target selection is validated before this point, so the remaining form is
+  // `--working-tree` alone: uncommitted changes vs HEAD.
+  yield* progress("resolving working-tree review target")
+  return yield* resolveWorkingTreeTarget(directory, undefined)
+})
 
 const resolveSpecificationBranch = Effect.fn(
   "gauntlet.cli.resolve_specification_branch",
@@ -150,11 +179,13 @@ const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
 
 const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
   addendum,
+  commits,
   destination,
   githubSpec,
   pr,
   recipeName,
   selectedLensNames,
+  workingTree,
 }: StartReviewRequest) {
   const startedAt = yield* DateTime.now
   // Recipe selection fails before any Run exists (issue #24): positional
@@ -173,21 +204,7 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
         return settings.value["default-lenses"]
       })
     : []
-  const directory = yield* InvocationDirectory
-  const target = yield* Option.match(pr, {
-    onNone: () => {
-      return Effect.gen(function* () {
-        yield* progress("resolving working-tree review target")
-        return yield* resolveWorkingTreeTarget(directory)
-      })
-    },
-    onSome: (number) => {
-      return Effect.gen(function* () {
-        yield* progress(`resolving PR #${String(number)} review target`)
-        return yield* resolvePullRequestTarget(directory, number)
-      })
-    },
-  })
+  const target = yield* resolveTarget({ commits, pr, workingTree })
   // Scope degradation is never silent (spec #16): each warning is narrated
   // as it is discovered, in addition to landing on the plan and report.
   for (const warning of target.warnings) {
@@ -316,17 +333,31 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
 
 const LATEST_RESUME_SENTINEL = "@latest"
 
+interface ReviewCommandInput {
+  readonly recipe: Option.Option<string>
+  readonly lenses: Option.Option<string>
+  readonly resume: Option.Option<string>
+  readonly pr: Option.Option<number>
+  readonly commits: Option.Option<string>
+  readonly workingTree: boolean
+  readonly destination: Destination
+  readonly spec: Option.Option<string>
+  readonly githubSpec: boolean
+}
+
 const executeReviewCommand = Effect.fn(
   "gauntlet.cli.execute_review_command",
-)(function* (
-  recipe: Option.Option<string>,
-  lenses: Option.Option<string>,
-  resume: Option.Option<string>,
-  pr: Option.Option<number>,
-  destination: Destination,
-  spec: Option.Option<string>,
-  githubSpec: boolean,
-) {
+)(function* ({
+  commits,
+  destination,
+  githubSpec,
+  lenses,
+  pr,
+  recipe,
+  resume,
+  spec,
+  workingTree,
+}: ReviewCommandInput) {
   if (Option.isSome(resume)) {
     if (Option.isSome(lenses)) {
       return yield* new ReviewCommandError({
@@ -338,9 +369,10 @@ const executeReviewCommand = Effect.fn(
         reason: "a recipe cannot be combined with --resume; the plan is frozen",
       })
     }
-    if (Option.isSome(pr)) {
+    if (Option.isSome(pr) || Option.isSome(commits) || workingTree) {
       return yield* new ReviewCommandError({
-        reason: "--pr cannot be combined with --resume; the plan is frozen",
+        reason:
+          "a target flag cannot be combined with --resume; the plan is frozen",
       })
     }
     if (Option.isSome(spec)) {
@@ -361,6 +393,27 @@ const executeReviewCommand = Effect.fn(
       destination,
     )
     return
+  }
+  // Every review names its target: with three target kinds an implicit
+  // default is exactly the guessing ADR 0005 bans.
+  if (Option.isSome(pr)) {
+    if (Option.isSome(commits) || workingTree) {
+      return yield* new ReviewCommandError({
+        reason: "--pr cannot be combined with --commits or --working-tree",
+      })
+    }
+  } else if (Option.isNone(commits) && !workingTree) {
+    return yield* new ReviewCommandError({
+      reason:
+        "name a target: --working-tree, --commits <base>[..<head>], or --pr <number>",
+    })
+  } else if (
+    workingTree && Option.isSome(commits) && commits.value.includes("..")
+  ) {
+    return yield* new ReviewCommandError({
+      reason:
+        "--commits <base>..<head> cannot be combined with --working-tree; the working tree is the head",
+    })
   }
   if (destination === "pr" && Option.isNone(pr)) {
     return yield* new ReviewCommandError({
@@ -383,6 +436,8 @@ const executeReviewCommand = Effect.fn(
       ? undefined
       : lenses.value.split(",").map((name) => name.trim()),
     pr,
+    commits,
+    workingTree,
     destination,
     addendum: specification,
     githubSpec,
@@ -401,6 +456,16 @@ const review = Command.make(
     pr: Flag.integer("pr").pipe(
       Flag.optional,
       Flag.withDescription("Review that pull request's range"),
+    ),
+    commits: Flag.string("commits").pipe(
+      Flag.optional,
+      Flag.withMetavar("<base>[..<head>]"),
+      Flag.withDescription(
+        "Review merge-base(base, head)..head; head defaults to HEAD. With --working-tree, extend that range to the current uncommitted work",
+      ),
+    ),
+    workingTree: Flag.boolean("working-tree").pipe(
+      Flag.withDescription("Review the uncommitted changes against HEAD"),
     ),
     destination: Flag.choice("destination", ["local", "pr"]).pipe(
       Flag.withDefault("local"),
@@ -434,19 +499,10 @@ const review = Command.make(
       ),
     ),
   },
-  ({ destination, githubSpec, lenses, pr, recipe, resume, spec }) =>
-    executeReviewCommand(
-      recipe,
-      lenses,
-      resume,
-      pr,
-      destination,
-      spec,
-      githubSpec,
-    ),
+  executeReviewCommand,
 ).pipe(
   Command.withDescription(
-    "Review the working tree or a named pull request",
+    "Review the working tree, a commit range, or a named pull request",
   ),
 )
 

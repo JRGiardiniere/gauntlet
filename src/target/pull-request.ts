@@ -5,22 +5,12 @@ import { GitHub, type GitHubError } from "../github/github.ts"
 import {
   chompLine,
   describeGitFailure,
-  type GitCommandError,
+  explainGit,
   gitlinkPaths,
   runGit,
   submoduleWarning,
+  TargetUnresolvable,
 } from "./git.ts"
-import { TargetUnresolvable } from "./working-tree.ts"
-
-const explainGit = (reason: string) =>
-<A, R>(self: Effect.Effect<A, GitCommandError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
-  Effect.catchTag(self, "GitCommandError", (cause) =>
-    Effect.fail(
-      new TargetUnresolvable({
-        reason: describeGitFailure(reason, cause),
-        cause,
-      }),
-    ))
 
 const explainGitHub = (number: number) =>
 <A, R>(self: Effect.Effect<A, GitHubError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
@@ -109,7 +99,14 @@ export const resolvePullRequestTarget = Effect.fn(
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(
         explainGit(`could not diff PR #${String(number)}`),
       ),
-      runGit(repoRoot, ["diff", "--name-only", "-z", baseCommit, headCommit]).pipe(
+      runGit(repoRoot, [
+        "diff",
+        "--name-only",
+        "--no-renames",
+        "-z",
+        baseCommit,
+        headCommit,
+      ]).pipe(
         explainGit(`could not list changed files for PR #${String(number)}`),
         Effect.map((out) => out.split("\0").filter((line) => line !== "")),
       ),

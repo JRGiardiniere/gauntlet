@@ -11,7 +11,8 @@ flags documented-but-unexercised.
 
 ```
 gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination local|pr] [--resume [run-id]] [--lenses a,b]
-  <target> = --working-tree | --pr <number> | --commits <base>[..<head>]
+  <target> = --pr <number> | --commits <base>[..<head>] | --working-tree
+           | --commits <base> --working-tree
 gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
@@ -19,9 +20,12 @@ gauntlet config set <key> <value...>
 gauntlet config unset <key>
 ```
 
-`<target>` is one required, mutually exclusive selection: `--working-tree`
-(uncommitted changes vs HEAD), `--pr <number>`, or `--commits
-<base>[..<head>]`. `--spec <file>` supplies a Caller Addendum per the
+`<target>` is required. `--pr <number>` is exclusive with the other target
+flags; `--commits <base>[..<head>]` and `--working-tree` (uncommitted changes
+vs HEAD) each stand alone, and `--commits <base> --working-tree` is the one
+combined form — a branch's committed work plus its current uncommitted state.
+The combined form takes no explicit `..<head>`, because the working tree is
+the head. `--spec <file>` supplies a Caller Addendum per the
 specification-ingress spec (#70). `--github-spec` is an exact per-Run source
 override admitted only with `--pr`: it skips Linear and requires GitHub closing
 issues to produce the automatic ReviewSpecification before Run creation.
@@ -54,8 +58,9 @@ issues to produce the automatic ReviewSpecification before Run creation.
 
 The caller aims the tool, and (amended 2026-08-14) aims it *explicitly*: every
 review names its target — `--working-tree` (uncommitted changes vs HEAD — the
-mid-flight agent case), `--pr <number>` for that PR's range, or `--commits
-<base>[..<head>]` for committed work with no PR (#82). There is no default
+mid-flight agent case), `--pr <number>` for that PR's range, `--commits
+<base>[..<head>]` for committed work with no PR (#82), or the two together for
+a branch's work including its uncommitted edits. There is no default
 target and no clean-tree fallback: with three target kinds an implicit default
 invites exactly the guessing this ADR bans, an omitted target is a usage error
 naming all options instead of a post-invocation `TargetUnresolvable`, and the
@@ -79,9 +84,18 @@ to commit SHAs at submission. The frozen target identity is that SHA pair, so
 the Run stays aimed at the same commits when refs move. The reviewed tree is
 the head commit's; uncommitted working-tree edits are ignored with one
 scope-degradation warning (the mirror of the working tree's untracked-files
-warning), never inferred into the review. An
-unresolvable ref fails before a Run is created; a range whose merge-base
-equals its head is "nothing to review" — the clean-working-tree treatment.
+warning), never inferred into the review.
+
+`--commits <base> --working-tree` is that range extended to the working tree
+as submitted: the review diff supplied to agents runs from the merge-base to
+the final checkout, while the `workspace-overlay.patch` persisted per ADR 0003
+stays a saved-HEAD-to-working-tree patch, so `/repo` reconstruction remains a
+detached worktree at the saved head commit plus that overlay. Its frozen
+identity is therefore the merge-base and the saved head commit.
+
+An unresolvable ref fails before a Run is created; a range whose merge-base
+equals its head — and, for the combined form, over a clean working tree — is
+"nothing to review", the clean-working-tree treatment.
 Commit-range and working-tree runs are local-destination; `pr` still requires
 `--pr`.
 
@@ -220,9 +234,9 @@ Dossier in the Run directory.
 ## Skill
 
 One universal markdown skill (no harness-specific machinery, copyable to
-Codex/Cursor later): run `gauntlet review` as a background shell task, aim
-with `--pr` when reviewing a PR, choose the destination (#8's judgment text),
-relay the digest.
+Codex/Cursor later): run `gauntlet review` as a background shell task, aim it
+at what the caller means (`--pr`, `--commits`, `--working-tree`, or the
+combined form), choose the destination (#8's judgment text), relay the digest.
 
 ## Consequences
 

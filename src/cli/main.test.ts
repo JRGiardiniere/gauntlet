@@ -487,7 +487,7 @@ const readOnlyRunPlan = Effect.fnUntraced(function* (fixture: Fixture) {
 const review = (fixture: Fixture, scripted = successfulScripted()) =>
   runCommand(
     fixture,
-    ["review", "--lenses", "fixture-review"],
+    ["review", "--working-tree", "--lenses", "fixture-review"],
     scripted,
   )
 
@@ -511,7 +511,7 @@ describe("gauntlet review", () => {
 
       const run = runCommand(
         fixture,
-        ["review", "fixture-recipe", "--lenses", "fixture-review"],
+        ["review", "fixture-recipe", "--working-tree", "--lenses", "fixture-review"],
         successfulScripted(),
       )
       expect(yield* run.effect).toBe(0)
@@ -830,7 +830,7 @@ describe("gauntlet review", () => {
       // so the cache settle never fires and this stays free of TestClock.
       const run = runCommand(
         fixture,
-        ["review"],
+        ["review", "--working-tree"],
         makeScripted({
           sessions: [
             successfulSession({ findings: [] }, "-finders-1"),
@@ -898,6 +898,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-resume-two,fixture-resume-three",
         ],
@@ -964,6 +965,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-resume-two,fixture-resume-three",
         ],
@@ -1037,7 +1039,7 @@ describe("gauntlet review", () => {
       })
       const run = runCommand(
         fixture,
-        ["review", "fixture-full", "--lenses", "fixture-review,fixture-interpretive"],
+        ["review", "fixture-full", "--working-tree", "--lenses", "fixture-review,fixture-interpretive"],
         makeScripted({
           sessions: [
             successfulSession({ findings: [] }, "-finders-1"),
@@ -1085,7 +1087,7 @@ describe("gauntlet review", () => {
       )
       const run = runCommand(
         fixture,
-        ["review"],
+        ["review", "--working-tree"],
         makeScripted({
           sessions: [successfulSession({ findings: [] })],
         }),
@@ -1115,7 +1117,7 @@ describe("gauntlet review", () => {
 
       const run = runCommand(
         fixture,
-        ["review"],
+        ["review", "--working-tree"],
         makeScripted({ sessions: [] }),
       )
       expect(yield* run.effect).toBe(0)
@@ -1147,6 +1149,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           `fixture-review,${SPEC_CONFORMANCE_LENS_NAME}`,
         ],
@@ -1248,7 +1251,7 @@ describe("gauntlet review", () => {
       })
       const run = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review,fixture-other"],
+        ["review", "--working-tree", "--lenses", "fixture-review,fixture-other"],
         scripted,
       )
       expect(yield* run.effect).toBe(0)
@@ -1555,6 +1558,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-interpretive",
           "--spec",
@@ -1635,7 +1639,7 @@ describe("gauntlet review", () => {
 
       const missing = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review", "--spec", path.join(fixture.home, "missing.md")],
+        ["review", "--working-tree", "--lenses", "fixture-review", "--spec", path.join(fixture.home, "missing.md")],
         makeScripted({ sessions: [] }),
       )
       expect(yield* missing.effect).toBe(1)
@@ -1645,7 +1649,7 @@ describe("gauntlet review", () => {
       yield* fs.writeFileString(emptyPath, "  \n\n")
       const empty = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review", "--spec", emptyPath],
+        ["review", "--working-tree", "--lenses", "fixture-review", "--spec", emptyPath],
         makeScripted({ sessions: [] }),
       )
       expect(yield* empty.effect).toBe(1)
@@ -1686,7 +1690,7 @@ describe("gauntlet review", () => {
       const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review", "--spec", addendumPath],
+        ["review", "--working-tree", "--lenses", "fixture-review", "--spec", addendumPath],
         successfulScripted(),
       )
       const fiber = yield* first.effect.pipe(
@@ -2102,6 +2106,7 @@ describe("gauntlet review", () => {
         fixture,
         [
           "review",
+          "--working-tree",
           "--lenses",
           "fixture-review,fixture-interpretive",
         ],
@@ -2198,7 +2203,7 @@ describe("gauntlet review", () => {
       const stageCommitted = yield* Deferred.make<string>()
       const first = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review"],
+        ["review", "--working-tree", "--lenses", "fixture-review"],
         successfulScripted(),
         Effect.void,
         unusedGitHubLayer,
@@ -2393,7 +2398,7 @@ describe("gauntlet review", () => {
       const fixture = yield* makeDirtyRepo
       const run = runCommand(
         fixture,
-        ["review", "--github-spec", "--lenses", "fixture-review"],
+        ["review", "--working-tree", "--github-spec", "--lenses", "fixture-review"],
         successfulScripted(),
       )
 
@@ -2447,7 +2452,7 @@ describe("gauntlet review", () => {
       ])
       const run = runCommand(
         fixture,
-        ["review", "--lenses", "fixture-review"],
+        ["review", "--working-tree", "--lenses", "fixture-review"],
         successfulScripted(),
         Effect.void,
         unusedGitHubLayer,
@@ -2482,6 +2487,267 @@ describe("gauntlet review", () => {
       expect(markdown).toContain(`- Specification source: ${diagnostic}`)
       expect(run.scripted.prompts.map(({ text }) => text).join("\n")).not.toContain(
         "Review Specification",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+})
+
+// A trunk commit, then a `feature` branch with one commit on top. The
+// committed line is the same needle the working-tree fixtures use, so the
+// finder script and its candidates are shared.
+const makeCommitRangeFixture = Effect.gen(function* () {
+  const fixture = yield* makeFixture
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
+  yield* commitAll(fixture.repo, "base")
+  const mergeBase = chompLine(
+    yield* runGit(fixture.repo, ["rev-parse", "HEAD"]),
+  )
+  const trunk = chompLine(
+    yield* runGit(fixture.repo, ["branch", "--show-current"]),
+  )
+  yield* runGit(fixture.repo, ["switch", "-c", "feature"])
+  yield* fs.writeFileString(
+    path.join(fixture.repo, "alpha.txt"),
+    "first line\nneedle-added-line\n",
+  )
+  yield* commitAll(fixture.repo, "feature work")
+  const headCommit = chompLine(
+    yield* runGit(fixture.repo, ["rev-parse", "HEAD"]),
+  )
+  return { fixture, headCommit, mergeBase, trunk }
+})
+
+describe("gauntlet review target selection", () => {
+  it.effect("reviews a commit range from its frozen SHA pair, warning about uncommitted work", () =>
+    Effect.gen(function* () {
+      const { fixture, headCommit, mergeBase, trunk } =
+        yield* makeCommitRangeFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nuncommitted-line\n",
+      )
+
+      const run = runCommand(
+        fixture,
+        ["review", "--commits", trunk, "--lenses", "fixture-review"],
+        makeScripted({
+          sessions: [
+            successfulSession(),
+            confinedSession(VERIFIER_OUTPUT, "-verification", {
+              read: ["alpha.txt"],
+            }),
+            successfulJudgmentSession(),
+          ],
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const { plan, runId } = yield* readOnlyRunPlan(fixture)
+      expect(ReviewTarget.guards.Commits(plan.target)).toBe(true)
+      if (!ReviewTarget.guards.Commits(plan.target)) return
+      expect(plan.target.baseCommit).toBe(mergeBase)
+      expect(plan.target.headCommit).toBe(headCommit)
+      expect(plan.target.diff).toContain("+needle-added-line")
+      expect(plan.target.diff).not.toContain("uncommitted-line")
+      expect(plan.target.warnings).toEqual([
+        "1 uncommitted file(s) not part of this review",
+      ])
+
+      // A commit range has no uncommitted state to persist.
+      expect([...(yield* fs.readDirectory(path.join(fixture.runsRoot, runId)))].sort())
+        .toEqual([
+          "dossier.json",
+          "dossier.md",
+          "finder-stage.json",
+          "plan.json",
+          "run.log",
+        ])
+
+      // /repo is the head commit's tree, never the dirty checkout.
+      const read = inspectionsFor(run.scripted, "-verification").find(
+        ({ toolName }) => toolName === "read",
+      )
+      expect(read?.text).toContain("needle-added-line")
+      expect(read?.text).not.toContain("uncommitted-line")
+
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(
+        "warning — 1 uncommitted file(s) not part of this review",
+      )
+      const stdout = (yield* TestConsole.logLines).join("\n")
+      expect(stdout).toContain(
+        `commits ${mergeBase.slice(0, 7)}..${headCommit.slice(0, 7)}`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reviews branch commits plus the uncommitted work as one target", () =>
+    Effect.gen(function* () {
+      const { fixture, headCommit, mergeBase, trunk } =
+        yield* makeCommitRangeFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nuncommitted-line\n",
+      )
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "stray.txt"),
+        "original-untracked\n",
+      )
+
+      const run = runCommand(
+        fixture,
+        [
+          "review",
+          "--commits",
+          trunk,
+          "--working-tree",
+          "--lenses",
+          "fixture-review",
+        ],
+        makeScripted({
+          sessions: [
+            successfulSession(),
+            confinedSession(VERIFIER_OUTPUT, "-verification", {
+              read: ["alpha.txt", "stray.txt"],
+            }),
+            successfulJudgmentSession(),
+          ],
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const { plan, runId } = yield* readOnlyRunPlan(fixture)
+      expect(ReviewTarget.guards.WorkingTree(plan.target)).toBe(true)
+      if (!ReviewTarget.guards.WorkingTree(plan.target)) return
+      // The review diff runs merge-base → working tree; the overlay stays
+      // relative to the saved HEAD.
+      expect(plan.target.baseCommit).toBe(mergeBase)
+      expect(plan.target.headCommit).toBe(headCommit)
+      expect(plan.target.diff).toContain("+needle-added-line")
+      expect(plan.target.diff).toContain("+uncommitted-line")
+      expect(plan.target.untrackedFiles).toEqual(["stray.txt"])
+      const overlay = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "workspace-overlay.patch"),
+      )
+      expect(overlay).toContain("uncommitted-line")
+      expect(overlay).not.toContain("+needle-added-line")
+
+      // /repo is the saved head worktree plus that overlay.
+      const reads = inspectionsFor(run.scripted, "-verification").filter(
+        ({ toolName }) => toolName === "read",
+      )
+      expect(reads[0]?.text).toContain("uncommitted-line")
+      expect(reads[1]?.text).toContain("original-untracked")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("requires an explicit target and refuses --pr beside another target flag", () =>
+    Effect.gen(function* () {
+      const { fixture, trunk } = yield* makeCommitRangeFixture
+      const fs = yield* FileSystem.FileSystem
+
+      const bare = runCommand(fixture, ["review"], makeScripted({ sessions: [] }))
+      expect(yield* bare.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "name a target: --working-tree, --commits <base>[..<head>], or --pr <number>",
+      )
+
+      const both = runCommand(
+        fixture,
+        ["review", "--pr", "7", "--commits", trunk],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* both.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "--pr cannot be combined with --commits or --working-tree",
+      )
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("creates no Run for an empty range or an unresolvable ref", () =>
+    Effect.gen(function* () {
+      const { fixture } = yield* makeCommitRangeFixture
+      const fs = yield* FileSystem.FileSystem
+
+      const empty = runCommand(
+        fixture,
+        ["review", "--commits", "HEAD", "--lenses", "fixture-review"],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* empty.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "could not review — HEAD has no changes to review",
+      )
+
+      const missing = runCommand(
+        fixture,
+        ["review", "--commits", "no-such-ref", "--lenses", "fixture-review"],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* missing.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "could not review — could not resolve no-such-ref",
+      )
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("resumes a commit-range review after its refs move", () =>
+    Effect.gen(function* () {
+      const { fixture, trunk } = yield* makeCommitRangeFixture
+      const fs = yield* FileSystem.FileSystem
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = runCommand(
+        fixture,
+        ["review", "--commits", trunk, "--lenses", "fixture-review"],
+        successfulScripted(),
+      )
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      const runId = yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+
+      // Both submitted refs move out from under the Run; the frozen SHA pair
+      // is what it was aimed at, and resume never re-resolves either name.
+      yield* runGit(fixture.repo, ["switch", "--detach", "HEAD"])
+      yield* runGit(fixture.repo, ["branch", "-D", "feature"])
+      yield* runGit(fixture.repo, ["branch", "-m", trunk, "renamed-trunk"])
+
+      const resumed = resume(
+        fixture,
+        runId,
+        makeScripted({
+          sessions: [
+            confinedSession(VERIFIER_OUTPUT, "-verification", {
+              read: ["alpha.txt"],
+            }),
+            successfulJudgmentSession(),
+          ],
+        }),
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
+      const read = inspectionsFor(resumed.scripted, "-verification").find(
+        ({ toolName }) => toolName === "read",
+      )
+      expect(read?.text).toContain("needle-added-line")
+
+      // A complete Run is terminal: resume reports its existing artifacts.
+      const again = resume(fixture, runId)
+      expect(yield* again.effect).toBe(0)
+      expect(again.scripted.configs).toEqual([])
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `run ${runId} is already complete`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

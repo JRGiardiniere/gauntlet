@@ -33,7 +33,7 @@ describe("resolveWorkingTreeTarget", () => {
         "stray-untracked-payload\n",
       )
 
-      const target = yield* resolveWorkingTreeTarget(repo)
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target._tag).toBe("WorkingTree")
       expect(target.untrackedFiles).toEqual(["stray.txt"])
       expect(target.warnings).toEqual([
@@ -68,7 +68,7 @@ describe("resolveWorkingTreeTarget", () => {
       yield* fs.writeFileString(path.join(repo, "secret.env"), "token=hidden\n")
       yield* fs.writeFileString(path.join(repo, "ignored.txt"), "gitignore\n")
 
-      const target = yield* resolveWorkingTreeTarget(repo)
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target.untrackedFiles).toEqual(["visible.txt"])
       expect(target.warnings.join("\n")).toContain("visible.txt")
       const encoded = yield* Schema.encodeEffect(
@@ -94,7 +94,7 @@ describe("resolveWorkingTreeTarget", () => {
         new Uint8Array(Number(FileSystem.MiB(10)) + 1),
       )
 
-      const target = yield* resolveWorkingTreeTarget(repo)
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target.untrackedFiles).toEqual(["at-cap.bin", "small.txt"])
       expect(target.warnings).toEqual([
         "2 untracked file(s) not included in the diff: at-cap.bin, small.txt",
@@ -115,7 +115,7 @@ describe("resolveWorkingTreeTarget", () => {
       yield* fs.makeDirectory(nested)
       yield* runGit(nested, ["init"])
 
-      const target = yield* resolveWorkingTreeTarget(repo)
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target.untrackedFiles).toEqual(["dangling"])
       expect(target.warnings[0]).toContain("dangling")
       expect(target.warnings[0]).toContain("nested")
