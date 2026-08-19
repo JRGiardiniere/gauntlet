@@ -9,10 +9,30 @@ import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
-import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
+import {
+  acquireReviewWorkingDirectory,
+  captureWorkspaceOverlay,
+} from "./review-working-directory.ts"
 import { RunError } from "./run-record.ts"
 
 const RUN_ID = "review-working-directory-test"
+
+// A PR target never consults the overlay, so its path is deliberately absent.
+const NO_OVERLAY = "/nonexistent/workspace-overlay.patch"
+
+const freezeOverlay = Effect.fn("test.freeze_overlay")(function* (
+  target: Extract<ReviewTarget, { readonly _tag: "WorkingTree" }>,
+  directory: string,
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const overlayPath = path.join(directory, "workspace-overlay.patch")
+  yield* fs.writeFile(
+    overlayPath,
+    yield* Effect.scoped(captureWorkspaceOverlay(target)),
+  )
+  return overlayPath
+})
 
 const worktreeCount = (porcelain: string): number =>
   porcelain.split("\n").filter((line) => line.startsWith("worktree ")).length
@@ -66,7 +86,7 @@ describe("PR review working directory", () => {
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID)
+          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
           expect(reviewDirectory).not.toBe(repo)
           expect(
             chompLine(yield* runGit(reviewDirectory, ["rev-parse", "HEAD"])),
@@ -93,7 +113,7 @@ describe("PR review working directory", () => {
 
       const reason = yield* Effect.scoped(
         Effect.gen(function* () {
-          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID)
+          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
           return yield* Effect.fail("fixture failure")
         }),
       ).pipe(Effect.flip)
@@ -110,7 +130,7 @@ describe("PR review working directory", () => {
       const ready = yield* Deferred.make<string>()
       const fiber = yield* Effect.scoped(
         Effect.gen(function* () {
-          const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID)
+          const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
           yield* Deferred.succeed(ready, directory)
           return yield* Effect.never
         }),
@@ -136,6 +156,7 @@ describe("PR review working directory", () => {
       const failure = yield* acquireReviewWorkingDirectory(
         missingTarget,
         RUN_ID,
+        NO_OVERLAY,
       ).pipe(Effect.flip)
 
       expect(failure).toBeInstanceOf(RunError)
@@ -154,7 +175,7 @@ describe("working-tree review working directory", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const { repo } = yield* makeGitFixture({
+      const { repo, root } = yield* makeGitFixture({
         prefix: "gauntlet-working-tree-snapshot-test-",
       })
       const inRepo = (name: string) => path.join(repo, name)
@@ -193,11 +214,12 @@ describe("working-tree review working directory", () => {
       expect(ReviewTarget.guards.WorkingTree(target)).toBe(true)
       expect(target.changedFiles).toContain("old-name.txt")
       expect(target.changedFiles).toContain("new-name.txt")
+      const overlay = yield* freezeOverlay(target, root)
       let snapshot = ""
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID)
+          snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlay)
           const inSnapshot = (name: string) => path.join(snapshot, name)
           expect(snapshot).not.toBe(repo)
           expect(
@@ -285,10 +307,11 @@ describe("working-tree review working directory", () => {
       expect(target.warnings).toContain(
         "1 submodule(s) whose contents are not included in the review: sub",
       )
+      const overlay = yield* freezeOverlay(target, root)
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID)
+          const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlay)
           const gitlink = yield* fs.stat(path.join(snapshot, "sub"))
           expect(gitlink.type).toBe("Directory")
           // The live checkout has populated contents; the snapshot must not.

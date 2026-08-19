@@ -29,8 +29,9 @@ import type {
   SpecificationSourceDiagnostic,
 } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
-import { writeArtifactJson } from "../run/artifact.ts"
+import { writeArtifactBytes, writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
+import { captureWorkspaceOverlay } from "../run/review-working-directory.ts"
 import {
   createRunDirectory,
   loadRun,
@@ -38,7 +39,6 @@ import {
   makeRunId,
   type LoadedRun,
 } from "../run/run-record.ts"
-import { liveTargetMatchesPlan } from "../run/target-consistency.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { combineReviewSpecifications } from "../specification/combine.ts"
 import { loadGitHubSpecification } from "../specification/github-source.ts"
@@ -71,8 +71,7 @@ const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
 
 type Destination = "local" | "pr"
 
-interface FrozenSpecificationState {
-  readonly branch: string
+interface AcquiredSpecification {
   readonly specification: ReviewSpecification | undefined
   readonly diagnostic: SpecificationSourceDiagnostic | undefined
 }
@@ -84,7 +83,6 @@ interface StartReviewRequest {
   readonly destination: Destination
   readonly addendum: ReviewSpecification | undefined
   readonly githubSpec: boolean
-  readonly frozenSpecificationState: FrozenSpecificationState | undefined
 }
 
 const resolveSpecificationBranch = Effect.fn(
@@ -115,13 +113,12 @@ const acquireSpecification = Effect.fn(
     LinearSpecificationResolution.$is("Resolved")(linear)
   ) {
     return {
-      branch,
       specification: combineReviewSpecifications(
         linear.specification,
         addendum,
       ),
       diagnostic: undefined,
-    } satisfies FrozenSpecificationState
+    } satisfies AcquiredSpecification
   }
   const diagnostic = linear !== undefined &&
       LinearSpecificationResolution.$is("Unreachable")(linear)
@@ -137,10 +134,9 @@ const acquireSpecification = Effect.fn(
     })
   }
   return {
-    branch,
     specification: combineReviewSpecifications(fetched, addendum),
     diagnostic,
-  } satisfies FrozenSpecificationState
+  } satisfies AcquiredSpecification
 })
 
 const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
@@ -155,7 +151,6 @@ const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
 const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
   addendum,
   destination,
-  frozenSpecificationState,
   githubSpec,
   pr,
   recipeName,
@@ -198,6 +193,11 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
   for (const warning of target.warnings) {
     yield* progress(`warning — ${warning}`)
   }
+  // Captured beside the target it belongs to: uncommitted state is the one
+  // input Git cannot reconstruct from the frozen head commit.
+  const overlay = ReviewTarget.guards.WorkingTree(target)
+    ? yield* Effect.scoped(captureWorkspaceOverlay(target))
+    : undefined
 
   const resolvedLensNames = resolveLensNames(
     selectedLensNames,
@@ -230,10 +230,11 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
       : FrozenLens.make(frozen)
   })
 
-  // A changed-target resume reuses the abandoned plan's frozen specification
-  // verbatim (issue #73/#74): never re-fetch GitHub, never re-read --spec.
-  const specificationState = frozenSpecificationState ??
-    (yield* acquireSpecification(target, addendum, githubSpec))
+  const specificationState = yield* acquireSpecification(
+    target,
+    addendum,
+    githubSpec,
+  )
   if (specificationState.diagnostic !== undefined) {
     yield* progress(`warning — ${specificationState.diagnostic.message}`)
   }
@@ -253,7 +254,6 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
       judgment: stageSeat(selected.recipe, "judgment"),
     },
     lenses: frozenLenses,
-    specificationSourceBranch: specificationState.branch,
   }
   const plan = specificationState.specification === undefined
     ? specificationState.diagnostic === undefined
@@ -274,6 +274,9 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
         })
   yield* progress("freezing review plan")
   yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
+  if (overlay !== undefined) {
+    yield* writeArtifactBytes(paths.workspaceOverlay, overlay)
+  }
 
   yield* executeReviewPlan({
     plan,
@@ -290,7 +293,7 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
   const runsRoot = yield* resolveRunsRoot()
   const resumable = yield* loadRunToResume(runsRoot, requestedRunId)
   // The destination guard runs before any paid work: a working-tree run has
-  // no PR destination whether it replays or falls back to a new review.
+  // no PR destination.
   if (destination === "pr") {
     yield* requirePullRequestTarget(resumable.plan)
   }
@@ -299,44 +302,6 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
       `run ${resumable.plan.runId} is already complete — ${resumable.paths.dossier} · ${resumable.paths.dossierMarkdown}`,
     )
     yield* maybeDeliver(destination, resumable)
-    return
-  }
-  // Only unfinished runs need the changed-target check before they resume
-  // paid work against the repository.
-  const targetUnchanged = yield* liveTargetMatchesPlan(resumable.plan)
-  const currentBranch = yield* resolveSpecificationBranch(
-    resumable.plan.target.repoRoot,
-  )
-  const branchChanged =
-    resumable.plan.specificationSourceBranch !== undefined &&
-    currentBranch !== resumable.plan.specificationSourceBranch
-  if (!targetUnchanged || branchChanged) {
-    yield* progress("resume unavailable, running a new review")
-    const pr = ReviewTarget.guards.PullRequest(resumable.plan.target)
-      ? Option.some(resumable.plan.target.number)
-      : Option.none()
-    // The replacement review reuses the abandoned plan's frozen
-    // specification verbatim: --resume never re-reads the addendum file.
-    yield* startReview({
-      recipeName: Option.fromNullishOr(resumable.plan.recipeName),
-      selectedLensNames: undefined,
-      pr,
-      destination,
-      addendum: undefined,
-      githubSpec: false,
-      frozenSpecificationState: branchChanged
-        ? undefined
-        : {
-            branch: resumable.plan.specificationSourceBranch ?? currentBranch,
-            specification: resumable.plan.specification,
-            diagnostic: resumable.plan.specificationSourceDiagnostic,
-          },
-    }).pipe(
-      Effect.provideService(
-        InvocationDirectory,
-        resumable.plan.target.repoRoot,
-      ),
-    )
     return
   }
   yield* progress(`resuming run ${resumable.plan.runId}`)
@@ -420,7 +385,6 @@ const executeReviewCommand = Effect.fn(
     destination,
     addendum: specification,
     githubSpec,
-    frozenSpecificationState: undefined,
   })
 })
 

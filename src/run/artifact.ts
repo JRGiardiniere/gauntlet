@@ -31,18 +31,31 @@ export const readOptionalArtifactText = Effect.fn(
 // never a system temp dir — cross-device rename fails (ADR 0003). A write
 // can therefore never half-happen; a crash leaves at worst a stray temp file
 // that validity checks ignore.
-export const writeArtifactText = Effect.fn("gauntlet.artifact.write_text")(
-  function* (path: string, text: string) {
+const writeArtifactAtomically = Effect.fn("gauntlet.artifact.write")(
+  function* (
+    path: string,
+    write: (
+      fs: FileSystem.FileSystem,
+      tempPath: string,
+    ) => Effect.Effect<void, unknown>,
+  ) {
     const fs = yield* FileSystem.FileSystem
     const suffix = yield* Random.nextIntBetween(0, 0xffffff)
     const tempPath = `${path}.tmp-${suffix.toString(16)}`
-    yield* fs.writeFileString(tempPath, text).pipe(
+    yield* write(fs, tempPath).pipe(
       Effect.andThen(fs.rename(tempPath, path)),
       Effect.onError(() => fs.remove(tempPath).pipe(Effect.ignoreCause)),
       Effect.mapError(artifactWriteError(path)),
     )
   },
 )
+
+export const writeArtifactText = (path: string, text: string) =>
+  writeArtifactAtomically(path, (fs, tempPath) =>
+    fs.writeFileString(tempPath, text))
+
+export const writeArtifactBytes = (path: string, bytes: Uint8Array) =>
+  writeArtifactAtomically(path, (fs, tempPath) => fs.writeFile(tempPath, bytes))
 
 export const writeArtifactJson = Effect.fn("gauntlet.artifact.write_json")(
   function* <S extends Schema.Top>(path: string, schema: S, value: S["Type"]) {

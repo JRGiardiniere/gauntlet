@@ -68,12 +68,16 @@ export const scrubbedGitEnv = {
 // means (not-a-repo and no-HEAD are "could not review", never defects).
 // A spawn failure (git missing) is the same error with exitCode undefined.
 export const runGit = Effect.fn("gauntlet.git.run_git")(
-  function* (cwd: string, args: ReadonlyArray<string>) {
+  function* (
+    cwd: string,
+    args: ReadonlyArray<string>,
+    env: Record<string, string> = {},
+  ) {
     return yield* Effect.scoped(
       Effect.gen(function* () {
         const handle = yield* ChildProcess.make("git", args, {
           cwd,
-          env: scrubbedGitEnv,
+          env: { ...scrubbedGitEnv, ...env },
           extendEnv: true,
         })
         const [stdout, stderr, exitCode] = yield* Effect.all(

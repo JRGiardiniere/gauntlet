@@ -1,7 +1,5 @@
-import * as Crypto from "effect/Crypto"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as Encoding from "effect/Encoding"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
@@ -40,18 +38,8 @@ const explainUntrackedFile = (reason: string) =>
     Effect.fail(new TargetUnresolvable({ reason, cause })))
 
 // Git already governs tracked files. Untracked files larger than this are
-// dropped from the digest set and named in a scope-degradation warning.
+// dropped from the included set and named in a scope-degradation warning.
 const UNTRACKED_SIZE_CAP = FileSystem.MiB(10)
-
-const digestBytes = Effect.fn(
-  "gauntlet.working_tree.digest_bytes",
-)(function* (bytes: Uint8Array, relativePath: string) {
-  const crypto = yield* Crypto.Crypto
-  const digest = yield* crypto.digest("SHA-256", bytes).pipe(
-    explainUntrackedFile(`could not digest untracked file ${relativePath}`),
-  )
-  return Encoding.encodeHex(digest)
-})
 
 const inspectUntrackedFile = Effect.fn(
   "gauntlet.working_tree.inspect_untracked_file",
@@ -60,17 +48,10 @@ const inspectUntrackedFile = Effect.fn(
   const path = yield* Path.Path
   const absolutePath = path.join(repoRoot, relativePath)
   // stat follows symlinks; readLink first so a dangling or directory-target
-  // link hashes as itself instead of aborting resolution.
+  // link is included as itself instead of aborting resolution.
   const linkTarget = yield* fs.readLink(absolutePath).pipe(Effect.option)
   if (Option.isSome(linkTarget)) {
-    return {
-      kind: "included" as const,
-      path: relativePath,
-      digest: yield* digestBytes(
-        new TextEncoder().encode(linkTarget.value),
-        relativePath,
-      ),
-    }
+    return { kind: "included" as const, path: relativePath }
   }
   const info = yield* fs.stat(absolutePath).pipe(
     explainUntrackedFile(`could not inspect untracked file ${relativePath}`),
@@ -78,25 +59,14 @@ const inspectUntrackedFile = Effect.fn(
   if (info.type !== "File") {
     return { kind: "named" as const, path: relativePath }
   }
-  if (info.size > UNTRACKED_SIZE_CAP) {
-    return { kind: "oversized" as const, path: relativePath }
-  }
-  const bytes = yield* fs.readFile(absolutePath).pipe(
-    explainUntrackedFile(`could not read untracked file ${relativePath}`),
-  )
-  return {
-    kind: "included" as const,
-    path: relativePath,
-    digest: yield* digestBytes(bytes, relativePath),
-  }
+  return info.size > UNTRACKED_SIZE_CAP
+    ? { kind: "oversized" as const, path: relativePath }
+    : { kind: "included" as const, path: relativePath }
 })
 
-// Resolves the default target: uncommitted changes vs HEAD, diff frozen at
-// submission (ADR 0005 — explicit aiming, the working tree is the
-// zero-thought default). Untracked files are outside the diff; they surface
-// as a scope-degradation warning on the target, never silently. Included
-// untracked files also carry a content digest so resume can detect content
-// drift without persisting the bytes.
+// Resolves the working-tree target: uncommitted changes vs HEAD, diff frozen
+// at submission (ADR 0005). Untracked files are outside the diff; they surface
+// as a scope-degradation warning on the target, never silently.
 export const resolveWorkingTreeTarget = Effect.fn(
   "gauntlet.working_tree.resolve_working_tree_target",
 )(function* (directory: string) {
@@ -154,9 +124,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
     { concurrency: 4 },
   )
   const untrackedFiles = inspections.flatMap((file) =>
-    file.kind === "included"
-      ? [{ path: file.path, digest: file.digest }]
-      : []
+    file.kind === "included" ? [file.path] : []
   )
   const named = inspections.flatMap((file) =>
     file.kind === "oversized" ? [] : [file.path]

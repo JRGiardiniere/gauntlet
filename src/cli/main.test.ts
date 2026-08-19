@@ -543,6 +543,7 @@ describe("gauntlet review", () => {
         "finder-stage.json",
         "plan.json",
         "run.log",
+        "workspace-overlay.patch",
       ])
 
       const planText = yield* fs.readFileString(path.join(runDir, "plan.json"))
@@ -563,9 +564,7 @@ describe("gauntlet review", () => {
       if (!ReviewTarget.guards.WorkingTree(plan.target)) return
       expect(plan.target.changedFiles).toEqual(["alpha.txt"])
       expect(plan.target.diff).toContain("+needle-added-line")
-      expect(plan.target.untrackedFiles).toHaveLength(1)
-      expect(plan.target.untrackedFiles[0]?.path).toBe("untracked.txt")
-      expect(plan.target.untrackedFiles[0]?.digest).toMatch(/^[a-f0-9]{64}$/)
+      expect(plan.target.untrackedFiles).toEqual(["untracked.txt"])
       expect(plan.target.warnings).toHaveLength(1)
       expect(plan.target.warnings[0]).toContain("untracked.txt")
 
@@ -625,8 +624,8 @@ describe("gauntlet review", () => {
       expect(report).toContain("- Warnings: ")
       expect(report).toContain("untracked.txt")
 
-      // The diff is stored exactly once, in the plan (ADR 0006). Untracked
-      // file bytes are not persisted anywhere in the run directory.
+      // The review diff is stored exactly once, in the plan (ADR 0006). The
+      // workspace overlay is a separate artifact and is not one of these.
       const runRecordText = planText + finderStageText + dossierText + report
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
       expect(runRecordText).not.toContain("not in the diff")
@@ -747,6 +746,7 @@ describe("gauntlet review", () => {
         "finder-stage.json",
         "plan.json",
         "run.log",
+        "workspace-overlay.patch",
       ])
 
       const dossier = yield* fs.readFileString(path.join(runDir, "dossier.json")).pipe(

@@ -13,6 +13,7 @@ import { readOptionalArtifactText } from "./artifact.ts"
 export interface RunPaths {
   readonly root: string
   readonly plan: string
+  readonly workspaceOverlay: string
   readonly finderStage: string
   readonly dossier: string
   readonly dossierMarkdown: string
@@ -49,6 +50,7 @@ export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunP
   return {
     root,
     plan: path.join(root, "plan.json"),
+    workspaceOverlay: path.join(root, "workspace-overlay.patch"),
     finderStage: path.join(root, "finder-stage.json"),
     dossier: path.join(root, "dossier.json"),
     dossierMarkdown: path.join(root, "dossier.md"),

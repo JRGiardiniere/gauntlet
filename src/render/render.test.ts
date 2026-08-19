@@ -178,6 +178,7 @@ const lowCacheAccounting: RunAccounting = {
 const paths: RunPaths = {
   root: "/runs/run-fixture",
   plan: "/runs/run-fixture/plan.json",
+  workspaceOverlay: "/runs/run-fixture/workspace-overlay.patch",
   finderStage: "/runs/run-fixture/finder-stage.json",
   dossier: "/runs/run-fixture/dossier.json",
   dossierMarkdown: "/runs/run-fixture/dossier.md",

@@ -39,10 +39,10 @@ export const FrozenLens = Schema.Struct({
 export type FrozenLens = typeof FrozenLens.Type
 
 // The fully resolved instructions governing one review — semantics-and-spend
-// fields only — persisted once at submission. Resume may continue from a
-// completed semantic checkpoint when the target is unchanged, under the
-// currently installed code (CONTEXT.md). Delivery destination is not part of
-// the plan, and neither is any budget or cost field (ADR 0006).
+// fields only — persisted once at submission. A Run owns these frozen inputs:
+// resume continues that exact Run from them, under the currently installed
+// code (CONTEXT.md). Delivery destination is not part of the plan, and
+// neither is any budget or cost field (ADR 0006).
 export const ReviewPlan = Schema.Struct({
   runId: Schema.NonEmptyString,
   // The diff is stored exactly once, inside the target (ADR 0006).
@@ -63,10 +63,6 @@ export const ReviewPlan = Schema.Struct({
   // re-fetches issues or re-reads the addendum file, and a run without a
   // specification carries no specification field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),
-  // Branch discovery is an input to specification acquisition. New plans
-  // retain it so resume can invalidate a frozen specification when the branch
-  // changes even if the reviewed commit and diff do not.
-  specificationSourceBranch: Schema.optionalKey(Schema.String),
   // A branch binding is proof that a Specification Source exists. If Linear
   // cannot be reached, retain the typed cause beside any GitHub fallback
   // material or quiet absence so the run and report preserve that degradation.
