@@ -33,18 +33,19 @@ gauntlet config unset <key>
   its actionable diagnostic. `--github-spec` is the exact per-run override: it
   requires `--pr`, skips Linear, and fails before Run creation unless GitHub
   closing issues produce a specification. Otherwise GitHub unavailability or a
-  PR with no closing issues stays quietly specification-less. Resume keeps the
-  frozen source unless the branch changed, which starts a fresh review. `--spec
+  PR with no closing issues stays quietly specification-less. Resume always
+  keeps the frozen source. `--spec
   <file>` freezes a Caller Addendum beside any fetched material. A positional
   recipe selects a named recipe from the catalog; omitting it selects the
   configured `default-recipe`.
   Nothing else selects a recipe — if neither resolves, the review fails and
   lists what is available. `--destination` defaults to `local` (run directory
   + bounded digest). `pr` keeps those local outputs and also posts `dossier.md`; it
-  requires `--pr`. `--resume` continues from completed semantic checkpoints
-  when the target is unchanged, under the currently installed code. The first
-  such checkpoint is the complete Finder stage; an interrupted partial Finder
-  fan-out reruns in full. A changed target starts a new review.
+  requires `--pr`. `--resume` continues that exact Run from its frozen inputs,
+  under the currently installed code — it never re-resolves the target and
+  never starts a replacement review. The first reusable checkpoint is the
+  complete Finder stage; an interrupted partial Finder fan-out reruns in full,
+  in the same Run.
 - `deliver` posts an already-completed pull-request run's `dossier.md` as a
   single PR comment. A working-tree run has no PR destination and is refused.
   Re-delivering a Posted receipt is a no-op that returns the existing comment
@@ -123,10 +124,9 @@ interpretive finders through `interpretive-finders`, then `finders`, then
 `default`. Other seated stages resolve through their named override then
 `default`. The ReviewPlan
 freezes every resolved seat at submission, so recipe edits never change an
-in-flight run or a resumed run whose target is unchanged. Resume continues
-from completed semantic checkpoints under the currently installed code; it
-does not attempt to resume active model conversations or partial Finder
-fan-outs. A changed target starts a new review.
+in-flight or resumed run. Resume continues from completed semantic checkpoints
+under the currently installed code; it does not attempt to resume active model
+conversations or partial Finder fan-outs.
 
 ## Toolchain
 

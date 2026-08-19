@@ -417,7 +417,7 @@ const review = Command.make(
       Flag.optional,
       Flag.withMetavar("[run-id]"),
       Flag.withDescription(
-        "Resume unfinished work when the target is unchanged; omit run-id to select the latest incomplete run. A named complete run reports or delivers its existing artifacts without checking the target.",
+        "Continue that run from its frozen inputs; omit run-id to select the latest incomplete run. A named complete run reports or delivers its existing artifacts.",
       ),
     ),
     spec: Flag.string("spec").pipe(
