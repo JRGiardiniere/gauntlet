@@ -1402,69 +1402,7 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("starts a new review under the frozen recipe when resume finds a changed target", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      yield* writeRecipe(fixture, "fixture-alt", { default: FIXTURE_SEAT })
-      const stageCommitted = yield* Deferred.make<string>()
-      const first = runCommand(
-        fixture,
-        ["review", "fixture-alt", "--lenses", "fixture-review"],
-        successfulScripted(),
-      )
-      const fiber = yield* first.effect.pipe(
-        Effect.provideService(
-          FinderStageCheckpoint,
-          (runId) =>
-            Deferred.succeed(stageCommitted, runId).pipe(
-              Effect.andThen(Effect.never),
-            ),
-        ),
-        Effect.forkChild,
-      )
-      const runId = yield* Deferred.await(stageCommitted)
-      yield* Fiber.interrupt(fiber)
-
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.repo, "alpha.txt"),
-        "first line\nneedle-added-line\nlater-edit\n",
-      )
-
-      // The destination guard fires before the fallback pays anything: a
-      // working-tree run has no PR destination, changed target or not.
-      const refused = runCommand(
-        fixture,
-        ["review", "--resume", runId, "--destination", "pr"],
-        makeScripted({ sessions: [] }),
-      )
-      expect(yield* refused.effect).toBe(1)
-      expect(refused.scripted.configs).toHaveLength(0)
-
-      const driftedResume = resume(fixture, runId, successfulScripted())
-      expect(yield* driftedResume.effect).toBe(0)
-      expect(driftedResume.scripted.configs).toHaveLength(3)
-      const runIds = yield* fs.readDirectory(fixture.runsRoot)
-      expect(runIds).toHaveLength(2)
-      expect(runIds).toContain(runId)
-
-      // The replacement review keeps the abandoned plan's recipe rather than
-      // silently reverting to the configured default.
-      const replacementId = runIds.find((id) => id !== runId) ?? ""
-      const planText = yield* fs.readFileString(
-        path.join(fixture.runsRoot, replacementId, "plan.json"),
-      )
-      const plan = yield* Schema.decodeEffect(
-        Schema.fromJsonString(ReviewPlan),
-      )(planText)
-      expect(plan.recipeName).toBe("fixture-alt")
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "resume unavailable, running a new review",
-      )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("starts a new review when only untracked file contents changed", () =>
+  it.effect("resumes the frozen working tree after the live checkout moves on", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -1474,11 +1412,7 @@ describe("gauntlet review", () => {
         "original-untracked\n",
       )
       const stageCommitted = yield* Deferred.make<string>()
-      const first = runCommand(
-        fixture,
-        ["review", "--lenses", "fixture-review"],
-        successfulScripted(),
-      )
+      const first = review(fixture)
       const fiber = yield* first.effect.pipe(
         Effect.provideService(
           FinderStageCheckpoint,
@@ -1492,18 +1426,89 @@ describe("gauntlet review", () => {
       const runId = yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(fiber)
 
+      // Tracked edits, untracked content, and the branch all move on, and a
+      // later commit leaves the frozen head behind.
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nlater-edit\n",
+      )
       yield* fs.writeFileString(
         path.join(fixture.repo, "stray.txt"),
         "edited-untracked\n",
       )
+      yield* commitAll(fixture.repo, "live drift")
+      yield* runGit(fixture.repo, ["switch", "-c", "some-other-branch"])
 
-      const driftedResume = resume(fixture, runId, successfulScripted())
-      expect(yield* driftedResume.effect).toBe(0)
-      expect(driftedResume.scripted.configs).toHaveLength(3)
-      const runIds = yield* fs.readDirectory(fixture.runsRoot)
-      expect(runIds).toHaveLength(2)
+      // The destination guard still runs before any paid work: a working-tree
+      // run has no PR destination.
+      const refused = runCommand(
+        fixture,
+        ["review", "--resume", runId, "--destination", "pr"],
+        makeScripted({ sessions: [] }),
+      )
+      expect(yield* refused.effect).toBe(1)
+      expect(refused.scripted.configs).toHaveLength(0)
+
+      const resumed = resume(
+        fixture,
+        runId,
+        makeScripted({
+          sessions: [
+            confinedSession(VERIFIER_OUTPUT, "-verification", {
+              read: ["alpha.txt", "stray.txt"],
+            }),
+            successfulJudgmentSession(),
+          ],
+        }),
+      )
+      expect(yield* resumed.effect).toBe(0)
+      expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
+      const stderr = (yield* TestConsole.errorLines).join("\n")
+      expect(stderr).toContain(`resuming run ${runId}`)
+      expect(stderr).toContain("reusing completed Finder stage")
+
+      // /repo is rebuilt from the frozen head commit plus the saved overlay.
+      const reads = inspectionsFor(resumed.scripted, "-verification").filter(
+        ({ toolName }) => toolName === "read",
+      )
+      expect(reads[0]?.text).toContain("needle-added-line")
+      expect(reads[0]?.text).not.toContain("later-edit")
+      expect(reads[1]?.text).toContain("original-untracked")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("refuses to resume without the frozen overlay instead of reviewing something else", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const stageCommitted = yield* Deferred.make<string>()
+      const first = review(fixture)
+      const fiber = yield* first.effect.pipe(
+        Effect.provideService(
+          FinderStageCheckpoint,
+          (runId) =>
+            Deferred.succeed(stageCommitted, runId).pipe(
+              Effect.andThen(Effect.never),
+            ),
+        ),
+        Effect.forkChild,
+      )
+      const runId = yield* Deferred.await(stageCommitted)
+      yield* Fiber.interrupt(fiber)
+
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const overlay = path.join(
+        fixture.runsRoot,
+        runId,
+        "workspace-overlay.patch",
+      )
+      yield* fs.remove(overlay)
+
+      const resumed = resume(fixture, runId, successfulScripted())
+      expect(yield* resumed.effect).toBe(1)
+      expect(resumed.scripted.configs).toHaveLength(0)
+      expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "resume unavailable, running a new review",
+        `could not review — the frozen working-tree overlay ${overlay} is missing`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -2002,16 +2007,19 @@ describe("gauntlet review", () => {
       expect(verifierPrompt).not.toContain("MUTATED-SLICE")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("changed-target PR resume reuses the frozen specification without re-fetching", () =>
+  it.effect("resumes a PR review after the pull request moves out of reach", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      let currentView = prView(7, headCommit, baseCommit)
       let currentIssues: ReadonlyArray<GitHubClosingIssue> = [
         closingIssue(74, "github source", "FROZEN-SLICE"),
       ]
+      let targetCalls = 0
       const github = gitHubLayer({
         ...unusedGitHubContract,
-        viewPullRequest: () => Effect.succeed(currentView),
+        viewPullRequest: () => {
+          targetCalls += 1
+          return Effect.succeed(prView(7, headCommit, baseCommit))
+        },
         viewClosingIssues: () => Effect.succeed(currentIssues),
       })
       const stageCommitted = yield* Deferred.make<string>()
@@ -2032,104 +2040,45 @@ describe("gauntlet review", () => {
         ),
         Effect.forkChild,
       )
-      yield* Deferred.await(stageCommitted)
+      const runId = yield* Deferred.await(stageCommitted)
       yield* Fiber.interrupt(fiber)
+      expect(targetCalls).toBe(1)
 
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.repo, "alpha.txt"),
-        "first line\nneedle-added-line\nlater-line\n",
-      )
-      yield* commitAll(fixture.repo, "later")
-      const laterCommit = chompLine(
-        yield* runGit(fixture.repo, ["rev-parse", "HEAD"]),
-      )
-      currentView = prView(7, laterCommit, baseCommit)
+      // The PR is gone and its closing issues have moved on; the branch has
+      // moved too. The resumed Run consults neither.
       currentIssues = [closingIssue(74, "github source", "MUTATED-SLICE")]
+      const unavailable = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () => {
+          targetCalls += 1
+          return Effect.fail(
+            new GitHubError({ operation: "view", reason: "pull request 7 is gone" }),
+          )
+        },
+        viewClosingIssues: () => Effect.succeed(currentIssues),
+      })
+      yield* runGit(fixture.repo, ["switch", "-c", "some-other-branch"])
 
       const resumed = runCommand(
         fixture,
         ["review", "--resume"],
-        successfulScripted(),
+        makeScripted({
+          sessions: [successfulVerifierSession(), successfulJudgmentSession()],
+        }),
         Effect.void,
-        github,
+        unavailable,
       )
       expect(yield* resumed.effect).toBe(0)
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "resume unavailable, running a new review",
-      )
+      expect(targetCalls).toBe(1)
+      const fs = yield* FileSystem.FileSystem
+      expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       const [verifierPrompt = ""] = promptTextsFor(
         resumed.scripted,
         "-verification",
       )
       expect(verifierPrompt).toContain("FROZEN-SLICE")
       expect(verifierPrompt).not.toContain("MUTATED-SLICE")
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("changed-target PR resume also freezes quiet specification absence", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      let currentView = prView(7, headCommit, baseCommit)
-      let currentIssues: ReadonlyArray<GitHubClosingIssue> = []
-      let specificationCalls = 0
-      const github = gitHubLayer({
-        ...unusedGitHubContract,
-        viewPullRequest: () => Effect.succeed(currentView),
-        viewClosingIssues: () => {
-          specificationCalls += 1
-          return Effect.succeed(currentIssues)
-        },
-      })
-      const stageCommitted = yield* Deferred.make<string>()
-      const first = runCommand(
-        fixture,
-        ["review", "--pr", "7", "--lenses", "fixture-review"],
-        successfulScripted(),
-        Effect.void,
-        github,
-      )
-      const fiber = yield* first.effect.pipe(
-        Effect.provideService(
-          FinderStageCheckpoint,
-          (runId) =>
-            Deferred.succeed(stageCommitted, runId).pipe(
-              Effect.andThen(Effect.never),
-            ),
-        ),
-        Effect.forkChild,
-      )
-      yield* Deferred.await(stageCommitted)
-      yield* Fiber.interrupt(fiber)
-
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.repo, "alpha.txt"),
-        "first line\nneedle-added-line\nlater-line\n",
-      )
-      yield* commitAll(fixture.repo, "later")
-      currentView = prView(
-        7,
-        chompLine(yield* runGit(fixture.repo, ["rev-parse", "HEAD"])),
-        baseCommit,
-      )
-      currentIssues = [
-        closingIssue(74, "github source", "LATE-SLICE"),
-      ]
-
-      const resumed = runCommand(
-        fixture,
-        ["review", "--resume"],
-        successfulScripted(),
-        Effect.void,
-        github,
-      )
-      expect(yield* resumed.effect).toBe(0)
-      expect(specificationCalls).toBe(1)
-      expect(
-        resumed.scripted.prompts.map(({ text }) => text).join("\n"),
-      ).not.toContain("LATE-SLICE")
+      expect(verifierPrompt).toContain("needle-added-line")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes a branch-bound Linear specification for a WorkingTree review", () =>
@@ -2224,7 +2173,7 @@ describe("gauntlet review", () => {
       }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("starts a fresh review when the branch-bound Linear issue changes", () =>
+  it.effect("keeps the frozen Linear specification when the branch changes under a resume", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       yield* runGit(fixture.repo, [
@@ -2274,21 +2223,20 @@ describe("gauntlet review", () => {
       const resumed = runCommand(
         fixture,
         ["review", "--resume"],
-        successfulScripted(),
+        makeScripted({
+          sessions: [successfulVerifierSession(), successfulJudgmentSession()],
+        }),
         Effect.void,
         unusedGitHubLayer,
         linear,
       )
       expect(yield* resumed.effect).toBe(0)
-      expect(requested).toEqual(["ENG-75", "ENG-76"])
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        "resume unavailable, running a new review",
-      )
+      expect(requested).toEqual(["ENG-75"])
       const resumedPrompts = resumed.scripted.prompts
         .map(({ text }) => text)
         .join("\n")
-      expect(resumedPrompts).toContain("LINEAR-SLICE-ENG-76")
-      expect(resumedPrompts).not.toContain("LINEAR-SLICE-ENG-75")
+      expect(resumedPrompts).toContain("LINEAR-SLICE-ENG-75")
+      expect(resumedPrompts).not.toContain("LINEAR-SLICE-ENG-76")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("prefers the branch-bound Linear source when a PR also has GitHub closing issues", () =>
