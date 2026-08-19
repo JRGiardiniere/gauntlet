@@ -75,7 +75,7 @@ export interface SubmissionRequest {
   readonly target: SubmissionTargetRequest
   readonly recipeName: Option.Option<string>
   // undefined selects the configured Default Lenses; an array is the caller's
-  // exact selection, used verbatim without consulting settings.
+  // exact selection — settings are never consulted, repeated names collapse.
   readonly selectedLensNames: ReadonlyArray<string> | undefined
   readonly addendum: ReviewSpecification | undefined
 }
@@ -130,8 +130,13 @@ const acquireSpecification = Effect.fn(
 ) {
   const githubOnly =
     SubmissionTargetRequest.$is("PullRequest")(request) && request.githubSpecOnly
-  const branch = yield* resolveSpecificationBranch(target.repoRoot)
-  const linear = githubOnly ? undefined : yield* loadLinearSpecification(branch)
+  // The current branch feeds only the Linear source, so a GitHub-pinned
+  // submission never resolves it.
+  const linear = githubOnly
+    ? undefined
+    : yield* loadLinearSpecification(
+        yield* resolveSpecificationBranch(target.repoRoot),
+      )
   if (
     linear !== undefined &&
     LinearSpecificationResolution.$is("Resolved")(linear)

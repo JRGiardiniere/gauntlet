@@ -28,8 +28,8 @@ import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { configCommand } from "./config.ts"
 
-// Flag-combination refusals only: everything past a valid flag set is
-// Submission's, raised as its own tagged error (issue #105).
+// Flag-combination refusals only: once flags are valid, assembly refusals
+// are Submission's own tagged error (issue #105).
 export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
   readonly reason: string
 }> {}

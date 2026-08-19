@@ -2,7 +2,6 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import { ReviewPlan } from "../domain/review-plan.ts"
 import {
   gitHubLayer,
   unusedGitHubContract,
@@ -277,16 +276,3 @@ export const linearBranchIssue = (): LinearBranchIssue => ({
     linearIssue("ENG-74", "GitHub source", "NOT-FETCHED", "Canceled"),
   ],
 })
-
-export const readOnlyRunPlan = (fixture: Fixture) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem
-    const path = yield* Path.Path
-    const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-    const plan = yield* fs.readFileString(
-      path.join(fixture.runsRoot, runId, "plan.json"),
-    ).pipe(
-      Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
-    )
-    return { plan, runId }
-  })

@@ -18,7 +18,7 @@ import {
   unusedGitHubLayer,
 } from "../github/github.ts"
 import { Linear, LinearError, unusedLinearLayer } from "../linear/linear.ts"
-import { runGit } from "../target/git.ts"
+import { runGit, TargetUnresolvable } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import {
   closingIssue,
@@ -36,6 +36,7 @@ import {
 } from "../test-support/review.fixture.ts"
 import {
   submit,
+  SubmissionError,
   SubmissionTargetRequest,
   type SubmissionRequest,
 } from "./submission.ts"
@@ -313,8 +314,8 @@ describe("submission", () => {
         selectedLensNames: undefined,
         addendum: undefined,
       }))
-      expect(refusal._tag).toBe("SubmissionError")
-      if (refusal._tag !== "SubmissionError") return
+      expect(refusal).toBeInstanceOf(SubmissionError)
+      if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("no Default Lenses are configured")
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
@@ -364,7 +365,7 @@ describe("submission", () => {
   it.effect("prefers a resolved Linear source and never consults GitHub closing issues", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      yield* submitBranch(fixture, "john/eng-75-linear-source")
+      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
       let githubSpecificationCalls = 0
       const github = gitHubLayer({
         ...unusedGitHubContract,
@@ -418,7 +419,7 @@ describe("submission", () => {
   it.effect("falls back to GitHub while retaining an unreachable Linear diagnostic", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      yield* submitBranch(fixture, "john/eng-75-linear-source")
+      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
 
       const loaded = yield* submitWith(
         fixture,
@@ -444,7 +445,7 @@ describe("submission", () => {
   it.effect("keeps a matching branch's diagnostic without blocking a specification-less review", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
-      yield* submitBranch(fixture, "john/eng-75-linear-source")
+      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
 
       const loaded = yield* submitWith(
         fixture,
@@ -465,7 +466,7 @@ describe("submission", () => {
   it.effect("uses only GitHub when the caller pins the Specification Source", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      yield* submitBranch(fixture, "john/eng-75-linear-source")
+      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
       let linearCalls = 0
 
       const loaded = yield* submitWith(
@@ -617,8 +618,8 @@ describe("submission", () => {
         githubForPr(prView(7, headCommit, baseCommit), []),
       ))
 
-      expect(refusal._tag).toBe("SubmissionError")
-      if (refusal._tag !== "SubmissionError") return
+      expect(refusal).toBeInstanceOf(SubmissionError)
+      if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("--github-spec")
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
@@ -633,21 +634,21 @@ describe("submission", () => {
         fixture,
         exactLenses(SubmissionTargetRequest.Commits({ range: "HEAD" })),
       ))
-      expect(empty._tag).toBe("TargetUnresolvable")
-      if (empty._tag !== "TargetUnresolvable") return
+      expect(empty).toBeInstanceOf(TargetUnresolvable)
+      if (!Predicate.isTagged(empty, "TargetUnresolvable")) return
       expect(empty.reason).toBe("HEAD has no changes to review")
 
       const missing = yield* Effect.flip(submitWith(
         fixture,
         exactLenses(SubmissionTargetRequest.Commits({ range: "no-such-ref" })),
       ))
-      expect(missing._tag).toBe("TargetUnresolvable")
+      expect(missing).toBeInstanceOf(TargetUnresolvable)
 
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
-const submitBranch = (fixture: Fixture, branch: string) =>
+const createAndSwitchBranch = (fixture: Fixture, branch: string) =>
   runGit(fixture.repo, ["switch", "-c", branch])
 
 const missingApiKeyLinear = Linear.Fake({
