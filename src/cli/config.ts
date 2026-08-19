@@ -31,7 +31,7 @@ import {
   writeSettings,
 } from "../config/settings.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
-import { resolveInvocationProjectRoot } from "./invocation-directory.ts"
+import { resolveInvocationProjectRoot } from "../target/invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
   readonly reason: string

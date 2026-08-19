@@ -6,60 +6,30 @@ import * as Option from "effect/Option"
 import * as Argument from "effect/unstable/cli/Argument"
 import * as Command from "effect/unstable/cli/Command"
 import * as Flag from "effect/unstable/cli/Flag"
-import {
-  renderAvailable,
-  resolveReviewRecipe,
-} from "../config/recipe-catalog.ts"
-import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
-import { loadFinderLenses } from "../content/lens.ts"
+import { renderAvailable } from "../config/recipe-catalog.ts"
+import { resolveRunsRoot } from "../config/settings.ts"
 import {
   deliverCompletedRun,
   DeliveryError,
   requirePullRequestTarget,
 } from "../delivery/delivery.ts"
-import { finderSeat, stageSeat } from "../domain/recipe.ts"
-import { resolveLensNames } from "../domain/lens-selection.ts"
-import {
-  candidateCapForLens,
-  FrozenLens,
-  ReviewPlan,
-} from "../domain/review-plan.ts"
-import type {
-  ReviewSpecification,
-  SpecificationSourceDiagnostic,
-} from "../domain/review-specification.ts"
-import { ReviewTarget } from "../domain/review-target.ts"
-import { writeArtifactBytes, writeArtifactJson } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
-import { captureWorkspaceOverlay } from "../run/review-working-directory.ts"
 import {
-  createRunDirectory,
   loadRun,
   loadRunToResume,
-  makeRunId,
   type LoadedRun,
 } from "../run/run-record.ts"
+import {
+  submit,
+  SubmissionTargetRequest,
+  type SubmissionRequest,
+} from "../run/submission.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
-import { combineReviewSpecifications } from "../specification/combine.ts"
-import { loadGitHubSpecification } from "../specification/github-source.ts"
-import {
-  LinearSpecificationResolution,
-  loadLinearSpecification,
-} from "../specification/linear-source.ts"
-import { resolveCommitsTarget } from "../target/commits.ts"
-import {
-  chompLine,
-  describeGitFailure,
-  runGit,
-  TargetUnresolvable,
-} from "../target/git.ts"
-import { resolvePullRequestTarget } from "../target/pull-request.ts"
-import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
+import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { configCommand } from "./config.ts"
-import { InvocationDirectory } from "./invocation-directory.ts"
 
-export { InvocationDirectory } from "./invocation-directory.ts"
-
+// Flag-combination refusals only: everything past a valid flag set is
+// Submission's, raised as its own tagged error (issue #105).
 export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
   readonly reason: string
 }> {}
@@ -70,104 +40,6 @@ const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
 
 type Destination = "local" | "pr"
 
-interface AcquiredSpecification {
-  readonly specification: ReviewSpecification | undefined
-  readonly diagnostic: SpecificationSourceDiagnostic | undefined
-}
-
-interface StartReviewRequest {
-  readonly recipeName: Option.Option<string>
-  readonly selectedLensNames: ReadonlyArray<string> | undefined
-  readonly pr: Option.Option<number>
-  readonly commits: Option.Option<string>
-  readonly workingTree: boolean
-  readonly destination: Destination
-  readonly addendum: ReviewSpecification | undefined
-  readonly githubSpec: boolean
-}
-
-// The caller aims explicitly (ADR 0005). `--commits` with `--working-tree` is
-// one target: the committed range extended to the working tree as submitted.
-const resolveTarget = Effect.fn("gauntlet.cli.resolve_target")(function* ({
-  commits,
-  pr,
-  workingTree,
-}: Pick<StartReviewRequest, "commits" | "pr" | "workingTree">) {
-  const directory = yield* InvocationDirectory
-  if (Option.isSome(pr)) {
-    yield* progress(`resolving PR #${String(pr.value)} review target`)
-    return yield* resolvePullRequestTarget(directory, pr.value)
-  }
-  if (Option.isSome(commits)) {
-    if (!workingTree) {
-      yield* progress(`resolving ${commits.value} review target`)
-      return yield* resolveCommitsTarget(directory, commits.value)
-    }
-    yield* progress(
-      `resolving ${commits.value} plus working-tree review target`,
-    )
-    return yield* resolveWorkingTreeTarget(directory, commits.value)
-  }
-  // Target selection is validated before this point, so the remaining form is
-  // `--working-tree` alone: uncommitted changes vs HEAD.
-  yield* progress("resolving working-tree review target")
-  return yield* resolveWorkingTreeTarget(directory, undefined)
-})
-
-const resolveSpecificationBranch = Effect.fn(
-  "gauntlet.cli.resolve_specification_branch",
-)(function* (repoRoot: string) {
-  return yield* runGit(repoRoot, ["branch", "--show-current"]).pipe(
-    Effect.map(chompLine),
-    Effect.mapError((cause) =>
-      new TargetUnresolvable({
-        reason: describeGitFailure("could not resolve the current branch", cause),
-        cause,
-      })
-    ),
-  )
-})
-
-const acquireSpecification = Effect.fn(
-  "gauntlet.cli.acquire_specification",
-)(function* (
-  target: ReviewTarget,
-  addendum: ReviewSpecification | undefined,
-  githubSpec: boolean,
-) {
-  const branch = yield* resolveSpecificationBranch(target.repoRoot)
-  const linear = githubSpec ? undefined : yield* loadLinearSpecification(branch)
-  if (
-    linear !== undefined &&
-    LinearSpecificationResolution.$is("Resolved")(linear)
-  ) {
-    return {
-      specification: combineReviewSpecifications(
-        linear.specification,
-        addendum,
-      ),
-      diagnostic: undefined,
-    } satisfies AcquiredSpecification
-  }
-  const diagnostic = linear !== undefined &&
-      LinearSpecificationResolution.$is("Unreachable")(linear)
-    ? linear.diagnostic
-    : undefined
-  const fetched = ReviewTarget.guards.PullRequest(target)
-    ? yield* loadGitHubSpecification(target.repoRoot, target.number)
-    : undefined
-  if (githubSpec && fetched === undefined) {
-    return yield* new ReviewCommandError({
-      reason:
-        "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
-    })
-  }
-  return {
-    specification: combineReviewSpecifications(fetched, addendum),
-    diagnostic,
-  } satisfies AcquiredSpecification
-})
-
 const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
   destination: Destination,
   loaded: LoadedRun,
@@ -177,131 +49,14 @@ const maybeDeliver = Effect.fn("gauntlet.cli.maybe_deliver")(function* (
   yield* progress(`posted ${receipt.url}`)
 })
 
-const startReview = Effect.fn("gauntlet.cli.start_review")(function* ({
-  addendum,
-  commits,
-  destination,
-  githubSpec,
-  pr,
-  recipeName,
-  selectedLensNames,
-  workingTree,
-}: StartReviewRequest) {
+const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
+  request: SubmissionRequest,
+  destination: Destination,
+) {
   const startedAt = yield* DateTime.now
-  // Recipe selection fails before any Run exists (issue #24): positional
-  // recipe, otherwise the configured Default Recipe — nothing else.
-  const selected = yield* resolveReviewRecipe(recipeName)
-  yield* progress(`using recipe ${selected.name}`)
-  const defaultLensNames = selectedLensNames === undefined
-    ? yield* Effect.gen(function* () {
-        const settings = yield* loadSettings()
-        if (Option.isNone(settings)) {
-          return yield* new ReviewCommandError({
-            reason:
-              "no Default Lenses are configured — pass --lenses or run `gauntlet config init`",
-          })
-        }
-        return settings.value["default-lenses"]
-      })
-    : []
-  const target = yield* resolveTarget({ commits, pr, workingTree })
-  // Scope degradation is never silent (spec #16): each warning is narrated
-  // as it is discovered, in addition to landing on the plan and report.
-  for (const warning of target.warnings) {
-    yield* progress(`warning — ${warning}`)
-  }
-  // Uncommitted state is the one input Git cannot reconstruct from the frozen
-  // head commit, so it is captured while the resolved target is still current.
-  const overlay = ReviewTarget.guards.WorkingTree(target)
-    ? yield* Effect.scoped(captureWorkspaceOverlay(target))
-    : undefined
-
-  const resolvedLensNames = resolveLensNames(
-    selectedLensNames,
-    defaultLensNames,
-  )
-  yield* progress(
-    selectedLensNames === undefined
-      ? `loading Default Lenses ${resolvedLensNames.join(", ") || "(none)"}`
-      : `loading exact caller Lenses ${resolvedLensNames.join(", ") || "(none)"}`,
-  )
-  const lenses = yield* loadFinderLenses({
-    repoRoot: target.repoRoot,
-    names: resolvedLensNames,
-  })
-
-  // Each lens freezes its final recipe-resolved seat: the recipe maps the
-  // lens's finder class to a seat, and later recipe edits never change a
-  // resumed run (ADR 0004/0005).
-  // optionalKey admits an absent key, never a present undefined one, so the
-  // standard-by-omission convention holds in the persisted plan too.
-  const frozenLenses = lenses.map((lens) => {
-    const frozen = {
-      name: lens.name,
-      promptText: lens.promptText,
-      seat: finderSeat(selected.recipe, lens.finderClass),
-      candidateCap: candidateCapForLens(lens.name),
-    }
-    return lens.finderClass === "interpretive"
-      ? FrozenLens.make({ ...frozen, finderClass: lens.finderClass })
-      : FrozenLens.make(frozen)
-  })
-
-  const specificationState = yield* acquireSpecification(
-    target,
-    addendum,
-    githubSpec,
-  )
-  if (specificationState.diagnostic !== undefined) {
-    yield* progress(`warning — ${specificationState.diagnostic.message}`)
-  }
-
-  const runsRoot = yield* resolveRunsRoot()
-  const runId = yield* makeRunId()
-  const paths = yield* createRunDirectory(runsRoot, runId)
-  const planFields = {
-    runId,
-    target,
-    recipeName: selected.name,
-    // Finder seats live on each frozen lens (a mixed standard/interpretive run
-    // has no single Finder seat); only the downstream stages are stage state.
-    seats: {
-      pool: stageSeat(selected.recipe, "pool"),
-      verification: stageSeat(selected.recipe, "verification"),
-      judgment: stageSeat(selected.recipe, "judgment"),
-    },
-    lenses: frozenLenses,
-  }
-  const plan = specificationState.specification === undefined
-    ? specificationState.diagnostic === undefined
-      ? ReviewPlan.make(planFields)
-      : ReviewPlan.make({
-          ...planFields,
-          specificationSourceDiagnostic: specificationState.diagnostic,
-        })
-    : specificationState.diagnostic === undefined
-      ? ReviewPlan.make({
-          ...planFields,
-          specification: specificationState.specification,
-        })
-      : ReviewPlan.make({
-          ...planFields,
-          specification: specificationState.specification,
-          specificationSourceDiagnostic: specificationState.diagnostic,
-        })
-  yield* progress("freezing review plan")
-  // Overlay first: a persisted plan implies its overlay exists.
-  if (overlay !== undefined) {
-    yield* writeArtifactBytes(paths.workspaceOverlay, overlay)
-  }
-  yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
-
-  yield* executeReviewPlan({
-    plan,
-    paths,
-    startedAt,
-  })
-  yield* maybeDeliver(destination, { plan, paths })
+  const loaded = yield* submit(request)
+  yield* executeReviewPlan({ ...loaded, startedAt })
+  yield* maybeDeliver(destination, loaded)
 })
 
 const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
@@ -430,18 +185,29 @@ const executeReviewCommand = Effect.fn(
   const specification = Option.isSome(spec)
     ? yield* loadCallerAddendum(yield* InvocationDirectory, spec.value)
     : undefined
-  yield* startReview({
-    recipeName: recipe,
-    selectedLensNames: Option.isNone(lenses)
-      ? undefined
-      : lenses.value.split(",").map((name) => name.trim()),
-    pr,
-    commits,
-    workingTree,
+  // The guards above leave only the valid aims, so the bare remainder is
+  // `--working-tree` alone: uncommitted changes vs HEAD.
+  const target = Option.isSome(pr)
+    ? SubmissionTargetRequest.PullRequest({
+        number: pr.value,
+        githubSpecOnly: githubSpec,
+      })
+    : Option.isSome(commits)
+      ? workingTree
+        ? SubmissionTargetRequest.WorkingTree({ base: commits.value })
+        : SubmissionTargetRequest.Commits({ range: commits.value })
+      : SubmissionTargetRequest.WorkingTree({ base: undefined })
+  yield* startReview(
+    {
+      target,
+      recipeName: recipe,
+      selectedLensNames: Option.isNone(lenses)
+        ? undefined
+        : lenses.value.split(",").map((name) => name.trim()),
+      addendum: specification,
+    },
     destination,
-    addendum: specification,
-    githubSpec,
-  })
+  )
 })
 
 const review = Command.make(
@@ -578,6 +344,8 @@ export const runGauntlet = (
           Effect.as(1),
         ),
       ReviewCommandError: (failure) =>
+        progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
+      SubmissionError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       SpecificationLoadError: (failure) =>
         progress(`could not review — ${failure.reason} (${failure.path})`).pipe(
