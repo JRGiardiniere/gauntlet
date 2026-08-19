@@ -1,9 +1,9 @@
 > **Imported reference (cloudflare-hub).** This doc was written for cloudflare-hub
-> against effect@4.0.0-beta.90; gauntlet pins **4.0.0-rc.109**, and every code
+> against effect@4.0.0-beta.90; gauntlet pins **4.0.0-rc.110**, and every code
 > snippet, import path, API name, and signature claim below has been **verified
-> against the installed beta.106 source** (verified 2026-08-10; the beta.106→rc.109
-> changesets are patch-only and touch no API this doc prescribes, re-checked
-> 2026-08-15). The substantive
+> against the installed beta.106 source** (verified 2026-08-10; the beta.106→rc.110
+> changesets touch no API this doc prescribes except the CLI boolean semantics
+> recorded below, re-checked 2026-08-18). The substantive
 > beta.90→106 renames folded in: `Schedule.take(n)` → `Schedule.upTo({ times: n })`
 > and `Schema.TaggedErrorClass` → `Schema.TaggedError`. Read it as the house style's
 > rationale and rule set, not as gauntlet gospel: hub-specific scopes
@@ -53,6 +53,8 @@ reference repos listed below.
 1. `effect` and every `@effect/*` package are pinned **exactly** to one shared version
    (enforced by `scripts/check-effect-pin.mjs`) — no carets, no bumps unless the task
    explicitly says so.
+   At rc.110, a bare CLI `Flag.boolean` is required when omitted. Ordinary switches
+   need `Flag.withDefault(false)`; use `Flag.optional` only when absence is meaningful.
 2. HTTP and subprocess are **in-core** in v4: `effect/unstable/http/*` (HttpClient,
    HttpClientRequest, HttpClientResponse, HttpClientError, FetchHttpClient) and
    `effect/unstable/process`. There is **no `@effect/platform`** package; never import

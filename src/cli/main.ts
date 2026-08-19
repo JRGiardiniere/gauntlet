@@ -465,6 +465,7 @@ const review = Command.make(
       ),
     ),
     workingTree: Flag.boolean("working-tree").pipe(
+      Flag.withDefault(false),
       Flag.withDescription("Review the uncommitted changes against HEAD"),
     ),
     destination: Flag.choice("destination", ["local", "pr"]).pipe(
@@ -494,6 +495,7 @@ const review = Command.make(
       ),
     ),
     githubSpec: Flag.boolean("github-spec").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Use only GitHub closing issues as the automatic ReviewSpecification source for this Run",
       ),
