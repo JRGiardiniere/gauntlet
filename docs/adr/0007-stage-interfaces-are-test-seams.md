@@ -41,3 +41,6 @@ no-speculative-safeguards directive (#8).
 - Amended by ADR 0008: the happy-path clause above applies to quiet surfaces
   only. Behavior whose regression fails loudly at the terminal on the next
   real use keeps no test — the next run is the test.
+- Amended 2026-08-19 (#104): the sanctioned-seam rule and the same-change
+  deletion clause apply to any deep module gaining a public interface, not
+  only Stages — first applied to Submission.
