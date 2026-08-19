@@ -15,7 +15,7 @@ import { unusedLinearLayer } from "../linear/linear.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { runGit } from "../target/git.ts"
 import { runGauntlet } from "./main.ts"
-import { InvocationDirectory } from "./invocation-directory.ts"
+import { InvocationDirectory } from "../target/invocation-directory.ts"
 
 interface Fixture {
   readonly home: string

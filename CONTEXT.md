@@ -69,6 +69,14 @@ that exact Run from them, reusing completed paid work, under the currently
 installed code. Delivery destination is not part of the plan.
 _Avoid_: configuration snapshot, settings, options
 
+**Submission**:
+The act that turns a caller's review request into a persisted Run: resolving
+the ReviewTarget, freezing Lenses and Seats, acquiring the ReviewSpecification,
+and writing the Run record with its frozen ReviewPlan (overlay before plan —
+a persisted plan implies its overlay exists). Submission happens once per Run;
+resume, execution, and delivery are not part of Submission.
+_Avoid_: intake, plan builder, run factory, review setup
+
 **Recipe**:
 A named review policy stored as user-owned content in the Recipe Catalog. It
 assigns Seats and may select Lenses, but never contains budgets, cost limits,

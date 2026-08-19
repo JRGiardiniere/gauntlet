@@ -315,6 +315,26 @@ describe("dossier markdown rendering", () => {
     )
     expect(markdown).not.toContain("Comment budget:")
   })
+
+  it("renders the specification-source diagnostic in the header", () => {
+    const withDiagnostic = ReviewPlan.make({
+      runId: plan.runId,
+      target: plan.target,
+      seats: plan.seats,
+      lenses: plan.lenses,
+      specificationSourceDiagnostic: {
+        source: "Linear",
+        branch: "john/eng-75-linear-source",
+        issueIdentifier: "ENG-75",
+        reason: "missing-api-key",
+        message: "Linear branch binding found but LINEAR_API_KEY is not set",
+      },
+    })
+    expect(renderDossierMarkdown(withDiagnostic, dossier, accounting)).toContain(
+      "- Specification source: Linear branch binding found but LINEAR_API_KEY is not set",
+    )
+    expect(markdown).not.toContain("Specification source:")
+  })
 })
 
 describe("digest rendering", () => {
