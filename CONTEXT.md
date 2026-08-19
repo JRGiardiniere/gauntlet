@@ -8,7 +8,10 @@ code-review agent. This is a glossary only — no implementation detail belongs 
 **ReviewTarget**:
 The exact change under review — a tagged union of target kinds (a working
 tree, a pull request, or a commit range), carrying its frozen diff and any
-scope-degradation warnings acquired with it.
+scope-degradation warnings acquired with it. A commit range's identity is the
+resolved SHA pair, never the branch, tag, or revision expression submitted for
+it. A working tree may extend a commit range, in which case the review diff
+starts at that range's merge-base and still ends at the working tree.
 _Avoid_: scope, subject, changeset, target repo
 
 **ReviewSpecification**:

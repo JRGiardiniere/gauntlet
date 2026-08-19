@@ -2,8 +2,8 @@
 name: gauntlet
 description: >-
   Runs Gauntlet as a background `gauntlet review` and relays the stdout digest
-  verbatim. Use when asked to review uncommitted changes, review a pull
-  request, configure a Recipe, or deliver a completed Dossier.
+  verbatim. Use when asked to review uncommitted changes, a branch's commits,
+  or a pull request, to configure a Recipe, or to deliver a completed Dossier.
 ---
 
 # Gauntlet
@@ -13,8 +13,23 @@ Dossier lives on disk.
 
 ## Review
 
-1. **Aim.** A named PR takes `--pr N`. Otherwise assume the working tree. If
-   `git diff HEAD` is empty, ask which PR before launching.
+1. **Aim.** Every review names its target — point the tool at what you mean;
+   there is no default and no autodetect.
+
+   | What you mean | Flag |
+   | --- | --- |
+   | this PR | `--pr N` |
+   | these commits | `--commits <base>[..<head>]` |
+   | everything uncommitted | `--working-tree` |
+   | this branch's work including uncommitted edits | `--commits <base> --working-tree` |
+
+   `--commits` defaults its head end to `HEAD` and accepts any branch, tag, or
+   SHA on either end; it reviews `merge-base(base, head)..head`, so
+   `--commits main` is the usual "review my branch". Uncommitted edits are not
+   part of a plain `--commits` review — they are reported as a warning; add
+   `--working-tree` to include them. `--pr` cannot be combined with the other
+   target flags. When you cannot tell which the user means, ask before
+   launching.
 2. **Recipe.** Omit the positional name so the configured Default Recipe is
    used, unless the user named a Recipe.
 3. **Lenses.** Omit `--lenses` to use the configured Default Lenses. When the
@@ -52,7 +67,7 @@ Dossier lives on disk.
 6. **Launch** as a background shell task:
 
    ```
-   gauntlet review [recipe] [--pr N] [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
+   gauntlet review [recipe] <target> [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
    ```
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means

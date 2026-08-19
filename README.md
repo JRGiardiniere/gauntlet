@@ -14,7 +14,9 @@ can symlink from `.claude/skills/` later.
 ## Commands
 
 ```
-gauntlet review [recipe] [--pr N] [--github-spec] [--spec <file>] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
+gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination local|pr] [--lenses a,b] [--resume [run-id]]
+  <target> = --pr N | --commits <base>[..<head>] | --working-tree
+           | --commits <base> --working-tree
 gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
@@ -22,8 +24,18 @@ gauntlet config set <key> <value...>
 gauntlet config unset <key>
 ```
 
-- `review` runs the pipeline to completion. The default target is the working
-  tree's uncommitted changes; a new review on a branch containing one Linear
+- `review` runs the pipeline to completion. Every review names its target and
+  there is no default: `--working-tree` reviews the uncommitted changes against
+  HEAD, `--pr N` reviews that pull request's range, and `--commits
+  <base>[..<head>]` reviews merge-base(base, head)..head — the head end
+  defaults to `HEAD`, either end accepts any committish, and both ends are
+  frozen as commit SHAs, so the Run stays aimed at the same commits when refs
+  move. Uncommitted edits are outside a commit range and are reported as one
+  scope-degradation warning. `--commits <base> --working-tree` reviews the
+  branch's committed work plus its current uncommitted state as one target.
+  `--pr` cannot be combined with the other target flags; an unresolvable ref
+  and an empty range both fail before a Run is created.
+  A new review on a branch containing one Linear
   issue ID resolves that issue as its current Slice, with one native parent,
   sibling titles/states, and human comments. Set `LINEAR_API_KEY` to a Linear
   personal API key. A resolved Linear binding wins over GitHub. When Linear is
