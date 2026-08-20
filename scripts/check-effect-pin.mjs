@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 // The effect family must be pinned to one exact version, but which version is
-// the manifest's business — update with `pnpm add -E effect@rc` (plus the
+// the manifest's business — update with `bun add --exact effect@rc` (plus the
 // sibling @effect packages), and this check re-verifies the result. `rc` is
 // the v4 dist-tag until v4 reaches `latest`.
 const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]

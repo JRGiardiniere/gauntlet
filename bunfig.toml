@@ -1,0 +1,4 @@
+[install]
+# pnpm's non-hoisted layout was bought for phantom-dependency protection;
+# Bun's isolated linker is the same guarantee.
+linker = "isolated"

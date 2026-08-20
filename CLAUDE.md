@@ -13,7 +13,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 
 ## Expectations
 
-- `pnpm lint && pnpm typecheck && pnpm test` stays green. The gate includes 13
+- `bun run lint && bun run typecheck && bun run test` stays green. The gate includes 13
   custom rules that reject common Effect idioms (Schema.Class, raw throw,
   unbounded retries…) — read the rule's message, don't fight it
 - Effect pinned **exactly** (enforced); single `effect` package, unstable
