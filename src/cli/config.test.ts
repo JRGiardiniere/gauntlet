@@ -33,6 +33,7 @@ const INITIAL_DEFAULT_LENSES = [
   "presentation-environment",
   "refactoring-checklist",
   "removed-behavior",
+  "security",
   "spec-conformance",
   "standards",
   "subjective",
