@@ -66,6 +66,7 @@ const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
   "presentation-environment",
   "refactoring-checklist",
   "removed-behavior",
+  "security",
   "spec-conformance",
   "standards",
   "subjective",

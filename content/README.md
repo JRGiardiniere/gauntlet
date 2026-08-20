@@ -116,3 +116,12 @@ review skill):
   the frozen ReviewSpecification ingress and a member of the initial Default
   Lenses (#81). When selected without a specification, it is skipped explicitly
   rather than invoked without requirements or presented as completed coverage.
+- **`standards.md`** (#110) — the conventions sweep moved out of `cleanup.md`
+  into its own lens fed by the user-owned Standards Manifest; skipped
+  explicitly when no manifest exists.
+- **`security.md`** — ported near-verbatim from Anthropic's
+  `claude-code-security-review` audit prompt (`claudecode/prompts.py`),
+  trimmed by wholesale deletion: the PR-context scaffolding, JSON output
+  contract, severity ladder, and confidence scoring are dropped (the shared
+  block, emit tools, and Verification own those jobs); the categories,
+  methodology phases, and exclusion list are kept word for word.
