@@ -128,7 +128,7 @@ describe("lens content", () => {
         const lensPath = `${directory}/fixture-lens.md`
         yield* fs.writeFileString(lensPath, "fixture prompt v1\n")
         const loaded = yield* loadLens(directory, "fixture-lens")
-        expect(loaded.finderClass).toBe("standard")
+        expect(loaded.finderClass).toBe("specific")
         const frozen = FrozenLens.make({
           name: loaded.name,
           promptText: loaded.promptText,

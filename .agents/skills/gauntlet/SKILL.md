@@ -113,6 +113,25 @@ Use exact `--lenses a,b` for one targeted run. Recipes choose Seats only. Create
 or improve a Lens by editing its Markdown directly, then run `gauntlet config`
 to validate and discover it; availability never selects it automatically.
 
+## Standards Manifest
+
+The `standards` Lens reviews the diff against this repository's governing
+documents. It is fed by a Standards Manifest: a user-owned, per-repository
+file listing those documents, one path per line — repo-relative paths resolve
+against the repo root; `~/` and absolute paths are allowed for documents
+shared across repositories. It is never a file inside the reviewed
+repository. `gauntlet config` prints the manifest's exact path for the
+current repository as `standards manifest:`.
+
+When a review will include the `standards` Lens and that path does not exist,
+offer to create it: propose the repository's governing documents — typically
+the repo-root CLAUDE.md **or** AGENTS.md (whichever exists, not both), plus
+any documented style guides or contribution standards the repo carries — and
+write the agreed list to the printed path. Nothing is implicit: a document
+participates only by being listed. With no manifest the Lens is skipped and
+reported, never silently invoked; a listed path that does not exist fails the
+review before a Run is created.
+
 ## Deliver
 
 `gauntlet deliver <run-id>` posts an already-completed pull-request run's

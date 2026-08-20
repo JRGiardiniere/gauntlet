@@ -146,11 +146,22 @@ never from tags or other applicability metadata on a Lens.
 _Avoid_: lens registry, repository-only tag, global tag
 
 **Finder Class**:
-A stable statement of how a Lens reasons: `standard` for a bounded review pass
-or `interpretive` for broader reasoning over intent and context. An
-Interpretive Finder receives the ReviewSpecification when one is available;
-the selected Recipe maps each class to a concrete Seat.
-_Avoid_: subjective finder, deep finder, finder role, model tier
+A stable statement of how a Lens reasons: `specific` for a bounded pass whose
+Lens spells out exactly what to check, or `interpretive` for broader reasoning
+over intent and context. An Interpretive Finder receives the
+ReviewSpecification when one is available; the selected Recipe maps each class
+to a concrete Seat.
+_Avoid_: standard finder (the pre-#110 name for `specific`), subjective
+finder, deep finder, finder role, model tier
+
+**Standards Manifest**:
+The user-owned, per-repository list of governing documents fed to the
+standards Lens: one newline-delimited path list under `~/.gauntlet/standards`,
+keyed by the repository's common git directory (one per repository, shared by
+every worktree), never a file in the reviewed repository.
+Submission assembles the listed documents into the Lens's frozen prompt; with
+no manifest the standards Lens is skipped, not invoked.
+_Avoid_: standards config, conventions file, rules file
 
 **Run**:
 The durable, resumable execution of one review. The only thing that "runs" —

@@ -4,7 +4,9 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { resolveReviewRecipe } from "../config/recipe-catalog.ts"
 import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
+import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
+import { STANDARDS_LENS_NAME } from "../domain/finder-selection.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
 import { finderSeat, stageSeat } from "../domain/recipe.ts"
 import {
@@ -214,15 +216,32 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     names: resolvedLensNames,
   })
 
+  // The standards lens reads its Standards Manifest here so the assembled
+  // Governing standards block lands in the already-frozen prompt text — the
+  // freeze point is the assembly point, and resume replays it for free
+  // (#110). No manifest means no block; selection then skips the lens.
+  const standardsBlock = lenses.some((lens) => lens.name === STANDARDS_LENS_NAME)
+    ? yield* loadGoverningStandardsBlock(target.repoRoot).pipe(
+        Effect.mapError((failure) =>
+          new SubmissionError({
+            reason: `${failure.reason} (${failure.path})`,
+          })),
+      )
+    : undefined
+
   // Each lens freezes its final recipe-resolved seat: the recipe maps the
   // lens's finder class to a seat, and later recipe edits never change a
   // resumed run (ADR 0004/0005).
   // optionalKey admits an absent key, never a present undefined one, so the
-  // standard-by-omission convention holds in the persisted plan too.
+  // specific-by-omission convention holds in the persisted plan too.
   const frozenLenses = lenses.map((lens) => {
+    const promptText =
+      lens.name === STANDARDS_LENS_NAME && standardsBlock !== undefined
+        ? `${lens.promptText.trimEnd()}\n\n${standardsBlock}`
+        : lens.promptText
     const frozen = {
       name: lens.name,
-      promptText: lens.promptText,
+      promptText,
       seat: finderSeat(selected.recipe, lens.finderClass),
       candidateCap: candidateCapForLens(lens.name),
     }
@@ -249,7 +268,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     runId,
     target,
     recipeName: selected.name,
-    // Finder seats live on each frozen lens (a mixed standard/interpretive run
+    // Finder seats live on each frozen lens (a mixed specific/interpretive run
     // has no single Finder seat); only the downstream stages are stage state.
     seats: {
       pool: stageSeat(selected.recipe, "pool"),

@@ -31,7 +31,7 @@ export const FrozenLens = Schema.Struct({
   // Per-lens candidate cap, stated in the prompt and enforced by truncation
   // (docs/spec/pipeline-shape.md). The shared default is applied at freeze.
   candidateCap: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
-  // Standard is the default represented by omission, mirroring lens
+  // Specific is the default represented by omission, mirroring lens
   // frontmatter (ADR 0004). Prompt assembly reads this to decide whether the
   // frozen ReviewSpecification reaches the finder.
   finderClass: Schema.optionalKey(Schema.Literals(["interpretive"])),
@@ -50,7 +50,7 @@ export const ReviewPlan = Schema.Struct({
   // Resolved from the named recipe at submission. Absent seats mean the
   // corresponding stage runs no invocations — the walking skeleton freezes
   // an entirely seatless plan. Finder seats are not stage state: each frozen
-  // lens carries its own class-resolved seat, and a mixed standard/interpretive
+  // lens carries its own class-resolved seat, and a mixed specific/interpretive
   // run has no single Finder seat to record.
   recipeName: Schema.optionalKey(Schema.NonEmptyString),
   seats: Schema.Struct({

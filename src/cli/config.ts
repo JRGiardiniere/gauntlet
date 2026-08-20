@@ -22,6 +22,7 @@ import {
   renderAvailable,
   selectRecipeFrom,
 } from "../config/recipe-catalog.ts"
+import { standardsManifestPath } from "../config/standards-manifest.ts"
 import {
   defaultRunsRoot,
   loadSettings,
@@ -66,6 +67,7 @@ const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
   "refactoring-checklist",
   "removed-behavior",
   "spec-conformance",
+  "standards",
   "subjective",
   "wrapper-proxy",
 ]
@@ -122,6 +124,13 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   lines.push(
     `project Lens catalog: ${pathService.join(repoRoot, ".gauntlet", "lenses")}`,
   )
+  // The Standards Manifest path is repo-derived, so config is the one place
+  // that names it — the encoding rule never leaks into skill prose (#110).
+  // Outside a git repository there is no manifest to name.
+  const manifestPath = yield* Effect.result(standardsManifestPath(repoRoot))
+  if (Result.isSuccess(manifestPath)) {
+    lines.push(`standards manifest: ${manifestPath.success}`)
+  }
 
   const settings = Result.isFailure(settingsResult)
     ? Option.none<Settings>()

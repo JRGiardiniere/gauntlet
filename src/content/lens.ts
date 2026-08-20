@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema"
 import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
 
-// A lens is standard by omission or opts into exactly `interpretive`; arbitrary
+// A lens is specific by omission or opts into exactly `interpretive`; arbitrary
 // classes and concrete seats are invalid — the recipe maps the class to a
 // seat, the lens never chooses a provider or model (ADR 0004). `category`
 // is validated but not surfaced: it groups future lens listings and has no
@@ -98,7 +98,7 @@ const decodeLensSource = (
     const finderClass = parsed.frontmatter["finder-class"]
     const reason =
       Predicate.isString(finderClass) && finderClass !== "interpretive"
-        ? `finder-class admits exactly "interpretive" (standard is by omission); got "${finderClass}"`
+        ? `finder-class admits exactly "interpretive" (specific is by omission); got "${finderClass}"`
         : "frontmatter does not match the lens format"
     const frontmatter = yield* Schema.decodeEffect(LensFrontmatter)(
       parsed.frontmatter,
@@ -133,7 +133,7 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   return LoadedLens.make({
     name: lensName,
     promptText,
-    finderClass: frontmatter["finder-class"] ?? "standard",
+    finderClass: frontmatter["finder-class"] ?? "specific",
   })
 })
 

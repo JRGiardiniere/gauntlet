@@ -26,7 +26,7 @@ export interface FinderPromptTemplates {
 
 export type ResolvedFinderContext =
   | {
-      readonly key: "standard"
+      readonly key: "specific"
       readonly specification?: undefined
     }
   | {
@@ -45,7 +45,7 @@ export const resolveFinderContext = (
         key: "interpretive-with-review-specification",
         specification,
       }
-    : { key: "standard" }
+    : { key: "specific" }
 
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
@@ -78,7 +78,7 @@ export const loadFinderPromptTemplates = Effect.fn(
 // interpretive lens, so it is still shared prefix, not tail — and only the
 // lens tail diverges, so multiple finder invocations can share a provider
 // cache prefix without lens labels, run ids, or timestamps leaking ahead of
-// it. A Standard Finder never receives specification material (issue #73).
+// it. A Specific Finder never receives specification material (issue #73).
 export const assembleFinderContext = (
   template: string,
   target: ReviewTarget,

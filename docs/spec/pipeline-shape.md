@@ -14,7 +14,7 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
 1. **Finders** — one AgentInvocation per runnable selected lens, fanned out in
    parallel over the same frozen diff. Prompt = finder system prompt + shared
    block + ReviewSpecification (Interpretive Finders only, when the plan froze
-   one) + lens tail (see the cache invariant below). Standard Finders never
+   one) + lens tail (see the cache invariant below). Specific Finders never
    receive specification material. Each emits Candidates via `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
@@ -121,7 +121,7 @@ timestamp) may appear before the tail, and every finder in a fan-out carries a
 byte-identical tool set. An Interpretive Finder's ReviewSpecification section
 sits between the shared block and the tail: it is identical for every
 interpretive lens in the run, so it extends the shared prefix rather than
-breaking it (interpretive finders simply share a longer prefix than standard
+breaking it (interpretive finders simply share a longer prefix than specific
 ones). Warmup/fan-out sequencing, session-key sharing,
 and cache diagnostics are operational mechanics (ADR 0002), not review
 semantics.
