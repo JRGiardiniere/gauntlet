@@ -21,15 +21,14 @@ export class StandardsManifestError extends Data.TaggedError(
   readonly cause?: unknown
 }> {}
 
-// The repository identity is the main repository root: the parent of the
-// common git directory, so every worktree shares the main checkout's manifest,
-// a local-only repository works from commit zero, and the key never changes
-// when a remote appears later (#110).
-const resolveMainRepoRoot = Effect.fn(
-  "gauntlet.standards.resolve_main_repo_root",
+// The repository identity is the common git directory itself: exactly one
+// per repository, shared by every worktree, present from commit zero, and
+// independent of any remote — the key never changes when a remote appears
+// later (#110).
+const resolveRepoIdentity = Effect.fn(
+  "gauntlet.standards.resolve_repo_identity",
 )(function* (repoRoot: string) {
-  const path = yield* Path.Path
-  const commonDir = yield* runGit(repoRoot, [
+  return yield* runGit(repoRoot, [
     "rev-parse",
     "--path-format=absolute",
     "--git-common-dir",
@@ -45,17 +44,16 @@ const resolveMainRepoRoot = Effect.fn(
         cause,
       })),
   )
-  return path.dirname(commonDir)
 })
 
-const encodeRepoRoot = (root: string): string =>
-  root.replaceAll(/[^A-Za-z0-9]/g, "-")
+const encodeRepoIdentity = (identity: string): string =>
+  identity.replaceAll(/[^A-Za-z0-9]/g, "-")
 
 export const standardsManifestPath = Effect.fn(
   "gauntlet.standards.manifest_path",
 )(function* (repoRoot: string) {
   const path = yield* Path.Path
-  const mainRoot = yield* resolveMainRepoRoot(repoRoot)
+  const identity = yield* resolveRepoIdentity(repoRoot)
   const home = yield* gauntletHome().pipe(
     Effect.mapError((cause) =>
       new StandardsManifestError({
@@ -64,7 +62,7 @@ export const standardsManifestPath = Effect.fn(
         cause,
       })),
   )
-  return path.join(home, "standards", encodeRepoRoot(mainRoot))
+  return path.join(home, "standards", encodeRepoIdentity(identity))
 })
 
 // Repo-relative entries resolve against the reviewed checkout, so each
@@ -133,7 +131,7 @@ export const loadGoverningStandardsBlock = Effect.fn(
           })),
       )
       return `### ${entry}\n\n${text.trim()}`
-    }))
+    }), { concurrency: 4 })
   return [
     GOVERNING_STANDARDS_HEADING,
     "The documents that govern how the changed code should be written, fed from the Standards Manifest. Judge each document's applicability from its own text.",

@@ -157,7 +157,8 @@ finder, deep finder, finder role, model tier
 **Standards Manifest**:
 The user-owned, per-repository list of governing documents fed to the
 standards Lens: one newline-delimited path list under `~/.gauntlet/standards`,
-keyed by the main repository root, never a file in the reviewed repository.
+keyed by the repository's common git directory (one per repository, shared by
+every worktree), never a file in the reviewed repository.
 Submission assembles the listed documents into the Lens's frozen prompt; with
 no manifest the standards Lens is skipped, not invoked.
 _Avoid_: standards config, conventions file, rules file

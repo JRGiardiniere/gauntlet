@@ -16,8 +16,7 @@ export const RecipeName = Schema.String.check(
 export type RecipeName = typeof RecipeName.Type
 
 // A lens is specific by omission or opts into exactly `interpretive` (ADR
-// 0004, renamed per #110); the recipe maps the class to a seat, the lens
-// never names one.
+// 0004); the recipe maps the class to a seat, the lens never names one.
 export const FinderClass = Schema.Literals(["specific", "interpretive"])
 export type FinderClass = typeof FinderClass.Type
 
