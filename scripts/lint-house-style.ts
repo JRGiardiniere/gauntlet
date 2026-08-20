@@ -9,13 +9,16 @@ import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
+import * as Argument from "effect/unstable/cli/Argument"
+import * as Command from "effect/unstable/cli/Command"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 
 const repoRoot = `${import.meta.dirname}/..`
 const oxlint = `${repoRoot}/node_modules/.bin/oxlint`
-const extraLintTargets = process.argv.slice(2)
 
-const program = Effect.gen(function* () {
+const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
+  extraLintTargets: ReadonlyArray<string>,
+) {
   const ci = yield* Config.option(Config.string("CI"))
   const oxlintFormat = Option.isNone(ci) ? "default" : "github"
 
@@ -101,4 +104,31 @@ const program = Effect.gen(function* () {
   process.exitCode = failed ? 1 : 0
 })
 
-NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer)))
+const lintHouseStyle = Command.make(
+  "lint-house-style",
+  {
+    targets: Argument.string("targets").pipe(
+      Argument.variadic(),
+      Argument.withDescription(
+        "Extra paths to lint beyond the standing src and scripts targets",
+      ),
+    ),
+  },
+  ({ targets }) => runChecks(targets),
+).pipe(
+  Command.withDescription(
+    "Run every house-style check concurrently and print each report as one block",
+  ),
+)
+
+NodeRuntime.runMain(
+  Command.runWith(lintHouseStyle, { version: "0.0.0" })(
+    process.argv.slice(2),
+  ).pipe(
+    Effect.catchTag("ShowHelp", (help) =>
+      Effect.sync(() => {
+        process.exitCode = help.errors.length === 0 ? 0 : 1
+      })),
+    Effect.provide(NodeServices.layer),
+  ),
+)
