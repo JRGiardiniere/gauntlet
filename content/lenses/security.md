@@ -61,7 +61,7 @@ Critical instructions:
 - Debug information exposure
 
 Even if something is only exploitable from the local network, it can still be
-a HIGH severity issue.
+a serious issue.
 
 ## Analysis methodology
 
@@ -89,7 +89,6 @@ Phase 3 — Vulnerability assessment:
 ## Do not report
 
 - Denial of Service (DOS) vulnerabilities or resource exhaustion attacks
-- Secrets/credentials stored on disk (these are managed separately)
 - Rate limiting concerns or service overload scenarios. Services do not need
   to implement rate limiting.
 - Memory consumption or CPU exhaustion issues.

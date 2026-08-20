@@ -124,4 +124,7 @@ review skill):
   trimmed by wholesale deletion: the PR-context scaffolding, JSON output
   contract, severity ladder, and confidence scoring are dropped (the shared
   block, emit tools, and Verification own those jobs); the categories,
-  methodology phases, and exclusion list are kept word for word.
+  methodology phases, and exclusion list are kept word for word. One
+  exclusion is deleted: "secrets stored on disk (managed separately)"
+  assumed the action's companion secret scanner, which Gauntlet lacks, and
+  contradicted the lens's own hardcoded-credentials category.
