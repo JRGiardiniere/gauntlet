@@ -12,11 +12,17 @@ import { fileURLToPath } from "node:url"
 const repoRoot = fileURLToPath(new URL("..", import.meta.url))
 process.chdir(repoRoot)
 
-const contentImports = ["lenses", "prompts"].flatMap((directory) =>
-  readdirSync(`content/${directory}`)
+// The shipped catalog plus stage-owned prompt templates (markdown living
+// with its Stage module, e.g. src/stages/judgment/judge.md).
+const contentImports = [
+  ...["lenses", "prompts"].flatMap((directory) =>
+    readdirSync(`content/${directory}`)
+      .filter((entry) => entry.endsWith(".md"))
+      .map((entry) => `content/${directory}/${entry}`)),
+  ...readdirSync("src", { recursive: true })
     .filter((entry) => entry.endsWith(".md"))
-    .map((entry) => `content/${directory}/${entry}`),
-)
+    .map((entry) => `src/${entry}`),
+]
 
 const entryFile = "bundle-entry.generated.mjs"
 writeFileSync(

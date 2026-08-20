@@ -43,7 +43,7 @@ declare const Bun: {
   readonly embeddedFiles: ReadonlyArray<{ readonly name: string }>
 }
 
-const isCompiledBinary = ["$bunfs", "~BUN", "%7EBUN"].some((marker) =>
+export const isCompiledBinary = ["$bunfs", "~BUN", "%7EBUN"].some((marker) =>
   import.meta.url.includes(marker))
 
 // The packaged content lives outside src/: next to the bundled entry in a

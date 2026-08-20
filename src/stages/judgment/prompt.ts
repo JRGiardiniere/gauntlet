@@ -6,7 +6,7 @@ import {
   assembleStageScope,
   loadStageScopeTemplate,
 } from "../../content/evaluation-prompt.ts"
-import { ContentLoadError } from "../../content/lens.ts"
+import { ContentLoadError, isCompiledBinary } from "../../content/lens.ts"
 import {
   type PromptAssemblyError,
   renderPromptTemplate,
@@ -17,8 +17,12 @@ import type { IndexedObservation } from "./resolution.ts"
 
 // The judge template ships with this Stage module, so stage tests exercise
 // the same prompt text a real run pays for. The scope block stays in
-// content/prompts/ — it is shared with the verifier.
-const judgeTemplatePath = `${import.meta.dirname}/judge.md`
+// content/prompts/ — it is shared with the verifier. A compiled binary
+// embeds the file at its repo-relative path under the bundle root, where
+// every module's own dirname collapses to.
+const judgeTemplatePath = isCompiledBinary
+  ? `${import.meta.dirname}/src/stages/judgment/judge.md`
+  : `${import.meta.dirname}/judge.md`
 
 export interface JudgmentPromptTemplates {
   readonly judge: string
