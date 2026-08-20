@@ -1,12 +1,14 @@
 // The house-style gate's runMain boundary: oxlint (twice), the Effect
-// diagnostics, the Effect pin check, and the import-cycle check, each spawned
-// with inherited output so their reports land on the terminal unchanged.
+// diagnostics, the Effect pin check, and the import-cycle check. The checks
+// are independent, so they run concurrently with captured output, and each
+// report prints as one uninterleaved block in declaration order.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 
 const repoRoot = `${import.meta.dirname}/..`
@@ -65,20 +67,36 @@ const program = Effect.gen(function* () {
     },
   ]
 
+  const results = yield* Effect.forEach(
+    checks,
+    (check) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const handle = yield* ChildProcess.make(check.command, check.args, {
+            cwd: repoRoot,
+            stdout: "pipe",
+            stderr: "pipe",
+          })
+          const [stdout, stderr, exitCode] = yield* Effect.all(
+            [
+              Stream.decodeText(handle.stdout).pipe(Stream.mkString),
+              Stream.decodeText(handle.stderr).pipe(Stream.mkString),
+              handle.exitCode,
+            ],
+            { concurrency: 3 },
+          )
+          return { check, stdout, stderr, exitCode }
+        }),
+      ),
+    { concurrency: "unbounded" },
+  )
+
   let failed = false
-  for (const check of checks) {
-    yield* Console.log(`\n[house-style] ${check.name}`)
-    const exitCode = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const handle = yield* ChildProcess.make(check.command, check.args, {
-          cwd: repoRoot,
-          stdout: "inherit",
-          stderr: "inherit",
-        })
-        return yield* handle.exitCode
-      }),
-    )
-    if (exitCode !== 0) failed = true
+  for (const result of results) {
+    yield* Console.log(`\n[house-style] ${result.check.name}`)
+    if (result.stdout !== "") yield* Console.log(result.stdout.trimEnd())
+    if (result.stderr !== "") yield* Console.error(result.stderr.trimEnd())
+    if (result.exitCode !== 0) failed = true
   }
   process.exitCode = failed ? 1 : 0
 })

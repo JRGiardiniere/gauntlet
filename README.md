@@ -8,7 +8,7 @@ gauntlet on medium.")
 skill: [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — copy or
 symlink that folder into `~/.agents/skills/` to invoke from other
 repositories. The skill assumes `gauntlet` is on `PATH`; from this checkout
-that is `node bin/gauntlet.mjs`, or `bun run bundle` once and put the
+that is `bun bin/gauntlet.ts`, or `bun run bundle` once and put the
 resulting standalone `dist/gauntlet` binary on `PATH` — that is the shape
 distributed to other machines. Claude Code
 can symlink from `.claude/skills/` later.

@@ -2,8 +2,16 @@
 
 - **Date:** 2026-08-20
 - **Bun under test:** `1.4.0` (pinned dev binary on this machine, verified with `bun --version`)
-- **Scope:** `scripts/bundle.mjs`'s content-catalog embedding and
-  `src/content/lens.ts`'s `embeddedLensNames`/`isCompiledBinary` special-casing.
+- **Scope:** the bundle script's content-catalog embedding and
+  `src/content/lens.ts`'s `embeddedLensNames`/`isCompiledBinary` special-casing,
+  as they stood at research time (`scripts/bundle.mjs`).
+- **Status: implemented.** The recommendation landed the same day as
+  `scripts/bundle.ts`, using the `Bun.build` JS API (`compile.assets` plus an
+  in-memory virtual entry module) rather than the CLI flags sketched below.
+  Sections referencing `bundle.mjs` or `--asset`/`--asset-naming` CLI flags
+  describe the pre-implementation state and the JS API's flag equivalents; the
+  Bun behavior they document (recursive directory embedding, `node:fs` over
+  `/$bunfs/`, naming semantics) is what remains durable here.
 - **Primary sources:** `bun build --help` output (ground truth for flag
   semantics on the pinned binary), https://bun.com/docs/bundler/executables,
   https://bun.com/blog/bun-v1.4, and empirical experiments built and run in

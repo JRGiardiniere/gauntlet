@@ -61,7 +61,7 @@ const program = Effect.gen(function* () {
   ].join("\n")
 
   yield* fs.makeDirectory("dist", { recursive: true })
-  yield* Effect.tryPromise({
+  const build = yield* Effect.tryPromise({
     try: () =>
       Bun.build({
         entrypoints: ["./bundle-entry.virtual.mjs"],
@@ -75,11 +75,14 @@ const program = Effect.gen(function* () {
       }),
     catch: (cause) => new BundleFailed({ cause }),
   })
+  if (!build.success) {
+    return yield* new BundleFailed({ cause: "Bun.build reported failure" })
+  }
   yield* Console.log("compiled dist/gauntlet")
 
   // Bun 1.4.0's compile emits an invalid ad-hoc signature on macOS and the
   // binary is SIGKILLed on launch; re-sign until the upstream regression is
-  // fixed (worked in 1.3.14).
+  // fixed.
   if (process.platform === "darwin") {
     const exitCode = yield* Effect.scoped(
       Effect.gen(function* () {
