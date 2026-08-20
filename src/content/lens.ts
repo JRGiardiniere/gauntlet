@@ -36,13 +36,8 @@ export class ContentLoadError extends Data.TaggedError("ContentLoadError")<{
 
 // Inside a compiled Bun executable every module URL sits under the virtual
 // bundle root ($bunfs; ~BUN/%7EBUN on Windows) and the shipped content is an
-// embedded asset tree next to the bundled entry. Bun serves embedded files
-// through node:fs reads but not directory listings, so the embedded catalog
-// is listed from this global instead (per-file reads stay on FileSystem).
-declare const Bun: {
-  readonly embeddedFiles: ReadonlyArray<{ readonly name: string }>
-}
-
+// embedded asset tree next to the bundled entry, served through ordinary
+// node:fs reads and directory listings (Bun >= 1.4).
 export const isCompiledBinary = ["$bunfs", "~BUN", "%7EBUN"].some((marker) =>
   import.meta.url.includes(marker))
 
@@ -137,27 +132,10 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   })
 })
 
-// Embedded asset names are bundle-relative ("content/lenses/x.md"); the
-// listed directory is absolute under the bundle root, so the relative prefix
-// is the directory minus the bundled entry's own directory.
-const embeddedLensNames = (lensesDirectory: string) => {
-  const prefix = `${lensesDirectory.slice(import.meta.dirname.length + 1)}/`
-  return Array.sort(
-    Bun.embeddedFiles
-      .filter((file) =>
-        file.name.startsWith(prefix) && file.name.endsWith(".md"))
-      .map((file) => file.name.slice(prefix.length, -".md".length)),
-    Order.String,
-  )
-}
-
 const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
   lensesDirectory: string,
   optionalDirectory: boolean,
 ) {
-  if (isCompiledBinary && lensesDirectory.startsWith(import.meta.dirname)) {
-    return embeddedLensNames(lensesDirectory)
-  }
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const entries = yield* fs.readDirectory(lensesDirectory).pipe(

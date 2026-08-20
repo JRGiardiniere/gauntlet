@@ -1,15 +1,17 @@
 import { recommended } from "@effect/tsgo/oxlint-presets"
 
-const toCamelCase = (name) => name.replaceAll(/-([a-z])/g, (_, letter) => letter.toUpperCase())
+const toCamelCase = (name: string) => name.replaceAll(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
 
-const toDiagnosticName = (ruleName) => toCamelCase(ruleName.slice(ruleName.indexOf("/") + 1))
+const toDiagnosticName = (ruleName: string) => toCamelCase(ruleName.slice(ruleName.indexOf("/") + 1))
 
-const toDiagnosticSeverity = (severity) => severity === "warn" ? "warning" : severity
+const toDiagnosticSeverity = (severity: string) => severity === "warn" ? "warning" : severity
 
 const recommendedDiagnosticSeverity = Object.fromEntries(
-  Object.entries(recommended.rules).map(([ruleName, severity]) => [
+  Object.entries(recommended.rules ?? {}).map(([ruleName, severity]) => [
     toDiagnosticName(ruleName),
-    toDiagnosticSeverity(severity),
+    // The preset types rule entries loosely; at runtime they are severity
+    // strings, coerced here at the boundary.
+    toDiagnosticSeverity(String(severity)),
   ]),
 )
 
