@@ -70,8 +70,20 @@ Dossier lives on disk.
    gauntlet review [recipe] <target> [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
    ```
 
+   Always run it in the background: a review takes minutes (it fans out real
+   model invocations) and streams its progress to stderr as it goes. Keep
+   working while it runs and pick up the result when the task completes — do
+   not sit polling the output, and do not kill a run for being slow while
+   progress lines are still arriving.
+
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed.
+
+   If a run was interrupted (killed shell, crash), do not start a replacement
+   review: `gauntlet review --resume` continues the latest incomplete run from
+   its frozen inputs — completed stages are reused, and the target, recipe,
+   and lenses cannot be re-specified because the plan is frozen. Pass the
+   run id (`--resume <run-id>`) to name a specific run.
 7. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
    local delivery → link `dossier.md` from the digest paths. A PR destination
    that posted (stderr `posted <url>`) → say the review was delivered as a

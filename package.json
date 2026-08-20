@@ -4,17 +4,17 @@
   "private": true,
   "type": "module",
   "bin": {
-    "gauntlet": "bin/gauntlet.mjs"
+    "gauntlet": "bin/gauntlet.ts"
   },
-  "packageManager": "bun@1.3.14",
+  "packageManager": "bun@1.4.0",
   "engines": {
-    "node": ">=23.6.0"
+    "bun": ">=1.4.0"
   },
   "scripts": {
-    "bundle": "node scripts/bundle.mjs",
-    "lint": "node scripts/lint-house-style.mjs",
-    "live-gate": "node scripts/live-gate.mjs",
-    "live-gate-compiled": "node scripts/live-gate-compiled.mjs",
+    "bundle": "bun scripts/bundle.ts",
+    "lint": "bun scripts/lint-house-style.ts",
+    "live-gate": "bun scripts/live-gate.ts",
+    "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // The single runMain boundary. Everything below stays Effect-native; the
 // exit-code contract is decided inside runGauntlet before this crossing.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"

@@ -270,7 +270,7 @@ const review = Command.make(
   executeReviewCommand,
 ).pipe(
   Command.withDescription(
-    "Review the working tree, a commit range, or a named pull request",
+    "Review the working tree, a commit range, or a named pull request. Every review names its target — there is no default. Runs for minutes and streams progress to stderr; exit 0 means a review was produced (zero findings included)",
   ),
 )
 

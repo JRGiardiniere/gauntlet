@@ -4,14 +4,12 @@ Effect-v4-native, Pi-harnessed, model-agnostic code-review agent. ("Run the
 gauntlet on medium.")
 
 **Status: v1.** Spec is
-[#15](https://github.com/JRGiardiniere/gauntlet/issues/15). Invoking-agent
-skill: [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — copy or
-symlink that folder into `~/.agents/skills/` to invoke from other
-repositories. The skill assumes `gauntlet` is on `PATH`; from this checkout
-that is `node bin/gauntlet.mjs`, or `bun run bundle` once and put the
-resulting standalone `dist/gauntlet` binary on `PATH` — that is the shape
-distributed to other machines. Claude Code
-can symlink from `.claude/skills/` later.
+[#15](https://github.com/JRGiardiniere/gauntlet/issues/15). The invoking-agent
+skill is [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — copy
+or symlink that folder into `~/.agents/skills/` to invoke from other
+repositories. It assumes `gauntlet` is on `PATH`: from this checkout that is
+`bun bin/gauntlet.ts`, or `bun run bundle` once and put the standalone
+`dist/gauntlet` binary on `PATH` — the shape distributed to other machines.
 
 ## Commands
 
@@ -20,65 +18,35 @@ gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination
   <target> = --pr N | --commits <base>[..<head>] | --working-tree
            | --commits <base> --working-tree
 gauntlet deliver <run-id>
-gauntlet config
-gauntlet config init
-gauntlet config set <key> <value...>
-gauntlet config unset <key>
+gauntlet config [init | set <key> <value...> | unset <key>]
 ```
 
-- `review` runs the pipeline to completion. Every review names its target and
-  there is no default: `--working-tree` reviews the uncommitted changes against
-  HEAD, `--pr N` reviews that pull request's range, and `--commits
-  <base>[..<head>]` reviews merge-base(base, head)..head — the head end
-  defaults to `HEAD`, either end accepts any committish, and both ends are
-  frozen as commit SHAs, so the Run stays aimed at the same commits when refs
-  move. Uncommitted edits are outside a commit range and are reported as one
-  scope-degradation warning. `--commits <base> --working-tree` reviews the
-  branch's committed work plus its current uncommitted state as one target.
-  `--pr` cannot be combined with the other target flags; an unresolvable ref
-  and an empty range both fail before a Run is created.
-  A new review on a branch containing one Linear
-  issue ID resolves that issue as its current Slice, with one native parent,
-  sibling titles/states, and human comments. Set `LINEAR_API_KEY` to a Linear
-  personal API key. A resolved Linear binding wins over GitHub. When Linear is
-  absent or unreachable, `--pr N` falls back to GitHub closing issues as the
-  ReviewSpecification (native parent one level, admitted maintainer comments,
-  20k comment budget); an unreachable Linear binding still prints and reports
-  its actionable diagnostic. `--github-spec` is the exact per-run override: it
-  requires `--pr`, skips Linear, and fails before Run creation unless GitHub
-  closing issues produce a specification. Otherwise GitHub unavailability or a
-  PR with no closing issues stays quietly specification-less. Resume always
-  keeps the frozen source. `--spec
-  <file>` freezes a Caller Addendum beside any fetched material. A positional
-  recipe selects a named recipe from the catalog; omitting it selects the
-  configured `default-recipe`.
-  Nothing else selects a recipe — if neither resolves, the review fails and
-  lists what is available. `--destination` defaults to `local` (run directory
-  + bounded digest). `pr` keeps those local outputs and also posts `dossier.md`; it
-  requires `--pr`. `--resume` continues that exact Run from its frozen inputs,
-  under the currently installed code — it never re-resolves the target and
-  never starts a replacement review. The first reusable checkpoint is the
-  complete Finder stage; an interrupted partial Finder fan-out reruns in full,
-  in the same Run.
-- `deliver` posts an already-completed pull-request run's `dossier.md` as a
-  single PR comment. A working-tree run has no PR destination and is refused.
-  Re-delivering a Posted receipt is a no-op that returns the existing comment
-  URL; a NotPosted attempt may be retried.
-- `config` prints the settings path, the effective Lens Catalog with Default
-  Lenses annotated, the recipe catalog, the effective runs root, and every
-  recipe. Lens content is validated fail-fast; recipes remain listed with
-  invalid files marked by their Schema error.
-- `config init` seeds a fresh `~/.gauntlet` with ordinary `quick`, `low`,
-  `medium`, and `high` recipes (default `medium`, all four favorites). The
-  initial Default Lenses explicitly name all eleven shipped Lenses, including
-  `spec-conformance`. The settings and seeded files are user-owned; init is a
-  no-op when the configuration is already valid and refuses a partial one with
-  repair guidance.
-- `config set` / `config unset` manage `~/.gauntlet/settings.json`:
-  `default-recipe` (must name an available valid recipe; cannot be unset),
-  `default-lenses` (replaced as a whole; no names writes an empty selection;
-  cannot be unset), `favorites` (ordered, distinct, replaced as a whole), and
-  `runs-root` (absolute or `~/` path; unset restores `~/.gauntlet/runs`).
+`gauntlet --help` (and per-command `--help`) is the authoritative flag
+reference; the [skill](.agents/skills/gauntlet/SKILL.md) is the authoritative
+operating guide. The short version:
+
+- **Every review names its target** — there is no default and no autodetect.
+  `--commits` reviews `merge-base(base, head)..head` with both ends frozen as
+  SHAs; adding `--working-tree` extends that range to the current uncommitted
+  work as one target.
+- **Specification** — a branch containing one Linear issue ID resolves that
+  issue as the review's Slice (needs `LINEAR_API_KEY`); a `--pr` review falls
+  back to GitHub closing issues when Linear is absent, or uses them
+  exclusively under `--github-spec`. `--spec <file>` freezes a Caller Addendum
+  beside any fetched material.
+- **Recipe** — the positional name selects from the catalog; omitting it uses
+  the configured `default-recipe`. Nothing else selects a recipe.
+- **Destination** — `local` (default) writes the run directory and digest;
+  `pr` additionally posts `dossier.md` as a PR comment (requires `--pr`, like
+  `deliver`).
+- **Resume** — `--resume` continues an interrupted run from its frozen inputs
+  under the currently installed code; it never re-resolves the target and
+  never starts a replacement review.
+- **Config** — `config` prints settings, the Lens and Recipe Catalogs, and
+  the standards manifest path; `config init` seeds a fresh `~/.gauntlet`
+  (recipes `quick`/`low`/`medium`/`high`, default `medium`, and all thirteen
+  shipped Lenses as the Default Lenses); `set`/`unset` manage
+  `default-recipe`, `default-lenses`, `favorites`, and `runs-root`.
 
 ## Dossier
 
@@ -98,25 +66,19 @@ it could not review or delivery failed. Findings never affect the exit code.
 
 ## Lenses
 
-Default Lenses are the required standing membership for ordinary reviews.
-`gauntlet config` lists every shipped and current project-local Lens and marks
-the defaults. `gauntlet config set default-lenses <name...>` replaces the list;
-passing no names writes a valid empty selection.
-
-`--lenses a,b` is the one runtime control and means exactly those names. It
-changes Lens membership without changing the selected Recipe's Seats. Adding a
-Markdown file under `content/lenses/` or `.gauntlet/lenses/` makes it available,
-not selected. Recipes remain Seat policy only.
-
-A fully explicit `gauntlet review <recipe> --lenses a,b` does not need a
-settings file. Omitting either choice requires its configured default.
+Default Lenses are the required standing membership for ordinary reviews;
+`gauntlet config` lists every shipped and project-local Lens and marks the
+defaults. `--lenses a,b` is the one runtime control and means exactly those
+names — it changes Lens membership without changing the selected Recipe's
+Seats. Adding a Markdown file under `content/lenses/` or `.gauntlet/lenses/`
+makes it available, not selected.
 
 ## Recipes
 
 A recipe is one strict JSON file in `~/.gauntlet/recipes/`; the
 lowercase-kebab-case filename is its only name. Editing files is the mutation
-interface — inspect or copy a nearby recipe, write a new file, then run
-`gauntlet config` to validate it. Admitted fields (anything else is invalid):
+interface — copy a nearby recipe, write a new file, then run `gauntlet config`
+to validate it. Admitted fields (anything else is invalid):
 
 - `default` — required seat (`provider/model:effort`) for every seated stage
 - `finders`, `interpretive-finders`, `pool`, `verification`, `judgment` —
@@ -131,44 +93,41 @@ interface — inspect or copy a nearby recipe, write a new file, then run
 }
 ```
 
-Lenses never name models. A lens is standard by omission or declares
-`finder-class: interpretive` in its frontmatter; the selected recipe resolves
-the class to a seat — standard finders through `finders` then `default`,
-interpretive finders through `interpretive-finders`, then `finders`, then
-`default`. Other seated stages resolve through their named override then
-`default`. The ReviewPlan
-freezes every resolved seat at submission, so recipe edits never change an
-in-flight or resumed run. Resume continues from completed semantic checkpoints
-under the currently installed code; it does not attempt to resume active model
-conversations or partial Finder fan-outs.
+Lenses never name models: a lens is standard by omission or declares
+`finder-class: interpretive`, and the selected recipe resolves the class to a
+seat. The ReviewPlan freezes every resolved seat at submission, so recipe
+edits never change an in-flight or resumed run.
 
 ## Toolchain
 
-- Bun (package manager + compiler) + TypeScript 7 (tsgo); Node ≥ 23.6 still
-  runs a checkout and the vitest suite
-- GitHub CLI (`gh`), installed and authenticated — required for `review --pr`,
-  `--destination pr`, and `deliver`
-- `LINEAR_API_KEY` — optional until the current branch contains a Linear issue
-  ID; then it authorizes automatic Linear ReviewSpecification acquisition
+- Bun ≥ 1.4 — runtime, package manager, and single-file compiler; every
+  script and the checkout entrypoint run on Bun. Node is needed only to run
+  the vitest suite
+- GitHub CLI (`gh`), installed and authenticated — required for `review
+  --pr`, `--destination pr`, and `deliver`
+- `LINEAR_API_KEY` — optional until the current branch contains a Linear
+  issue ID; then it authorizes automatic Linear specification acquisition
 - `effect` / `@effect/platform-node` / `@effect/vitest` pinned **exactly** to
-  one shared version (enforced by `scripts/check-effect-pin.mjs`; bump with
+  one shared version (enforced by `scripts/check-effect-pin.ts`; bump with
   `bun add --exact effect@rc @effect/platform-node@rc @effect/vitest@rc`)
-- `bun run lint` — the house-style gate: oxlint baseline + the `gauntlet` custom
-  rule pack (`scripts/lint-rules/`), a `Record<string, unknown>` early-warning
-  scan, official type-aware Effect diagnostics (`@effect/tsgo`), the exact-pin
-  check, and an import-cycle check
-- `bun run test` — vitest (`@effect/vitest`), covering the lint rules and Effect code
+- `bun run lint` — the house-style gate, run concurrently: oxlint baseline +
+  the `gauntlet` custom rule pack (`scripts/lint-rules/`), a
+  `Record<string, unknown>` early-warning scan, official type-aware Effect
+  diagnostics (`@effect/tsgo`), the exact-pin check, and an import-cycle check
+- `bun run test` — vitest (`@effect/vitest`), covering the lint rules and
+  Effect code
 - `bun run typecheck` — tsgo
-- `bun run bundle` — compile `dist/gauntlet`, a single-file binary with the
-  shipped content catalog embedded; `bun run live-gate-compiled` builds it and
-  proves it with `config init` plus one real review from a fresh HOME
+- `bun run bundle` — compile `dist/gauntlet` with the shipped content catalog
+  embedded; `bun run live-gate-compiled` builds it and proves it with
+  `config init` plus one real review from a fresh HOME
 
 ## Docs
 
 - [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md) — universal
   invoking-agent skill
+- `docs/adr/` — binding decision records; `docs/spec/` — normative pipeline
+  and emit-tool specs
 - `docs/effect-house-style.md`, `docs/effect-v4-patterns.md` — house style +
-  patterns, imported from cloudflare-hub (see the provenance banners for
-  the deltas from beta.90 to our pin)
-- `docs/research/` — Wayfinder research findings (Effect batteries, durable
-  execution, Pi harness surface)
+  patterns, verified against the pinned Effect beta
+- `docs/research/` — dated research notes (Effect batteries, durable
+  execution, Pi harness surface, Bun 1.4 embedding and test-runner findings)

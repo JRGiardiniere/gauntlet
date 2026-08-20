@@ -1,5 +1,5 @@
-#!/usr/bin/env node
-// The live gate's runMain boundary (mirrors bin/gauntlet.mjs). Everything
+#!/usr/bin/env bun
+// The live gate's runMain boundary (mirrors bin/gauntlet.ts). Everything
 // below stays Effect-native; the exit code is decided inside runLiveGate.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"

@@ -51,7 +51,7 @@ reference repos listed below.
 
 **Versions & imports**
 1. `effect` and every `@effect/*` package are pinned **exactly** to one shared version
-   (enforced by `scripts/check-effect-pin.mjs`) — no carets, no bumps unless the task
+   (enforced by `scripts/check-effect-pin.ts`) — no carets, no bumps unless the task
    explicitly says so.
    At rc.110, a bare CLI `Flag.boolean` is required when omitted. Ordinary switches
    need `Flag.withDefault(false)`; use `Flag.optional` only when absence is meaningful.
