@@ -1115,7 +1115,7 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("shows the caller addendum to interpretive finders, verification, and judgment — never standard finders or pool", () =>
+  it.effect("shows the caller addendum to interpretive finders, verification, and judgment — never specific finders or pool", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem

@@ -23,7 +23,8 @@ editing every preset. We decided none of that is lens anatomy:
   the file, never from a global/repository tag in its frontmatter.
 - **Interpretive policy** belongs to one stable Finder Class, not a subjective
   path or name allowlist. A Lens may declare `interpretive` when it needs broad
-  reasoning over intent and context; omission means `standard`. Interpretive
+  reasoning over intent and context; omission means `specific` (renamed from
+  `standard` per #110). Interpretive
   Finders receive the ReviewSpecification when one is available. The selected
   Recipe maps both classes to concrete Seats, so a Lens cannot pin a model that
   silently becomes stale. There is no arbitrary role→model matrix and no
@@ -36,7 +37,7 @@ limited to optional `finder-class: interpretive` and a display-only `category` t
 routing, which stays on the candidate's own type; amended per #52:
 `category` is live catalog metadata, never a FrozenLens field — so it cannot
 appear in a Dossier, which renders from the frozen plan).
-`finder-class` admits exactly `interpretive`; standard is represented by
+`finder-class` admits exactly `interpretive`; specific is represented by
 omission. The class governs Recipe Seat resolution and whether the Finder
 receives an available ReviewSpecification, never Candidate routing. Built-ins
 ship inside Gauntlet; a project drops the same format in its own lens
@@ -55,15 +56,17 @@ real filesystem.
 
 The restored `spec-conformance` Lens has one intrinsic execution rule: without
 a frozen ReviewSpecification, its selected Finder is skipped and reported once
-instead of invoked. That rule is attached to the known Lens identity in plan
-execution; it does not add an applicability field to Lens content or alter how
-any emitted Candidate routes.
+instead of invoked. The `standards` Lens carries the same kind of rule
+(amended per #110): without a Standards Manifest to feed it, its selected
+Finder is skipped and reported once. Either rule is attached to the known Lens
+identity in plan execution; neither adds an applicability field to Lens
+content or alters how any emitted Candidate routes.
 
 The shipped `subjective` and `refactoring-checklist` Lenses opt into
 `interpretive`; restored `spec-conformance` does too. They all reason over
 broader intent rather than running only a bounded mechanical sweep, though
 their Candidates may take either evaluation path. Every other shipped Lens is
-standard. Category does not imply Finder Class — future Lenses opt into
+specific. Category does not imply Finder Class — future Lenses opt into
 `interpretive` individually when their reasoning and context needs earn it.
 
 Version identity is the frozen prompt text, never a separately stored digest

@@ -8,7 +8,9 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
+import { standardsManifestPath } from "../config/standards-manifest.ts"
 import { ContentDirectory } from "../content/lens.ts"
+import { GOVERNING_STANDARDS_HEADING } from "../domain/finder-selection.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
@@ -129,7 +131,7 @@ describe("submission", () => {
       expect(overlay).toContain("not in the diff")
 
       // optionalKey encoding: absent means the key is not present at all —
-      // never a present-undefined one (standard-by-omission convention).
+      // never a present-undefined one (specific-by-omission convention).
       const decoded = yield* Schema.decodeEffect(
         Schema.fromJsonString(Schema.Json),
       )(raw)
@@ -625,6 +627,95 @@ describe("submission", () => {
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("bakes the Standards Manifest documents into the frozen standards prompt", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "standards.md"),
+        "standards fixture tail\n",
+      )
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "STANDARDS.md"),
+        "REPO-RULE: no bare throws\n",
+      )
+      const sharedDocument = path.join(fixture.home, "shared-standards.md")
+      yield* fs.writeFileString(sharedDocument, "SHARED-RULE: cite the line\n")
+      yield* writeStandardsManifest(fixture, ["STANDARDS.md", sharedDocument])
+
+      const loaded = yield* submitWith(
+        fixture,
+        exactLenses(SubmissionTargetRequest.WorkingTree({ base: undefined }), [
+          "fixture-review",
+          "standards",
+        ]),
+      )
+
+      const promptByLens = new Map(
+        loaded.plan.lenses.map((lens) => [lens.name, lens.promptText]),
+      )
+      const standardsPrompt = promptByLens.get("standards") ?? ""
+      expect(standardsPrompt).toContain("standards fixture tail")
+      expect(standardsPrompt).toContain(GOVERNING_STANDARDS_HEADING)
+      expect(standardsPrompt).toContain("### STANDARDS.md")
+      expect(standardsPrompt).toContain("REPO-RULE: no bare throws")
+      expect(standardsPrompt).toContain(`### ${sharedDocument}`)
+      expect(standardsPrompt).toContain("SHARED-RULE: cite the line")
+      // The tail precedes the appended block; other lenses stay untouched.
+      expect(standardsPrompt.indexOf("standards fixture tail")).toBeLessThan(
+        standardsPrompt.indexOf(GOVERNING_STANDARDS_HEADING),
+      )
+      expect(promptByLens.get("fixture-review")).toBe("fixture lens tail")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("freezes an unfed standards prompt when no Standards Manifest exists", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "standards.md"),
+        "standards fixture tail\n",
+      )
+
+      const loaded = yield* submitWith(
+        fixture,
+        exactLenses(SubmissionTargetRequest.WorkingTree({ base: undefined }), [
+          "standards",
+        ]),
+      )
+
+      // Frozen without the Governing standards block — selection then skips
+      // it (finder-selection.test.ts owns that contract).
+      expect(loaded.plan.lenses[0]?.promptText).toBe("standards fixture tail\n")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("refuses a manifest that lists a missing document, creating no Run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.content, "lenses", "standards.md"),
+        "standards fixture tail\n",
+      )
+      yield* writeStandardsManifest(fixture, ["missing-standards.md"])
+
+      const refusal = yield* Effect.flip(submitWith(
+        fixture,
+        exactLenses(SubmissionTargetRequest.WorkingTree({ base: undefined }), [
+          "standards",
+        ]),
+      ))
+
+      expect(refusal).toBeInstanceOf(SubmissionError)
+      if (!Predicate.isTagged(refusal, "SubmissionError")) return
+      expect(refusal.reason).toContain("Standards Manifest")
+      expect(refusal.reason).toContain("missing-standards.md")
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("creates no run directory when the target does not resolve", () =>
     Effect.gen(function* () {
       const { fixture } = yield* makeCommitRangeFixture
@@ -647,6 +738,27 @@ describe("submission", () => {
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
+
+// The manifest lands at the exact path the module derives (and `gauntlet
+// config` prints), so the test exercises the same location a user configures.
+const writeStandardsManifest = (
+  fixture: Fixture,
+  entries: ReadonlyArray<string>,
+) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const manifest = yield* standardsManifestPath(fixture.repo)
+    yield* fs.makeDirectory(path.dirname(manifest), { recursive: true })
+    yield* fs.writeFileString(manifest, `${entries.join("\n")}\n`)
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+      ),
+    ),
+  )
 
 const createAndSwitchBranch = (fixture: Fixture, branch: string) =>
   runGit(fixture.repo, ["switch", "-c", branch])

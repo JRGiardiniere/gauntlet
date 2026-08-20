@@ -34,6 +34,7 @@ const INITIAL_DEFAULT_LENSES = [
   "refactoring-checklist",
   "removed-behavior",
   "spec-conformance",
+  "standards",
   "subjective",
   "wrapper-proxy",
 ] as const

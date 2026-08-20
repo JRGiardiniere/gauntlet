@@ -120,7 +120,7 @@ reader or scale problem.
 A Recipe contains a required `default` Seat and optional top-level `finders`,
 `interpretive-finders`, `pool`, `verification`, and `judgment` Seat overrides;
 no budget or cost fields (amended by ADR 0006: cost is read afterward, never
-constrained proactively). A standard Finder resolves through `finders` then
+constrained proactively). A specific Finder resolves through `finders` then
 `default`; an interpretive Finder resolves through `interpretive-finders`, then
 `finders`, then `default`. All other seated Stages resolve through their named
 override then `default`.

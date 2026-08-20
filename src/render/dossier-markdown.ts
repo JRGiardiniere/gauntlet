@@ -127,7 +127,11 @@ export const renderDossierMarkdown = (
   }
   if (finderSelection.skipped.length > 0) {
     headerFacts.push(
-      `- Skipped: ${finderSelection.skipped.map(({ name }) => name).join(", ")} — no ReviewSpecification`,
+      `- Skipped: ${
+        finderSelection.skipped
+          .map(({ lens, reason }) => `${lens.name} — ${reason}`)
+          .join("; ")
+      }`,
     )
   }
 

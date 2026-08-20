@@ -15,9 +15,10 @@ export const RecipeName = Schema.String.check(
 )
 export type RecipeName = typeof RecipeName.Type
 
-// A lens is standard by omission or opts into exactly `interpretive` (ADR
-// 0004); the recipe maps the class to a seat, the lens never names one.
-export const FinderClass = Schema.Literals(["standard", "interpretive"])
+// A lens is specific by omission or opts into exactly `interpretive` (ADR
+// 0004, renamed per #110); the recipe maps the class to a seat, the lens
+// never names one.
+export const FinderClass = Schema.Literals(["specific", "interpretive"])
 export type FinderClass = typeof FinderClass.Type
 
 // A Recipe is user-owned content: one strict JSON file in the Recipe Catalog
@@ -34,7 +35,7 @@ export const Recipe = Schema.Struct({
 })
 export type Recipe = typeof Recipe.Type
 
-// Standard finders resolve through `finders` then `default`; interpretive
+// Specific finders resolve through `finders` then `default`; interpretive
 // finders through `interpretive-finders`, then `finders`, then `default`
 // (ADR 0005).
 export const finderSeat = (recipe: Recipe, finderClass: FinderClass): Seat =>
