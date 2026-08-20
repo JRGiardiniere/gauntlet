@@ -142,20 +142,24 @@ conversations or partial Finder fan-outs.
 
 ## Toolchain
 
-- pnpm + TypeScript 7 (tsgo), Node ≥ 23.6
+- Bun (package manager + compiler) + TypeScript 7 (tsgo); Node ≥ 23.6 still
+  runs a checkout and the vitest suite
 - GitHub CLI (`gh`), installed and authenticated — required for `review --pr`,
   `--destination pr`, and `deliver`
 - `LINEAR_API_KEY` — optional until the current branch contains a Linear issue
   ID; then it authorizes automatic Linear ReviewSpecification acquisition
 - `effect` / `@effect/platform-node` / `@effect/vitest` pinned **exactly** to
   one shared version (enforced by `scripts/check-effect-pin.mjs`; bump with
-  `pnpm add -E effect@rc @effect/platform-node@rc @effect/vitest@rc`)
-- `pnpm lint` — the house-style gate: oxlint baseline + the `gauntlet` custom
+  `bun add --exact effect@rc @effect/platform-node@rc @effect/vitest@rc`)
+- `bun run lint` — the house-style gate: oxlint baseline + the `gauntlet` custom
   rule pack (`scripts/lint-rules/`), a `Record<string, unknown>` early-warning
   scan, official type-aware Effect diagnostics (`@effect/tsgo`), the exact-pin
   check, and an import-cycle check
-- `pnpm test` — vitest (`@effect/vitest`), covering the lint rules and Effect code
-- `pnpm typecheck` — tsgo
+- `bun run test` — vitest (`@effect/vitest`), covering the lint rules and Effect code
+- `bun run typecheck` — tsgo
+- `bun run bundle` — compile `dist/gauntlet`, a single-file binary with the
+  shipped content catalog embedded; `bun run live-gate-compiled` builds it and
+  proves it with `config init` plus one real review from a fresh HOME
 
 ## Docs
 

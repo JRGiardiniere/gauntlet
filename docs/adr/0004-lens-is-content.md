@@ -45,6 +45,14 @@ schemas, tool sets, and
 applicability tags are banned from lens files by design — reintroducing them
 rebuilds the old anatomy.
 
+"Ship inside Gauntlet" is per runtime (amended per #108): a source checkout
+ships the catalog as the package-relative `content/` tree; a compiled binary
+ships the same files as an embedded asset tree inside the executable. The
+loader resolves the shipped catalog root for the runtime it finds itself in —
+nothing else moves: lenses stay pure markdown in one format, one loader reads
+them, prompt text freezes per run, and project-local catalogs stay on the
+real filesystem.
+
 The restored `spec-conformance` Lens has one intrinsic execution rule: without
 a frozen ReviewSpecification, its selected Finder is skipped and reported once
 instead of invoked. That rule is attached to the known Lens identity in plan
