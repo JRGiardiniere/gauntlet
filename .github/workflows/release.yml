@@ -1,0 +1,65 @@
+# Tag-driven releases: pushing v<major>.<minor>.<patch> builds one binary per
+# platform and publishes them all on a GitHub release. The tag is the single
+# source of truth for the version — scripts/bundle.ts bakes it in as a define,
+# and package.json's placeholder version is never consulted.
+#
+# Darwin targets build on macOS runners because bundle.ts must codesign the
+# binary there (Bun 1.4.0 signature regression); Linux targets cross-compile
+# fine from one Ubuntu runner.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            target: bun-darwin-arm64
+            asset: gauntlet-darwin-arm64
+          - runner: macos-14
+            target: bun-darwin-x64
+            asset: gauntlet-darwin-x64
+          - runner: ubuntu-latest
+            target: bun-linux-x64
+            asset: gauntlet-linux-x64
+          - runner: ubuntu-latest
+            target: bun-linux-arm64
+            asset: gauntlet-linux-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Bundle
+        env:
+          GAUNTLET_TARGET: ${{ matrix.target }}
+          GAUNTLET_OUTFILE: dist/${{ matrix.asset }}
+        run: GAUNTLET_VERSION="${GITHUB_REF_NAME#v}" bun scripts/bundle.ts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+      - run: >
+          gh release create "$GITHUB_REF_NAME" assets/*
+          --generate-notes --repo "$GITHUB_REPOSITORY"
+        env:
+          GH_TOKEN: ${{ github.token }}

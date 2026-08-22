@@ -2,6 +2,7 @@ import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
 import * as Argument from "effect/unstable/cli/Argument"
 import * as Command from "effect/unstable/cli/Command"
@@ -27,6 +28,9 @@ import {
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { configCommand } from "./config.ts"
+import { availableUpdateNotice } from "./update-check.ts"
+import { upgradeCommand } from "./upgrade.ts"
+import { gauntletVersion } from "./version.ts"
 
 // Flag-combination refusals only: once flags are valid, assembly refusals
 // are Submission's own tagged error (issue #105).
@@ -306,18 +310,35 @@ const deliver = Command.make(
 )
 
 const gauntlet = Command.make("gauntlet").pipe(
-  Command.withSubcommands([review, deliver, configCommand]),
+  Command.withSubcommands([review, deliver, configCommand, upgradeCommand]),
   Command.withDescription("Effect-native, Pi-harnessed code-review agent"),
+)
+
+// The daily notice is claimed after the exit code is decided: by then a
+// review has given the forked probe minutes, so the extra second is only ever
+// spent by fast commands on the one invocation per day that actually probes.
+const reportUpdateNotice = Effect.fn("gauntlet.cli.report_update_notice")(
+  function* (notice: Fiber.Fiber<Option.Option<string>>) {
+    const available = yield* Fiber.join(notice).pipe(
+      Effect.timeoutOption("1 second"),
+      Effect.map(Option.flatten),
+    )
+    if (Option.isSome(available)) {
+      yield* progress(
+        `v${available.value} is available (current v${gauntletVersion}) — run \`gauntlet upgrade\``,
+      )
+    }
+  },
 )
 
 // Exit codes are the CLI contract (ADR 0005): 0 = review produced (zero
 // findings included), 1 = could not review. Findings never affect the exit
 // code. Every "could not review" is rendered to stderr before the Promise
 // boundary erases its type.
-export const runGauntlet = (
+const runCli = (
   argv: ReadonlyArray<string>,
 ) =>
-  Command.runWith(gauntlet, { version: "0.0.0" })(
+  Command.runWith(gauntlet, { version: gauntletVersion })(
     // Effect CLI models optional flags and valued flags, but not a flag with
     // an optional value. Normalize only the documented bare --resume form;
     // --resume <run-id> and --resume=<run-id> remain native parser input.
@@ -345,6 +366,8 @@ export const runGauntlet = (
         ),
       ReviewCommandError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
+      UpgradeError: (failure) =>
+        progress(`could not upgrade — ${failure.reason}`).pipe(Effect.as(1)),
       SubmissionError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       SpecificationLoadError: (failure) =>
@@ -384,3 +407,14 @@ export const runGauntlet = (
       progress(`could not review — ${String(unreviewable)}`).pipe(Effect.as(1)),
     ),
   )
+
+export const runGauntlet = Effect.fn("gauntlet.cli.run")(function* (
+  argv: ReadonlyArray<string>,
+) {
+  // Forked before the command so the daily release probe overlaps the real
+  // work; the notice never affects the exit code.
+  const notice = yield* Effect.forkChild(availableUpdateNotice())
+  const exitCode = yield* runCli(argv)
+  yield* reportUpdateNotice(notice)
+  return exitCode
+})

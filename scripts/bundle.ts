@@ -10,10 +10,13 @@
 // the loaders resolve against the bundle root.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Config from "effect/Config"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import * as ChildProcess from "effect/unstable/process/ChildProcess"
 
 // Bun's bundler API, typed minimally — the project compiles against
@@ -23,10 +26,12 @@ declare const Bun: {
     readonly entrypoints: ReadonlyArray<string>
     readonly files: Record<string, string>
     readonly naming: { readonly asset: string }
+    readonly define?: Record<string, string> | undefined
     readonly compile: {
       readonly outfile: string
       readonly assets: ReadonlyArray<string>
       readonly autoloadBunfig: boolean
+      readonly target?: string | undefined
     }
   }) => Promise<{ readonly success: boolean }>
 }
@@ -40,6 +45,32 @@ process.chdir(repoRoot)
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
+
+  // Release builds (the tag workflow) set all three; a bare `bun run bundle`
+  // produces a host-platform dev binary reporting the 0.0.0-dev sentinel.
+  const version = Option.getOrElse(
+    yield* Config.option(Config.string("GAUNTLET_VERSION")),
+    () => "0.0.0-dev",
+  )
+  const target = Option.getOrUndefined(
+    yield* Config.option(Config.string("GAUNTLET_TARGET")),
+  )
+  const outfile = Option.getOrElse(
+    yield* Config.option(Config.string("GAUNTLET_OUTFILE")),
+    () => "dist/gauntlet",
+  )
+
+  // Defines take JS expression source: the version string becomes a quoted
+  // string literal via the JSON codec. Every compiled binary carries the
+  // define — src/cli/version.ts references the identifier whenever
+  // isCompiledBinary holds.
+  const define = {
+    GAUNTLET_VERSION: yield* Schema.encodeEffect(
+      Schema.fromJsonString(Schema.String),
+    )(version).pipe(
+      Effect.mapError((cause) => new BundleFailed({ cause })),
+    ),
+  }
 
   // Stage-owned prompt templates (markdown living with its Stage module,
   // e.g. src/stages/judgment/judge.md).
@@ -67,28 +98,32 @@ const program = Effect.gen(function* () {
         entrypoints: ["./bundle-entry.virtual.mjs"],
         files: { "./bundle-entry.virtual.mjs": entrySource },
         naming: { asset: "[dir]/[name].[ext]" },
-        compile: {
-          outfile: "dist/gauntlet",
-          assets: ["content"],
-          autoloadBunfig: false,
-        },
+        define,
+        // Bun rejects an explicit `target: undefined`; the host-platform
+        // build omits the key entirely.
+        compile: target === undefined
+          ? { outfile, assets: ["content"], autoloadBunfig: false }
+          : { outfile, assets: ["content"], autoloadBunfig: false, target },
       }),
     catch: (cause) => new BundleFailed({ cause }),
   })
   if (!build.success) {
     return yield* new BundleFailed({ cause: "Bun.build reported failure" })
   }
-  yield* Console.log("compiled dist/gauntlet")
+  yield* Console.log(`compiled ${outfile}`)
 
   // Bun 1.4.0's compile emits an invalid ad-hoc signature on macOS and the
   // binary is SIGKILLed on launch; re-sign until the upstream regression is
-  // fixed.
-  if (process.platform === "darwin") {
+  // fixed. Only a darwin host can codesign, so the release workflow builds
+  // darwin targets on macOS runners.
+  const targetsDarwin =
+    target === undefined ? process.platform === "darwin" : target.includes("darwin")
+  if (targetsDarwin && process.platform === "darwin") {
     const exitCode = yield* Effect.scoped(
       Effect.gen(function* () {
         const handle = yield* ChildProcess.make(
           "codesign",
-          ["--sign", "-", "--force", "dist/gauntlet"],
+          ["--sign", "-", "--force", outfile],
           { cwd: repoRoot, stdout: "inherit", stderr: "inherit" },
         )
         return yield* handle.exitCode
