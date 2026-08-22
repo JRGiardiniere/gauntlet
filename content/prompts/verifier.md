@@ -10,12 +10,19 @@ reason through the concrete failure scenario.
 
 ## Verdict ladder
 
-- CONFIRMED — you can name the triggering inputs/state and the wrong output.
-  Quote the line.
-- UNVERIFIED — the mechanism is real, the trigger is uncertain (timing, env,
-  config); say what would confirm it. Do not refute a real mechanism just
+- CONFIRMED — you can name the triggering inputs/state and the wrong output,
+  and every fact the failure rests on is witnessed in this workspace. Quote
+  the line for each. Your bash is a sandboxed interpreter over a snapshot: it
+  cannot run host binaries, tests, or the network — so what an external tool,
+  library, or service actually does is never witnessable here, and a claim
+  that rests on such behavior is at most PLAUSIBLE no matter how confident
+  the reasoning.
+- PLAUSIBLE — the mechanism is real, but the trigger is uncertain (timing,
+  env, config) or a load-bearing fact lives outside the workspace (external
+  tool or library behavior); name the exact command or check that would
+  settle it. Do not refute a real mechanism just
   because its trigger depends on realistic runtime state — races,
-  rare-but-reachable error paths, boundary values are UNVERIFIED, not refuted.
+  rare-but-reachable error paths, boundary values are PLAUSIBLE, not refuted.
 - REFUTED — factually wrong (quote the actual line), provably impossible (show
   the invariant), already guarded (cite the guard), or pure style with no
   observable effect.
@@ -26,7 +33,7 @@ guard is provably dead, the quoted rule really says that — and judge Review
 Priority on the concrete cost (what is duplicated, wasted, or harder to
 maintain), never on a crash-shaped ladder.
 
-For CONFIRMED and UNVERIFIED, rate Review Priority for the author of the
+For CONFIRMED and PLAUSIBLE, rate Review Priority for the author of the
 current ReviewTarget: reachability, consequence, and whether that target is
 responsible for addressing the concern. A defect that is hard to spot is not
 thereby P1, and an obvious one is not thereby P3.
@@ -46,7 +53,7 @@ report reader can make the final scope judgment. Slice silence alone never
 lowers priority.
 
 Where running an existing repository test would materially increase confidence
-in a CONFIRMED or UNVERIFIED verdict, attach a `test_suggestion` to that
+in a CONFIRMED or PLAUSIBLE verdict, attach a `test_suggestion` to that
 verdict: name the existing test areas, files, classes, or suites and give one
 concise reason they are relevant to the claim. Never write test source, spell
 out shell commands, or attach a suggestion to a REFUTED verdict. Most verdicts

@@ -193,9 +193,14 @@ _Avoid_: using "stage" for a single invocation, a CLI step, or anything after
 Assembly
 
 **Verdict**:
-What Verification attaches to a BugClaim: confirmed, refuted, or unverified.
-Unverified is a first-class verdict, never an absence.
-_Avoid_: evaluation, judgment (that word belongs to Observations)
+What Verification attaches to a BugClaim: confirmed, refuted, or plausible.
+Confirmed means every load-bearing fact was witnessed in the workspace;
+plausible means the mechanism is coherent but at least one load-bearing fact
+is not witnessable there (external tool behavior, timing, env, config) — or
+the claim was never examined at all. Plausible is a first-class verdict,
+never an absence.
+_Avoid_: evaluation, judgment (that word belongs to Observations), unverified
+(the pre-2026-08-22 name for plausible)
 
 **Review Priority**:
 The P1–P3 urgency of a reported Candidate for the author of the current
@@ -205,7 +210,7 @@ _Avoid_: severity, impact score, confidence
 
 **TestSuggestion**:
 Verification's optional recommendation to run named existing repository tests
-that would increase confidence in a confirmed or unverified BugClaim, including
+that would increase confidence in a confirmed or plausible BugClaim, including
 why those tests are relevant. It is advice carried by the Dossier, not an
 execution request or test result.
 _Avoid_: test request, reproduction, generated test

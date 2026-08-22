@@ -258,7 +258,7 @@ describe("output contracts", () => {
           },
           {
             cluster: 3,
-            verdict: "UNVERIFIED",
+            verdict: "PLAUSIBLE",
             review_priority: "P3",
             evidence: "needs runtime state",
             test_suggestion: {},

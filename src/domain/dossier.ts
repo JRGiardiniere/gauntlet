@@ -66,9 +66,9 @@ export const DossierFinding = Schema.TaggedUnion({
 export type DossierFinding = typeof DossierFinding.Type
 
 export const DossierUnresolved = Schema.TaggedUnion({
-  Unverified: {
+  Plausible: {
     ...SuggestedBugClaim,
-    verdict: Verdict.cases.Unverified,
+    verdict: Verdict.cases.Plausible,
   },
   Undecided: {
     candidate: Observation,

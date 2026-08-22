@@ -51,13 +51,13 @@ export const renderDigest = (
   const confirmed = view.findings.filter(({ tag }) => tag === "confirmed")
     .length
   const kept = view.findings.filter(({ tag }) => tag === "judgment").length
-  const unverified = view.unresolved.filter(({ tag }) => tag === "unverified")
+  const plausible = view.unresolved.filter(({ tag }) => tag === "plausible")
     .length
   const undecided = view.unresolved.filter(({ tag }) => tag === "undecided")
     .length
   const tally =
     `${String(confirmed)} confirmed · ${String(kept)} kept · ` +
-    `${String(unverified)} unverified · ${String(undecided)} undecided — ` +
+    `${String(plausible)} plausible · ${String(undecided)} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
     `$${accounting.costUsd.toFixed(2)} · ${accounting.wallTimeSeconds}s`
   const surviving = [...view.findings, ...view.unresolved].map((entry) => {

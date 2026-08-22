@@ -171,7 +171,7 @@ export const executeBugClaimPath = Effect.fn(
   let verificationStartedAt: DateTime.Utc | undefined
   if (verificationSeat === undefined) {
     const reason =
-      "verification has no seat frozen in the review plan; retained every claim as unverified"
+      "verification has no seat frozen in the review plan; retained every claim as plausible without examination"
     coverageGaps.push({ stage: "verification", reason })
     yield* progress(coverageGapLine({ reason }))
   } else {
@@ -229,9 +229,9 @@ export const executeBugClaimPath = Effect.fn(
     )
     const confirmed = verdicts.filter(Verdict.guards.Confirmed).length
     const refuted = verdicts.filter(Verdict.guards.Refuted).length
-    const unverified = verdicts.filter(Verdict.guards.Unverified).length
+    const plausible = verdicts.filter(Verdict.guards.Plausible).length
     yield* progress(
-      `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(unverified)} unverified · ${String(yield* wallSeconds(verificationStartedAt))}s`,
+      `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(plausible)} plausible · ${String(yield* wallSeconds(verificationStartedAt))}s`,
     )
   }
   return {

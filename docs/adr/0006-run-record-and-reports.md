@@ -85,8 +85,8 @@ objects.
 - Findings: one P1-to-P3 work queue of Confirmed BugClaims and kept
   Observations, tagged `[confirmed]` / `[judgment]`, with Confirmed first inside
   a priority.
-- Unresolved: Unverified BugClaims and undecided Observations, retaining their
-  `[unverified]` / `[undecided]` tags and evidence when available.
+- Unresolved: Plausible BugClaims and undecided Observations, retaining their
+  `[plausible]` / `[undecided]` tags and evidence when available.
 - Rejected: separate Refuted Claims and Dropped Observations subsections,
   retaining `[refuted]` / `[dropped]` tags, verifier evidence, and judge reasons.
 

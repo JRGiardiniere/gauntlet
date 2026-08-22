@@ -103,7 +103,7 @@ export const EmitPool = defineOutputContract(
 
 // Deliberately content-loose: a malformed suggestion must never fail-close
 // the bundle's verdicts, so deterministic resolution validates contents
-// (non-empty tests and reason, CONFIRMED/UNVERIFIED only) and drops bad
+// (non-empty tests and reason, CONFIRMED/PLAUSIBLE only) and drops bad
 // suggestions with a diagnostic instead of the decoder rejecting them.
 // A factory, not a shared instance: both union branches carry the field, and
 // a shared object schema would be hoisted into JSON-schema definitions,
@@ -125,7 +125,7 @@ const testSuggestion = () =>
           ),
         ),
       }),
-      "Optional, CONFIRMED/UNVERIFIED only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help.",
+      "Optional, CONFIRMED/PLAUSIBLE only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help.",
     ),
   )
 
@@ -143,8 +143,8 @@ const verdictCore = {
 const reportedVerdict = Schema.Struct({
   ...verdictCore,
   verdict: described(
-    Schema.Literals(["CONFIRMED", "UNVERIFIED"]),
-    "`CONFIRMED` | `UNVERIFIED` | `REFUTED` — see the ladder in the verifier prompt.",
+    Schema.Literals(["CONFIRMED", "PLAUSIBLE"]),
+    "`CONFIRMED` | `PLAUSIBLE` | `REFUTED` — see the ladder in the verifier prompt.",
   ),
   review_priority: described(
     ReviewPriority,
@@ -157,7 +157,7 @@ const refutedVerdict = Schema.Struct({
   ...verdictCore,
   verdict: described(
     Schema.Literal("REFUTED"),
-    "`CONFIRMED` | `UNVERIFIED` | `REFUTED` — see the ladder in the verifier prompt.",
+    "`CONFIRMED` | `PLAUSIBLE` | `REFUTED` — see the ladder in the verifier prompt.",
   ),
   // Accepted by the decoder so a stray suggestion cannot fail-close the
   // bundle; resolution rejects it with a diagnostic.

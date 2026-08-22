@@ -54,7 +54,7 @@ const confirmedVerdict = Verdict.cases.Confirmed.make({
   evidence: "reproduced with an empty input",
 })
 
-// One entry in every partition of the taxonomy: confirmed / unverified
+// One entry in every partition of the taxonomy: confirmed / plausible
 // (tiered and untiered) / refuted BugClaims, kept / undecided / dropped
 // Observations. The confirmed claim shares its Pool cluster with a second
 // lens's shorter statement of the same bug.
@@ -96,18 +96,18 @@ const dossier = Dossier.make({
     }),
   ],
   unresolved: [
-    DossierUnresolved.cases.Unverified.make({
-      bugClaims: [bugClaim("fixture-lens/2", "tiered but unverified claim")],
+    DossierUnresolved.cases.Plausible.make({
+      bugClaims: [bugClaim("fixture-lens/2", "tiered but plausible claim")],
       cluster: 2,
-      verdict: Verdict.cases.Unverified.make({
+      verdict: Verdict.cases.Plausible.make({
         reviewPriority: "P2",
         evidence: "the runtime branch was unreachable in the verifier",
       }),
     }),
-    DossierUnresolved.cases.Unverified.make({
-      bugClaims: [bugClaim("fixture-lens/3", "untiered unverified claim")],
+    DossierUnresolved.cases.Plausible.make({
+      bugClaims: [bugClaim("fixture-lens/3", "untiered plausible claim")],
       cluster: 3,
-      verdict: Verdict.cases.Unverified.make({}),
+      verdict: Verdict.cases.Plausible.make({}),
     }),
     DossierUnresolved.cases.Undecided.make({
       candidate: observation("fixture-lens/6", "undecided observation"),
@@ -198,7 +198,7 @@ describe("dossier markdown rendering", () => {
     expect(confirmedAt).toBeLessThan(keptAt)
     expect(findings).toContain("`[confirmed]`")
     expect(findings).toContain("`[judgment]`")
-    expect(unresolved).toContain("`[unverified]`")
+    expect(unresolved).toContain("`[plausible]`")
     expect(unresolved).toContain("the runtime branch was unreachable")
     expect(unresolved).toContain("`[undecided]`")
     expect(findings).not.toContain("refuted claim")
@@ -342,7 +342,7 @@ describe("digest rendering", () => {
   const lines = digest.split("\n")
 
   it("tallies every partition plus cost and wall time", () => {
-    expect(lines[0]).toContain("1 confirmed · 1 kept · 2 unverified · 1 undecided")
+    expect(lines[0]).toContain("1 confirmed · 1 kept · 2 plausible · 1 undecided")
     expect(lines[0]).toContain("$1.23 · 42s")
   })
 
@@ -365,18 +365,18 @@ describe("digest rendering", () => {
   it("lists candidates retained in the main findings section", () => {
     expect(digest).not.toContain("refuted claim")
     expect(digest).not.toContain("dropped observation")
-    expect(digest).toContain("tiered but unverified claim")
-    expect(digest).toContain("untiered unverified claim")
+    expect(digest).toContain("tiered but plausible claim")
+    expect(digest).toContain("untiered plausible claim")
     expect(digest).toContain("undecided observation")
     expect(digest).toContain("[P1 confirmed]")
     expect(digest).toContain("[P2 judgment]")
-    expect(digest).toContain("[P2 unverified]")
+    expect(digest).toContain("[P2 plausible]")
     expect(digest).toContain("[undecided]")
     expect(digest.indexOf("first line")).toBeLessThan(
       digest.indexOf("kkkk"),
     )
     expect(digest.indexOf("kkkk")).toBeLessThan(
-      digest.indexOf("tiered but unverified claim"),
+      digest.indexOf("tiered but plausible claim"),
     )
   })
 

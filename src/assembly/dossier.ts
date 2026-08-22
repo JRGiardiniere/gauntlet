@@ -96,9 +96,9 @@ export const assembleDossier = ({
       findings.push(
         DossierFinding.cases.Confirmed.make({ ...suggestedCore, verdict }),
       )
-    } else if (Verdict.guards.Unverified(verdict)) {
+    } else if (Verdict.guards.Plausible(verdict)) {
       unresolved.push(
-        DossierUnresolved.cases.Unverified.make({ ...suggestedCore, verdict }),
+        DossierUnresolved.cases.Plausible.make({ ...suggestedCore, verdict }),
       )
     } else {
       refutedClaims.push(RefutedClaim.make({ ...clusterCore, verdict }))

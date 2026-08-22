@@ -38,7 +38,7 @@ const completed = (
 })
 
 describe("resolveVerification", () => {
-  it("maps CONFIRMED, UNVERIFIED, and REFUTED onto domain verdicts", () => {
+  it("maps CONFIRMED, PLAUSIBLE, and REFUTED onto domain verdicts", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
     const clusters = numberPoolClusters(singletonClusters(claims))
     const resolved = resolveVerification(claims, clusters, [
@@ -54,7 +54,7 @@ describe("resolveVerification", () => {
           },
           {
             cluster: 2,
-            verdict: "UNVERIFIED",
+            verdict: "PLAUSIBLE",
             review_priority: "P2",
             evidence: "needs runtime state",
           },
@@ -72,7 +72,7 @@ describe("resolveVerification", () => {
         reviewPriority: "P1",
         evidence: "reproduced on empty input",
       }),
-      Verdict.cases.Unverified.make({
+      Verdict.cases.Plausible.make({
         reviewPriority: "P2",
         evidence: "needs runtime state",
       }),
@@ -118,7 +118,7 @@ describe("resolveVerification", () => {
     ])
   })
 
-  it("treats Unverified as a first-class verdict, not an absence", () => {
+  it("treats Plausible as a first-class verdict, not an absence", () => {
     const claims = indexBugClaims([claim("one")])
     const clusters = numberPoolClusters(singletonClusters(claims))
     const resolved = resolveVerification(claims, clusters, [
@@ -128,7 +128,7 @@ describe("resolveVerification", () => {
         outcome: completed([
           {
             cluster: 1,
-            verdict: "UNVERIFIED",
+            verdict: "PLAUSIBLE",
             review_priority: "P3",
             evidence: "could not reach the trigger",
           },
@@ -136,9 +136,9 @@ describe("resolveVerification", () => {
       },
     ])
 
-    expect(resolved.bugClaims[0]?.verdict._tag).toBe("Unverified")
+    expect(resolved.bugClaims[0]?.verdict._tag).toBe("Plausible")
     expect(resolved.bugClaims[0]?.verdict).toEqual(
-      Verdict.cases.Unverified.make({
+      Verdict.cases.Plausible.make({
         reviewPriority: "P3",
         evidence: "could not reach the trigger",
       }),
@@ -168,7 +168,7 @@ describe("resolveVerification", () => {
           },
           {
             cluster: 2,
-            verdict: "UNVERIFIED",
+            verdict: "PLAUSIBLE",
             review_priority: "P2",
             evidence: "needs runtime state",
             test_suggestion: {
@@ -212,7 +212,7 @@ describe("resolveVerification", () => {
           },
           {
             cluster: 2,
-            verdict: "UNVERIFIED",
+            verdict: "PLAUSIBLE",
             review_priority: "P2",
             evidence: "needs runtime state",
             test_suggestion: { tests: ["src/two.test.ts"], reason: " " },
@@ -233,7 +233,7 @@ describe("resolveVerification", () => {
     // Fail-closed applies to the suggestion only, never the bundle.
     expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
       "Confirmed",
-      "Unverified",
+      "Plausible",
       "Refuted",
     ])
     expect(resolved.testSuggestions).toEqual([])
@@ -263,8 +263,8 @@ describe("resolveVerification", () => {
     ])
 
     expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
-      "Unverified",
-      "Unverified",
+      "Plausible",
+      "Plausible",
     ])
     expect(resolved.coverageGaps).toEqual([
       {

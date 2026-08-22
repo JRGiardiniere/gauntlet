@@ -7,7 +7,7 @@ descriptions below are tuned prompt content — port them into tool definitions
 verbatim at implementation.
 
 Decoder policy: **strict, fail-closed**. One off-spec field fails the stage
-result, surfacing the affected candidates as unverified/undecided rather than
+result, surfacing the affected candidates as plausible/undecided rather than
 silently rewriting a label. (The old repo's loose one-candidate bench twins
 are not ported.)
 
@@ -52,15 +52,15 @@ Call this exactly once, as your final action. Do not answer in prose instead."
 | field | type | req | description |
 |---|---|---|---|
 | `cluster` | integer | yes | The [cN] label of the cluster. |
-| `verdict` | enum | yes | `CONFIRMED` \| `UNVERIFIED` \| `REFUTED` — see the ladder in the verifier prompt. |
-| `review_priority` | enum | for confirmed/unverified | `P1` \| `P2` \| `P3`. Review Priority for the author of the current ReviewTarget: reachability, consequence, and whether that target is responsible. A regression introduced by the target stays P1; a real parent-only concern may be Confirmed P3 with evidence stating both the factual premise and the specification reasoning. Slice silence alone never lowers priority. |
+| `verdict` | enum | yes | `CONFIRMED` \| `PLAUSIBLE` \| `REFUTED` — see the ladder in the verifier prompt. |
+| `review_priority` | enum | for confirmed/plausible | `P1` \| `P2` \| `P3`. Review Priority for the author of the current ReviewTarget: reachability, consequence, and whether that target is responsible. A regression introduced by the target stays P1; a real parent-only concern may be Confirmed P3 with evidence stating both the factual premise and the specification reasoning. Slice silence alone never lowers priority. |
 | `evidence` | string | yes | One line: the inputs/state and wrong output, or the line that refutes it. When Review Priority rests on specification responsibility, include that reasoning on the same line. |
-| `test_suggestion` | object | no | Optional, CONFIRMED/UNVERIFIED only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help. `tests` (string[], 1+): existing repository test areas, files, classes, or suites — never generated test source or shell commands. `reason` (string): one concise reason these existing tests are relevant to the claim. |
+| `test_suggestion` | object | no | Optional, CONFIRMED/PLAUSIBLE only: existing repository tests worth running to increase confidence. Omit for REFUTED and whenever no existing test would materially help. `tests` (string[], 1+): existing repository test areas, files, classes, or suites — never generated test source or shell commands. `reason` (string): one concise reason these existing tests are relevant to the claim. |
 
 `test_suggestion` is the one exception to the strict decoder policy: its schema
 is deliberately content-loose so a malformed suggestion can never fail-close a
 bundle's verdicts. Deterministic Verification resolution validates it —
-non-empty tests and reason, CONFIRMED/UNVERIFIED only — and drops an invalid
+non-empty tests and reason, CONFIRMED/PLAUSIBLE only — and drops an invalid
 suggestion with a diagnostic while every verdict stands.
 
 ## `emit_judgments` — Judgment

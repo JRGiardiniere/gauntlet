@@ -108,8 +108,8 @@ const domainVerdict = (reported: ReportedVerdict): Verdict => {
         reviewPriority: reported.review_priority,
         evidence: reported.evidence,
       })
-    case "UNVERIFIED":
-      return Verdict.cases.Unverified.make({
+    case "PLAUSIBLE":
+      return Verdict.cases.Plausible.make({
         reviewPriority: reported.review_priority,
         evidence: reported.evidence,
       })
@@ -120,7 +120,7 @@ const domainVerdict = (reported: ReportedVerdict): Verdict => {
 
 // A verifier bundle is fail-closed as one unit. A structurally valid but
 // semantically incomplete verdict set therefore cannot partially relabel its
-// clusters; every affected paid claim remains explicitly Unverified.
+// clusters; every affected paid claim remains explicitly Plausible.
 export const resolveVerification = (
   claims: ReadonlyArray<IndexedBugClaim>,
   clusters: ReadonlyArray<NumberedPoolCluster>,
@@ -181,7 +181,7 @@ export const resolveVerification = (
       ),
       verdict: Option.getOrElse(
         HashMap.get(byClaim, index),
-        () => Verdict.cases.Unverified.make({}),
+        () => Verdict.cases.Plausible.make({}),
       ),
     })),
     testSuggestions,

@@ -85,6 +85,13 @@ Deliberate changes made during the port:
   REFUTED. The old middle rung PLAUSIBLE ("mechanism real, trigger uncertain")
   is exactly what Unverified means as a first-class Verdict; the
   don't-refute-realistic-state guidance is kept word for word.
+  *Renamed back to PLAUSIBLE 2026-08-22* (CONTEXT.md canon amended): a run
+  confirmed an external-tool claim by plausible reasoning alone, and
+  "unverified" read as a process failure where "plausible" states the actual
+  claim strength. Same rename, opposite direction, same first-class semantics.
+  CONFIRMED now additionally requires every load-bearing fact to be witnessed
+  in the workspace; claims resting on unobservable external behavior cap at
+  PLAUSIBLE.
 - **Verdict fields trimmed**: the old `real` boolean (bench-compat mirror of
   the verdict), `confidence` (asked but never read downstream), and severity
   `"none"` (only legal when refuted) are dropped. Refuted claims simply carry

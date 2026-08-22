@@ -14,7 +14,7 @@ import type { ReviewPriority } from "../domain/verdict.ts"
 export type DossierEntryTag =
   | "confirmed"
   | "judgment"
-  | "unverified"
+  | "plausible"
   | "undecided"
   | "refuted"
   | "dropped"
@@ -40,7 +40,7 @@ const claimEntry = (
     readonly bugClaims: BugClaimCluster
     readonly testSuggestion?: TestSuggestion
   },
-  tag: "confirmed" | "unverified" | "refuted",
+  tag: "confirmed" | "plausible" | "refuted",
   reviewPriority: ReviewPriority | undefined,
   detail: string | undefined,
 ): DossierEntryView => {
@@ -74,10 +74,10 @@ export const viewDossier = (dossier: Dossier): DossierView => ({
       }
   ),
   unresolved: dossier.unresolved.map((entry) =>
-    DossierUnresolved.guards.Unverified(entry)
+    DossierUnresolved.guards.Plausible(entry)
       ? claimEntry(
         entry,
-        "unverified",
+        "plausible",
         entry.verdict.reviewPriority,
         entry.verdict.evidence,
       )

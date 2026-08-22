@@ -214,7 +214,7 @@ Shell tools truncate output (~30k chars), and truncated JSON is garbage — so
 stdout never carries the review, it lands it:
 
 - **stdout**: a bounded markdown digest — one tally line (confirmed / kept /
-  unverified / undecided counts, recipe, target), one line per Findings and
+  plausible / undecided counts, recipe, target), one line per Findings and
   Unresolved entry in their Dossier order, an optional single bounded
   cache-health line, then paths to `dossier.md` and `dossier.json`. Refuted,
   dropped, and evidence live only in the run dir.

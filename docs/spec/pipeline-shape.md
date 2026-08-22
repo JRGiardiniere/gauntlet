@@ -20,7 +20,7 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
    no ReviewSpecification.
 3. **Verification** — one invocation per bundle; adversarial; attaches a
-   Verdict (confirmed / refuted / unverified) plus Review Priority and one-line
+   Verdict (confirmed / refuted / plausible) plus Review Priority and one-line
    evidence to each cluster. Receives the frozen ReviewSpecification, when one
    exists, after the scope block and before the claims.
 4. **Judgment** — one invocation, all Observations, decisions by index:
@@ -95,9 +95,9 @@ Assembly is the deterministic aggregation of those results.
 - Every candidate index is accounted for exactly once across keep / merge /
   drop (Judgment) or appears in exactly one cluster (Pool). The stage output
   decoders are strict — one off-spec field fails the stage result so the
-  affected candidates surface as unverified/undecided rather than silently
+  affected candidates surface as plausible/undecided rather than silently
   relabeled.
-- A BugClaim whose verifier never returned a verdict is **unverified** — a
+- A BugClaim whose verifier never returned a verdict is **plausible** — a
   first-class Verdict rendered in Unresolved with its domain tag.
 - An Observation the judge said nothing about is **undecided** — retained in
   Unresolved with its domain tag, never silently dropped.

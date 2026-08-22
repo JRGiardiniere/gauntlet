@@ -426,7 +426,7 @@ describe("gauntlet review", () => {
 
       const stdout = (yield* TestConsole.logLines).join("\n")
       const [tally = ""] = stdout.split("\n")
-      expect(tally).toContain("1 confirmed · 1 kept · 0 unverified · 0 undecided")
+      expect(tally).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
       expect(tally).toContain("working tree @")
       expect(tally).toContain("recipe: fixture-recipe")
       expect(tally).toMatch(/\$0\.15 · \d+s/)
@@ -454,7 +454,7 @@ describe("gauntlet review", () => {
         "gauntlet: Verification bundle 1 done — 0s · $0.05",
       )
       expect(stderr).toContain(
-        "gauntlet: Verification finished — 1 confirmed · 0 refuted · 0 unverified · 0s",
+        "gauntlet: Verification finished — 1 confirmed · 0 refuted · 0 plausible · 0s",
       )
       expect(stderr).toContain("gauntlet: invoking Judgment")
       expect(stderr).toContain("gauntlet: Judgment done — 0s · $0.05")
