@@ -20,9 +20,9 @@ curl -fsSL https://raw.githubusercontent.com/JRGiardiniere/gauntlet/main/install
 Fetches the latest [release](https://github.com/JRGiardiniere/gauntlet/releases)
 binary for your platform into `~/.local/bin` (override with
 `GAUNTLET_INSTALL_DIR`). The binary checks for a newer release at most once a
-day, on a background fiber that never delays or fails a review; `gauntlet
-upgrade` replaces the binary in place and touches nothing else — settings,
-recipes, runs, and project lenses all survive. Releases are cut by pushing a
+day, on a background fiber that never fails a command and delays one by at
+most a second; `gauntlet upgrade` replaces the binary in place and touches
+nothing else — settings, recipes, runs, and project lenses all survive. Releases are cut by pushing a
 `v<major>.<minor>.<patch>` tag; the tag is the single source of truth for the
 version.
 

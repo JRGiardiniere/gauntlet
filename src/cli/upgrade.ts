@@ -6,11 +6,11 @@
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
-import * as FileSystem from "effect/FileSystem"
 import * as Command from "effect/unstable/cli/Command"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClient from "effect/unstable/http/HttpClient"
 import { isCompiledBinary } from "../content/lens.ts"
+import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
   probeLatestVersion,
@@ -58,36 +58,45 @@ const executeUpgrade = Effect.fn("gauntlet.cli.execute_upgrade")(function* () {
   const url =
     `https://github.com/${repository}/releases/download/v${latest}/${asset}`
   yield* Console.error(`gauntlet: downloading ${url}`)
-  const response = yield* HttpClient.get(url).pipe(
-    Effect.mapError((cause) =>
-      new UpgradeError({ reason: `download failed (${url})`, cause })),
-    Effect.provide(FetchHttpClient.layer),
-  )
-  if (response.status !== 200) {
-    return yield* new UpgradeError({
-      reason: `download failed with status ${String(response.status)} (${url})`,
-    })
-  }
-  const download = yield* response.arrayBuffer.pipe(
-    Effect.mapError((cause) =>
-      new UpgradeError({ reason: `download failed mid-body (${url})`, cause })),
-  )
+  const download = yield* Effect.gen(function* () {
+    const client = (yield* HttpClient.HttpClient).pipe(
+      // Per-attempt bound covers reaching the redirected download host, not
+      // the body transfer, which runs as long as bytes keep arriving.
+      HttpClient.transformResponse((attempt) =>
+        attempt.pipe(Effect.timeout("30 seconds"))),
+      HttpClient.retryTransient({ times: 2 }),
+    )
+    const response = yield* client.get(url).pipe(
+      Effect.mapError((cause) =>
+        new UpgradeError({ reason: `download failed (${url})`, cause })),
+    )
+    if (response.status !== 200) {
+      return yield* new UpgradeError({
+        reason:
+          `download failed with status ${String(response.status)} (${url})`,
+      })
+    }
+    return yield* response.arrayBuffer.pipe(
+      Effect.mapError((cause) =>
+        new UpgradeError({
+          reason: `download failed mid-body (${url})`,
+          cause,
+        })),
+    )
+  }).pipe(Effect.provide(FetchHttpClient.layer))
   // Sibling temp file + rename over the running executable: the process keeps
   // its inode, the path atomically becomes the new release.
-  const fs = yield* FileSystem.FileSystem
   const targetPath = process.execPath
-  const tempPath = `${targetPath}.upgrade`
-  yield* Effect.gen(function* () {
-    yield* fs.writeFile(tempPath, new Uint8Array(download))
-    yield* fs.chmod(tempPath, 0o755)
-    yield* fs.rename(tempPath, targetPath)
-  }).pipe(
-    Effect.mapError((cause) =>
-      new UpgradeError({
-        reason: `could not replace ${targetPath}`,
-        cause,
-      })),
-  )
+  yield* writeArtifactAtomically(targetPath, (fs, tempPath) =>
+    fs.writeFile(tempPath, new Uint8Array(download)).pipe(
+      Effect.andThen(fs.chmod(tempPath, 0o755)),
+    )).pipe(
+      Effect.mapError((cause) =>
+        new UpgradeError({
+          reason: `could not replace ${targetPath}`,
+          cause,
+        })),
+    )
   yield* Console.log(`upgraded to v${latest} (was v${gauntletVersion})`)
 })
 

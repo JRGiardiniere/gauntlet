@@ -8,9 +8,11 @@
 # fine from one Ubuntu runner.
 name: release
 
+# Exact numeric tags only: the updater's probe parses nothing else, so a
+# v1.2.3-rc.1 or vnext tag would publish a release every binary ignores.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 permissions:
   contents: write

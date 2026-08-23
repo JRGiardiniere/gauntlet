@@ -1,11 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import {
-  isNewer,
-  probeLatestVersion,
-  releaseProbeHttp,
-} from "./update-check.ts"
+import * as Layer from "effect/Layer"
+import * as HttpClient from "effect/unstable/http/HttpClient"
+import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import { isNewer, probeLatestVersion, UpdateProbeError } from "./update-check.ts"
 
 describe("isNewer", () => {
   it("orders release versions field by field", () => {
@@ -23,9 +21,16 @@ describe("isNewer", () => {
 })
 
 describe("probeLatestVersion", () => {
-  const redirectTo = (location: string): typeof globalThis.fetch => () =>
-    Promise.resolve(
-      new Response(null, { status: 302, headers: { location } }),
+  const respondingWith = (response: () => Response) =>
+    Layer.succeed(
+      HttpClient.HttpClient,
+      HttpClient.make((request) =>
+        Effect.succeed(HttpClientResponse.fromWeb(request, response()))),
+    )
+
+  const redirectTo = (location: string) =>
+    respondingWith(() =>
+      new Response(null, { status: 302, headers: { location } })
     )
 
   it.effect("reads the version from the releases/latest redirect", () =>
@@ -33,23 +38,17 @@ describe("probeLatestVersion", () => {
       const version = yield* probeLatestVersion()
       expect(version).toBe("1.2.3")
     }).pipe(
-      Effect.provide(releaseProbeHttp),
-      Effect.provideService(
-        FetchHttpClient.Fetch,
-        redirectTo(
-          "https://github.com/JRGiardiniere/gauntlet/releases/tag/v1.2.3",
-        ),
-      ),
+      Effect.provide(redirectTo(
+        "https://github.com/JRGiardiniere/gauntlet/releases/tag/v1.2.3",
+      )),
     ))
 
   it.effect("fails on a redirect that is not a release tag", () =>
     Effect.gen(function* () {
       const error = yield* probeLatestVersion().pipe(Effect.flip)
-      expect(error._tag).toBe("UpdateProbeError")
+      expect(error).toBeInstanceOf(UpdateProbeError)
     }).pipe(
-      Effect.provide(releaseProbeHttp),
-      Effect.provideService(
-        FetchHttpClient.Fetch,
+      Effect.provide(
         redirectTo("https://github.com/JRGiardiniere/gauntlet/releases"),
       ),
     ))
@@ -57,12 +56,10 @@ describe("probeLatestVersion", () => {
   it.effect("fails when nothing redirects (no releases yet)", () =>
     Effect.gen(function* () {
       const error = yield* probeLatestVersion().pipe(Effect.flip)
-      expect(error._tag).toBe("UpdateProbeError")
+      expect(error).toBeInstanceOf(UpdateProbeError)
     }).pipe(
-      Effect.provide(releaseProbeHttp),
-      Effect.provideService(
-        FetchHttpClient.Fetch,
-        () => Promise.resolve(new Response("<html/>", { status: 200 })),
+      Effect.provide(
+        respondingWith(() => new Response("<html/>", { status: 200 })),
       ),
     ))
 })

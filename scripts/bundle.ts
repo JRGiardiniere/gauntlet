@@ -92,6 +92,7 @@ const program = Effect.gen(function* () {
   ].join("\n")
 
   yield* fs.makeDirectory("dist", { recursive: true })
+  const compileBase = { outfile, assets: ["content"], autoloadBunfig: false }
   const build = yield* Effect.tryPromise({
     try: () =>
       Bun.build({
@@ -102,8 +103,8 @@ const program = Effect.gen(function* () {
         // Bun rejects an explicit `target: undefined`; the host-platform
         // build omits the key entirely.
         compile: target === undefined
-          ? { outfile, assets: ["content"], autoloadBunfig: false }
-          : { outfile, assets: ["content"], autoloadBunfig: false, target },
+          ? compileBase
+          : { ...compileBase, target },
       }),
     catch: (cause) => new BundleFailed({ cause }),
   })

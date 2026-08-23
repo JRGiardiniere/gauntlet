@@ -319,9 +319,12 @@ const gauntlet = Command.make("gauntlet").pipe(
 // spent by fast commands on the one invocation per day that actually probes.
 const reportUpdateNotice = Effect.fn("gauntlet.cli.report_update_notice")(
   function* (notice: Fiber.Fiber<Option.Option<string>>) {
+    // The notice's declared error channel is `never`, so the net here is for
+    // defects: an enrichment path must degrade, not crash a decided exit code.
     const available = yield* Fiber.join(notice).pipe(
       Effect.timeoutOption("1 second"),
       Effect.map(Option.flatten),
+      Effect.catchCause(() => Effect.succeed(Option.none<string>())),
     )
     if (Option.isSome(available)) {
       yield* progress(
@@ -411,6 +414,10 @@ const runCli = (
 export const runGauntlet = Effect.fn("gauntlet.cli.run")(function* (
   argv: ReadonlyArray<string>,
 ) {
+  // upgrade does its own release lookup; a concurrent notice would probe the
+  // same endpoint twice and report the pre-upgrade version right after a
+  // successful upgrade.
+  if (argv[0] === "upgrade") return yield* runCli(argv)
   // Forked before the command so the daily release probe overlaps the real
   // work; the notice never affects the exit code.
   const notice = yield* Effect.forkChild(availableUpdateNotice())
