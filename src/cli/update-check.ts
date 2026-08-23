@@ -3,7 +3,8 @@
 // API: the redirect is not subject to the API's per-IP 60/hour unauthenticated
 // quota, which a shared NAT can silently exhaust. The daily notice rides a
 // forked fiber for the whole command and is claimed briefly at exit, so a
-// slow or offline network never delays a review.
+// slow or offline network never fails a command and delays one by at most
+// the one-second claim.
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -93,8 +94,9 @@ export const isNewer = (candidate: string, current: string): boolean => {
 // rewrites.
 const UpdateCheckState = Schema.Struct({
   "checked-at": Schema.Finite,
-  // Absent when the last probe failed: the attempt still counts against the
-  // daily budget, so an offline day probes once instead of on every command.
+  // Absent while a probe is in flight or after it failed: the attempt still
+  // counts against the daily budget, so an offline day probes once instead
+  // of on every command.
   latest: Schema.optionalKey(Schema.String),
 })
 
@@ -129,24 +131,30 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
         ? Option.none<string>()
         : Option.some(latest)
     }
+    // Reserve the attempt before probing: the notice fiber is joined for at
+    // most a second at exit, so a marker written only after a slow probe
+    // would be interrupted and the daily budget would never hold offline.
+    // A fresh compiled-binary install may not have ~/.gauntlet yet; the
+    // cache is enrichment, so a failed write just means the next invocation
+    // probes again.
+    const fs = yield* FileSystem.FileSystem
+    yield* fs.makeDirectory(yield* gauntletHome(), { recursive: true }).pipe(
+      Effect.ignore,
+    )
+    yield* writeArtifactJson(path, UpdateCheckState, {
+      "checked-at": now,
+    }).pipe(Effect.ignore)
     const probed = yield* probeLatestVersion().pipe(
       Effect.timeoutOption("5 seconds"),
       Effect.orElseSucceed(() => Option.none<string>()),
       Effect.provide(releaseProbeHttp),
     )
-    // Failed probes persist too — the at-most-daily contract is about the
-    // attempt, not the answer. A fresh compiled-binary install may not have
-    // ~/.gauntlet yet; the cache is enrichment, so a failed write just means
-    // the next invocation probes again.
-    const fs = yield* FileSystem.FileSystem
-    yield* fs.makeDirectory(yield* gauntletHome(), { recursive: true }).pipe(
-      Effect.ignore,
-    )
-    const state = Option.match(probed, {
-      onNone: () => ({ "checked-at": now }),
-      onSome: (latest) => ({ "checked-at": now, latest }),
-    })
-    yield* writeArtifactJson(path, UpdateCheckState, state).pipe(Effect.ignore)
+    if (Option.isSome(probed)) {
+      yield* writeArtifactJson(path, UpdateCheckState, {
+        "checked-at": now,
+        latest: probed.value,
+      }).pipe(Effect.ignore)
+    }
     return probed
   },
 )

@@ -60,7 +60,10 @@ concern.
 
 - **P1** — the change should not merge as-shaped: wrong starting place, or a
   structure whose cost compounds immediately (every subsequent change pays
-  it). Reserve for findings you would block on.
+  it). Reserve for findings you would block on — that takes both a realistic
+  trigger and a consequence worth stopping a merge over; a sound observation
+  with trivial cost is P2 or P3. Priority is absolute, never a ranking within
+  this review: a small change may have no P1 at all.
 - **P2** — real but bounded structural cost; fix in this PR or a fast
   follow-up.
 - **P3** — worth doing, not blocking, including a credible broader concern

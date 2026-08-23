@@ -38,12 +38,19 @@ current ReviewTarget: reachability, consequence, and whether that target is
 responsible for addressing the concern. A defect that is hard to spot is not
 thereby P1, and an obvious one is not thereby P3.
 
-- P1: an actionable concern that should block the current change. A concrete
-  regression introduced by this ReviewTarget stays P1 — missing Slice prose
-  never excuses newly broken behavior.
+- P1: an actionable concern that should block the current change — which
+  requires both a realistic trigger and a consequence worth stopping a merge
+  over. A real mechanism whose worst outcome is trivial or self-healing is
+  P2 or P3, however sound the reasoning. A concrete regression introduced by
+  this ReviewTarget stays P1 — missing Slice prose never excuses newly broken
+  behavior.
 - P2: a real current concern with bounded urgency.
 - P3: a non-blocking concern, including a minor current issue or a credible
   broader concern that the parent/Slice relationship suggests is not owed now.
+
+Priority is absolute, never a ranking within this review: a small change may
+have no P1 at all, and P1 should be the rare exception, not the top of every
+list.
 
 A Confirmed P3 is still Confirmed: specification responsibility influences
 priority, never factual truth. When a real failure or missing behavior belongs
