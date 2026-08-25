@@ -1,15 +1,16 @@
 ---
 name: gauntlet
 description: >-
-  Runs Gauntlet as a background `gauntlet review` and relays the stdout digest
-  verbatim. Use when asked to review uncommitted changes, a branch's commits,
-  or a pull request, to configure a Recipe, or to deliver a completed Dossier.
+  Runs `gauntlet review` in a managed execution session and relays the stdout
+  digest verbatim. Use when asked to review uncommitted changes, a branch's
+  commits, or a pull request, to configure a Recipe, or to deliver a completed
+  Dossier.
 ---
 
 # Gauntlet
 
-One background command. Stdout is a bounded digest to relay verbatim. The
-Dossier lives on disk.
+One managed long-running command. Stdout is a bounded digest to relay verbatim.
+The Dossier lives on disk.
 
 ## Review
 
@@ -64,17 +65,28 @@ Dossier lives on disk.
    is read once and frozen into the plan; a missing, unreadable, or empty file
    fails before any run is created, and `--spec` cannot be combined with
    `--resume`.
-6. **Launch** as a background shell task:
+6. **Launch** through the agent host's managed long-running execution
+   mechanism:
 
    ```
    gauntlet review [recipe] <target> [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
    ```
 
-   Always run it in the background: a review takes minutes (it fans out real
-   model invocations) and streams its progress to stderr as it goes. Keep
-   working while it runs and pick up the result when the task completes — do
-   not sit polling the output, and do not kill a run for being slow while
-   progress lines are still arriving.
+   Keep the shell command itself in the foreground. Start it with a short
+   initial yield, about one second, so the execution tool returns a managed
+   session ID while Gauntlet continues. Retain that tool session ID and wait
+   through the same tool's session-wait operation. Do not detach the command
+   with `nohup` or `&`; the host may reap that child when the command context
+   closes.
+
+   A review takes minutes because it fans out real model invocations and
+   streams progress to stderr. Use the managed wait instead of a manual polling
+   loop. Do not kill a run for being slow while progress lines still arrive.
+
+   If a launch exits immediately with no tool session ID, no Gauntlet run ID,
+   and no output, it did not start a review. Launch it once more through managed
+   execution. Once Gauntlet prints a run ID, handle any interruption with
+   `--resume` as described below.
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed.
