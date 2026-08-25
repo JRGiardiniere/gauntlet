@@ -233,9 +233,10 @@ Dossier in the Run directory.
 
 ## Skill
 
-One universal markdown skill (no harness-specific machinery, copyable to
-Codex/Cursor later): run `gauntlet review` as a background shell task, aim it
-at what the caller means (`--pr`, `--commits`, `--working-tree`, or the
+One universal markdown skill, copyable across agent hosts: run `gauntlet
+review` through the host's managed long-running command facility, keep the
+command itself in the foreground, and use short host-specific launch notes.
+Aim it at what the caller means (`--pr`, `--commits`, `--working-tree`, or the
 combined form), choose the destination (#8's judgment text), relay the digest.
 
 ## Consequences

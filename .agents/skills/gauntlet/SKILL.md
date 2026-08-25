@@ -1,16 +1,16 @@
 ---
 name: gauntlet
 description: >-
-  Runs `gauntlet review` in a managed execution session and relays the stdout
-  digest verbatim. Use when asked to review uncommitted changes, a branch's
-  commits, or a pull request, to configure a Recipe, or to deliver a completed
-  Dossier.
+  Runs `gauntlet review` through an agent host's managed long-running execution
+  and relays the stdout digest verbatim. Use when asked to review uncommitted
+  changes, a branch's commits, or a pull request, to configure a Recipe, or to
+  deliver a completed Dossier.
 ---
 
 # Gauntlet
 
-One managed long-running command. Stdout is a bounded digest to relay verbatim.
-The Dossier lives on disk.
+One host-managed command. Stdout is a bounded digest to relay verbatim. The
+Dossier lives on disk.
 
 ## Review
 
@@ -72,21 +72,27 @@ The Dossier lives on disk.
    gauntlet review [recipe] <target> [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
    ```
 
-   Keep the shell command itself in the foreground. Start it with a short
-   initial yield, about one second, so the execution tool returns a managed
-   session ID while Gauntlet continues. Retain that tool session ID and wait
-   through the same tool's session-wait operation. Do not detach the command
-   with `nohup` or `&`; the host may reap that child when the command context
-   closes.
+   Keep `gauntlet review ...` in the foreground inside that facility. Retain
+   the process or task handle and any output path returned by the host, then use
+   the host's wait or output operation until the command exits. Do not wrap the
+   command in `nohup` or append `&`; shell detachment can end the managed shell
+   invocation before Gauntlet finishes and lose lifecycle or output tracking.
+
+   - **Codex:** call `exec_command` with a short initial `yield_time_ms`. Retain
+     any returned `session_id` and wait with empty `write_stdin` calls until the
+     process exits.
+   - **Claude Code:** call Bash with `run_in_background: true`. Retain the
+     returned task ID and output-file path, then read that file when the task
+     completes. A timed initial yield is not needed.
+   - **Other agents:** use the equivalent managed process facility. If none
+     exists, keep the command in the foreground and wait for it.
 
    A review takes minutes because it fans out real model invocations and
-   streams progress to stderr. Use the managed wait instead of a manual polling
-   loop. Do not kill a run for being slow while progress lines still arrive.
-
-   If a launch exits immediately with no tool session ID, no Gauntlet run ID,
-   and no output, it did not start a review. Launch it once more through managed
-   execution. Once Gauntlet prints a run ID, handle any interruption with
-   `--resume` as described below.
+   streams progress to stderr. Do not kill a run for being slow while progress
+   lines still arrive. If a launch exits immediately with no host handle, no
+   Gauntlet run ID, and no output, it did not start a review. Launch it once
+   more through managed execution. Once Gauntlet prints a run ID, handle any
+   interruption with `--resume` as described below.
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed.
