@@ -15,7 +15,7 @@
     "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
-    "test": "vitest run",
+    "test": "vitest run && sh scripts/install.test.sh",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

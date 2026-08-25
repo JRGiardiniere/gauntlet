@@ -36,6 +36,10 @@ Reviews can be targeted at a PR, a series of commits, or your current working br
 curl -fsSL https://raw.githubusercontent.com/JRGiardiniere/gauntlet/main/install.sh | sh
 ```
 
+The installer puts the binary in `~/.local/bin`, installs the Gauntlet agent
+skill in `~/.agents/skills/gauntlet`, and links that skill into
+`~/.claude/skills/gauntlet`.
+
 Then:
 
 ```sh
@@ -49,6 +53,5 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
   the `provider/model:effort` seats, done.
 - **Lenses** — drop markdown files in `.gauntlet/lenses/` for project-local
   review standards; `--lenses a,b` selects exactly those for one run.
-- **Agent skill** — copy [`.agents/skills/gauntlet/`](.agents/skills/gauntlet/SKILL.md)
-  into `~/.agents/skills/` so your coding agent can run reviews from any repo.
-
+- **Agent skill** — the installer keeps the shared skill in
+  `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.

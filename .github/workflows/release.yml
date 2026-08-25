@@ -56,10 +56,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
+      - name: Package agent skill
+        run: cp .agents/skills/gauntlet/SKILL.md assets/gauntlet-skill.md
       - run: >
           gh release create "$GITHUB_REF_NAME" assets/*
           --generate-notes --repo "$GITHUB_REPOSITORY"
