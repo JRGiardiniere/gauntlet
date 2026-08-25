@@ -46,6 +46,9 @@ jobs:
           GAUNTLET_TARGET: ${{ matrix.target }}
           GAUNTLET_OUTFILE: dist/${{ matrix.asset }}
         run: GAUNTLET_VERSION="${GITHUB_REF_NAME#v}" bun scripts/bundle.ts
+      - name: Verify self-update lookup
+        if: matrix.asset == 'gauntlet-darwin-arm64' || matrix.asset == 'gauntlet-linux-x64'
+        run: sh scripts/upgrade-compiled.test.sh dist/${{ matrix.asset }}
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}

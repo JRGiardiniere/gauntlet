@@ -9,13 +9,10 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import * as Headers from "effect/unstable/http/Headers"
-import * as HttpClient from "effect/unstable/http/HttpClient"
 import { gauntletHome } from "../config/settings.ts"
 import { isCompiledBinary } from "../content/lens.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "../run/artifact.ts"
@@ -29,37 +26,55 @@ export class UpdateProbeError extends Data.TaggedError("UpdateProbeError")<{
   readonly cause?: unknown
 }> {}
 
-// The probe must see the 302 itself; a redirect-following client would land
-// on the release page HTML and lose the tag.
-export const releaseProbeHttp = FetchHttpClient.layer.pipe(
-  Layer.provide(
-    Layer.succeed(FetchHttpClient.RequestInit, { redirect: "manual" }),
-  ),
-)
-
 const releaseTagPattern = /\/releases\/tag\/v(\d+\.\d+\.\d+)$/
+
+const isTransientStatus = (status: number): boolean =>
+  status === 408 || status === 429 || status === 500 || status === 502 ||
+  status === 503 || status === 504
 
 export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
   function* () {
-    const client = (yield* HttpClient.HttpClient).pipe(
-      HttpClient.transformResponse((attempt) =>
-        attempt.pipe(Effect.timeout("3 seconds"))),
-      HttpClient.retryTransient({ times: 2 }),
+    const fetch = yield* FetchHttpClient.Fetch
+    // Own redirect behavior at the request boundary. An ambient HttpClient can
+    // be replaced by an outer application Layer, which made the 1.0 updater
+    // follow this redirect and lose the release tag.
+    const response = yield* Effect.gen(function* () {
+      const result = yield* Effect.tryPromise({
+        try: (signal) =>
+          fetch(latestReleaseUrl, {
+            method: "HEAD",
+            redirect: "manual",
+            signal,
+          }),
+        catch: (cause) =>
+          new UpdateProbeError({ reason: "release lookup failed", cause }),
+      })
+      if (isTransientStatus(result.status)) {
+        return yield* new UpdateProbeError({
+          reason: `release lookup failed with status ${String(result.status)}`,
+        })
+      }
+      return result
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: "3 seconds",
+        orElse: () =>
+          Effect.fail(
+            new UpdateProbeError({ reason: "release lookup timed out" }),
+          ),
+      }),
+      Effect.retry({ times: 2 }),
     )
-    const response = yield* client.head(latestReleaseUrl).pipe(
-      Effect.mapError((cause) =>
-        new UpdateProbeError({ reason: "release lookup failed", cause })),
-    )
-    const location = Headers.get(response.headers, "location")
-    if (Option.isNone(location)) {
+    const location = response.headers.get("location")
+    if (location === null) {
       return yield* new UpdateProbeError({
         reason: `${latestReleaseUrl} did not redirect — the repository may have no releases`,
       })
     }
-    const version = releaseTagPattern.exec(location.value)?.[1]
+    const version = releaseTagPattern.exec(location)?.[1]
     if (version === undefined) {
       return yield* new UpdateProbeError({
-        reason: `unrecognized release redirect: ${location.value}`,
+        reason: `unrecognized release redirect: ${location}`,
       })
     }
     return version
@@ -147,7 +162,6 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
     const probed = yield* probeLatestVersion().pipe(
       Effect.timeoutOption("5 seconds"),
       Effect.orElseSucceed(() => Option.none<string>()),
-      Effect.provide(releaseProbeHttp),
     )
     if (Option.isSome(probed)) {
       yield* writeArtifactJson(path, UpdateCheckState, {

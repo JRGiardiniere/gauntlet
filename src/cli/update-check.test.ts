@@ -1,8 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { isNewer, probeLatestVersion, UpdateProbeError } from "./update-check.ts"
 
 describe("isNewer", () => {
@@ -21,12 +20,14 @@ describe("isNewer", () => {
 })
 
 describe("probeLatestVersion", () => {
-  const respondingWith = (response: () => Response) =>
-    Layer.succeed(
-      HttpClient.HttpClient,
-      HttpClient.make((request) =>
-        Effect.succeed(HttpClientResponse.fromWeb(request, response()))),
-    )
+  const respondingWith = (response: () => Response) => {
+    const fakeFetch: typeof globalThis.fetch = (_input, init) => {
+      expect(init?.method).toBe("HEAD")
+      expect(init?.redirect).toBe("manual")
+      return Promise.resolve(response())
+    }
+    return Layer.succeed(FetchHttpClient.Fetch, fakeFetch)
+  }
 
   const redirectTo = (location: string) =>
     respondingWith(() =>

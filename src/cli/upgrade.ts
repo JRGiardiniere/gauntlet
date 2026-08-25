@@ -14,7 +14,6 @@ import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
   probeLatestVersion,
-  releaseProbeHttp,
   repository,
 } from "./update-check.ts"
 import { gauntletVersion } from "./version.ts"
@@ -40,7 +39,6 @@ const executeUpgrade = Effect.fn("gauntlet.cli.execute_upgrade")(function* () {
   const latest = yield* probeLatestVersion().pipe(
     Effect.mapError((cause) =>
       new UpgradeError({ reason: cause.reason, cause })),
-    Effect.provide(releaseProbeHttp),
   )
   if (!isNewer(latest, gauntletVersion)) {
     yield* Console.log(`already up to date (v${gauntletVersion})`)
