@@ -57,7 +57,7 @@ const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
 
 const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
 
-const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
+export const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
   "absence",
   "cleanup",
   "cross-file",

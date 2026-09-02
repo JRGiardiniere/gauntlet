@@ -55,3 +55,29 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
   review standards; `--lenses a,b` selects exactly those for one run.
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
+
+## Also available as a Claude Code workflow
+
+The same pipeline runs as a Claude Code workflow, for anyone who wants to try
+Gauntlet's lenses and stages without the CLI, Pi, or a provider account. The
+finder system prompt, shared block, pool, verifier, judge, and all 13 shipped
+lenses are embedded verbatim, so the two surfaces review with the same words.
+
+```sh
+cp .claude/workflows/gauntlet.js ~/.claude/workflows/   # or run it from this checkout
+```
+
+Then in a Claude Code session in the repository you want reviewed:
+
+```
+run the gauntlet workflow                       # working tree vs HEAD
+run the gauntlet workflow with args "42"        # PR #42 (GitHub closing issues become the spec)
+run the gauntlet workflow with args "main..HEAD --lenses=diff-scan,security --model=opus --effort=high"
+```
+
+It returns the dossier as markdown and JSON. What differs from the CLI:
+subagents see the real checkout instead of a confined workspace, seats are
+Claude Code model/effort pairs, specification comes from GitHub only, and there
+is no run directory or resume. `.claude/workflows/gauntlet.js` is generated —
+edit `workflow/gauntlet.body.js` or the content files, then run
+`bun run build-workflow`.
