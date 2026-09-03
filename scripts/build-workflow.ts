@@ -30,7 +30,6 @@ import {
 
 // `message` is what NodeRuntime.runMain prints, so the remedy rides there.
 class WorkflowStale extends Data.TaggedError("WorkflowStale")<{
-  readonly path: string
   readonly message: string
 }> {}
 
@@ -171,7 +170,7 @@ const program = Effect.gen(function* () {
           : Effect.fail(failure)),
     )
     if (Option.isNone(current) || current.value !== output) {
-      return yield* new WorkflowStale({ path: OUTPUT, message: `${OUTPUT} is stale: ${REGENERATE}` })
+      return yield* new WorkflowStale({ message: `${OUTPUT} is stale: ${REGENERATE}` })
     }
     yield* Console.log(`${OUTPUT} is up to date`)
     return

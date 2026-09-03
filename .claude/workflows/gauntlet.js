@@ -127,8 +127,8 @@ const CONTENT = {
 //     markdown) as its result; the workflow journal is the durable record.
 //   • Lenses are the shipped catalog frozen at build time. Project-local
 //     `.gauntlet/lenses/` and the `default-lenses` setting (the user's Default
-//     Lenses) are not read; the standing selection is the list `config init`
-//     seeds, and --lenses is the only override.
+//     Lenses) are not read; without --lenses the run uses the list `config
+//     init` seeds, and --lenses is the only override.
 //
 // Args (string): "[target] [--lenses=a,b,c] [--model=opus] [--effort=high]
 //                 [--interpretive-model=opus] [--interpretive-effort=xhigh]
@@ -144,16 +144,17 @@ const CONTENT = {
 // ─── Pipeline constants — embedded from src/domain/review-plan.ts and
 // src/assembly/pool.ts by the build, so the two surfaces cannot drift.
 const { DEFAULT_CANDIDATE_CAP, SUBJECTIVE_CANDIDATE_CAP, POOL_SKIP_UNDER, VERIFIER_BUNDLE_SIZE } = CONTENT.constants
-// Standing lens selection: the list `config init` seeds as a user's Default
-// Lenses. This surface reads no settings, so the seed stands in.
-const STANDING_LENSES = CONTENT.seededLenses
+// The list `config init` seeds as a user's Default Lenses. This surface reads
+// no settings, so it runs the seed when --lenses is absent.
+const SEEDED_LENSES = CONTENT.seededLenses
 const GOVERNING_STANDARDS_HEADING = "## Governing standards"
 
 // ─── Args
 // Both forms normalize to one {optionKey: string} map before a single
-// validation pass. String form: everything before the first `--flag=` is the
-// target; `--spec=` then runs to the next `--flag=` or the end so it may carry
-// prose; every other flag takes exactly one token.
+// validation pass. String form: everything before the first `--name=` token is
+// the target; `--spec=` then runs to the next `--name=` token or the end, so
+// it may carry prose (a bare `--word` inside it is prose); every other flag
+// takes exactly one token.
 const OPTION_KEYS = { lenses: "lenses", model: "model", effort: "effort", "interpretive-model": "interpretiveModel", "interpretive-effort": "interpretiveEffort", spec: "spec" }
 const OBJECT_KEYS = ["target", ...Object.values(OPTION_KEYS)]
 const parseArgs = raw => {
@@ -172,14 +173,12 @@ const parseArgs = raw => {
   } else {
     accepted = Object.keys(OPTION_KEYS).map(k => `--${k}=`)
     const text = (typeof raw === "string" ? raw : "").trim()
-    const firstFlag = text.search(/(^|\s)--\S/)
+    const firstFlag = text.search(/(^|\s)--[A-Za-z-]+=/)
     target = firstFlag < 0 ? text : text.slice(0, firstFlag)
     const flags = firstFlag < 0 ? "" : text.slice(firstFlag).trim()
-    for (const piece of flags.split(/\s+(?=--\S)/).filter(Boolean)) {
-      const m = /^--([A-Za-z-]+)=([\s\S]*)$/.exec(piece)
-      const flag = m ? m[1] : piece.split(/\s+/)[0]
-      if (!m || !Object.hasOwn(OPTION_KEYS, flag)) { problems.push(`unknown option: ${flag}`); continue }
-      const value = m[2]
+    for (const piece of flags.split(/\s+(?=--[A-Za-z-]+=)/).filter(Boolean)) {
+      const [, flag, value] = /^--([A-Za-z-]+)=([\s\S]*)$/.exec(piece)
+      if (!Object.hasOwn(OPTION_KEYS, flag)) { problems.push(`unknown option: --${flag}`); continue }
       if (flag === "spec") { given.spec = value; continue }
       const [head, ...tail] = value.split(/\s+/)
       if (tail.length > 0) { problems.push(`unexpected text after --${flag}=${head}: "${tail.join(" ")}" (the target goes before the first flag)`); continue }
@@ -188,7 +187,7 @@ const parseArgs = raw => {
   }
   const trimmed = key => (typeof given[key] === "string" && given[key].trim() !== "" ? given[key].trim() : undefined)
   const lenses = "lenses" in given ? given.lenses.split(",").map(x => x.trim()).filter(Boolean) : null
-  if (lenses !== null && lenses.length === 0) problems.push("lenses was given but names no lens; omit it to run the standing selection")
+  if (lenses !== null && lenses.length === 0) problems.push("lenses was given but names no lens; omit it to run the seeded list")
   return {
     target: target.trim(),
     lenses,
@@ -200,7 +199,7 @@ const parseArgs = raw => {
 }
 const OPTS = parseArgs(args)
 if (OPTS.problems.length > 0) {
-  return { error: OPTS.problems.join("; "), accepted: OPTS.accepted, lenses: Object.keys(CONTENT.lenses).sort() }
+  return { error: OPTS.problems.join("; "), accepted: OPTS.accepted, available: Object.keys(CONTENT.lenses).sort() }
 }
 
 // Seats: the Recipe analogue. A Default Seat for every stage, with the
@@ -215,9 +214,9 @@ const DEFAULT_SEAT = seatOpts(OPTS.model ?? PINNED_MODEL, OPTS.effort ?? PINNED_
 const INTERPRETIVE_SEAT = seatOpts(OPTS.interpretiveModel ?? DEFAULT_SEAT.model, OPTS.interpretiveEffort ?? DEFAULT_SEAT.effort)
 const describeSeat = seat => `claude/${seat.model}:${seat.effort}`
 
-// Lens selection: exact caller override, otherwise the standing selection.
+// Lens selection: exact caller override, otherwise the seeded list.
 // Repeated names collapse by first occurrence.
-const selectedNames = [...new Set(OPTS.lenses ?? STANDING_LENSES)]
+const selectedNames = [...new Set(OPTS.lenses ?? SEEDED_LENSES)]
 const unknownLenses = selectedNames.filter(n => !Object.hasOwn(CONTENT.lenses, n))
 if (unknownLenses.length > 0) {
   return { error: `selected lens does not exist: ${unknownLenses.join(", ")}`, available: Object.keys(CONTENT.lenses).sort() }
@@ -371,12 +370,13 @@ const scope = await agent(
 )
 if (!scope) return { error: "Submission agent returned no result — could not resolve the ReviewTarget." }
 // An empty diff runs no finder; the pipeline falls through with zero
-// candidates and the ordinary renderer reports it.
-if (!Array.isArray(scope.changedFiles)) scope.changedFiles = []
-const emptyDiff = scope.changedFiles.length === 0
+// candidates, and the header and digest both say why.
+const changedFiles = Array.isArray(scope.changedFiles) ? scope.changedFiles : []
+const emptyDiffNote = changedFiles.length === 0 ? "nothing to review — the diff is empty" : undefined
+if (emptyDiffNote) log(emptyDiffNote)
 
 const repoRoot = scope.repoRoot
-const changedFilesList = scope.changedFiles.map(f => `- ${f}`).join("\n")
+const changedFilesList = changedFiles.map(f => `- ${f}`).join("\n")
 const specification = (scope.specification || "").trim()
 const standardsDocuments = Array.isArray(scope.standardsDocuments) ? scope.standardsDocuments.filter(d => d && typeof d.path === "string" && d.path !== "") : []
 // Large text never rides through structured output: the diff and the
@@ -389,7 +389,7 @@ const governingStandards = standardsDocuments.length === 0 ? "" : [
   "The documents that govern how the changed code should be written, fed from the Standards Manifest. Judge each document's applicability from its own text. Each is provided as a file: read every one in full before reviewing.",
   ...standardsDocuments.map(d => `### ${d.entry}\n\nRead \`${d.path}\`.`),
 ].join("\n\n")
-log(`${scope.targetDescription} — ${scope.changedFiles.length} changed files${specification ? " — specification frozen" : ""}${standardsDocuments.length > 0 ? ` — ${standardsDocuments.length} governing standards` : ""}`)
+log(`${scope.targetDescription} — ${changedFiles.length} changed files${specification ? " — specification frozen" : ""}${standardsDocuments.length > 0 ? ` — ${standardsDocuments.length} governing standards` : ""}`)
 for (const w of scope.warnings || []) log(`warning: ${w}`)
 
 // ─── Finder selection (src/domain/finder-selection.ts)
@@ -397,9 +397,8 @@ for (const w of scope.warnings || []) log(`warning: ${w}`)
 // manifest create no invocation and no coverage gap — they are skipped lines.
 const skipped = []
 const runnable = []
-for (const name of selectedNames) {
+for (const name of (emptyDiffNote ? [] : selectedNames)) {
   const lens = CONTENT.lenses[name]
-  if (emptyDiff) { skipped.push({ lens: name, reason: "the diff is empty" }); continue }
   if (name === "spec-conformance" && !specification) { skipped.push({ lens: name, reason: "no Review Specification was frozen for this run" }); continue }
   if (name === "standards" && !governingStandards) { skipped.push({ lens: name, reason: "no Standards Manifest is configured for this repository" }); continue }
   runnable.push({
@@ -442,7 +441,7 @@ const canonFile = raw => {
   if (typeof raw !== "string" || raw === "") return ""
   const p = raw.replace(/\\/g, "/")
   let best = ""
-  for (const f of scope.changedFiles) if ((p === f || p.endsWith(`/${f}`)) && f.length > best.length) best = f
+  for (const f of changedFiles) if ((p === f || p.endsWith(`/${f}`)) && f.length > best.length) best = f
   return best || p
 }
 
@@ -450,17 +449,17 @@ const canonFile = raw => {
 // The barrier is real: Pool clusters across every finder's BugClaims.
 phase("Finders")
 const coverageGaps = []
-// A stage (or one finder) that throws becomes a coverage gap, never the run's
-// failure: what the rest of the pipeline produced still reaches the Dossier.
-const guarded = (stage, run, lens) => async () => {
-  try { return await run() } catch (error) {
-    coverageGaps.push({ stage, lens, reason: `${lens ? "finder invocation" : "stage"} threw before completing: ${error && error.message ? error.message : String(error)}` })
-    return null
-  }
-}
+// Anything that throws — one finder here, a whole path below — becomes a
+// coverage gap, never the run's failure: the rest still reaches the Dossier.
+const failureMessage = error => (error && error.message ? error.message : String(error))
 const finderOutcomes = await parallel(runnable.map(lens => async () => {
-  const out = await guarded("Finders", () => agent(finderPrompt(lens), { label: `finder:${lens.name}`, phase: "Finders", schema: FINDINGS_SCHEMA, ...lens.seat }), lens.name)()
-  if (out === null) return []
+  let out
+  try {
+    out = await agent(finderPrompt(lens), { label: `finder:${lens.name}`, phase: "Finders", schema: FINDINGS_SCHEMA, ...lens.seat })
+  } catch (error) {
+    coverageGaps.push({ stage: "Finders", lens: lens.name, reason: `finder invocation threw: ${failureMessage(error)}` })
+    return []
+  }
   if (!out || !Array.isArray(out.findings)) {
     coverageGaps.push({ stage: "Finders", lens: lens.name, reason: "finder invocation produced no decodable emit_findings output" })
     return []
@@ -487,7 +486,8 @@ const bugClaims = allCandidates.filter(c => c.failureScenario !== undefined).map
 const observations = allCandidates.filter(c => c.failureScenario === undefined).map((candidate, i) => ({ index: i + 1, candidate }))
 log(`${allCandidates.length} candidates → ${bugClaims.length} BugClaims, ${observations.length} Observations`)
 
-const oneLineOrUndefined = t => (typeof t === "string" && t.trim() !== "" ? t : undefined)
+// Model-authored optional text: a blank is an absence, so renderers fall back.
+const nonBlank = t => (typeof t === "string" && t.trim() !== "" ? t : undefined)
 
 // ─── Candidate line format (src/content/candidate-line.ts)
 const locationOf = c => `${c.file}${c.line === undefined ? "" : `:${c.line}`}`
@@ -596,8 +596,7 @@ const verifyBundle = async (bundle, i) => {
     return {
       cluster, members, verdict,
       reviewPriority: verdict === "REFUTED" ? undefined : validPriority(v.review_priority),
-      // Empty evidence is no evidence: the renderer then falls back to the claim.
-      evidence: typeof v.evidence === "string" && v.evidence.trim() !== "" ? v.evidence : undefined,
+      evidence: nonBlank(v.evidence),
       testSuggestion: suggestion,
     }
   })
@@ -637,14 +636,14 @@ const judgmentPath = async () => {
     }
     kept.push({
       candidate: obsByIndex.get(d.index).candidate, merged,
-      reviewPriority: validPriority(d.review_priority), reason: oneLineOrUndefined(d.reason),
+      reviewPriority: validPriority(d.review_priority), reason: nonBlank(d.reason),
       goodFind: d.goodFind === true, cleanlyExplained: d.cleanlyExplained === true,
-      qualityNote: typeof d.qualityNote === "string" && d.qualityNote.trim() !== "" ? d.qualityNote : undefined,
+      qualityNote: nonBlank(d.qualityNote),
     })
   }
   if (ignoredMerges > 0) log(`judgment: ignored ${ignoredMerges} merges of explicitly decided indexes`)
   for (const [index, d] of decisions) {
-    if (d.decision === "drop") { claimed.add(index); dropped.push({ candidate: obsByIndex.get(index).candidate, reason: oneLineOrUndefined(d.reason) }) }
+    if (d.decision === "drop") { claimed.add(index); dropped.push({ candidate: obsByIndex.get(index).candidate, reason: nonBlank(d.reason) }) }
   }
   // An Observation the judge said nothing about is undecided — retained, never silently dropped.
   for (const o of observations) if (!claimed.has(o.index)) undecided.push({ candidate: o.candidate, reason: "judge returned no decision for this candidate" })
@@ -654,6 +653,12 @@ const judgmentPath = async () => {
 
 // The two paths are independent; run them concurrently.
 phase("Verification")
+const guarded = (stage, run) => async () => {
+  try { return await run() } catch (error) {
+    coverageGaps.push({ stage, reason: `stage threw before completing: ${failureMessage(error)}` })
+    return null
+  }
+}
 const [verified, judged] = await parallel([guarded("Verification", bugClaimPath), guarded("Judgment", judgmentPath)])
 const verifiedClusters = verified || []
 if (verified === null && bugClaims.length > 0) {
@@ -707,6 +712,7 @@ const header = [
   `- Lenses: ${lensList}`,
   `- Coverage gaps: ${coverageGaps.length === 0 ? "none" : coverageGaps.map(g => `${g.stage}${g.lens ? ` (${g.lens})` : ""}: ${g.reason}`).join("; ")}`,
   `- Warnings: ${(scope.warnings || []).length === 0 ? "none" : scope.warnings.join("; ")}`,
+  ...(emptyDiffNote ? [`- Note: ${emptyDiffNote}`] : []),
   ...(skipped.length > 0 ? [`- Skipped: ${skipped.map(s => `${s.lens} — ${s.reason}`).join("; ")}`] : []),
 ]
 const markdown = [
@@ -723,7 +729,7 @@ const keptCount = findings.filter(f => f.tag === "judgment").length
 const plausibleCount = unresolved.filter(u => u.tag === "plausible").length
 const undecidedCount = unresolved.filter(u => u.tag === "undecided").length
 const digest = [
-  `${confirmedCount} confirmed · ${keptCount} kept · ${plausibleCount} plausible · ${undecidedCount} undecided — ${scope.targetDescription} — recipe: workflow`,
+  `${confirmedCount} confirmed · ${keptCount} kept · ${plausibleCount} plausible · ${undecidedCount} undecided — ${scope.targetDescription} — recipe: workflow${emptyDiffNote ? ` — ${emptyDiffNote}` : ""}`,
   ...[...findings, ...unresolved].map(e => `- [${e.reviewPriority ? `${e.reviewPriority} ` : ""}${e.tag}] ${locationOf(e.candidate)} — ${oneLine(e.candidate.summary).slice(0, 200)}`),
 ].join("\n")
 log(digest.split("\n")[0])
