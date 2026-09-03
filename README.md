@@ -81,7 +81,8 @@ subagents see the real checkout instead of a confined workspace, seats are
 Claude Code model/effort pairs, specification comes from GitHub only, there is
 no run directory or resume, and only the 13 embedded lenses exist — project
 `.gauntlet/lenses/` and the `default-lenses` setting are not read, so
-`--lenses=` is the one way to narrow a run. `--spec=` runs to the next flag or
-the end of the string, so it may carry prose; put the target before it. `.claude/workflows/gauntlet.js` is generated —
+`--lenses=` is the one way to narrow a run. The target goes before the first
+flag; `--spec=` runs to the next flag or the end of the string, so it may
+carry prose. `.claude/workflows/gauntlet.js` is generated —
 edit `workflow/gauntlet.body.js` or the content files, then run
 `bun run build-workflow`.

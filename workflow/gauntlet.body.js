@@ -1,7 +1,7 @@
 export const meta = {
   name: "gauntlet",
   description: "Gauntlet's five-stage code review as a Claude Code workflow: lens finders → pool → adversarial verifiers and an observation judge → deterministic dossier",
-  whenToUse: "Use to run a Gauntlet review without the CLI. Args: \"[--lenses=a,b] [--model=opus] [--effort=low] [--interpretive-model=opus] [--interpretive-effort=high] [--spec=<caller addendum>] [target]\" — target is empty (working tree), a PR number, base..head, or a branch.",
+  whenToUse: "Use to run a Gauntlet review without the CLI. Args: \"[target] [--lenses=a,b] [--model=opus] [--effort=low] [--interpretive-model=opus] [--interpretive-effort=high] [--spec=<caller addendum, may be prose>]\" — target comes first: empty (working tree), a PR number, base..head, or a branch.",
   phases: [
     { title: "Submission", detail: "Resolve the ReviewTarget, fetch the Review Specification, load the Standards Manifest" },
     { title: "Finders", detail: "One finder per selected lens over the frozen diff; candidates route by type" },
@@ -40,15 +40,17 @@ export const meta = {
 //   • No run directory or resume. The workflow returns the Dossier (JSON and
 //     markdown) as its result; the workflow journal is the durable record.
 //   • Lenses are the shipped catalog frozen at build time. Project-local
-//     `.gauntlet/lenses/` and the `default-lenses` setting are not read; the
-//     Default Lenses are the shipped list and --lenses is the only override.
+//     `.gauntlet/lenses/` and the `default-lenses` setting (the user's Default
+//     Lenses) are not read; the standing selection is the list `config init`
+//     seeds, and --lenses is the only override.
 //
-// Args (string): "[--lenses=a,b,c] [--model=opus] [--effort=high]
+// Args (string): "[target] [--lenses=a,b,c] [--model=opus] [--effort=high]
 //                 [--interpretive-model=opus] [--interpretive-effort=xhigh]
-//                 [--spec=<caller addendum text>] [target]"
-//   target: empty (working tree vs HEAD), a PR number, "<base>..<head>",
-//           a branch name, or free-form scoping text. --spec runs to the
-//           next --flag or the end, so it may carry prose; put the target first.
+//                 [--spec=<caller addendum text>]"
+//   target: everything before the first --flag: empty (working tree vs HEAD),
+//           a PR number, "<base>..<head>", a branch name, or free-form
+//           scoping text. --spec runs to the next --flag or the end, so it
+//           may carry prose; every other flag takes one token.
 // Args (object): { target, lenses: [...], model, effort, interpretiveModel,
 //                  interpretiveEffort, spec }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,57 +58,63 @@ export const meta = {
 // ─── Pipeline constants — embedded from src/domain/review-plan.ts and
 // src/assembly/pool.ts by the build, so the two surfaces cannot drift.
 const { DEFAULT_CANDIDATE_CAP, SUBJECTIVE_CANDIDATE_CAP, POOL_SKIP_UNDER, VERIFIER_BUNDLE_SIZE } = CONTENT.constants
-const DEFAULT_LENSES = CONTENT.defaultLenses
+// Standing lens selection: the list `config init` seeds as a user's Default
+// Lenses. This surface reads no settings, so the seed stands in.
+const STANDING_LENSES = CONTENT.seededLenses
 const GOVERNING_STANDARDS_HEADING = "## Governing standards"
 
 // ─── Args
-// Both forms normalize to one {key: value} map before a single validation
-// pass. In the string form `--spec=` runs to the next `--flag=` or the end, so
-// `--spec=focus on the retry path` arrives whole; put the target before it.
+// Both forms normalize to one {optionKey: string} map before a single
+// validation pass. String form: everything before the first `--flag=` is the
+// target; `--spec=` then runs to the next `--flag=` or the end so it may carry
+// prose; every other flag takes exactly one token.
 const OPTION_KEYS = { lenses: "lenses", model: "model", effort: "effort", "interpretive-model": "interpretiveModel", "interpretive-effort": "interpretiveEffort", spec: "spec" }
+const OBJECT_KEYS = ["target", ...Object.values(OPTION_KEYS)]
 const parseArgs = raw => {
   const given = {}
-  const unknown = []
+  const problems = []
   let target = ""
+  let accepted
   if (raw && typeof raw === "object") {
+    accepted = OBJECT_KEYS
     for (const [key, value] of Object.entries(raw)) {
-      if (key === "target") target = String(value ?? "")
-      else if (Object.values(OPTION_KEYS).includes(key)) given[key] = Array.isArray(value) ? value.join(",") : String(value ?? "")
-      else unknown.push(key)
+      if (value === undefined || value === null) continue
+      if (key === "target") target = String(value)
+      else if (Object.values(OPTION_KEYS).includes(key)) given[key] = Array.isArray(value) ? value.join(",") : String(value)
+      else problems.push(`unknown key: ${key}`)
     }
   } else {
-    const rest = []
-    for (const piece of (typeof raw === "string" ? raw : "").trim().split(/\s+(?=--[a-z-]+=)/).filter(Boolean)) {
-      const m = /^--([a-z-]+)=([\s\S]*)$/.exec(piece)
-      if (!m) { rest.push(piece); continue }
-      const [, flag, value] = m
-      if (!(flag in OPTION_KEYS)) { unknown.push(`--${flag}`); continue }
+    accepted = Object.keys(OPTION_KEYS).map(k => `--${k}=`)
+    const text = (typeof raw === "string" ? raw : "").trim()
+    const firstFlag = text.search(/(^|\s)--\S/)
+    target = firstFlag < 0 ? text : text.slice(0, firstFlag)
+    const flags = firstFlag < 0 ? "" : text.slice(firstFlag).trim()
+    for (const piece of flags.split(/\s+(?=--\S)/).filter(Boolean)) {
+      const m = /^--([A-Za-z-]+)=([\s\S]*)$/.exec(piece)
+      const flag = m ? m[1] : piece.split(/\s+/)[0]
+      if (!m || !Object.hasOwn(OPTION_KEYS, flag)) { problems.push(`unknown option: ${flag}`); continue }
+      const value = m[2]
       if (flag === "spec") { given.spec = value; continue }
-      // Every other flag takes one token; whatever follows it is target text.
       const [head, ...tail] = value.split(/\s+/)
+      if (tail.length > 0) { problems.push(`unexpected text after --${flag}=${head}: "${tail.join(" ")}" (the target goes before the first flag)`); continue }
       given[OPTION_KEYS[flag]] = head
-      if (tail.length > 0) rest.push(tail.join(" "))
     }
-    target = rest.join(" ")
   }
   const trimmed = key => (typeof given[key] === "string" && given[key].trim() !== "" ? given[key].trim() : undefined)
   const lenses = "lenses" in given ? given.lenses.split(",").map(x => x.trim()).filter(Boolean) : null
+  if (lenses !== null && lenses.length === 0) problems.push("lenses was given but names no lens; omit it to run the standing selection")
   return {
     target: target.trim(),
     lenses,
     model: trimmed("model"), effort: trimmed("effort"),
     interpretiveModel: trimmed("interpretiveModel"), interpretiveEffort: trimmed("interpretiveEffort"),
     spec: trimmed("spec") ?? "",
-    unknown,
-    emptyLenses: lenses !== null && lenses.length === 0,
+    problems, accepted,
   }
 }
 const OPTS = parseArgs(args)
-if (OPTS.unknown.length > 0) {
-  return { error: `unknown option: ${OPTS.unknown.join(", ")}`, accepted: Object.keys(OPTION_KEYS).map(k => `--${k}=`).concat(["target"]) }
-}
-if (OPTS.emptyLenses) {
-  return { error: "--lenses was given but names no lens; omit it to run the Default Lenses", available: Object.keys(CONTENT.lenses).sort() }
+if (OPTS.problems.length > 0) {
+  return { error: OPTS.problems.join("; "), accepted: OPTS.accepted, lenses: Object.keys(CONTENT.lenses).sort() }
 }
 
 // Seats: the Recipe analogue. A Default Seat for every stage, with the
@@ -121,10 +129,10 @@ const DEFAULT_SEAT = seatOpts(OPTS.model ?? PINNED_MODEL, OPTS.effort ?? PINNED_
 const INTERPRETIVE_SEAT = seatOpts(OPTS.interpretiveModel ?? DEFAULT_SEAT.model, OPTS.interpretiveEffort ?? DEFAULT_SEAT.effort)
 const describeSeat = seat => `claude/${seat.model}:${seat.effort}`
 
-// Lens selection: exact caller override, otherwise the Default Lenses.
+// Lens selection: exact caller override, otherwise the standing selection.
 // Repeated names collapse by first occurrence.
-const selectedNames = [...new Set(OPTS.lenses ?? DEFAULT_LENSES)]
-const unknownLenses = selectedNames.filter(n => !CONTENT.lenses[n])
+const selectedNames = [...new Set(OPTS.lenses ?? STANDING_LENSES)]
+const unknownLenses = selectedNames.filter(n => !Object.hasOwn(CONTENT.lenses, n))
 if (unknownLenses.length > 0) {
   return { error: `selected lens does not exist: ${unknownLenses.join(", ")}`, available: Object.keys(CONTENT.lenses).sort() }
 }
@@ -276,14 +284,10 @@ const scope = await agent(
   { label: "submission", schema: SCOPE_SCHEMA, ...DEFAULT_SEAT },
 )
 if (!scope) return { error: "Submission agent returned no result — could not resolve the ReviewTarget." }
-if (!Array.isArray(scope.changedFiles) || scope.changedFiles.length === 0) {
-  const digest = `0 confirmed · 0 kept · 0 plausible · 0 undecided — ${scope.targetDescription} — recipe: workflow (nothing to review — the diff is empty)`
-  return {
-    digest,
-    markdown: `# Gauntlet review (workflow)\n\n- Target: ${scope.targetDescription}\n- Warnings: ${(scope.warnings || []).length === 0 ? "none" : scope.warnings.join("; ")}\n\nNothing to review — the diff is empty.\n`,
-    dossier: { target: scope.targetDescription, lenses: [], skipped: [], coverageGaps: [], warnings: scope.warnings || [], findings: [], unresolved: [], rejected: { refutedClaims: [], droppedObservations: [] }, accounting: { finders: 0, candidates: 0, bugClaims: 0, observations: 0, clusters: 0 } },
-  }
-}
+// An empty diff runs no finder; the pipeline falls through with zero
+// candidates and the ordinary renderer reports it.
+if (!Array.isArray(scope.changedFiles)) scope.changedFiles = []
+const emptyDiff = scope.changedFiles.length === 0
 
 const repoRoot = scope.repoRoot
 const changedFilesList = scope.changedFiles.map(f => `- ${f}`).join("\n")
@@ -309,6 +313,7 @@ const skipped = []
 const runnable = []
 for (const name of selectedNames) {
   const lens = CONTENT.lenses[name]
+  if (emptyDiff) { skipped.push({ lens: name, reason: "the diff is empty" }); continue }
   if (name === "spec-conformance" && !specification) { skipped.push({ lens: name, reason: "no Review Specification was frozen for this run" }); continue }
   if (name === "standards" && !governingStandards) { skipped.push({ lens: name, reason: "no Standards Manifest is configured for this repository" }); continue }
   runnable.push({
@@ -359,16 +364,17 @@ const canonFile = raw => {
 // The barrier is real: Pool clusters across every finder's BugClaims.
 phase("Finders")
 const coverageGaps = []
-// One finder failing is that lens's coverage gap, never the run's: the other
-// finders' candidates still flow downstream.
-const finderOutcomes = await parallel(runnable.map(lens => async () => {
-  let out
-  try {
-    out = await agent(finderPrompt(lens), { label: `finder:${lens.name}`, phase: "Finders", schema: FINDINGS_SCHEMA, ...lens.seat })
-  } catch (error) {
-    coverageGaps.push({ stage: "Finders", lens: lens.name, reason: `finder invocation threw: ${error && error.message ? error.message : String(error)}` })
-    return []
+// A stage (or one finder) that throws becomes a coverage gap, never the run's
+// failure: what the rest of the pipeline produced still reaches the Dossier.
+const guarded = (stage, run, lens) => async () => {
+  try { return await run() } catch (error) {
+    coverageGaps.push({ stage, lens, reason: `${lens ? "finder invocation" : "stage"} threw before completing: ${error && error.message ? error.message : String(error)}` })
+    return null
   }
+}
+const finderOutcomes = await parallel(runnable.map(lens => async () => {
+  const out = await guarded("Finders", () => agent(finderPrompt(lens), { label: `finder:${lens.name}`, phase: "Finders", schema: FINDINGS_SCHEMA, ...lens.seat }), lens.name)()
+  if (out === null) return []
   if (!out || !Array.isArray(out.findings)) {
     coverageGaps.push({ stage: "Finders", lens: lens.name, reason: "finder invocation produced no decodable emit_findings output" })
     return []
@@ -394,6 +400,8 @@ const allCandidates = finderOutcomes.filter(Boolean).flat()
 const bugClaims = allCandidates.filter(c => c.failureScenario !== undefined).map((candidate, i) => ({ index: i + 1, candidate }))
 const observations = allCandidates.filter(c => c.failureScenario === undefined).map((candidate, i) => ({ index: i + 1, candidate }))
 log(`${allCandidates.length} candidates → ${bugClaims.length} BugClaims, ${observations.length} Observations`)
+
+const oneLineOrUndefined = t => (typeof t === "string" && t.trim() !== "" ? t : undefined)
 
 // ─── Candidate line format (src/content/candidate-line.ts)
 const locationOf = c => `${c.file}${c.line === undefined ? "" : `:${c.line}`}`
@@ -460,15 +468,15 @@ const verifierClaims = bundle => bundle.map(cluster =>
   cluster.indexes.map(i => candidateLine(byIndex.get(i)).split("\n").map(l => `  ${l}`).join("\n")).join("\n"),
 ).join("\n\n")
 const validPriority = p => (p === "P1" || p === "P2" || p === "P3" ? p : undefined)
-// A test suggestion without tests or a reason, or attached to a refuted
-// cluster, is dropped with a diagnostic — verifier misbehaviour stays visible.
-const validSuggestion = (s, verdict, label) => {
-  if (s === undefined || s === null) return undefined
-  if (verdict === "REFUTED") { coverageGaps.push({ stage: "Verification", reason: `${label} attached a test suggestion to a refuted cluster; dropped it` }); return undefined }
-  const tests = s && typeof s === "object" && Array.isArray(s.tests) ? s.tests.filter(t => typeof t === "string" && t.trim() !== "") : []
-  const reason = s && typeof s === "object" && typeof s.reason === "string" ? s.reason.trim() : ""
-  if (tests.length === 0 || reason === "") { coverageGaps.push({ stage: "Verification", reason: `${label} attached a test suggestion without tests or a reason; dropped it` }); return undefined }
-  return { tests, reason }
+// A test suggestion is either well-formed or names why it was dropped
+// (src/assembly/verification.ts); the caller records the diagnostic.
+const testSuggestionOf = (s, verdict) => {
+  if (s === undefined || s === null) return { suggestion: undefined }
+  if (verdict === "REFUTED") return { dropped: "attached a test suggestion to a refuted cluster; dropped it" }
+  const tests = typeof s === "object" && Array.isArray(s.tests) ? s.tests.filter(t => typeof t === "string" && t.trim() !== "") : []
+  const reason = typeof s === "object" && typeof s.reason === "string" ? s.reason.trim() : ""
+  if (tests.length === 0 || reason === "") return { dropped: "attached a test suggestion without tests or a reason; dropped it" }
+  return { suggestion: { tests, reason } }
 }
 // The bundle contract is fail-closed (src/assembly/verification.ts): one
 // verdict per cluster, every label known, none repeated. Anything else
@@ -497,11 +505,14 @@ const verifyBundle = async (bundle, i) => {
     const members = cluster.indexes.map(idx => byIndex.get(idx).candidate)
     if (!v) return { cluster, members, verdict: "PLAUSIBLE", reviewPriority: undefined, evidence: failure ? `${label} ${failure}; claim not examined` : "verifier returned no verdict for this cluster", testSuggestion: undefined }
     const verdict = v.verdict === "CONFIRMED" || v.verdict === "REFUTED" ? v.verdict : "PLAUSIBLE"
+    const { suggestion, dropped } = testSuggestionOf(v.test_suggestion, verdict)
+    if (dropped) coverageGaps.push({ stage: "Verification", reason: `${label} [c${cluster.number}] ${dropped}` })
     return {
       cluster, members, verdict,
       reviewPriority: verdict === "REFUTED" ? undefined : validPriority(v.review_priority),
-      evidence: String(v.evidence ?? ""),
-      testSuggestion: validSuggestion(v.test_suggestion, verdict, `${label} [c${cluster.number}]`),
+      // Empty evidence is no evidence: the renderer then falls back to the claim.
+      evidence: typeof v.evidence === "string" && v.evidence.trim() !== "" ? v.evidence : undefined,
+      testSuggestion: suggestion,
     }
   })
 }
@@ -540,14 +551,14 @@ const judgmentPath = async () => {
     }
     kept.push({
       candidate: obsByIndex.get(d.index).candidate, merged,
-      reviewPriority: validPriority(d.review_priority), reason: String(d.reason ?? ""),
+      reviewPriority: validPriority(d.review_priority), reason: oneLineOrUndefined(d.reason),
       goodFind: d.goodFind === true, cleanlyExplained: d.cleanlyExplained === true,
       qualityNote: typeof d.qualityNote === "string" && d.qualityNote.trim() !== "" ? d.qualityNote : undefined,
     })
   }
   if (ignoredMerges > 0) log(`judgment: ignored ${ignoredMerges} merges of explicitly decided indexes`)
   for (const [index, d] of decisions) {
-    if (d.decision === "drop") { claimed.add(index); dropped.push({ candidate: obsByIndex.get(index).candidate, reason: String(d.reason ?? "") }) }
+    if (d.decision === "drop") { claimed.add(index); dropped.push({ candidate: obsByIndex.get(index).candidate, reason: oneLineOrUndefined(d.reason) }) }
   }
   // An Observation the judge said nothing about is undecided — retained, never silently dropped.
   for (const o of observations) if (!claimed.has(o.index)) undecided.push({ candidate: o.candidate, reason: "judge returned no decision for this candidate" })
@@ -557,12 +568,6 @@ const judgmentPath = async () => {
 
 // The two paths are independent; run them concurrently.
 phase("Verification")
-const guarded = (stage, run) => async () => {
-  try { return await run() } catch (error) {
-    coverageGaps.push({ stage, reason: `stage threw before completing: ${error && error.message ? error.message : String(error)}` })
-    return null
-  }
-}
 const [verified, judged] = await parallel([guarded("Verification", bugClaimPath), guarded("Judgment", judgmentPath)])
 const verifiedClusters = verified || []
 if (verified === null && bugClaims.length > 0) {

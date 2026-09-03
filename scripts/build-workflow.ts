@@ -2,8 +2,8 @@
 // workflow (.claude/workflows/gauntlet.js): the same five-stage pipeline,
 // driven by workflow subagents. Lenses and stage prompts stay pure content
 // (ADR 0004), so the workflow never carries its own copy of them by hand —
-// this script embeds the shipped catalog verbatim, together with the pipeline
-// constants and Default Lenses the CLI uses, into the hand-written
+// this script embeds the shipped catalog verbatim, together with the CLI's
+// pipeline constants and seeded lens list, into the hand-written
 // orchestration in workflow/gauntlet.body.js (at its @@CONTENT@@ marker,
 // after the meta literal) and writes the result.
 //
@@ -24,17 +24,18 @@ import { POOL_SKIP_UNDER, VERIFIER_BUNDLE_SIZE } from "../src/assembly/pool.ts"
 import { loadLens } from "../src/content/lens.ts"
 import {
   DEFAULT_CANDIDATE_CAP,
-  DEFAULT_LENSES,
+  SEEDED_DEFAULT_LENSES,
   SUBJECTIVE_CANDIDATE_CAP,
 } from "../src/domain/review-plan.ts"
 
+// `message` is what NodeRuntime.runMain prints, so the remedy rides there.
 class WorkflowStale extends Data.TaggedError("WorkflowStale")<{
   readonly path: string
-  readonly remedy: string
+  readonly message: string
 }> {}
 
 class WorkflowBuildError extends Data.TaggedError("WorkflowBuildError")<{
-  readonly reason: string
+  readonly message: string
 }> {}
 
 const repoRoot = `${import.meta.dirname}/..`
@@ -47,24 +48,24 @@ const LENSES = "content/lenses"
 const JUDGE = "src/stages/judgment/judge.md"
 const MARKER = "// @@CONTENT@@"
 const REGENERATE = "run `bun run build-workflow` and commit the result"
+const CLI_PROMPTS_NOTE = "a prompt the workflow body never renders must still be listed, with no placeholders, so the coupling stays explicit"
 
 // Pretty-printed so a lens or prompt edit lands as a readable hunk in the
 // committed artifact rather than one 40KB line.
 const jsonLiteral = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown, { space: 2 }))
 
-// The substitutions the workflow body supplies for each embedded prompt. A
-// prompt that grows a placeholder the body does not fill would pass `--check`
-// and crash the workflow on every run, so the coupling is checked here.
-const BODY_SUBSTITUTIONS = {
-  "finder-system": [],
-  "finder-shared-block": ["REPO_ROOT", "CHANGED_FILES", "DIFF_SECTION", "MAX_PER_LENS"],
-  "stage-scope-block": ["REPO_ROOT", "CHANGED_FILES", "DIFF_SECTION"],
-  pool: ["CANDIDATES"],
-  verifier: ["SCOPE_BLOCK", "CLAIMS"],
-  judge: ["SCOPE_BLOCK", "CANDIDATES"],
-} satisfies Record<string, ReadonlyArray<string>>
-const substitutionsFor = (name: string): ReadonlyArray<string> | undefined =>
-  Object.entries(BODY_SUBSTITUTIONS).find(([prompt]) => prompt === name)?.[1]
+// The substitutions the workflow body supplies for each embedded prompt, a
+// hand-kept mirror of its render calls. Checked both ways: a prompt that grows
+// a placeholder the body does not fill, or a listed prompt with no content
+// file, would pass `--check` and crash the workflow on every run.
+const BODY_SUBSTITUTIONS = new Map<string, ReadonlyArray<string>>([
+  ["finder-system", []],
+  ["finder-shared-block", ["REPO_ROOT", "CHANGED_FILES", "DIFF_SECTION", "MAX_PER_LENS"]],
+  ["stage-scope-block", ["REPO_ROOT", "CHANGED_FILES", "DIFF_SECTION"]],
+  ["pool", ["CANDIDATES"]],
+  ["verifier", ["SCOPE_BLOCK", "CLAIMS"]],
+  ["judge", ["SCOPE_BLOCK", "CANDIDATES"]],
+])
 
 const placeholdersOf = (text: string): ReadonlyArray<string> =>
   Array.dedupe(
@@ -93,17 +94,25 @@ const program = Effect.gen(function* () {
   )
   const prompts = Object.fromEntries(promptEntries)
 
+  const loadedPrompts = new Set(promptEntries.map(([name]) => name))
+  for (const listed of BODY_SUBSTITUTIONS.keys()) {
+    if (!loadedPrompts.has(listed)) {
+      return yield* new WorkflowBuildError({
+        message: `BODY_SUBSTITUTIONS lists prompt ${listed} but no such file exists under ${PROMPTS} (or at ${JUDGE})`,
+      })
+    }
+  }
   for (const [name, text] of promptEntries) {
-    const expected = substitutionsFor(name)
+    const expected = BODY_SUBSTITUTIONS.get(name)
     if (expected === undefined) {
       return yield* new WorkflowBuildError({
-        reason: `prompt ${name} has no substitution entry in BODY_SUBSTITUTIONS; add one alongside the workflow body's render call`,
+        message: `prompt ${name} has no BODY_SUBSTITUTIONS entry in scripts/build-workflow.ts; ${CLI_PROMPTS_NOTE}`,
       })
     }
     const unfilled = placeholdersOf(text).filter((p) => !expected.includes(p))
     if (unfilled.length > 0) {
       return yield* new WorkflowBuildError({
-        reason: `prompt ${name} uses {{${unfilled.join("}}, {{")}}} which the workflow body never fills`,
+        message: `prompt ${name} uses {{${unfilled.join("}}, {{")}}} which the workflow body never fills`,
       })
     }
   }
@@ -118,10 +127,10 @@ const program = Effect.gen(function* () {
   )
   const lenses = Object.fromEntries(lensEntries)
 
-  const missingDefaults = DEFAULT_LENSES.filter((name) => !(name in lenses))
-  if (missingDefaults.length > 0) {
+  const missingSeeded = SEEDED_DEFAULT_LENSES.filter((name) => !Object.hasOwn(lenses, name))
+  if (missingSeeded.length > 0) {
     return yield* new WorkflowBuildError({
-      reason: `Default Lenses without a content file under ${LENSES}: ${missingDefaults.join(", ")}`,
+      message: `seeded lenses without a content file under ${LENSES}: ${missingSeeded.join(", ")}`,
     })
   }
 
@@ -129,7 +138,7 @@ const program = Effect.gen(function* () {
   // embedded content replaces the marker so meta stays the first statement.
   const body = yield* fs.readFileString(BODY)
   if (!body.includes(MARKER)) {
-    return yield* new WorkflowBuildError({ reason: `${BODY} has no ${MARKER} line` })
+    return yield* new WorkflowBuildError({ message: `${BODY} has no ${MARKER} line` })
   }
   const content = yield* jsonLiteral({
     constants: {
@@ -138,7 +147,7 @@ const program = Effect.gen(function* () {
       POOL_SKIP_UNDER,
       VERIFIER_BUNDLE_SIZE,
     },
-    defaultLenses: DEFAULT_LENSES,
+    seededLenses: SEEDED_DEFAULT_LENSES,
     prompts,
     lenses,
   })
@@ -162,7 +171,7 @@ const program = Effect.gen(function* () {
           : Effect.fail(failure)),
     )
     if (Option.isNone(current) || current.value !== output) {
-      return yield* new WorkflowStale({ path: OUTPUT, remedy: REGENERATE })
+      return yield* new WorkflowStale({ path: OUTPUT, message: `${OUTPUT} is stale: ${REGENERATE}` })
     }
     yield* Console.log(`${OUTPUT} is up to date`)
     return
