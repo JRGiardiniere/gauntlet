@@ -12,7 +12,7 @@
   },
   "scripts": {
     "bundle": "bun scripts/bundle.ts",
-    "lint": "bun scripts/lint-house-style.ts && bun scripts/build-workflow.ts --check",
+    "lint": "bun scripts/build-workflow.ts --check && bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
     "test": "vitest run && sh scripts/install.test.sh",

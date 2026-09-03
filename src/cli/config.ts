@@ -14,7 +14,7 @@ import {
 } from "../content/lens.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
 import { Recipe, type RecipeName } from "../domain/recipe.ts"
-import type { LensName } from "../domain/review-plan.ts"
+import { DEFAULT_LENSES, type LensName } from "../domain/review-plan.ts"
 import {
   type CatalogEntry,
   listRecipes,
@@ -56,22 +56,6 @@ const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
 ]
 
 const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
-
-export const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
-  "absence",
-  "cleanup",
-  "cross-file",
-  "diff-scan",
-  "language-pitfalls",
-  "presentation-environment",
-  "refactoring-checklist",
-  "removed-behavior",
-  "security",
-  "spec-conformance",
-  "standards",
-  "subjective",
-  "wrapper-proxy",
-]
 
 const SETTINGS_KEYS = "default-recipe, default-lenses, favorites, runs-root"
 
@@ -226,7 +210,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   if (!settingsExists && entries.length === 0) {
     yield* loadFinderLenses({
       repoRoot,
-      names: INITIAL_DEFAULT_LENSES,
+      names: DEFAULT_LENSES,
     }).pipe(
       Effect.catchTag("ContentLoadError", (failure) =>
         new ConfigCommandError({
@@ -248,7 +232,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
     )
     yield* writeSettings({
       "default-recipe": INITIAL_DEFAULT_RECIPE,
-      "default-lenses": INITIAL_DEFAULT_LENSES,
+      "default-lenses": DEFAULT_LENSES,
       favorites: SEEDED_RECIPES.map(([name]) => name),
     })
     yield* Console.log(
@@ -257,7 +241,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
           SEEDED_RECIPES.map(([name]) => name).join(", ")
         }`,
         `default-recipe: ${INITIAL_DEFAULT_RECIPE} · default-lenses: ${
-          INITIAL_DEFAULT_LENSES.join(", ")
+          DEFAULT_LENSES.join(", ")
         } · favorites: ${
           SEEDED_RECIPES.map(([name]) => name).join(", ")
         }`,

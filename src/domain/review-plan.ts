@@ -11,6 +11,24 @@ export const LensName = Schema.String.check(
 )
 export type LensName = typeof LensName.Type
 
+// The Default Lenses: the shipped catalog, seeded into settings by `config init`
+// and embedded into the workflow surface by scripts/build-workflow.ts.
+export const DEFAULT_LENSES: ReadonlyArray<LensName> = [
+  "absence",
+  "cleanup",
+  "cross-file",
+  "diff-scan",
+  "language-pitfalls",
+  "presentation-environment",
+  "refactoring-checklist",
+  "removed-behavior",
+  "security",
+  "spec-conformance",
+  "standards",
+  "subjective",
+  "wrapper-proxy",
+]
+
 export const DEFAULT_CANDIDATE_CAP = 6
 export const SUBJECTIVE_CANDIDATE_CAP = DEFAULT_CANDIDATE_CAP * 2
 
