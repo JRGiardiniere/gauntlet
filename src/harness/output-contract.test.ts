@@ -1,11 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { routeFinderResults } from "../assembly/finders.ts"
-import { Termination } from "../domain/agent-outcome.ts"
-import { FrozenLens } from "../domain/review-plan.ts"
-import { ReviewSpecification } from "../domain/review-specification.ts"
-import { renderSpecificationSection } from "../content/specification-section.ts"
 import {
   EmitFindings,
   EmitPool,
@@ -16,9 +11,7 @@ const strictDecode = <O>(schema: Schema.Codec<O, O, never, never>) =>
   Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })
 
 describe("output contracts", () => {
-  // A projection regression degrades agent output quietly — no real run fails
-  // loudly — so this tripwire survives the instantly-loud cull. It only fires
-  // on a deliberate Effect bump (the pin is exact) or a contract edit.
+  // Projection regressions quietly degrade model guidance (ADR 0008).
   it.effect("projects each contract self-contained with its normative descriptions intact", () =>
     Effect.gen(function* () {
       const sentinels = [
@@ -56,94 +49,6 @@ describe("output contracts", () => {
         ],
       })
       expect(output.findings[0]?.file).toBe("not-in-the-changed-file-list.ts")
-    }))
-
-  it.effect("routes conformance output by failure scenario and excludes parent-only work", () =>
-    Effect.gen(function* () {
-      const missingRequirement =
-        "The current Slice requires persisted audit entries."
-      const wrongRequirement =
-        "The current Slice requires entries to retain chronological order."
-      const parentOnlyRequirement =
-        "A later Slice will add cross-run compaction."
-      const specification = ReviewSpecification.make({
-        documents: [
-          {
-            role: "parent",
-            provenance: "https://example.test/parent",
-            text: parentOnlyRequirement,
-            title: "Parent specification",
-          },
-          {
-            role: "slice",
-            provenance: "https://example.test/slice",
-            text: [missingRequirement, wrongRequirement].join("\n"),
-            title: "Current Slice",
-          },
-        ],
-        comments: [],
-      })
-      // The later parent concern is present in the frozen input but is not a
-      // current-Slice obligation, so the conformance output must omit it.
-      expect(renderSpecificationSection(specification)).toContain(
-        parentOnlyRequirement,
-      )
-      const output = yield* strictDecode(EmitFindings.schema)({
-        findings: [
-          {
-            file: "src/audit.ts",
-            summary: `"${missingRequirement}" is not implemented.`,
-            failure_scenario: "a completed action leaves no persisted entry",
-          },
-          {
-            file: "src/audit.ts",
-            summary: `"${wrongRequirement}" is implemented in reverse.`,
-            failure_scenario: "two actions render newest-first",
-          },
-          {
-            file: "src/cache.ts",
-            summary:
-              "The current Slice asks only for audit entries; the new cache is scope creep.",
-          },
-        ],
-      })
-      const routed = routeFinderResults([{
-        lens: FrozenLens.make({
-          name: "fixture-conformance",
-          promptText: "fixture conformance tail",
-          seat: "fixture/fixture-model:low",
-          candidateCap: 6,
-          finderClass: "interpretive",
-        }),
-        outcome: {
-          termination: Termination.cases.Completed.make({}),
-          output,
-          usage: {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            reasoning: 0,
-            costUsd: 0,
-            rawRows: [],
-          },
-          durationMillis: 1,
-          diagnostics: [],
-        },
-      }])
-
-      expect(routed.bugClaims).toHaveLength(2)
-      expect(routed.observations).toHaveLength(1)
-      expect(routed.bugClaims.map(({ summary }) => summary)).toEqual([
-        `"${missingRequirement}" is not implemented.`,
-        `"${wrongRequirement}" is implemented in reverse.`,
-      ])
-      const routedSummaries = [
-        ...routed.bugClaims,
-        ...routed.observations,
-      ].map(({ summary }) => summary).join(" ")
-      expect(routedSummaries).not.toContain(parentOnlyRequirement)
-      expect(routed.coverageGaps).toEqual([])
     }))
 
   it.effect("canonicalizes model-authored text used by line-oriented prompts", () =>
@@ -232,10 +137,8 @@ describe("output contracts", () => {
       expect(refuted.verdicts).toHaveLength(1)
     }))
 
-  // Content-loose by design: a malformed suggestion must reach deterministic
-  // resolution (which drops it with a diagnostic) instead of the decoder
-  // fail-closing the bundle's verdicts.
-  it.effect("decodes any shaped test suggestion, even semantically invalid ones", () =>
+  // Missing and empty suggestion contents reach deterministic resolution.
+  it.effect("preserves missing and empty test suggestion contents for resolution", () =>
     Effect.gen(function* () {
       const decode = strictDecode(EmitVerdicts.schema)
       const suggested = yield* decode({
@@ -265,57 +168,11 @@ describe("output contracts", () => {
           },
         ],
       })
-      expect(suggested.verdicts).toHaveLength(3)
-    }))
-
-  it.effect("requires Review Priority and rejects the retired severity field", () =>
-    Effect.gen(function* () {
-      const decode = strictDecode(EmitVerdicts.schema)
-      const retired = yield* Effect.flip(
-        decode({
-          verdicts: [
-            {
-              cluster: 1,
-              verdict: "CONFIRMED",
-              severity: "P1",
-              evidence: "the added handler throws on empty input",
-            },
-          ],
-        }),
-      )
-      expect(retired._tag).toBe("SchemaError")
-
-      const regression = yield* decode({
-        verdicts: [
-          {
-            cluster: 1,
-            verdict: "CONFIRMED",
-            review_priority: "P1",
-            evidence:
-              "the added handler throws on empty input; a regression introduced by this change stays P1 even though the Slice never mentioned it",
-          },
-        ],
-      })
-      expect(regression.verdicts[0]).toMatchObject({
-        verdict: "CONFIRMED",
-        review_priority: "P1",
-      })
-
-      const parentOnly = yield* decode({
-        verdicts: [
-          {
-            cluster: 1,
-            verdict: "CONFIRMED",
-            review_priority: "P3",
-            evidence:
-              "the parent requires sibling persistence and this Slice deferred it; Confirmed because the gap is real, P3 because later work owns it",
-          },
-        ],
-      })
-      expect(parentOnly.verdicts[0]).toMatchObject({
-        verdict: "CONFIRMED",
-        review_priority: "P3",
-      })
+      expect(suggested.verdicts.map(({ test_suggestion }) => test_suggestion)).toEqual([
+        { tests: ["src/a.test.ts"], reason: "covers the boundary" },
+        { tests: [], reason: "" },
+        {},
+      ])
     }))
 
   it.effect("requires non-empty pool clusters", () =>

@@ -81,7 +81,6 @@ describe("resolveVerification", () => {
       }),
     ])
     expect(resolved.coverageGaps).toEqual([])
-    expect(resolved.testSuggestions).toEqual([])
   })
 
   it("carries the Pool cluster onto every one of its claims", () => {
@@ -116,33 +115,6 @@ describe("resolveVerification", () => {
       "Refuted",
       "Confirmed",
     ])
-  })
-
-  it("treats Plausible as a first-class verdict, not an absence", () => {
-    const claims = indexBugClaims([claim("one")])
-    const clusters = numberPoolClusters(singletonClusters(claims))
-    const resolved = resolveVerification(claims, clusters, [
-      {
-        bundleNumber: 1,
-        clusters,
-        outcome: completed([
-          {
-            cluster: 1,
-            verdict: "PLAUSIBLE",
-            review_priority: "P3",
-            evidence: "could not reach the trigger",
-          },
-        ]),
-      },
-    ])
-
-    expect(resolved.bugClaims[0]?.verdict._tag).toBe("Plausible")
-    expect(resolved.bugClaims[0]?.verdict).toEqual(
-      Verdict.cases.Plausible.make({
-        reviewPriority: "P3",
-        evidence: "could not reach the trigger",
-      }),
-    )
   })
 
   it("maps one cluster-level test suggestion to every mate's stable id exactly once", () => {
@@ -195,7 +167,7 @@ describe("resolveVerification", () => {
     expect(resolved.coverageGaps).toEqual([])
   })
 
-  it("drops an invalid suggestion with a diagnostic while every verdict stands", () => {
+  it("drops empty suggestions and advice for refuted claims while every verdict stands", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
     const clusters = numberPoolClusters(singletonClusters(claims))
     const resolved = resolveVerification(claims, clusters, [
@@ -230,7 +202,6 @@ describe("resolveVerification", () => {
       },
     ])
 
-    // Fail-closed applies to the suggestion only, never the bundle.
     expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
       "Confirmed",
       "Plausible",

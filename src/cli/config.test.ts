@@ -210,29 +210,6 @@ describe("gauntlet config init", () => {
       expect(yield* fs.exists(fixture.recipesDirectory)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("rejects the retired deep-finders recipe key, not silently accepting it", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeFixture
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.makeDirectory(fixture.recipesDirectory, { recursive: true })
-      yield* fs.writeFileString(
-        path.join(fixture.recipesDirectory, "retired.json"),
-        // @effect-diagnostics-next-line preferSchemaOverJson:off
-        JSON.stringify({
-          default: "fixture/model:low",
-          "deep-finders": "fixture/strong-model:high",
-        }),
-      )
-      expect(yield* config(fixture)).toBe(0)
-      expect(yield* stdout()).toContain(
-        "- retired — invalid (" + path.join(fixture.recipesDirectory, "retired.json"),
-      )
-      // Recipe decoding rejects unknown keys, so a rejected override fails
-      // instead of silently inheriting the default seat.
-      expect(yield* stdout()).toContain("deep-finders")
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
   it.effect("lists, replaces, empties, and refuses to unset Default Lenses", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture

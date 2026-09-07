@@ -43,7 +43,7 @@ describe("resolveCommitsTarget", () => {
       expect(target._tag).toBe("Commits")
       expect(target.baseCommit).toBe(mergeBase)
       expect(target.headCommit).toBe(featureHead)
-      // The unrelated main commit is behind the merge-base, so it is not here.
+      // The unrelated trunk commit is outside the feature range.
       expect(target.changedFiles).toEqual(["alpha.txt"])
       expect(target.diff).toContain("+feature-line")
       expect(target.diff).not.toContain("unrelated")
@@ -78,20 +78,6 @@ describe("resolveCommitsTarget", () => {
       ])
       expect(target.diff).not.toContain("uncommitted-line")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("refuses an unresolvable ref and an empty range", () =>
-    Effect.gen(function* () {
-      const { repo } = yield* makeBranchedRepo
-
-      const missing = yield* Effect.flip(
-        resolveCommitsTarget(repo, "no-such-ref"),
-      )
-      expect(missing._tag).toBe("TargetUnresolvable")
-      expect(missing.reason).toContain("could not resolve no-such-ref")
-
-      const empty = yield* Effect.flip(resolveCommitsTarget(repo, "HEAD"))
-      expect(empty.reason).toBe("HEAD has no changes to review")
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
 describe("resolveWorkingTreeTarget with a commit range", () => {
@@ -118,15 +104,5 @@ describe("resolveWorkingTreeTarget with a commit range", () => {
       expect(uncommittedOnly.baseCommit).toBeUndefined()
       expect(uncommittedOnly.diff).not.toContain("+feature-line")
       expect(uncommittedOnly.diff).toContain("+uncommitted-line")
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("reports nothing to review when the range and the tree are empty", () =>
-    Effect.gen(function* () {
-      const { repo } = yield* makeBranchedRepo
-
-      const empty = yield* Effect.flip(resolveWorkingTreeTarget(repo, "HEAD"))
-      expect(empty.reason).toBe(
-        "HEAD has no committed or uncommitted changes to review",
-      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

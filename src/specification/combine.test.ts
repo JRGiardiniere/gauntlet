@@ -28,9 +28,9 @@ describe("combineReviewSpecifications", () => {
 
   it("appends the addendum after fetched material and keeps fetched comments", () => {
     const combined = combineReviewSpecifications(fetched, addendum)
-    expect(combined?.documents.map((document) => document.role)).toEqual([
-      "slice",
-      "caller-addendum",
+    expect(combined?.documents).toEqual([
+      ...fetched.documents,
+      ...addendum.documents,
     ])
     expect(combined?.comments).toEqual(fetched.comments)
   })

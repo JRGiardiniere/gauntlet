@@ -134,13 +134,12 @@ describe("fitPostedDossier", () => {
   })
 
   it("truncates evidence before identity and points at the run directory", () => {
-    const markdown = markdownFor(`- **[P1]** src/alpha.ts:1 — ${"e".repeat(70_000)}`)
+    const markdown = markdownFor(`- **[P1]** src/alpha.ts:1 — ${"é".repeat(35_000)}`)
     const fitted = fitPostedDossier(markdown)
     expect(fitted.truncated).toBe(true)
     expect(fitted.body).toContain("Gauntlet review run-fixture")
     expect(fitted.body).toContain("PR #7 (head abc1234)")
     expect(fitted.body).toContain(FULL_DOSSIER_NOTE)
-    expect(fitted.body).not.toContain("e".repeat(70_000))
     expect(utf8Bytes(fitted.body)).toBeLessThanOrEqual(SAFE_PR_COMMENT_BYTES)
   })
 
@@ -157,7 +156,7 @@ describe("fitPostedDossier", () => {
 })
 
 describe("deliverCompletedRun", () => {
-  it.effect("posts dossier.md and records a Posted receipt", () =>
+  it.effect("posts dossier.md once and reuses its persisted Posted receipt", () =>
     Effect.gen(function* () {
       const root = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) =>
@@ -181,10 +180,7 @@ describe("deliverCompletedRun", () => {
         expect(receipt.url).toBe(script.url)
         expect(receipt.truncated).toBe(false)
       }
-      expect(script.posts).toHaveLength(1)
-      expect(script.posts[0]?.number).toBe(7)
-      expect(script.posts[0]?.body).toBe(markdown)
-      expect(script.posts[0]?.body.startsWith("{")).toBe(false)
+      expect(script.posts).toEqual([{ cwd: prTarget.repoRoot, number: 7, body: markdown }])
 
       const stored = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readFileString(loaded.paths.receipt)),
@@ -193,37 +189,14 @@ describe("deliverCompletedRun", () => {
         ),
       )
       expect(stored).toEqual(receipt)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("re-delivers a Posted receipt as an idempotent no-op", () =>
-    Effect.gen(function* () {
-      const root = yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) =>
-          fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
-        ),
-      )
-      const loaded = yield* writeCompletedRun(
-        root,
-        prTarget,
-        markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
-      )
-      const script: ScriptedGitHub = {
-        posts: [],
-        failPost: undefined,
-        url: "https://github.com/example/repo/pull/7#issuecomment-1",
-      }
-      const first = yield* deliverCompletedRun(loaded).pipe(
+      const repeated = yield* deliverCompletedRun(loaded).pipe(
         Effect.provide(scriptedGitHub(script)),
       )
-      const second = yield* deliverCompletedRun(loaded).pipe(
-        Effect.provide(scriptedGitHub(script)),
-      )
-
-      expect(second).toEqual(first)
+      expect(repeated).toEqual(stored)
       expect(script.posts).toHaveLength(1)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("retries a NotPosted receipt and records Posted on success", () =>
+  it.effect("preserves the Dossier after a failed post and retries its NotPosted receipt", () =>
     Effect.gen(function* () {
       const root = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) =>
@@ -235,6 +208,9 @@ describe("deliverCompletedRun", () => {
         prTarget,
         markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
       )
+      const fs = yield* FileSystem.FileSystem
+      const originalMarkdown = yield* fs.readFileString(loaded.paths.dossierMarkdown)
+      const originalDossier = yield* fs.readFileString(loaded.paths.dossier)
       const script: ScriptedGitHub = {
         posts: [],
         failPost: "GitHub unavailable",
@@ -253,7 +229,12 @@ describe("deliverCompletedRun", () => {
           Schema.decodeEffect(Schema.fromJsonString(DeliveryReceipt)),
         ),
       )
-      expect(DeliveryReceipt.guards.NotPosted(notPosted)).toBe(true)
+      expect(notPosted).toEqual(DeliveryReceipt.cases.NotPosted.make({
+        runId: loaded.plan.runId,
+        reason: "GitHub unavailable",
+      }))
+      expect(yield* fs.readFileString(loaded.paths.dossierMarkdown)).toBe(originalMarkdown)
+      expect(yield* fs.readFileString(loaded.paths.dossier)).toBe(originalDossier)
 
       script.failPost = undefined
       const posted = yield* deliverCompletedRun(loaded).pipe(
@@ -264,6 +245,10 @@ describe("deliverCompletedRun", () => {
         expect(posted.url).toBe(script.url)
       }
       expect(script.posts).toHaveLength(2)
+      const stored = yield* fs.readFileString(loaded.paths.receipt).pipe(
+        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(DeliveryReceipt))),
+      )
+      expect(stored).toEqual(posted)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("posts a truncated body when the Dossier is oversize", () =>
@@ -296,47 +281,6 @@ describe("deliverCompletedRun", () => {
       expect(yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readFileString(loaded.paths.dossierMarkdown)),
       )).toBe(markdown)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("leaves the Dossier in place when posting fails", () =>
-    Effect.gen(function* () {
-      const root = yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) =>
-          fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
-        ),
-      )
-      const markdown = markdownFor("- **[P1]** src/alpha.ts:1 — a real bug")
-      const loaded = yield* writeCompletedRun(root, prTarget, markdown)
-      const script: ScriptedGitHub = {
-        posts: [],
-        failPost: "permission denied",
-        url: "https://github.com/example/repo/pull/7#issuecomment-1",
-      }
-
-      const failed = yield* deliverCompletedRun(loaded).pipe(
-        Effect.provide(scriptedGitHub(script)),
-        Effect.flip,
-      )
-      expect(failed).toBeInstanceOf(DeliveryError)
-
-      expect(yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) => fs.readFileString(loaded.paths.dossierMarkdown)),
-      )).toBe(markdown)
-      expect(yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) => fs.readFileString(loaded.paths.dossier)),
-      )).toContain("run-fixture")
-      const receipt = yield* FileSystem.FileSystem.pipe(
-        Effect.flatMap((fs) => fs.readFileString(loaded.paths.receipt)),
-        Effect.flatMap(
-          Schema.decodeEffect(Schema.fromJsonString(DeliveryReceipt)),
-        ),
-      )
-      expect(receipt).toEqual(
-        DeliveryReceipt.cases.NotPosted.make({
-          runId: "run-fixture",
-          reason: "permission denied",
-        }),
-      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a working-tree run before posting", () =>

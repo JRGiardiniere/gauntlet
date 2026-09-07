@@ -30,7 +30,7 @@ const plan = ReviewPlan.make({
 })
 
 describe("Dossier Assembly", () => {
-  it("joins every semantic partition and every coverage gap without filtering", () => {
+  it("attaches test advice and retains dropped observations and coverage gaps", () => {
     const bugClaim = Candidate.cases.BugClaim.make({
       id: "fixture/1",
       lens: "fixture",
@@ -77,14 +77,22 @@ describe("Dossier Assembly", () => {
       },
     })
 
-    expect(dossier.findings).toHaveLength(1)
-    expect(dossier.findings[0]).toMatchObject({
+    expect(dossier.findings).toMatchObject([{
       _tag: "Confirmed",
-      testSuggestion: { tests: ["src/fixture.test.ts"] },
-    })
-    expect(dossier.unresolved).toHaveLength(0)
-    expect(dossier.rejected.refutedClaims).toHaveLength(0)
-    expect(dossier.rejected.droppedObservations).toHaveLength(1)
+      bugClaims: [bugClaim],
+      testSuggestion: {
+        tests: ["src/fixture.test.ts"],
+        reason: "covers the failing input",
+        bugClaimIds: ["fixture/1"],
+      },
+    }])
+    expect(dossier.unresolved).toEqual([])
+    expect(dossier.rejected.refutedClaims).toEqual([])
+    expect(dossier.rejected.droppedObservations).toEqual([{
+      _tag: "Dropped",
+      candidate: observation,
+      judgment: Judgment.cases.Dropped.make({ reason: "taste, not cost" }),
+    }])
     expect(dossier.coverageGaps.map(({ stage }) => stage)).toEqual([
       "finders",
       "verification",

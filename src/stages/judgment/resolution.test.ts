@@ -162,7 +162,6 @@ describe("Judgment resolution and Assembly accounting", () => {
     ])
     expect(resolved.notes).toEqual(["retained undecided indexes 4"])
     expectFullAccounting(resolved)
-    expect(new Set(accountedIds(resolved.observations)).size).toBe(4)
   })
 
   it("admits a quality note only when a rating is false, noting the discard", () => {

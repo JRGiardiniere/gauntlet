@@ -35,7 +35,10 @@ describe("enforceCandidateCap", () => {
       diagnostics: ["prior diagnostic"],
     })
 
-    expect(capped.output?.findings).toHaveLength(6)
+    expect(capped.output?.findings.map(({ summary }) => summary)).toEqual([
+      "candidate 1", "candidate 2", "candidate 3",
+      "candidate 4", "candidate 5", "candidate 6",
+    ])
     expect(capped.diagnostics).toEqual([
       "prior diagnostic",
       "finder fixture-lens emitted 8 candidates; retained the plan cap of 6",
@@ -67,9 +70,24 @@ describe("finder assembly", () => {
       },
     ])
 
-    expect(routed.bugClaims[0]?._tag).toBe("BugClaim")
-    expect(routed.observations[0]?._tag).toBe("Observation")
-    expect(routed.coverageGaps).toEqual([])
+    expect(routed).toEqual({
+      bugClaims: [{
+        _tag: "BugClaim",
+        id: "fixture-lens/1",
+        lens: "fixture-lens",
+        file: "src/a.ts",
+        summary: "a refutable defect",
+        failureScenario: "empty input produces the wrong value",
+      }],
+      observations: [{
+        _tag: "Observation",
+        id: "fixture-lens/2",
+        lens: "fixture-lens",
+        file: "src/b.ts",
+        summary: "a judgment call",
+      }],
+      coverageGaps: [],
+    })
   })
 
   it("uses a timeout diagnostic to explain a missing finder output", () => {

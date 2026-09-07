@@ -9,11 +9,11 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 - Spec: issue #15. Rationale: `docs/adr/` (0001–0008, binding)
 - `docs/spec/pipeline-shape.md`, `docs/spec/emit-tools.md` — normative specs
 - `docs/effect-house-style.md`, `docs/effect-v4-patterns.md` — house style,
-  verified against the pinned Effect beta
+  with Gauntlet examples and guidance for the Effect version in `package.json`
 
 ## Expectations
 
-- `bun run lint && bun run typecheck && bun run test` stays green. The gate includes 13
+- `bun run lint && bun run typecheck && bun run test` stays green. The gate includes
   custom rules that reject common Effect idioms (Schema.Class, raw throw,
   unbounded retries…) — read the rule's message, don't fight it
 - Effect pinned **exactly** (enforced); single `effect` package, unstable

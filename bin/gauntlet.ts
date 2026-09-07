@@ -4,6 +4,7 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import { runGauntlet } from "../src/cli/main.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
 import { livePiLayer } from "../src/harness/pi-live.ts"
@@ -14,9 +15,10 @@ NodeRuntime.runMain(
     Effect.map((exitCode) => {
       process.exitCode = exitCode
     }),
-    Effect.provide(livePiLayer),
-    Effect.provide(Linear.Default),
-    Effect.provide(liveGitHubLayer),
-    Effect.provide(NodeServices.layer),
+    Effect.provide(
+      Layer.mergeAll(livePiLayer, Linear.Default, liveGitHubLayer).pipe(
+        Layer.provideMerge(NodeServices.layer),
+      ),
+    ),
   ),
 )

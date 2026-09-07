@@ -6,7 +6,7 @@ import * as Path from "effect/Path"
 import { writeArtifactText } from "./artifact.ts"
 
 describe("artifact writes", () => {
-  it.effect("replaces existing content whole, never partially", () =>
+  it.effect("replaces longer content without leaving a suffix or temporary files", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path

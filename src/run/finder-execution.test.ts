@@ -178,6 +178,7 @@ describe("Finder stage interface", () => {
           successfulSession("standard-two"),
           successfulSession("interpretive-one"),
           successfulSession("interpretive-two"),
+          successfulSession("other-seat"),
         ],
       })
       const fixture = yield* executeFixture(
@@ -186,6 +187,7 @@ describe("Finder stage interface", () => {
           lens("standard-two", "standard two tail"),
           lens("interpretive-one", "interpretive one tail", "interpretive"),
           lens("interpretive-two", "interpretive two tail", "interpretive"),
+          { ...lens("other-seat", "other seat tail"), seat: "fixture/other-model:low" },
         ],
         scripted,
         { specification },
@@ -193,7 +195,13 @@ describe("Finder stage interface", () => {
 
       const result = yield* fixture.effect
 
-      expect(result.finders).toHaveLength(4)
+      expect(result.finders).toHaveLength(5)
+      expect(new Set(scripted.configs.map(({ cacheGroupId }) => cacheGroupId)).size).toBe(3)
+      for (const selectedLens of fixture.plan.lenses) {
+        const prompt = scripted.prompts.find(({ invocationId }) =>
+          invocationId.endsWith(`-finder-${selectedLens.name}`))
+        expect(prompt?.text.endsWith(`\n\n${selectedLens.promptText}`)).toBe(true)
+      }
       for (const suffix of ["-finders-1", "-finders-2"]) {
         const configs = scripted.configs.filter(
           ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
@@ -211,6 +219,12 @@ describe("Finder stage interface", () => {
         invocationId.includes("standard-"))
       const interpretivePrompts = scripted.prompts.filter(({ invocationId }) =>
         invocationId.includes("interpretive-"))
+      expect(standardPrompts).toHaveLength(2)
+      expect(interpretivePrompts).toHaveLength(2)
+      for (const prompts of [standardPrompts, interpretivePrompts]) {
+        const prefixes = prompts.map(({ text }) => text.replace(/\n\n[^\n]+ tail$/, ""))
+        expect(prefixes[0]).toBe(prefixes[1])
+      }
       for (const { text } of standardPrompts) {
         expect(text).toContain("shared start")
         expect(text).not.toContain("SPECIFICATION-NEEDLE")
@@ -232,6 +246,7 @@ describe("Finder stage interface", () => {
         "finder-standard-two",
         "finder-interpretive-one",
         "finder-interpretive-two",
+        "finder-other-seat",
       ])
     }).pipe(Effect.scoped))
 
