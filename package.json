@@ -12,13 +12,14 @@
   },
   "scripts": {
     "bundle": "bun scripts/bundle.ts",
-    "lint": "bun scripts/build-workflow.ts --check && bun scripts/lint-house-style.ts",
+    "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
     "test": "vitest run && sh scripts/install.test.sh",
     "test:upgrade-compiled": "bun run bundle && sh scripts/upgrade-compiled.test.sh dist/gauntlet",
     "typecheck": "tsc --noEmit",
-    "build-workflow": "bun scripts/build-workflow.ts"
+    "build-workflow": "bun scripts/build-workflow.ts",
+    "test:workflow": "bun run build-workflow && node --test workflow/*.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.84.2",

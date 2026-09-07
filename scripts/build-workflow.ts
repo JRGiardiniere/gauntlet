@@ -1,14 +1,5 @@
-// The workflow build's runMain boundary. Gauntlet also ships as a Claude Code
-// workflow (.claude/workflows/gauntlet.js): the same five-stage pipeline,
-// driven by workflow subagents. Lenses and stage prompts stay pure content
-// (ADR 0004), so the workflow never carries its own copy of them by hand —
-// this script embeds the shipped catalog verbatim, together with the CLI's
-// pipeline constants and seeded lens list, into the hand-written
-// orchestration in workflow/gauntlet.body.js (at its @@CONTENT@@ marker,
-// after the meta literal) and writes the result.
-//
-//   bun scripts/build-workflow.ts          # regenerate
-//   bun scripts/build-workflow.ts --check  # exit 1 when the committed file is stale
+// Embed the shared prompts, lenses, and constants in the experimental workflow.
+// The generated file is ignored; test:workflow rebuilds it before execution.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
@@ -16,9 +7,7 @@ import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Option from "effect/Option"
 import * as Order from "effect/Order"
-import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import { POOL_SKIP_UNDER, VERIFIER_BUNDLE_SIZE } from "../src/assembly/pool.ts"
 import { loadLens } from "../src/content/lens.ts"
@@ -27,11 +16,6 @@ import {
   SEEDED_DEFAULT_LENSES,
   SUBJECTIVE_CANDIDATE_CAP,
 } from "../src/domain/review-plan.ts"
-
-// `message` is what NodeRuntime.runMain prints, so the remedy rides there.
-class WorkflowStale extends Data.TaggedError("WorkflowStale")<{
-  readonly message: string
-}> {}
 
 class WorkflowBuildError extends Data.TaggedError("WorkflowBuildError")<{
   readonly message: string
@@ -46,17 +30,15 @@ const PROMPTS = "content/prompts"
 const LENSES = "content/lenses"
 const JUDGE = "src/stages/judgment/judge.md"
 const MARKER = "// @@CONTENT@@"
-const REGENERATE = "run `bun run build-workflow` and commit the result"
 const CLI_PROMPTS_NOTE = "a prompt the workflow body never renders must still be listed, with no placeholders, so the coupling stays explicit"
 
-// Pretty-printed so a lens or prompt edit lands as a readable hunk in the
-// committed artifact rather than one 40KB line.
+// Keep generated content readable during workflow debugging.
 const jsonLiteral = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown, { space: 2 }))
 
 // The substitutions the workflow body supplies for each embedded prompt, a
 // hand-kept mirror of its render calls. Checked both ways: a prompt that grows
 // a placeholder the body does not fill, or a listed prompt with no content
-// file, would pass `--check` and crash the workflow on every run.
+// file, would build successfully and crash the workflow on every run.
 const BODY_SUBSTITUTIONS = new Map<string, ReadonlyArray<string>>([
   ["finder-system", []],
   ["finder-shared-block", ["REPO_ROOT", "CHANGED_FILES", "DIFF_SECTION", "MAX_PER_LENS"]],
@@ -79,7 +61,6 @@ const markdownNames = (entries: ReadonlyArray<string>): ReadonlyArray<string> =>
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  const check = process.argv.includes("--check")
 
   const [promptNames, lensNames] = yield* Effect.all(
     [fs.readDirectory(PROMPTS), fs.readDirectory(LENSES)],
@@ -158,23 +139,6 @@ const program = Effect.gen(function* () {
       "// the content files, then rerun `bun run build-workflow`.",
       `const CONTENT = ${content}`,
     ].join("\n"))
-
-  if (check) {
-    // An absent output is stale; any other read failure is its own problem
-    // (house rule 22), never reported as staleness.
-    const current = yield* fs.readFileString(OUTPUT).pipe(
-      Effect.map(Option.some),
-      Effect.catchTag("PlatformError", (failure) =>
-        Predicate.isTagged("NotFound")(failure.reason)
-          ? Effect.succeed(Option.none<string>())
-          : Effect.fail(failure)),
-    )
-    if (Option.isNone(current) || current.value !== output) {
-      return yield* new WorkflowStale({ message: `${OUTPUT} is stale: ${REGENERATE}` })
-    }
-    yield* Console.log(`${OUTPUT} is up to date`)
-    return
-  }
 
   yield* fs.makeDirectory(".claude/workflows", { recursive: true })
   yield* fs.writeFileString(OUTPUT, output)

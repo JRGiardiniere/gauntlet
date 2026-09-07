@@ -56,33 +56,8 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
 
-## Also available as a Claude Code workflow
+## Experimental Claude workflow
 
-The same pipeline runs as a Claude Code workflow, for anyone who wants to try
-Gauntlet's lenses and stages without the CLI, Pi, or a provider account. The
-finder system prompt, shared block, pool, verifier, judge, and all 13 shipped
-lenses are embedded verbatim, along with the pipeline constants, so the two
-surfaces review with the same lens text and the same caps.
-
-```sh
-cp .claude/workflows/gauntlet.js ~/.claude/workflows/   # or run it from this checkout
-```
-
-Then in a Claude Code session in the repository you want reviewed:
-
-```
-run the gauntlet workflow                       # working tree vs HEAD
-run the gauntlet workflow with args "42"        # PR #42 (GitHub closing issues become the spec)
-run the gauntlet workflow with args "main..HEAD --lenses=diff-scan,security --model=opus --effort=high"
-```
-
-It returns the dossier as markdown and JSON. What differs from the CLI:
-subagents see the real checkout instead of a confined workspace, seats are
-Claude Code model/effort pairs, specification comes from GitHub only, there is
-no run directory or resume, and only the 13 embedded lenses exist — project
-`.gauntlet/lenses/` and the `default-lenses` setting are not read, so
-`--lenses=` is the one way to narrow a run. The target goes before the first
-`--name=` flag; `--spec=` runs to the next such flag or the end of the string,
-so it may carry prose, a bare `--word` included. `.claude/workflows/gauntlet.js` is generated —
-edit `workflow/gauntlet.body.js` or the content files, then run
-`bun run build-workflow`.
+The Claude workflow is developed separately on `codex/claude-workflow`.
+It is outside CLI releases and is not installed with Gauntlet. See
+[workflow/README.md](workflow/README.md) for its tests and opt-in installation.
