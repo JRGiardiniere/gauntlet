@@ -17,3 +17,6 @@ docs/research/oxlint-event-emission-options.md
 docs/spec/default-lenses-and-recipe-selection.md
 docs/notes/issue-89-simplification-audit.md
 *.bun-build
+
+# Generated experimental Claude workflow
+.claude/workflows/gauntlet.js

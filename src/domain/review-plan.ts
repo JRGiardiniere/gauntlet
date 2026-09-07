@@ -11,6 +11,26 @@ export const LensName = Schema.String.check(
 )
 export type LensName = typeof LensName.Type
 
+// The value `config init` seeds into the `default-lenses` setting: every
+// shipped lens. The Default Lenses themselves are that user preference
+// (CONTEXT.md); this is only its starting point. The workflow surface, which
+// reads no settings, uses this seed as its standing selection.
+export const SEEDED_DEFAULT_LENSES: ReadonlyArray<LensName> = [
+  "absence",
+  "cleanup",
+  "cross-file",
+  "diff-scan",
+  "language-pitfalls",
+  "presentation-environment",
+  "refactoring-checklist",
+  "removed-behavior",
+  "security",
+  "spec-conformance",
+  "standards",
+  "subjective",
+  "wrapper-proxy",
+]
+
 export const DEFAULT_CANDIDATE_CAP = 6
 export const SUBJECTIVE_CANDIDATE_CAP = DEFAULT_CANDIDATE_CAP * 2
 

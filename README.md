@@ -55,3 +55,9 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
   review standards; `--lenses a,b` selects exactly those for one run.
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
+
+## Experimental Claude workflow
+
+The Claude workflow is developed separately on `codex/claude-workflow`.
+It is outside CLI releases and is not installed with Gauntlet. See
+[workflow/README.md](workflow/README.md) for its tests and opt-in installation.
