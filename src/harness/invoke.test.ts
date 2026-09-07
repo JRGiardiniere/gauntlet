@@ -62,8 +62,6 @@ const OTHER_EMIT: FindingsOutput = {
   findings: [{ file: "src/new.ts", summary: "newer recoverable output" }],
 }
 
-const makeExplicitCancellation = () => new AbortController()
-
 const completedPrompt = (emit: EmitToolArgs = GOOD_EMIT): ScriptedPrompt => ({
   events: [
     { afterMillis: 100, kind: "message_start" },
@@ -210,7 +208,6 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
 
       const signal = yield* running.firstResponse
       expect(PrefixSignal.$is("PrefixNotObserved")(signal)).toBe(true)
-      expect(yield* running.firstResponse).toEqual(signal)
       expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
         AdapterContractViolation,
       )
@@ -345,10 +342,10 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       const { outcome, scripted } = yield* run({
         sessions: [{ prompts: [cleanStop(), cleanStop(), cleanStop()] }],
       })
-      expect(Termination.guards.MissingEmit(outcome.termination)).toBe(true)
-      if (Termination.guards.MissingEmit(outcome.termination)) {
-        expect(outcome.termination.correctiveTurns).toBe(2)
-      }
+      expect(outcome.termination).toEqual({
+        _tag: "MissingEmit",
+        correctiveTurns: 2,
+      })
       expect(scripted.log.filter((entry) => entry.startsWith("prompt:"))).toHaveLength(3)
     }))
 
@@ -454,7 +451,9 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
 
   it.effect("maps only explicit cancellation provenance to Interrupted", () =>
     Effect.gen(function* () {
-      const controller = makeExplicitCancellation()
+      // This signal represents cancellation from the caller, outside Effect.
+      // @effect-diagnostics-next-line abortControllerInEffect:off
+      const controller = new AbortController()
       const scripted = makeScripted({
         sessions: [
           {
@@ -508,8 +507,8 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
                 events: [
                   { afterMillis: 100, kind: "message_start" },
                   { afterMillis: 150, kind: "emit", args: GOOD_EMIT, valid: false },
-                  { afterMillis: 175, kind: "emit", args: { findings: [{ nope: true }] }, valid: false },
-                  { afterMillis: 200, kind: "emit", args: OTHER_EMIT, valid: false },
+                  { afterMillis: 175, kind: "emit", args: OTHER_EMIT, valid: false },
+                  { afterMillis: 200, kind: "emit", args: { findings: [{ nope: true }] }, valid: false },
                   { afterMillis: 250, kind: "message_end", stopReason: "length" },
                 ],
                 settles: "after-events",

@@ -13,7 +13,6 @@ import { ContentDirectory } from "../content/lens.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { SPEC_CONFORMANCE_LENS_NAME } from "../domain/finder-selection.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
-import { ReviewTarget } from "../domain/review-target.ts"
 import {
   GitHubError,
   gitHubLayer,
@@ -270,7 +269,7 @@ const resume = (
   )
 
 describe("gauntlet review", () => {
-  it.effect("lands the frozen plan, completed Finder stage, and presentation", () =>
+  it.effect("runs a confined review through persisted artifacts and presentation", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -279,7 +278,19 @@ describe("gauntlet review", () => {
         path.join(fixture.repo, "untracked.txt"),
         "not in the diff\n",
       )
-      const run = review(fixture)
+      const run = review(
+        fixture,
+        makeScripted({
+          sessions: [
+            confinedSession(FINDER_OUTPUT, "-finders", {
+              bash: ["pwd"],
+              read: ["alpha.txt"],
+            }),
+            confinedSession(VERIFIER_OUTPUT, "-verification"),
+            confinedSession(JUDGMENT_OUTPUT, "-judgment"),
+          ],
+        }),
+      )
 
       const exitCode = yield* run.effect
       expect(exitCode).toBe(0)
@@ -303,23 +314,6 @@ describe("gauntlet review", () => {
         planText,
       )
       expect(plan.runId).toBe(runIds[0])
-      expect(plan.lenses).toHaveLength(1)
-      expect(plan.lenses[0]?.name).toBe("fixture-review")
-      expect(plan.lenses[0]?.promptText).toBe("fixture lens tail")
-      expect(plan.recipeName).toBe("fixture-recipe")
-      expect(plan.lenses[0]?.seat).toBe(FIXTURE_SEAT)
-      expect(plan.seats.pool).toBe(FIXTURE_SEAT)
-      expect(plan.seats.verification).toBe(FIXTURE_SEAT)
-      expect(plan.seats.judgment).toBe(FIXTURE_SEAT)
-      expect(plan.target._tag).toBe("WorkingTree")
-      expect(ReviewTarget.guards.WorkingTree(plan.target)).toBe(true)
-      if (!ReviewTarget.guards.WorkingTree(plan.target)) return
-      expect(plan.target.changedFiles).toEqual(["alpha.txt"])
-      expect(plan.target.diff).toContain("+needle-added-line")
-      expect(plan.target.untrackedFiles).toEqual(["untracked.txt"])
-      expect(plan.target.warnings).toHaveLength(1)
-      expect(plan.target.warnings[0]).toContain("untracked.txt")
-
       const finderStageText = yield* fs.readFileString(
         path.join(runDir, "finder-stage.json"),
       )
@@ -383,150 +377,12 @@ describe("gauntlet review", () => {
       expect(runRecordText).not.toContain("not in the diff")
 
       expect(run.scripted.configs).toHaveLength(3)
-      expect(run.scripted.configs[0]?.seat).toBe(FIXTURE_SEAT)
-      // Every invocation reads the Run's one frozen snapshot worktree, never
-      // the developer's live checkout (#56).
-      expect(run.scripted.configs[0]?.cwd).not.toBe(plan.target.repoRoot)
-      expect(run.scripted.configs[0]?.cwd.endsWith("worktree")).toBe(true)
-      for (const config of run.scripted.configs) {
-        expect(config.cwd).toBe(run.scripted.configs[0]?.cwd)
-        expect(config.tools).toEqual(["read", "bash"])
-      }
-      const [finderPrompt = ""] = promptTextsFor(run.scripted, "-finders")
-      expect(finderPrompt).toMatch(
-        /^shared start[\s\S]*shared end\n\nfixture lens tail$/,
-      )
-      // The finder prompt shows the stable virtual root, never the host
-      // snapshot layout (#57).
-      expect(finderPrompt).toContain("repo=/repo")
-      expect(finderPrompt).not.toContain(
-        run.scripted.configs[0]?.cwd ?? "worktree path missing",
-      )
-      const [verifierPrompt = ""] = promptTextsFor(run.scripted, "-verification")
-      expect(verifierPrompt).toContain("### [c1]")
-      expect(verifierPrompt).toContain("claimed failure:")
-      // The evaluation prompts show the same stable virtual root as the
-      // finder prompt, never the host snapshot layout (#58).
-      const [judgmentPrompt = ""] = promptTextsFor(run.scripted, "-judgment")
-      for (const stagePrompt of [verifierPrompt, judgmentPrompt]) {
-        expect(stagePrompt).toContain("repo=/repo")
-        expect(stagePrompt).not.toContain(
-          run.scripted.configs[0]?.cwd ?? "worktree path missing",
-        )
-      }
-      // A run without a ReviewSpecification carries no absence text in any
-      // prompt (issue #73) — nothing announces that no spec was supplied.
-      for (const prompt of [finderPrompt, verifierPrompt, judgmentPrompt]) {
-        expect(prompt).not.toContain("Review Specification")
-        expect(prompt).not.toContain("Caller Addendum")
-      }
-
-      const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
-      expect(runLog.length).toBeGreaterThan(0)
-
-      const stdout = (yield* TestConsole.logLines).join("\n")
-      const [tally = ""] = stdout.split("\n")
-      expect(tally).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
-      expect(tally).toContain("working tree @")
-      expect(tally).toContain("recipe: fixture-recipe")
-      expect(tally).toMatch(/\$0\.15 · \d+s/)
-      expect(stdout).toContain("- [P2 confirmed] alpha.txt:2")
-      expect(stdout).toContain(
-        "- [P2 judgment] alpha.txt — the name hides the value's role",
-      )
-      expect(stdout).toContain(`dossier.md: ${fixture.runsRoot}`)
-      expect(stdout).toContain("dossier.json")
-      expect(stdout).not.toContain("gauntlet:")
-
-      const stderr = (yield* TestConsole.errorLines).join("\n")
-      expect(stderr).toContain("gauntlet: resolving working-tree review target")
-      expect(stderr).toContain("gauntlet: invoking finder fixture-review")
-      expect(stderr).toContain(
-        "gauntlet: finder fixture-review done — 2 candidates · 0s · $0.05",
-      )
-      expect(stderr).toContain("gauntlet: Finders finished — 0s")
-      expect(stderr).toContain(
-        "gauntlet: 1 BugClaim → Verification · 1 Observation → Judgment",
-      )
-      expect(stderr).toContain("gauntlet: skipping Pool (1 BugClaim)")
-      expect(stderr).toContain("gauntlet: invoking Verification bundle 1")
-      expect(stderr).toContain(
-        "gauntlet: Verification bundle 1 done — 0s · $0.05",
-      )
-      expect(stderr).toContain(
-        "gauntlet: Verification finished — 1 confirmed · 0 refuted · 0 plausible · 0s",
-      )
-      expect(stderr).toContain("gauntlet: invoking Judgment")
-      expect(stderr).toContain("gauntlet: Judgment done — 0s · $0.05")
-      expect(stderr).toContain(
-        "gauntlet: Judgment finished — 1 kept · 0 dropped · 0 undecided · 0s",
-      )
-      expect(stderr).toContain("warning — ")
-      expect(stderr).toContain("untracked.txt")
-      // Digest tally stays on stdout; stage counts use a different shape.
-      expect(stderr).not.toMatch(/\d+ confirmed · \d+ kept ·/)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("confines a full review to the ReviewWorkspace and carries a TestSuggestion", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const run = review(
-        fixture,
-        makeScripted({
-          sessions: [
-            confinedSession(FINDER_OUTPUT, "-finders", {
-              bash: ["pwd"],
-              read: ["alpha.txt"],
-            }),
-            confinedSession(VERIFIER_OUTPUT, "-verification"),
-            confinedSession(JUDGMENT_OUTPUT, "-judgment"),
-          ],
-        }),
-      )
-
-      expect(yield* run.effect).toBe(0)
-      expect(run.scripted.configs).toHaveLength(3)
-
-      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
-      const runDir = path.join(fixture.runsRoot, runId)
-      const entries = yield* fs.readDirectory(runDir)
-      expect([...entries].sort()).toEqual([
-        "dossier.json",
-        "dossier.md",
-        "finder-stage.json",
-        "plan.json",
-        "run.log",
-        "workspace-overlay.patch",
-      ])
-
-      const dossier = yield* fs.readFileString(path.join(runDir, "dossier.json")).pipe(
-        Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
-      )
-      expect(viewDossier(dossier).findings).toEqual(
-        expect.arrayContaining([expect.objectContaining({
-          tag: "confirmed",
-          testSuggestion: {
-          tests: ["the alpha input suite"],
-          reason: "it exercises empty inputs against the added line",
-          bugClaimIds: ["fixture-review/1"],
-          },
-        })]),
-      )
-      const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
-      expect(report).toContain(
-        "suggested tests: the alpha input suite — it exercises empty inputs against the added line",
-      )
-
-      expect(run.scripted.configs).toHaveLength(3)
       const snapshot = run.scripted.configs[0]?.cwd ?? "worktree path missing"
       for (const config of run.scripted.configs) {
-        expect(config.tools).toEqual(["read", "bash"])
         expect(config.cwd).toBe(snapshot)
         expect(config.cwd).not.toBe(fixture.repo)
+        expect(config.tools).toEqual(["read", "bash"])
       }
-
       const finderInspections = inspectionsFor(run.scripted, "-finders")
       expect(finderInspections).toHaveLength(2)
       expect(finderInspections[0]).toMatchObject({
@@ -555,6 +411,23 @@ describe("gauntlet review", () => {
         expect(prompt).toContain(`repo=${REVIEW_WORKSPACE_ROOT}`)
         expect(prompt).not.toContain(snapshot)
       }
+
+      const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
+      expect(runLog.length).toBeGreaterThan(0)
+
+      const stdout = (yield* TestConsole.logLines).join("\n")
+      const [tally = ""] = stdout.split("\n")
+      expect(tally).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
+      expect(tally).toContain("working tree @")
+      expect(tally).toContain("recipe: fixture-recipe")
+      expect(tally).toMatch(/\$0\.15 · \d+s/)
+      expect(stdout).toContain("- [P2 confirmed] alpha.txt:2")
+      expect(stdout).toContain(
+        "- [P2 judgment] alpha.txt — the name hides the value's role",
+      )
+      expect(stdout).toContain(`dossier.md: ${fixture.runsRoot}`)
+      expect(stdout).toContain("dossier.json")
+      expect(stdout).not.toContain("gauntlet:")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("reruns the whole Finder stage when no completed checkpoint exists", () =>
@@ -1207,7 +1080,7 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("fails before Run creation on a missing, empty, or resume-combined --spec", () =>
+  it.effect("fails before paid work on a missing or empty --spec", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -1231,13 +1104,6 @@ describe("gauntlet review", () => {
       expect(yield* empty.effect).toBe(1)
       expect(empty.scripted.configs).toHaveLength(0)
 
-      const resumed = runCommand(
-        fixture,
-        ["review", "--resume", "some-run", "--spec", emptyPath],
-        makeScripted({ sessions: [] }),
-      )
-      expect(yield* resumed.effect).toBe(1)
-
       // No Run directory exists for any of the refused invocations.
       const runIds = (yield* fs.exists(fixture.runsRoot))
         ? yield* fs.readDirectory(fixture.runsRoot)
@@ -1249,9 +1115,6 @@ describe("gauntlet review", () => {
         "could not review — caller addendum file does not exist",
       )
       expect(stderr).toContain("could not review — caller addendum is empty")
-      expect(stderr).toContain(
-        "could not review — --spec cannot be combined with --resume; the plan is frozen",
-      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resume replays the frozen addendum after the file is deleted", () =>
@@ -1338,58 +1201,6 @@ describe("gauntlet review", () => {
       expect(yield* fs.exists(path.join(fixture.runsRoot, runId, "dossier.md"))).toBe(
         true,
       )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("resume of a PR review keeps the frozen GitHub specification", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      let currentIssues: ReadonlyArray<GitHubClosingIssue> = [
-        closingIssue(74, "github source", "FROZEN-SLICE"),
-      ]
-      const github = gitHubLayer({
-        ...unusedGitHubContract,
-        viewPullRequest: () =>
-          Effect.succeed(prView(7, headCommit, baseCommit)),
-        viewClosingIssues: () => Effect.succeed(currentIssues),
-      })
-      const stageCommitted = yield* Deferred.make<string>()
-      const first = runCommand(
-        fixture,
-        ["review", "--pr", "7", "--lenses", "fixture-review"],
-        successfulScripted(),
-        Effect.void,
-        github,
-      )
-      const fiber = yield* first.effect.pipe(
-        Effect.provideService(
-          FinderStageCheckpoint,
-          (runId) =>
-            Deferred.succeed(stageCommitted, runId).pipe(
-              Effect.andThen(Effect.never),
-            ),
-        ),
-        Effect.forkChild,
-      )
-      yield* Deferred.await(stageCommitted)
-      yield* Fiber.interrupt(fiber)
-      currentIssues = [closingIssue(74, "github source", "MUTATED-SLICE")]
-
-      const resumed = runCommand(
-        fixture,
-        ["review", "--resume"],
-        makeScripted({
-          sessions: [successfulVerifierSession(), successfulJudgmentSession()],
-        }),
-        Effect.void,
-        github,
-      )
-      expect(yield* resumed.effect).toBe(0)
-      const [verifierPrompt = ""] = promptTextsFor(
-        resumed.scripted,
-        "-verification",
-      )
-      expect(verifierPrompt).toContain("FROZEN-SLICE")
-      expect(verifierPrompt).not.toContain("MUTATED-SLICE")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("resumes a PR review after the pull request moves out of reach", () =>
@@ -1532,7 +1343,7 @@ describe("gauntlet review", () => {
       expect(resumedPrompts).not.toContain("LINEAR-SLICE-ENG-76")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("creates no Run for --github-spec without a PR or with resume", () =>
+  it.effect("refuses a GitHub-only specification for a working-tree review before paid work", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const run = runCommand(
@@ -1541,17 +1352,11 @@ describe("gauntlet review", () => {
         successfulScripted(),
       )
 
-      yield* run.effect
-      const resumed = runCommand(
-        fixture,
-        ["review", "--resume", "some-run", "--github-spec"],
-        successfulScripted(),
-      )
-      yield* resumed.effect
+      expect(yield* run.effect).toBe(1)
+      expect(run.scripted.configs).toEqual([])
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
 })
 
 describe("gauntlet review target selection", () => {

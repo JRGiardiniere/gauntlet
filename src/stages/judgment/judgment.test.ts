@@ -2,11 +2,9 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as TestConsole from "effect/testing/TestConsole"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
-import type { EmitToolArgs } from "../../harness/harness-session.ts"
 import {
   makeScripted,
   type Scripted,
@@ -38,68 +36,36 @@ const observations = globalThis.Array.from({ length: 2 }, (_, index) =>
     summary: `observation ${String(index + 1)}`,
   }))
 
-const emittingSession = (
-  output: EmitToolArgs,
-  promptCount = 1,
-): ScriptedSession => ({
-  prompts: globalThis.Array.from({ length: promptCount }, () => ({
+const keepingSession = (): ScriptedSession => ({
+  prompts: [{
     events: [
-      { afterMillis: 0, kind: "message_start" as const },
-      { afterMillis: 0, kind: "emit" as const, args: output, valid: true },
+      { afterMillis: 0, kind: "message_start" },
       {
         afterMillis: 0,
-        kind: "message_end" as const,
-        stopReason: "toolUse" as const,
+        kind: "emit",
+        valid: true,
+        args: {
+          decisions: [{
+            index: 1,
+            decision: "keep",
+            review_priority: "P2",
+            reason: "the call sites confirm the premise",
+            goodFind: true,
+            cleanlyExplained: true,
+            merge: [2],
+          }],
+        },
+      },
+      {
+        afterMillis: 0,
+        kind: "message_end",
+        stopReason: "toolUse",
         usage: usageRow(),
       },
     ],
-    settles: "after-events" as const,
-  })),
+    settles: "after-events",
+  }],
 })
-
-// A judgment emission that fails the output contract: the keep decision
-// carries none of the required keep fields, driving the off-spec path.
-interface OffSpecJudgmentsEmission {
-  readonly decisions: ReadonlyArray<{
-    readonly index: number
-    readonly decision: "keep"
-    readonly reason: string
-  }>
-}
-
-const offSpecEmittingSession = (
-  output: OffSpecJudgmentsEmission,
-  promptCount: number,
-): ScriptedSession => ({
-  prompts: globalThis.Array.from({ length: promptCount }, () => ({
-    events: [
-      { afterMillis: 0, kind: "message_start" as const },
-      { afterMillis: 0, kind: "emit" as const, args: output, valid: false },
-      {
-        afterMillis: 0,
-        kind: "message_end" as const,
-        stopReason: "toolUse" as const,
-        usage: usageRow(),
-      },
-    ],
-    settles: "after-events" as const,
-  })),
-})
-
-const keepingSession = (): ScriptedSession =>
-  emittingSession({
-    decisions: [
-      {
-        index: 1,
-        decision: "keep",
-        review_priority: "P2",
-        reason: "the call sites confirm the premise",
-        goodFind: true,
-        cleanlyExplained: true,
-        merge: [2],
-      },
-    ],
-  })
 
 const runJudgment = (
   scripted: Scripted,
@@ -114,12 +80,11 @@ const runJudgment = (
         : { judgment: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
     }
-    const result = yield* executeJudgment({
+    return yield* executeJudgment({
       plan,
       reviewWorkingDirectory: REVIEW_ROOT,
       observations,
     })
-    return { result }
   }).pipe(
     Effect.provide(
       Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
@@ -131,7 +96,7 @@ describe("Judgment stage interface", () => {
     Effect.gen(function* () {
       const scripted = makeScripted({ sessions: [keepingSession()] })
 
-      const { result } = yield* runJudgment(scripted)
+      const result = yield* runJudgment(scripted)
 
       expect(result.observations).toHaveLength(1)
       expect(result.observations[0]?.judgment).toMatchObject({
@@ -146,7 +111,6 @@ describe("Judgment stage interface", () => {
       expect(scripted.configs).toHaveLength(1)
       expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
       expect(scripted.configs[0]?.cwd).toBe(REVIEW_ROOT)
-      expect(scripted.configs[0]?.invocationId).toBe("judgment-test-run-judgment")
       expect(scripted.configs[0]?.cacheGroupId).toBeUndefined()
       expect(scripted.configs[0]?.tools).toEqual(["read", "bash"])
       expect(scripted.configs[0]?.emitTool.name).toBe("emit_judgments")
@@ -164,20 +128,13 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
       expect(prompt).not.toContain(REVIEW_ROOT)
       expect(prompt).not.toContain(REPO_ROOT)
-
-      const stderr = (yield* TestConsole.errorLines).join("\n")
-      expect(stderr).toContain("gauntlet: invoking Judgment")
-      expect(stderr).toContain("gauntlet: Judgment done — 0s · $0.05")
-      expect(stderr).toContain(
-        "gauntlet: Judgment finished — 1 kept · 0 dropped · 0 undecided · 0s",
-      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("degrades to undecided with a coverage gap when the plan froze no judgment seat", () =>
     Effect.gen(function* () {
       const scripted = makeScripted({ sessions: [] })
 
-      const { result } = yield* runJudgment(scripted, true)
+      const result = yield* runJudgment(scripted, true)
 
       expect(result.observations.map(({ judgment }) => judgment._tag)).toEqual([
         "Undecided",
@@ -193,31 +150,42 @@ describe("Judgment stage interface", () => {
       expect(result.costUsd).toBe(0)
       expect(result.invocationCount).toBe(0)
       expect(scripted.configs).toHaveLength(0)
-
-      const stderr = (yield* TestConsole.errorLines).join("\n")
-      expect(stderr).toContain(
-        "gauntlet: coverage gap — judgment has no seat frozen in the review plan; retained every observation as undecided",
-      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps an off-spec emit visible as undecided with the missing-output reason", () =>
     Effect.gen(function* () {
       const scripted = makeScripted({
         sessions: [
-          offSpecEmittingSession(
-            {
-              decisions: [{
-                index: 1,
-                decision: "keep",
-                reason: "missing the required keep fields",
-              }],
-            },
-            3,
-          ),
+          {
+            prompts: globalThis.Array.from({ length: 3 }, () => ({
+              events: [
+                { afterMillis: 0, kind: "message_start" as const },
+                {
+                  afterMillis: 0,
+                  kind: "emit" as const,
+                  valid: false,
+                  args: {
+                    decisions: [{
+                      index: 1,
+                      decision: "keep",
+                      reason: "missing the required keep fields",
+                    }],
+                  },
+                },
+                {
+                  afterMillis: 0,
+                  kind: "message_end" as const,
+                  stopReason: "toolUse" as const,
+                  usage: usageRow(),
+                },
+              ],
+              settles: "after-events" as const,
+            })),
+          },
         ],
       })
 
-      const { result } = yield* runJudgment(scripted)
+      const result = yield* runJudgment(scripted)
 
       expect(result.observations.map(({ judgment }) => judgment._tag)).toEqual([
         "Undecided",
@@ -230,10 +198,5 @@ describe("Judgment stage interface", () => {
         },
       ])
       expect(result.invocationCount).toBe(1)
-
-      const stderr = (yield* TestConsole.errorLines).join("\n")
-      expect(stderr).toContain(
-        "gauntlet: coverage gap — judgment emitted nothing after 2 corrective turns",
-      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

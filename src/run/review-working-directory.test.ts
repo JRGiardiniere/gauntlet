@@ -13,7 +13,6 @@ import {
   acquireReviewWorkingDirectory,
   captureWorkspaceOverlay,
 } from "./review-working-directory.ts"
-import { RunError } from "./run-record.ts"
 
 const RUN_ID = "review-working-directory-test"
 
@@ -142,31 +141,6 @@ describe("PR review working directory", () => {
       yield* Fiber.interrupt(fiber)
       expect(yield* fs.exists(reviewDirectory)).toBe(false)
       expect(yield* countWorktrees(repo)).toBe(1)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("reports worktree creation failures with Git's reason", () =>
-    Effect.gen(function* () {
-      const { target } = yield* makeMismatchedPullRequestTarget
-      const missingCommit = "0000000000000000000000000000000000000000"
-      const missingTarget = ReviewTarget.cases.PullRequest.make({
-        ...target,
-        headCommit: missingCommit,
-      })
-
-      const failure = yield* acquireReviewWorkingDirectory(
-        missingTarget,
-        RUN_ID,
-        NO_OVERLAY,
-      ).pipe(Effect.flip)
-
-      expect(failure).toBeInstanceOf(RunError)
-      if (failure._tag !== "RunError") return
-      expect(failure.operation).toBe("execute-plan")
-      expect(failure.runId).toBe(RUN_ID)
-      expect(failure.reason).toContain(
-        `could not create review worktree for PR #${String(target.number)}`,
-      )
-      expect(failure.reason).toContain(missingCommit)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 

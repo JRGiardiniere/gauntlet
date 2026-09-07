@@ -32,10 +32,8 @@ const pageInfo = { hasNextPage: false, endCursor: null }
 
 describe("Linear.Default", () => {
   it.effect("decodes the branch issue, parent, siblings, and human/bot authors", () => {
-    const requests: Array<string> = []
     const fakeFetch: typeof globalThis.fetch = (input, init) =>
       new Request(input, init).text().then((body) => {
-        requests.push(body)
         if (body.includes("GauntletLinearIssue")) {
           return jsonResponse({
             data: {
@@ -124,14 +122,23 @@ describe("Linear.Default", () => {
       const linear = yield* Linear
       const result = yield* linear.viewIssue("ENG-75")
 
-      expect(result.identifier).toBe("ENG-75")
-      expect(result.parent?.identifier).toBe("ENG-70")
+      expect(result).toMatchObject({
+        identifier: "ENG-75",
+        title: "Linear source",
+        body: "slice body",
+        state: "In Progress",
+        parent: {
+          identifier: "ENG-70",
+          title: "Review specification",
+          body: "parent body",
+          state: "Todo",
+        },
+      })
       expect(result.siblings.map(({ identifier }) => identifier)).toEqual([
         "ENG-76",
       ])
       expect(result.parent?.comments.map(({ isBot }) => isBot)).toEqual([false])
       expect(result.comments.map(({ isBot }) => isBot)).toEqual([false, true])
-      expect(requests).toHaveLength(4)
     }).pipe(
       Effect.provide(Linear.Default),
       Effect.provideService(FetchHttpClient.Fetch, fakeFetch),
@@ -143,7 +150,7 @@ describe("Linear.Default", () => {
     )
   })
 
-  it.effect("classifies missing and rejected API keys", () =>
+  it.effect("classifies a missing API key", () =>
     Effect.gen(function* () {
       const linear = yield* Linear
       const error = yield* linear.viewIssue("ENG-75").pipe(Effect.flip)

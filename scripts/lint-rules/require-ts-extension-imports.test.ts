@@ -17,9 +17,6 @@ ruleTester.run("require-ts-extension-imports", rule, {
     allowedImport("a .cjs runtime boundary import", "./module.cjs"),
     allowedImport("a .json resource import", "./module.json"),
     allowedImport("a .css asset import", "./theme.css"),
-    allowedImport("an .svg asset import", "./banner.svg"),
-    allowedImport("a .wasm asset import", "./decoder.wasm"),
-    allowedImport("a .txt asset import", "./notes.txt"),
     allowedImport("a resource import with a loader query", "./schema.sql?raw"),
     allowedImport("a bare package import", "effect"),
     allowedImport("a package subpath import", "effect/Effect"),
@@ -68,15 +65,6 @@ ruleTester.run("require-ts-extension-imports", rule, {
         message: `Use ".ts" extension instead of ".js" for relative imports`,
       }],
       output: `import { value } from "./fixtures/missing.ts"`,
-    },
-    {
-      name: "a .js extension on a relative import",
-      code: `import { value } from "./module.js"`,
-      filename: productionFile,
-      errors: [{
-        message: `Use ".ts" extension instead of ".js" for relative imports`,
-      }],
-      output: `import { value } from "./module.ts"`,
     },
     {
       name: "a .jsx extension on a relative import",

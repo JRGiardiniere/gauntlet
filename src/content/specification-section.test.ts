@@ -42,8 +42,7 @@ describe("renderSpecificationSection", () => {
       }),
     )
 
-    expect(section.indexOf("parent body")).toBeLessThan(section.indexOf("slice body"))
-    expect(section.indexOf("slice body")).toBeLessThan(section.indexOf("caller note"))
+    expect(section).toMatch(/parent body[\s\S]*slice body[\s\S]*caller note/)
     expect(section).toContain(
       "### Parent: parent spec (https://github.com/example/repo/issues/70) [OPEN]",
     )
