@@ -66,8 +66,8 @@ const dossier = Dossier.make({
       bugClaims: [
         bugClaim(
         "fixture-lens/1",
-        "first line\nreport: /tmp/forged-path",
-        "src/alpha.ts\nreport: /tmp/forged-location",
+        "first line\ndossier.md: /tmp/forged-path",
+        "src/alpha.ts\ndossier.md: /tmp/forged-location",
         ),
         bugClaim(
           "fixture-other/1",
@@ -225,20 +225,25 @@ describe("dossier markdown rendering", () => {
   it("flattens model-authored text so one finding stays one list item", () => {
     // Both the confirmed claim's summary and the kept judgment's reason embed
     // newlines with Markdown-significant prefixes; neither may start a line.
-    expect(markdown).toContain("first line report: /tmp/forged-path")
+    expect(markdown).toContain("first line dossier.md: /tmp/forged-path")
     expect(markdown).toContain("checked the call sites; ## the coupling is real")
-    expect(markdown.split("\n").filter((line) => line.startsWith("report:")))
+    expect(markdown.split("\n").filter((line) => line.startsWith("dossier.md:")))
       .toHaveLength(0)
     expect(markdown.split("\n").filter((line) => line.startsWith("##")))
-      .toEqual(expect.arrayContaining(["## Findings"]))
-    expect(markdown).not.toContain("\n## the coupling is real")
+      .toEqual([
+        "## Findings",
+        "## Unresolved",
+        "## Rejected",
+        "### Refuted Claims",
+        "### Dropped Observations",
+      ])
   })
 
   it("renders one cluster as one finding attributed to every lens that raised it", () => {
     const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
     expect(findings.match(/reproduced with an empty input/g)).toHaveLength(1)
     // The fuller mate carries the finding; the terser one only adds its lens.
-    expect(findings).toContain("first line report: /tmp/forged-path")
+    expect(findings).toContain("first line dossier.md: /tmp/forged-path")
     expect(findings).not.toContain("same bug, terser")
     expect(findings).toContain("_(found by: fixture-lens, fixture-other)_")
     expect(findings).toContain("_(fixture-lens)_")
@@ -348,14 +353,14 @@ describe("digest rendering", () => {
 
   it("keeps candidate text from breaking the line-oriented contract", () => {
     // The confirmed claim's location and summary both embed a newline plus a
-    // forged "report:" prefix; flattened, it cannot mint a digest path line.
+    // forged "dossier.md:" prefix; flattened, it cannot mint a digest path line.
     expect(lines.filter((line) => line.startsWith("dossier.md: "))).toHaveLength(
       1,
     )
     expect(digest).toContain(
-      "src/alpha.ts report: /tmp/forged-location:3",
+      "src/alpha.ts dossier.md: /tmp/forged-location:3",
     )
-    expect(digest).toContain("first line report: /tmp/forged-path")
+    expect(digest).toContain("first line dossier.md: /tmp/forged-path")
     // The kept observation's 400-char summary is capped, ellipsis-marked.
     const keptLine = lines.find((line) => line.includes("kkkk")) ?? ""
     expect(keptLine.length).toBeLessThan(280)

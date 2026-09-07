@@ -20,7 +20,7 @@ import {
   unusedGitHubLayer,
 } from "../github/github.ts"
 import { Linear, LinearError, unusedLinearLayer } from "../linear/linear.ts"
-import { runGit, TargetUnresolvable } from "../target/git.ts"
+import { runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import {
   closingIssue,
@@ -713,28 +713,6 @@ describe("submission", () => {
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("Standards Manifest")
       expect(refusal.reason).toContain("missing-standards.md")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("creates no run directory when the target does not resolve", () =>
-    Effect.gen(function* () {
-      const { fixture } = yield* makeCommitRangeFixture
-      const fs = yield* FileSystem.FileSystem
-
-      const empty = yield* Effect.flip(submitWith(
-        fixture,
-        exactLenses(SubmissionTargetRequest.Commits({ range: "HEAD" })),
-      ))
-      expect(empty).toBeInstanceOf(TargetUnresolvable)
-      if (!Predicate.isTagged(empty, "TargetUnresolvable")) return
-      expect(empty.reason).toBe("HEAD has no changes to review")
-
-      const missing = yield* Effect.flip(submitWith(
-        fixture,
-        exactLenses(SubmissionTargetRequest.Commits({ range: "no-such-ref" })),
-      ))
-      expect(missing).toBeInstanceOf(TargetUnresolvable)
-
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

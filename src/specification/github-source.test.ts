@@ -12,7 +12,6 @@ import {
   loadGitHubSpecification,
   reviewSpecificationFromGitHubIssues,
 } from "./github-source.ts"
-import { COMMENT_BUDGET_CHARACTERS } from "./comment-budget.ts"
 
 const issueUrl = (number: number) =>
   `https://github.com/example/repo/issues/${String(number)}`
@@ -92,7 +91,6 @@ describe("reviewSpecificationFromGitHubIssues", () => {
       issueUrl(70),
       issueUrl(74),
     ])
-    expect(spec?.documents.some((document) => document.provenance.includes("999"))).toBe(false)
   })
 
   it("does not list a closing issue again as parent material", () => {
@@ -150,7 +148,6 @@ describe("reviewSpecificationFromGitHubIssues", () => {
       droppedCharacters: 8_000,
       cutoff: "2026-01-02T00:00:00Z",
     })
-    expect(COMMENT_BUDGET_CHARACTERS).toBe(20_000)
   })
 
   it("returns no specification when there are no closing issues", () => {

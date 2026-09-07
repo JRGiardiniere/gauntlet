@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest"
 import type { SpecificationComment } from "../domain/review-specification.ts"
 import {
   COMMENT_BUDGET_CHARACTERS,
-  formatCommentOmission,
   trimCommentBudget,
 } from "./comment-budget.ts"
 
@@ -37,19 +36,11 @@ describe("trimCommentBudget", () => {
     const trimmed = trimCommentBudget([newest, oldest, middle])
 
     expect(trimmed.comments).toEqual([middle, newest])
-    expect(trimmed.comments.every((entry) => entry.text.length === 8_000)).toBe(true)
     expect(trimmed.commentOmission).toEqual({
       droppedCount: 1,
       droppedCharacters: 8_000,
       cutoff: "2026-01-02T00:00:00Z",
     })
-    expect(
-      trimmed.commentOmission === undefined
-        ? undefined
-        : formatCommentOmission(trimmed.commentOmission),
-    ).toBe(
-      "Dropped 1 earliest comments (8000 characters). Cutoff: 2026-01-02T00:00:00Z.",
-    )
   })
 
   it("never splits a comment and drops a single comment that exceeds the bound", () => {

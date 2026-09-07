@@ -29,7 +29,13 @@ describe("Pool repair", () => {
   it("uses singleton clusters when Pool has no decodable output", () => {
     const repaired = repairPoolOutput(claims, undefined)
 
-    expect(repaired.clusters).toEqual(singletonClusters(claims))
+    expect(repaired.clusters).toEqual([
+      { indexes: [1], summary: "summary one" },
+      { indexes: [2], summary: "summary two" },
+      { indexes: [3], summary: "summary three" },
+      { indexes: [4], summary: "summary four" },
+      { indexes: [5], summary: "summary five" },
+    ])
     expect(repaired.restoredIndexes).toEqual([1, 2, 3, 4, 5])
     expect(repaired.unknownIndexes).toEqual([])
     expect(repaired.duplicateIndexes).toEqual([])
