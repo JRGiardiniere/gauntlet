@@ -283,7 +283,18 @@ const runUntilFinderStage = <E, R>(effect: Effect.Effect<number, E, R>) =>
       ),
       Effect.forkChild,
     )
-    const runId = yield* Deferred.await(stageCommitted)
+    // An early exit surfaces instead of hanging the test on the deferred.
+    const runId = yield* Effect.raceFirst(
+      Deferred.await(stageCommitted),
+      Fiber.join(fiber).pipe(
+        Effect.flatMap((exitCode) =>
+          Effect.die(
+            new Error(
+              `review exited with ${String(exitCode)} before the Finder stage checkpoint`,
+            ),
+          )),
+      ),
+    )
     yield* Fiber.interrupt(fiber)
     return runId
   })

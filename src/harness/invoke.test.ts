@@ -271,6 +271,31 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         expect(outcome.diagnostics.join(" ")).toContain(
           "retained the first-response timeout outcome",
         )
+
+        // The fresh retry opens but stalls too: still one retry, then the
+        // FirstResponseTimeout ending, with the signal finalized.
+        const twiceStalled = makeScripted({
+          sessions: [
+            { prompts: [{ events: [], settles: "never" }] },
+            { prompts: [{ events: [], settles: "never" }] },
+          ],
+        })
+        const stalledRun = yield* invokeSignaled(INPUT).pipe(
+          Effect.provide(scriptedLayer(twiceStalled)),
+        )
+        const stalledSignal = yield* Effect.forkChild(stalledRun.firstResponse)
+        yield* TestClock.adjust("20 seconds")
+        yield* Effect.yieldNow
+        expect(PrefixSignal.$is("PrefixNotObserved")(
+          yield* Fiber.join(stalledSignal),
+        )).toBe(true)
+        const stalledOutcome = yield* stalledRun.outcome.pipe(Effect.orDie)
+        expect(
+          Termination.guards.FirstResponseTimeout(stalledOutcome.termination),
+        ).toBe(true)
+        expect(
+          twiceStalled.log.filter((entry) => entry.startsWith("open:")),
+        ).toEqual(["open:1", "open:2"])
       }),
   )
 
