@@ -73,12 +73,14 @@ export const loadFinderPromptTemplates = Effect.fn(
   return { systemPrompt, sharedPromptTemplate } satisfies FinderPromptTemplates
 })
 
-// The shared block is always the first byte of the user prompt. An
-// Interpretive Finder's ReviewSpecification follows it — identical for every
-// interpretive lens, so it is still shared prefix, not tail — and only the
-// lens tail diverges, so multiple finder invocations can share a provider
-// cache prefix without lens labels, run ids, or timestamps leaking ahead of
-// it. A Specific Finder never receives specification material (issue #73).
+// The shared block follows the finder system prompt inside the system prompt
+// (provider `instructions`); the user message carries only the lens tail. An
+// Interpretive Finder's ReviewSpecification follows the shared block —
+// identical for every interpretive lens, so it is still shared prefix, not
+// tail — and only the lens tail diverges, so multiple finder invocations can
+// share a provider cache prefix without lens labels, run ids, or timestamps
+// leaking ahead of it. A Specific Finder never receives specification
+// material (issue #73).
 export const assembleFinderContext = (
   template: string,
   target: ReviewTarget,
@@ -110,7 +112,7 @@ export const assembleFinderContext = (
   })
 
 export const assembleFinderAssignment = (lens: FrozenLens): string => {
-  const sections = [lens.promptText]
+  const sections = ["## Your lens", lens.promptText]
     if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
       sections.push(
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,

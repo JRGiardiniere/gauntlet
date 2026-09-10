@@ -215,23 +215,24 @@ describe("Finder stage interface", () => {
           parameters: configs[0]?.emitTool.parameters,
         })
       }
-      const standardPrompts = scripted.prompts.filter(({ invocationId }) =>
-        invocationId.includes("standard-"))
-      const interpretivePrompts = scripted.prompts.filter(({ invocationId }) =>
-        invocationId.includes("interpretive-"))
-      expect(standardPrompts).toHaveLength(2)
-      expect(interpretivePrompts).toHaveLength(2)
-      for (const prompts of [standardPrompts, interpretivePrompts]) {
-        const prefixes = prompts.map(({ text }) => text.replace(/\n\n[^\n]+ tail$/, ""))
-        expect(prefixes[0]).toBe(prefixes[1])
+      // The shared block lives in the system prompt (provider instructions);
+      // the user message is only the lens tail.
+      const systemPromptFor = (fragment: string) =>
+        scripted.prompts
+          .filter(({ invocationId }) => invocationId.includes(fragment))
+          .map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt)
+      const standardSystemPrompts = systemPromptFor("standard-")
+      const interpretiveSystemPrompts = systemPromptFor("interpretive-")
+      expect(standardSystemPrompts).toHaveLength(2)
+      expect(interpretiveSystemPrompts).toHaveLength(2)
+      for (const [first, second] of [standardSystemPrompts, interpretiveSystemPrompts]) {
+        expect(first).toBe(second)
+        expect(first).toContain("shared start")
       }
-      for (const { text } of standardPrompts) {
-        expect(text).toContain("shared start")
-        expect(text).not.toContain("SPECIFICATION-NEEDLE")
-      }
-      for (const { text } of interpretivePrompts) {
-        expect(text).toContain("shared start")
-        expect(text).toContain("SPECIFICATION-NEEDLE")
+      expect(standardSystemPrompts[0]).not.toContain("SPECIFICATION-NEEDLE")
+      expect(interpretiveSystemPrompts[0]).toContain("SPECIFICATION-NEEDLE")
+      for (const { text } of scripted.prompts) {
+        expect(text).not.toContain("shared start")
       }
 
       const artifact = yield* fixture.fs.readFileString(
