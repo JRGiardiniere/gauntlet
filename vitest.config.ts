@@ -1,10 +1,9 @@
 import { defineConfig } from "vitest/config"
 
-// Two runtimes, one config. `src/` runs on Bun (`bun --bun vitest`): the
-// shipped binary is Bun, and a just-bash regression that only fires there
-// went unnoticed for weeks while Node-run tests stayed green. `scripts/`
-// stays on Node because Oxlint's RuleTester refuses other runtimes. The
-// package.json `test` script encodes the split.
+// Two runtimes, one config. `src/` runs on Bun (`bun --bun vitest`) because
+// the shipped binary is Bun and just-bash behaves differently there than on
+// Node. `scripts/` stays on Node because Oxlint's RuleTester refuses other
+// runtimes. The package.json `test` script encodes the split.
 
 export default defineConfig({
   test: {

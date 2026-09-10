@@ -149,7 +149,7 @@ const startSignaled = (scripted: ReturnType<typeof makeScripted>) =>
 
 describe("invoke (scripted HarnessSession, TestClock)", () => {
   it.effect(
-    "signals the first metered response, then not-observed once the invocation is interrupted or cannot start",
+    "signals the first metered response, then not-observed once the invocation is interrupted, settles unmetered, or cannot start",
     () =>
       Effect.gen(function* () {
         const metered = makeScripted({
@@ -202,6 +202,26 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           yield* Fiber.join(pendingSignal),
         )).toBe(true)
 
+        // A prompt that starts and then settles with no terminal or metered
+        // event: the lifecycle finalizer, not a response, resolves the signal.
+        const unmetered = makeScripted({
+          sessions: [{
+            prompts: [{
+              events: [{ afterMillis: 0, kind: "message_start" }],
+              settles: "after-events",
+            }],
+          }],
+        })
+        const settled = yield* invokeSignaled(INPUT).pipe(
+          Effect.provide(scriptedLayer(unmetered)),
+        )
+        expect(PrefixSignal.$is("PrefixNotObserved")(
+          yield* settled.firstResponse,
+        )).toBe(true)
+        expect(yield* Effect.flip(settled.outcome)).toBeInstanceOf(
+          AdapterContractViolation,
+        )
+
         const unavailable = makeScripted({
           sessions: [{ failOpen: "provider unavailable", prompts: [] }],
         })
@@ -218,7 +238,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
   )
 
   it.effect(
-    "signals not-observed and retains the first timeout when the fresh retry cannot start",
+    "signals not-observed and retains the FirstResponseTimeout ending when the fresh retry cannot start",
     () =>
       Effect.gen(function* () {
         const scripted = makeScripted({

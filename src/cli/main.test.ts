@@ -806,8 +806,10 @@ describe("gauntlet review", () => {
         "the added line breaks empty inputs",
       )
       // The reused Finder invocation is still counted in the Dossier.
-      const report = yield* fs.readFileString(path.join(runDir, "dossier.md"))
-      expect(report).toContain("4 invocations")
+      const dossierMarkdown = yield* fs.readFileString(
+        path.join(runDir, "dossier.md"),
+      )
+      expect(dossierMarkdown).toContain("4 invocations")
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain(`resuming run ${runId}`)
       expect(stderr).toContain("reusing completed Finder stage")
