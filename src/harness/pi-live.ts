@@ -339,12 +339,15 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             )
             const customTools = [...workspaceTools, emitTool]
 
-            const sessionManager = SessionManager.inMemory(
-              session.cwd,
-              session.cacheGroupId === undefined
-                ? undefined
-                : { id: session.cacheGroupId },
-            )
+            // The session id is always present. A cacheGroupId maps to it
+            // when the caller asked for a shared prompt-cache partition;
+            // otherwise the invocation's own id gives this session a private
+            // partition. Pi only attributes a request (`x-opencode-session`)
+            // when the session has an id, and OpenCode Go rejects requests
+            // without that header, so an id-less session is not an option.
+            const sessionManager = SessionManager.inMemory(session.cwd, {
+              id: session.cacheGroupId ?? session.invocationId,
+            })
             // Every definition is already the non-generic `ToolDefinition`:
             // ReviewWorkspace exposes the erasure, and withToolCallDeadline
             // preserves it. The SDK's customTools option accepts the same
