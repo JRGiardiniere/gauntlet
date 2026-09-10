@@ -14,7 +14,6 @@ import { GOVERNING_STANDARDS_HEADING } from "../domain/finder-selection.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
-  GitHubError,
   gitHubLayer,
   unusedGitHubContract,
   unusedGitHubLayer,
@@ -364,7 +363,11 @@ describe("submission", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("prefers a resolved Linear source and never consults GitHub closing issues", () =>
+  // The Specification Source permutations (preference order, comment
+  // admission, budget arithmetic) belong to src/specification/*; what stays
+  // here is the run-dir observability contract — the frozen plan.json records
+  // the resolved source, its diagnostic, and any omission.
+  it.effect("freezes a resolved Linear source into plan.json, never consulting GitHub", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
@@ -400,8 +403,11 @@ describe("submission", () => {
 
       expect(requested).toEqual(["ENG-75"])
       expect(githubSpecificationCalls).toBe(0)
+
+      const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
+      expect(plan).toEqual(loaded.plan)
       expect(
-        loaded.plan.specification?.documents.map(({ role, state, text }) => ({
+        plan.specification?.documents.map(({ role, state, text }) => ({
           role,
           state,
           text,
@@ -413,97 +419,42 @@ describe("submission", () => {
         { role: "sibling", state: "Done", text: "" },
       ])
       // Human comments only, oldest first — the linkback bot is dropped.
-      expect(loaded.plan.specification?.comments.map(({ text }) => text))
+      expect(plan.specification?.comments.map(({ text }) => text))
         .toEqual(["older human", "newer human"])
-      expect(loaded.plan.specificationSourceDiagnostic).toBeUndefined()
+      expect(plan.specificationSourceDiagnostic).toBeUndefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("falls back to GitHub while retaining an unreachable Linear diagnostic", () =>
+  it.effect("freezes an unreachable Linear diagnostic, with and without GitHub material", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
-
-      const loaded = yield* submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: false,
-          }),
-        ),
-        githubForPr(prView(7, headCommit, baseCommit), [
-          closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
-        ]),
-        missingApiKeyLinear,
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.writeFileString(
+        path.join(fixture.repo, "alpha.txt"),
+        "first line\nneedle-added-line\nuncommitted-line\n",
       )
 
-      expect(loaded.plan.specification?.documents.map(({ text }) => text))
-        .toContain("GITHUB-SLICE-BODY")
-      expect(loaded.plan.specificationSourceDiagnostic?.reason).toBe(
-        "missing-api-key",
-      )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("keeps a matching branch's diagnostic without blocking a specification-less review", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
-
-      const loaded = yield* submitWith(
+      // No fallback source: the review is never blocked, and the diagnostic
+      // is the only record of the matching branch's Linear attempt.
+      const bare = yield* submitWith(
         fixture,
         exactLenses(SubmissionTargetRequest.WorkingTree({ base: undefined })),
         unusedGitHubLayer,
         missingApiKeyLinear,
       )
-
-      expect(loaded.plan.specification).toBeUndefined()
-      expect(loaded.plan.specificationSourceDiagnostic?.reason).toBe(
+      const barePlan = (yield* persistedPlan(fixture, bare.plan.runId)).plan
+      expect(barePlan.specification).toBeUndefined()
+      expect(barePlan.specificationSourceDiagnostic?.reason).toBe(
         "missing-api-key",
       )
-      expect(loaded.plan.specificationSourceDiagnostic?.message).toContain(
+      expect(barePlan.specificationSourceDiagnostic?.message).toContain(
         "LINEAR_API_KEY is not set",
       )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("uses only GitHub when the caller pins the Specification Source", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
-      let linearCalls = 0
-
-      const loaded = yield* submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: true,
-          }),
-        ),
-        githubForPr(prView(7, headCommit, baseCommit), [
-          closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
-        ]),
-        Linear.Fake({
-          viewIssue: () => {
-            linearCalls += 1
-            return Effect.succeed(linearBranchIssue())
-          },
-        }),
-      )
-
-      expect(linearCalls).toBe(0)
-      const specification = loaded.plan.specification?.documents
-        .map(({ text }) => text)
-        .join("\n") ?? ""
-      expect(specification).toContain("GITHUB-SLICE-BODY")
-      expect(specification).not.toContain("LINEAR-SLICE-BODY")
-      expect(loaded.plan.specificationSourceDiagnostic).toBeUndefined()
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("GitHub unavailability leaves the ordinary review specification-less", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-
-      const loaded = yield* submitWith(
+      // A pull request falls back to GitHub closing issues and keeps the
+      // diagnostic beside the fetched material.
+      const fallback = yield* submitWith(
         fixture,
         exactLenses(
           SubmissionTargetRequest.PullRequest({
@@ -511,37 +462,32 @@ describe("submission", () => {
             githubSpecOnly: false,
           }),
         ),
-        gitHubLayer({
-          ...unusedGitHubContract,
-          viewPullRequest: () =>
-            Effect.succeed(prView(7, headCommit, baseCommit)),
-          viewClosingIssues: () =>
-            Effect.fail(
-              new GitHubError({
-                operation: "specification",
-                reason: "GitHub unavailable",
-              }),
-            ),
-        }),
+        githubForPr(prView(7, headCommit, baseCommit), [
+          closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
+        ]),
+        missingApiKeyLinear,
       )
-
-      expect(loaded.plan.specification).toBeUndefined()
-      expect(loaded.plan.specificationSourceDiagnostic).toBeUndefined()
+      const fallbackPlan =
+        (yield* persistedPlan(fixture, fallback.plan.runId)).plan
+      expect(fallbackPlan.specification?.documents.map(({ text }) => text))
+        .toContain("GITHUB-SLICE-BODY")
+      expect(fallbackPlan.specificationSourceDiagnostic?.reason).toBe(
+        "missing-api-key",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("freezes GitHub closing issues beside a caller addendum, filtering comments", () =>
+  it.effect("pins GitHub, appends the caller addendum, and freezes the comment omission", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
+      // A Linear-shaped branch that the pin must leave unread.
+      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
+      let linearCalls = 0
       const parent = closingIssue(70, "parent spec", "PARENT-BODY")
       const issues = [
-        closingIssue(74, "github source", "SLICE-BODY", [
-          githubComment("OWNER", "2026-01-01T00:00:00Z", "OWNER-COMMENT"),
-          githubComment(
-            "CONTRIBUTOR",
-            "2026-01-02T00:00:00Z",
-            "CONTRIBUTOR-COMMENT",
-          ),
-          githubComment("MEMBER", "2026-01-03T00:00:00Z", "MEMBER-COMMENT"),
+        closingIssue(74, "github source", "SLICE-BODY-INTACT", [
+          githubComment("OWNER", "2026-01-01T00:00:00Z", "o".repeat(8_000)),
+          githubComment("OWNER", "2026-01-02T00:00:00Z", "m".repeat(8_000)),
+          githubComment("OWNER", "2026-01-03T00:00:00Z", "n".repeat(8_000)),
         ], parent),
       ]
 
@@ -550,7 +496,7 @@ describe("submission", () => {
         {
           target: SubmissionTargetRequest.PullRequest({
             number: 7,
-            githubSpecOnly: false,
+            githubSpecOnly: true,
           }),
           recipeName: Option.none(),
           selectedLensNames: ["fixture-review"],
@@ -564,45 +510,34 @@ describe("submission", () => {
           },
         },
         githubForPr(prView(7, headCommit, baseCommit), issues),
+        Linear.Fake({
+          viewIssue: () => {
+            linearCalls += 1
+            return Effect.succeed(linearBranchIssue())
+          },
+        }),
       )
 
-      expect(
-        loaded.plan.specification?.documents.map((document) => document.role),
-      ).toEqual(["parent", "slice", "caller-addendum"])
-      expect(loaded.plan.specification?.comments.map(({ text }) => text))
-        .toEqual(["OWNER-COMMENT", "MEMBER-COMMENT"])
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("trims comments to budget and freezes the omission beside intact documents", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      const issues = [
-        closingIssue(74, "github source", "SLICE-BODY-INTACT", [
-          githubComment("OWNER", "2026-01-01T00:00:00Z", "o".repeat(8_000)),
-          githubComment("OWNER", "2026-01-02T00:00:00Z", "m".repeat(8_000)),
-          githubComment("OWNER", "2026-01-03T00:00:00Z", "n".repeat(8_000)),
-        ]),
-      ]
-
-      const loaded = yield* submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: false,
-          }),
-        ),
-        githubForPr(prView(7, headCommit, baseCommit), issues),
-      )
-
-      expect(loaded.plan.specification?.commentOmission).toEqual({
+      expect(linearCalls).toBe(0)
+      const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
+      expect(plan.specification?.documents.map(({ role }) => role)).toEqual([
+        "parent",
+        "slice",
+        "caller-addendum",
+      ])
+      const specification = plan.specification?.documents
+        .map(({ text }) => text)
+        .join("\n") ?? ""
+      expect(specification).not.toContain("LINEAR-SLICE-BODY")
+      expect(specification).toContain("ADDENDUM-REQUIREMENT: keep the caller note")
+      // Trimming comments to budget leaves the documents intact.
+      expect(plan.specification?.documents[1]?.text).toBe("SLICE-BODY-INTACT")
+      expect(plan.specification?.commentOmission).toEqual({
         droppedCount: 1,
         droppedCharacters: 8_000,
         cutoff: "2026-01-02T00:00:00Z",
       })
-      expect(loaded.plan.specification?.documents[0]?.text).toBe(
-        "SLICE-BODY-INTACT",
-      )
+      expect(plan.specificationSourceDiagnostic).toBeUndefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a GitHub-pinned submission with no closing issues, creating no Run", () =>

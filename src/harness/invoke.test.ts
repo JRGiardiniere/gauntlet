@@ -148,141 +148,80 @@ const startSignaled = (scripted: ReturnType<typeof makeScripted>) =>
   })
 
 describe("invoke (scripted HarnessSession, TestClock)", () => {
-  it.effect("signals the first metered response while the invocation keeps running", () =>
-    Effect.gen(function* () {
-      const scripted = makeScripted({
-        sessions: [{
-          prompts: [{
-            events: [
-              { afterMillis: 100, kind: "message_start" },
-              { afterMillis: 200, kind: "message_end", stopReason: "stop" },
-            ],
-            settles: "never",
-          }],
-        }],
-      })
-      const { running, owner } = yield* startSignaled(scripted)
-      const signalFiber = yield* Effect.forkChild(running.firstResponse)
-      for (let step = 0; step < 8 && signalFiber.pollUnsafe() === undefined; step += 1) {
-        yield* TestClock.adjust("100 millis")
-        yield* Effect.yieldNow
-      }
-
-      expect(PrefixSignal.$is("PrefixObserved")(
-        yield* Fiber.join(signalFiber),
-      )).toBe(true)
-      expect(scripted.log).not.toContain("dispose:1")
-      yield* Fiber.interrupt(owner)
-    }))
-
-  it.effect("signals not-observed when setup fails", () =>
-    Effect.gen(function* () {
-      const scripted = makeScripted({
-        sessions: [{ failOpen: "provider unavailable", prompts: [] }],
-      })
-      const running = yield* invokeSignaled(INPUT).pipe(
-        Effect.provide(scriptedLayer(scripted)),
-      )
-
-      expect(PrefixSignal.$is("PrefixNotObserved")(
-        yield* running.firstResponse,
-      )).toBe(true)
-      expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
-        InvocationSetupError,
-      )
-    }))
-
-  it.effect("signals not-observed when an invocation settles without metered usage", () =>
-    Effect.gen(function* () {
-      const scripted = makeScripted({
-        sessions: [{
-          prompts: [{
-            events: [{ afterMillis: 0, kind: "message_start" }],
-            settles: "after-events",
-          }],
-        }],
-      })
-      const running = yield* invokeSignaled(INPUT).pipe(
-        Effect.provide(scriptedLayer(scripted)),
-      )
-
-      const signal = yield* running.firstResponse
-      expect(PrefixSignal.$is("PrefixNotObserved")(signal)).toBe(true)
-      expect(yield* Effect.flip(running.outcome)).toBeInstanceOf(
-        AdapterContractViolation,
-      )
-    }))
-
-  it.effect("signals not-observed after the final first-response timeout", () =>
-    Effect.gen(function* () {
-      const scripted = makeScripted({
-        sessions: [
-          { prompts: [{ events: [], settles: "never" }] },
-          { prompts: [{ events: [], settles: "never" }] },
-        ],
-      })
-      const running = yield* invokeSignaled(INPUT).pipe(
-        Effect.provide(scriptedLayer(scripted)),
-      )
-      const signalFiber = yield* Effect.forkChild(running.firstResponse)
-      yield* TestClock.adjust("20 seconds")
-      yield* Effect.yieldNow
-
-      expect(PrefixSignal.$is("PrefixNotObserved")(
-        yield* Fiber.join(signalFiber),
-      )).toBe(true)
-      const outcome = yield* running.outcome.pipe(Effect.orDie)
-      expect(Termination.guards.FirstResponseTimeout(outcome.termination)).toBe(
-        true,
-      )
-    }))
-
-  it.effect("finalizes the signal when its owning scope is interrupted", () =>
-    Effect.gen(function* () {
-      const scripted = makeScripted({
-        sessions: [{ prompts: [{ events: [], settles: "never" }] }],
-      })
-      const { running, owner } = yield* startSignaled(scripted)
-      const signalFiber = yield* Effect.forkChild(running.firstResponse)
-      for (let step = 0; step < 8 && !scripted.log.includes("prompt:1.1"); step += 1) {
-        yield* Effect.yieldNow
-      }
-      expect(scripted.log).toContain("prompt:1.1")
-      yield* Fiber.interrupt(owner)
-
-      expect(PrefixSignal.$is("PrefixNotObserved")(
-        yield* Fiber.join(signalFiber),
-      )).toBe(true)
-    }))
-
-  it.effect("retries one first-response stall in a fresh session", () =>
-    Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [
-          {
-            prompts: [{ events: [], settles: "never" }],
-            abortBehavior: "hangs",
-          },
-          { prompts: [completedPrompt()] },
-        ],
-      })
-
-      expect(Termination.guards.Completed(outcome.termination)).toBe(true)
-      expect(scripted.log.filter((entry) => entry.startsWith("open:"))).toEqual([
-        "open:1",
-        "open:2",
-      ])
-      expect(scripted.log).toContain("abort:1")
-      expect(scripted.log).toContain("prompt:1.1")
-      expect(scripted.log).toContain("prompt:2.1")
-      expect(outcome.diagnostics.join(" ")).toContain("fresh session")
-    }))
-
   it.effect(
-    "retains the first timeout outcome when the fresh retry cannot start",
+    "signals the first metered response, then not-observed once the invocation is interrupted or cannot start",
     () =>
       Effect.gen(function* () {
-        const { outcome, scripted } = yield* run({
+        const metered = makeScripted({
+          sessions: [{
+            prompts: [{
+              events: [
+                { afterMillis: 100, kind: "message_start" },
+                { afterMillis: 200, kind: "message_end", stopReason: "stop" },
+              ],
+              settles: "never",
+            }],
+          }],
+        })
+        const observed = yield* startSignaled(metered)
+        const observedSignal = yield* Effect.forkChild(
+          observed.running.firstResponse,
+        )
+        for (
+          let step = 0;
+          step < 8 && observedSignal.pollUnsafe() === undefined;
+          step += 1
+        ) {
+          yield* TestClock.adjust("100 millis")
+          yield* Effect.yieldNow
+        }
+        expect(PrefixSignal.$is("PrefixObserved")(
+          yield* Fiber.join(observedSignal),
+        )).toBe(true)
+        // Still running: the signal never waits for session teardown.
+        expect(metered.log).not.toContain("dispose:1")
+        yield* Fiber.interrupt(observed.owner)
+
+        const stalled = makeScripted({
+          sessions: [{ prompts: [{ events: [], settles: "never" }] }],
+        })
+        const pending = yield* startSignaled(stalled)
+        const pendingSignal = yield* Effect.forkChild(
+          pending.running.firstResponse,
+        )
+        for (
+          let step = 0;
+          step < 8 && !stalled.log.includes("prompt:1.1");
+          step += 1
+        ) {
+          yield* Effect.yieldNow
+        }
+        expect(stalled.log).toContain("prompt:1.1")
+        yield* Fiber.interrupt(pending.owner)
+        expect(PrefixSignal.$is("PrefixNotObserved")(
+          yield* Fiber.join(pendingSignal),
+        )).toBe(true)
+
+        const unavailable = makeScripted({
+          sessions: [{ failOpen: "provider unavailable", prompts: [] }],
+        })
+        const failed = yield* invokeSignaled(INPUT).pipe(
+          Effect.provide(scriptedLayer(unavailable)),
+        )
+        expect(PrefixSignal.$is("PrefixNotObserved")(
+          yield* failed.firstResponse,
+        )).toBe(true)
+        expect(yield* Effect.flip(failed.outcome)).toBeInstanceOf(
+          InvocationSetupError,
+        )
+      }),
+  )
+
+  it.effect(
+    "signals not-observed and retains the first timeout when the fresh retry cannot start",
+    () =>
+      Effect.gen(function* () {
+        const scripted = makeScripted({
           sessions: [
             {
               prompts: [{ events: [], settles: "never" }],
@@ -291,7 +230,17 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
             { failOpen: "retry unavailable", prompts: [] },
           ],
         })
+        const running = yield* invokeSignaled(INPUT).pipe(
+          Effect.provide(scriptedLayer(scripted)),
+        )
+        const signalFiber = yield* Effect.forkChild(running.firstResponse)
+        yield* TestClock.adjust("20 seconds")
+        yield* Effect.yieldNow
 
+        expect(PrefixSignal.$is("PrefixNotObserved")(
+          yield* Fiber.join(signalFiber),
+        )).toBe(true)
+        const outcome = yield* running.outcome.pipe(Effect.orDie)
         expect(
           Termination.guards.FirstResponseTimeout(outcome.termination),
         ).toBe(true)
@@ -305,21 +254,47 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       }),
   )
 
-  it.effect("folds a startup stall into the same one-fresh-session retry", () =>
-    Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [
-          { openDelayMillis: 10_000, prompts: [] },
-          { prompts: [completedPrompt()] },
-        ],
-      })
-      expect(Termination.guards.Completed(outcome.termination)).toBe(true)
-      expect(scripted.log.filter((entry) => entry.startsWith("open:"))).toEqual([
-        "open:1",
-        "open:2",
-      ])
-      expect(scripted.log).not.toContain("dispose:1")
-    }))
+  it.effect(
+    "retries a first-response stall, and a startup stall, in one fresh session",
+    () =>
+      Effect.gen(function* () {
+        const stalled = yield* run({
+          sessions: [
+            {
+              prompts: [{ events: [], settles: "never" }],
+              abortBehavior: "hangs",
+            },
+            { prompts: [completedPrompt()] },
+          ],
+        })
+
+        expect(Termination.guards.Completed(stalled.outcome.termination)).toBe(
+          true,
+        )
+        expect(
+          stalled.scripted.log.filter((entry) => entry.startsWith("open:")),
+        ).toEqual(["open:1", "open:2"])
+        expect(stalled.scripted.log).toContain("abort:1")
+        expect(stalled.scripted.log).toContain("prompt:1.1")
+        expect(stalled.scripted.log).toContain("prompt:2.1")
+        expect(stalled.outcome.diagnostics.join(" ")).toContain("fresh session")
+
+        const startup = yield* run({
+          sessions: [
+            { openDelayMillis: 10_000, prompts: [] },
+            { prompts: [completedPrompt()] },
+          ],
+        })
+
+        expect(Termination.guards.Completed(startup.outcome.termination)).toBe(
+          true,
+        )
+        expect(
+          startup.scripted.log.filter((entry) => entry.startsWith("open:")),
+        ).toEqual(["open:1", "open:2"])
+        expect(startup.scripted.log).not.toContain("dispose:1")
+      }),
+  )
 
   it.effect("uses corrective turns on the same clean session", () =>
     Effect.gen(function* () {
@@ -347,32 +322,6 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         correctiveTurns: 2,
       })
       expect(scripted.log.filter((entry) => entry.startsWith("prompt:"))).toHaveLength(3)
-    }))
-
-  it.effect("never retries or corrects a context-limit ending", () =>
-    Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 200,
-                    kind: "message_end",
-                    stopReason: "length",
-                  },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(Termination.guards.ContextLimit(outcome.termination)).toBe(true)
-      expect(scripted.log.filter((entry) => entry.startsWith("open:"))).toHaveLength(1)
-      expect(scripted.log.filter((entry) => entry.startsWith("prompt:"))).toHaveLength(1)
     }))
 
   it.effect("keeps output and usage beside provider failure", () =>
@@ -497,30 +446,40 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       expect(outcome.diagnostics).toContain("explicit cancellation requested")
     }))
 
-  it.effect("chooses the newest salvage candidate that strictly decodes", () =>
-    Effect.gen(function* () {
-      const { outcome } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  { afterMillis: 150, kind: "emit", args: GOOD_EMIT, valid: false },
-                  { afterMillis: 175, kind: "emit", args: OTHER_EMIT, valid: false },
-                  { afterMillis: 200, kind: "emit", args: { findings: [{ nope: true }] }, valid: false },
-                  { afterMillis: 250, kind: "message_end", stopReason: "length" },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(Termination.guards.ContextLimit(outcome.termination)).toBe(true)
-      expect(outcome.output).toEqual(OTHER_EMIT)
-      expect(outcome.diagnostics.join(" ")).toContain("pre-validation")
-    }))
+  it.effect(
+    "ends a context limit at once, on the newest salvage candidate that strictly decodes",
+    () =>
+      Effect.gen(function* () {
+        const { outcome, scripted } = yield* run({
+          sessions: [
+            {
+              prompts: [
+                {
+                  events: [
+                    { afterMillis: 100, kind: "message_start" },
+                    { afterMillis: 150, kind: "emit", args: GOOD_EMIT, valid: false },
+                    { afterMillis: 175, kind: "emit", args: OTHER_EMIT, valid: false },
+                    { afterMillis: 200, kind: "emit", args: { findings: [{ nope: true }] }, valid: false },
+                    { afterMillis: 250, kind: "message_end", stopReason: "length" },
+                  ],
+                  settles: "after-events",
+                },
+              ],
+            },
+          ],
+        })
+        expect(Termination.guards.ContextLimit(outcome.termination)).toBe(true)
+        expect(outcome.output).toEqual(OTHER_EMIT)
+        expect(outcome.diagnostics.join(" ")).toContain("pre-validation")
+        // A context limit is never retried in a fresh session or corrected.
+        expect(
+          scripted.log.filter((entry) => entry.startsWith("open:")),
+        ).toHaveLength(1)
+        expect(
+          scripted.log.filter((entry) => entry.startsWith("prompt:")),
+        ).toHaveLength(1)
+      }),
+  )
 
   it.effect("validated output wins and duplicate calls retain the first", () =>
     Effect.gen(function* () {
@@ -600,7 +559,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       expect(failure.reason).toContain("accounting contract")
     }))
 
-  it.effect("classifies prompt rejection from causal activity", () =>
+  it.effect("classifies prompt rejection from causal activity and evidence", () =>
     Effect.gen(function* () {
       const before = yield* runFailure({
         sessions: [
@@ -627,36 +586,30 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         ],
       })
       expect(after.failure).toBeInstanceOf(AdapterContractViolation)
+
+      // Recorded violation evidence outranks the rejection itself.
+      const evidence = yield* runFailure({
+        sessions: [
+          {
+            prompts: [
+              {
+                events: [
+                  {
+                    afterMillis: 100,
+                    kind: "violation",
+                    reason: "message_start did not decode",
+                  },
+                ],
+                settles: "after-events",
+                reject: "prompt rejected",
+              },
+            ],
+          },
+        ],
+      })
+      expect(evidence.failure).toBeInstanceOf(AdapterContractViolation)
+      expect(evidence.failure.reason).toContain("message_start did not decode")
     }))
-
-  it.effect(
-    "preserves adapter-contract evidence when the prompt also rejects",
-    () =>
-      Effect.gen(function* () {
-        const { failure } = yield* runFailure({
-          sessions: [
-            {
-              prompts: [
-                {
-                  events: [
-                    {
-                      afterMillis: 100,
-                      kind: "violation",
-                      reason: "message_start did not decode",
-                    },
-                  ],
-                  settles: "after-events",
-                  reject: "prompt rejected",
-                },
-              ],
-            },
-          ],
-        })
-
-        expect(failure).toBeInstanceOf(AdapterContractViolation)
-        expect(failure.reason).toContain("message_start did not decode")
-      }),
-  )
 
   it.effect("treats uncaused aborted and missing terminal evidence as drift", () =>
     Effect.gen(function* () {
