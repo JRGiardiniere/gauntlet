@@ -15,7 +15,7 @@
     "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
-    "test": "vitest run && sh scripts/install.test.sh",
+    "test": "bun --bun vitest run src/ && vitest run scripts/ && sh scripts/install.test.sh",
     "test:upgrade-compiled": "bun run bundle && sh scripts/upgrade-compiled.test.sh dist/gauntlet",
     "typecheck": "tsc --noEmit"
   },

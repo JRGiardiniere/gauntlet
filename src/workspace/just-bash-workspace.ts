@@ -279,6 +279,13 @@ export const makeReviewWorkspace = async (
     // No env is passed: the interpreter inherits nothing from process.env
     // and synthesizes the same minimal environment on every machine.
     executionLimits: WORKSPACE_EXECUTION_LIMITS,
+    // just-bash's defense-in-depth layer monkey-patches Node module internals
+    // (Module._resolveFilename) on first exec and throws when a patch fails.
+    // Bun 1.4 has no such internal, so with the library default every bash
+    // call in every review failed from the Bun migration until this was
+    // measured (2026-09-10). The library documents the layer as secondary;
+    // the overlay filesystem and the confined command set are the sandbox.
+    defenseInDepth: false,
   })
   return {
     root: REVIEW_WORKSPACE_ROOT,
