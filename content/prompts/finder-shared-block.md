@@ -44,5 +44,3 @@ convention docs. Reading those is real work that cannot be pre-supplied, so:
   out of scope, but a pre-existing bug in a function this diff modifies is in
   scope — the change re-exposes it.
 - Do not report a finding you cannot locate in a file.
-
-## Your lens

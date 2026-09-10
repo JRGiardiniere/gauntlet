@@ -168,6 +168,13 @@ const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
     .filter(({ invocationId }) => invocationId.includes(suffix))
     .map(({ text }) => text)
 
+// The finder shared block rides in the system prompt; the user message is
+// only the lens tail.
+const systemPromptsFor = (scripted: Scripted, suffix: string): Array<string> =>
+  scripted.prompts
+    .filter(({ invocationId }) => invocationId.includes(suffix))
+    .map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt ?? "")
+
 const inspectionsFor = (scripted: Scripted, suffix: string) =>
   scripted.inspections.filter(
     ({ invocationId }) => invocationId.includes(suffix),
@@ -437,7 +444,12 @@ describe("gauntlet review", () => {
         expect(pwd?.text).not.toContain(snapshot)
       }
 
-      for (const suffix of ["-finders", "-verification", "-judgment"] as const) {
+      // Finders carry the repo root in the system prompt; the later stages
+      // carry it in the user prompt.
+      const [finderSystemPrompt = ""] = systemPromptsFor(run.scripted, "-finders")
+      expect(finderSystemPrompt).toContain(`repo=${REVIEW_WORKSPACE_ROOT}`)
+      expect(finderSystemPrompt).not.toContain(snapshot)
+      for (const suffix of ["-verification", "-judgment"] as const) {
         const [prompt = ""] = promptTextsFor(run.scripted, suffix)
         expect(prompt).toContain(`repo=${REVIEW_WORKSPACE_ROOT}`)
         expect(prompt).not.toContain(snapshot)
@@ -968,23 +980,26 @@ describe("gauntlet review", () => {
       )
       expect(yield* run.effect).toBe(0)
 
-      const [standardPrompt = ""] = promptTextsFor(run.scripted, "-finders-1")
-      expect(standardPrompt).not.toContain(needle)
-      expect(standardPrompt).not.toContain("Review Specification")
+      const [standardSystemPrompt = ""] = systemPromptsFor(run.scripted, "-finders-1")
+      expect(standardSystemPrompt).not.toContain(needle)
+      expect(standardSystemPrompt).not.toContain("Review Specification")
       const [poolPrompt = ""] = promptTextsFor(run.scripted, "-pool")
       expect(poolPrompt).not.toContain(needle)
       expect(poolPrompt).not.toContain("Review Specification")
 
-      // Shared context first, specification second, assignment last.
-      const [interpretivePrompt = ""] = promptTextsFor(
+      // Shared context then specification in the system prompt; the
+      // assignment alone in the user message.
+      const [interpretiveSystemPrompt = ""] = systemPromptsFor(
         run.scripted,
         "-finders-2",
       )
-      expect(interpretivePrompt).toMatch(
+      expect(interpretiveSystemPrompt).toMatch(
         new RegExp(
-          `shared end\\n\\n## Review Specification\\n\\n[\\s\\S]*### Caller Addendum \\(caller-provided: [\\s\\S]*${needle}[\\s\\S]*\\n\\nfixture interpretive tail$`,
+          `shared end\\n\\n## Review Specification\\n\\n[\\s\\S]*### Caller Addendum \\(caller-provided: [\\s\\S]*${needle}[\\s\\S]*$`,
         ),
       )
+      const [interpretivePrompt = ""] = promptTextsFor(run.scripted, "-finders-2")
+      expect(interpretivePrompt).toBe("## Your lens\n\nfixture interpretive tail")
       const [verifierPrompt = ""] = promptTextsFor(run.scripted, "-verification")
       const [judgmentPrompt = ""] = promptTextsFor(run.scripted, "-judgment")
       expect(verifierPrompt.indexOf(needle)).toBeGreaterThan(

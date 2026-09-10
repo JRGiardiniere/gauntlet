@@ -12,9 +12,9 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
 ```
 
 1. **Finders** — one AgentInvocation per runnable selected lens, fanned out in
-   parallel over the same frozen diff. Prompt = finder system prompt + shared
-   block + ReviewSpecification (Interpretive Finders only, when the plan froze
-   one) + lens tail (see the cache invariant below). Specific Finders never
+   parallel over the same frozen diff. System prompt = finder system prompt +
+   shared block + ReviewSpecification (Interpretive Finders only, when the plan
+   froze one); user message = lens tail (see the cache invariant below). Specific Finders never
    receive specification material. Each emits Candidates via `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
@@ -118,7 +118,10 @@ Provider prefix caching only engages when the prompt is byte-identical from
 the first token to the point of divergence. So: shared block first, lens tail
 last, always — nothing lens-specific (no label, no index, no run id, no
 timestamp) may appear before the tail, and every finder in a fan-out carries a
-byte-identical tool set. An Interpretive Finder's ReviewSpecification section
+byte-identical tool set. The shared block is part of the system prompt, not
+the first user message: some providers (OpenAI Codex, measured 2026-09-10)
+share a cached prefix across requests only for the system/instructions
+portion and reuse a user-message prefix only within one conversation. An Interpretive Finder's ReviewSpecification section
 sits between the shared block and the tail: it is identical for every
 interpretive lens in the run, so it extends the shared prefix rather than
 breaking it (interpretive finders simply share a longer prefix than specific
@@ -141,7 +144,8 @@ continues concurrently. `PrefixNotObserved` skips only the delay.
 
 One provider-neutral cache-group identifier names the partition; an adapter may
 map it to a native key. Every Finder receives a complete prompt whose system
-prompt, tools, and shared user prefix are byte-identical up to the Lens tail.
+prompt (finder system prompt plus shared block) and tools are byte-identical;
+only the user message, the Lens tail, differs.
 A missing or failed cache changes cost only: all Finders retain the ordinary
 invocation retry, termination, output, and coverage behavior.
 If the adapter cannot decode enough evidence to construct an honest typed
