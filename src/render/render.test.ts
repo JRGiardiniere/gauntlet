@@ -164,6 +164,7 @@ const accounting: RunAccounting = {
   invocationCount: 7,
   wallTimeSeconds: 42,
   finderCacheHealth: undefined,
+  finderToolHealth: undefined,
 }
 
 const lowCacheAccounting: RunAccounting = {
@@ -173,6 +174,16 @@ const lowCacheAccounting: RunAccounting = {
     eligibleFollowerCount: 2,
     healthyFollowerCount: 0,
   },
+}
+
+const quietToolAccounting: RunAccounting = {
+  ...accounting,
+  finderToolHealth: { calls: 30, errored: 2 },
+}
+
+const deadToolAccounting: RunAccounting = {
+  ...accounting,
+  finderToolHealth: { calls: 24, errored: 24 },
 }
 
 const paths: RunPaths = {
@@ -293,6 +304,14 @@ describe("dossier markdown rendering", () => {
     )
   })
 
+  it("records finder tool call counts in Run notes whenever calls were made", () => {
+    const withToolNote = renderDossierMarkdown(plan, dossier, quietToolAccounting)
+    expect(withToolNote).toContain("## Run notes")
+    expect(withToolNote).toContain(
+      "Finder tools: 2/30 finder tool calls errored.",
+    )
+  })
+
   it("renders comment-budget omission in the header", () => {
     const withOmission = ReviewPlan.make({
       runId: plan.runId,
@@ -399,5 +418,16 @@ describe("digest rendering", () => {
     expect(cacheLines).toHaveLength(1)
     expect(cacheLines[0]?.length).toBeLessThanOrEqual(200)
     expect(cacheLines[0]).toContain("10% reuse")
+  })
+
+  it("adds a tool-health line only for an error cascade", () => {
+    expect(digest).not.toContain("tool health:")
+    expect(renderDigest(plan, dossier, quietToolAccounting, paths)).not.toContain(
+      "tool health:",
+    )
+    const cascade = renderDigest(plan, dossier, deadToolAccounting, paths)
+    expect(cascade.split("\n")[1]).toBe(
+      "tool health: 24/24 finder tool calls errored",
+    )
   })
 })

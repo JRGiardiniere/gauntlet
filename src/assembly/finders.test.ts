@@ -31,6 +31,7 @@ describe("enforceCandidateCap", () => {
       termination: Termination.cases.Completed.make({}),
       output: { findings },
       usage: emptyUsage,
+      toolCalls: { total: 0, errored: 0 },
       durationMillis: 1,
       diagnostics: ["prior diagnostic"],
     })
@@ -64,6 +65,7 @@ describe("finder assembly", () => {
             ],
           },
           usage: emptyUsage,
+          toolCalls: { total: 0, errored: 0 },
           durationMillis: 1,
           diagnostics: [],
         },
@@ -97,6 +99,7 @@ describe("finder assembly", () => {
         outcome: {
           termination: Termination.cases.FirstResponseTimeout.make({}),
           usage: emptyUsage,
+      toolCalls: { total: 0, errored: 0 },
           durationMillis: 120_000,
           diagnostics: [
             "attempt 1 completed",

@@ -11,6 +11,7 @@ import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import {
   type AgentOutcome,
+  type AgentToolCalls,
   type AgentUsage,
   Termination,
   type Termination as TerminationType,
@@ -79,6 +80,7 @@ interface CaptureCommon {
   readonly usageSweepError: string | undefined
   readonly violations: ReadonlyArray<string>
   readonly diagnostics: ReadonlyArray<string>
+  readonly toolCalls: AgentToolCalls
 }
 
 type CaptureState = Data.TaggedEnum<{
@@ -179,9 +181,16 @@ const reduceCapture = (
             event.isError
               ? `tool ${event.toolName} failed${event.detail === undefined ? "" : `: ${event.detail}`}`
               : undefined
+          const toolCalls = event.toolName === fact.emitToolName
+            ? common.toolCalls
+            : {
+              total: common.toolCalls.total + 1,
+              errored: common.toolCalls.errored + (event.isError ? 1 : 0),
+            }
           return withCommon(state, {
             ...common,
             acceptedActivity: true,
+            toolCalls,
             diagnostics:
               diagnostic === undefined
                 ? common.diagnostics
@@ -240,6 +249,7 @@ const makeCaptureAccumulator = (): CaptureAccumulator => {
     usageSweepError: undefined,
     violations: [],
     diagnostics: [],
+    toolCalls: { total: 0, errored: 0 },
   })
   return {
     dispatch: (fact) => {
@@ -726,9 +736,17 @@ const finalizeOutcome = <O>(
     ]
     const usage = yield* usageFrom(states)
     const output = yield* outputFrom(input.contract, states, diagnostics)
+    const toolCalls = states.reduce<AgentToolCalls>(
+      (sum, state) => ({
+        total: sum.total + commonOf(state).toolCalls.total,
+        errored: sum.errored + commonOf(state).toolCalls.errored,
+      }),
+      { total: 0, errored: 0 },
+    )
     const outcome = {
       termination,
       usage,
+      toolCalls,
       durationMillis,
       diagnostics,
     }

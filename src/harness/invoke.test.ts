@@ -724,4 +724,38 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         cost: { total: 0.05 },
       })
     }))
+
+  it.effect("counts inspection tool calls and their errors, never the emit", () =>
+    Effect.gen(function* () {
+      const { outcome } = yield* run({
+        sessions: [
+          {
+            prompts: [
+              {
+                events: [
+                  { afterMillis: 100, kind: "message_start" },
+                  {
+                    afterMillis: 150,
+                    kind: "tool_error",
+                    toolName: "bash",
+                    detail: "critical patches failed",
+                  },
+                  {
+                    afterMillis: 175,
+                    kind: "tool_error",
+                    toolName: "read",
+                    detail: "no such file",
+                  },
+                  { afterMillis: 200, kind: "emit", args: GOOD_EMIT, valid: true },
+                  { afterMillis: 300, kind: "message_end", stopReason: "toolUse" },
+                ],
+                settles: "after-events",
+              },
+            ],
+          },
+        ],
+      })
+      expect(outcome.toolCalls).toEqual({ total: 2, errored: 2 })
+      expect(outcome.diagnostics.join(" ")).toContain("tool read failed: no such file")
+    }))
 })

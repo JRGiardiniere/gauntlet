@@ -13,6 +13,7 @@ import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
 import { executeBugClaimPath } from "./bug-claim-path.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
+import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
 import { counted, coverageGapLine, wallSeconds } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
@@ -98,6 +99,7 @@ export const executeReviewPlan = Effect.fn(
             judgmentPath.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
           finderCacheHealth: measureLowFinderCacheHealth(plan, results),
+          finderToolHealth: measureFinderToolHealth(results),
         }
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
