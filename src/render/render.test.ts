@@ -178,22 +178,12 @@ const lowCacheAccounting: RunAccounting = {
 
 const quietToolAccounting: RunAccounting = {
   ...accounting,
-  finderToolHealth: {
-    calls: 30,
-    errored: 2,
-    finderCount: 12,
-    deadFinderCount: 1,
-  },
+  finderToolHealth: { calls: 30, errored: 2 },
 }
 
 const deadToolAccounting: RunAccounting = {
   ...accounting,
-  finderToolHealth: {
-    calls: 24,
-    errored: 24,
-    finderCount: 12,
-    deadFinderCount: 12,
-  },
+  finderToolHealth: { calls: 24, errored: 24 },
 }
 
 const paths: RunPaths = {
@@ -318,7 +308,7 @@ describe("dossier markdown rendering", () => {
     const withToolNote = renderDossierMarkdown(plan, dossier, quietToolAccounting)
     expect(withToolNote).toContain("## Run notes")
     expect(withToolNote).toContain(
-      "Finder tools: 2/30 finder tool calls errored; 1/12 finders had every call error.",
+      "Finder tools: 2/30 finder tool calls errored.",
     )
   })
 
@@ -437,7 +427,7 @@ describe("digest rendering", () => {
     )
     const cascade = renderDigest(plan, dossier, deadToolAccounting, paths)
     expect(cascade.split("\n")[1]).toBe(
-      "tool health: 24/24 finder tool calls errored; 12/12 finders had every call error",
+      "tool health: 24/24 finder tool calls errored",
     )
   })
 })

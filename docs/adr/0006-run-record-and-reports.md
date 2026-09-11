@@ -70,11 +70,9 @@ semantics, coverage, a warning on the ReviewTarget, or another persisted
 artifact.
 
 Finder tool health is the same kind of view over each outcome's inspection
-tool call counts (emit calls excluded). The Dossier always records the counts
-when any calls were made; the digest carries the line only for a cascade (at
-least half of four or more calls errored), because a dead tool degrades every
-finding without changing any finding's shape, while one or two errored calls
-are ordinary model behaviour nobody should chase from stdout.
+tool call counts (emit excluded). The Dossier records the counts whenever any
+were made; the digest carries the line only for a cascade (half or more of
+four-plus calls errored), since a dead tool degrades every finding silently.
 
 ## The human-readable Dossier
 

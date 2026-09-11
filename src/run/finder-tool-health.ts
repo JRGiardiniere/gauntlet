@@ -6,27 +6,19 @@ import type { FinderResult } from "../assembly/finders.ts"
 export interface FinderToolHealth {
   readonly calls: number
   readonly errored: number
-  readonly finderCount: number
-  // Finders that made at least one call and had every call error.
-  readonly deadFinderCount: number
 }
 
 export const measureFinderToolHealth = (
   results: ReadonlyArray<FinderResult>,
 ): FinderToolHealth | undefined => {
-  const active = results.filter(({ outcome }) => outcome.toolCalls.total > 0)
-  if (active.length === 0) return undefined
-  return {
-    calls: active.reduce((sum, { outcome }) => sum + outcome.toolCalls.total, 0),
-    errored: active.reduce(
-      (sum, { outcome }) => sum + outcome.toolCalls.errored,
-      0,
-    ),
-    finderCount: active.length,
-    deadFinderCount: active.filter(
-      ({ outcome }) => outcome.toolCalls.errored === outcome.toolCalls.total,
-    ).length,
-  }
+  const health = results.reduce<FinderToolHealth>(
+    (sum, { outcome }) => ({
+      calls: sum.calls + outcome.toolCalls.total,
+      errored: sum.errored + outcome.toolCalls.errored,
+    }),
+    { calls: 0, errored: 0 },
+  )
+  return health.calls === 0 ? undefined : health
 }
 
 // The digest carries the tool line only for a cascade: at least half of a
@@ -36,4 +28,4 @@ export const isFinderToolCascade = (health: FinderToolHealth): boolean =>
   health.calls >= 4 && health.errored / health.calls >= 0.5
 
 export const describeFinderToolHealth = (health: FinderToolHealth): string =>
-  `${String(health.errored)}/${String(health.calls)} finder tool calls errored; ${String(health.deadFinderCount)}/${String(health.finderCount)} finders had every call error`
+  `${String(health.errored)}/${String(health.calls)} finder tool calls errored`
