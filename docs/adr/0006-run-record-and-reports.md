@@ -69,6 +69,13 @@ first raw usage row. Low reuse is a soft report/digest note, never Dossier
 semantics, coverage, a warning on the ReviewTarget, or another persisted
 artifact.
 
+Finder tool health is the same kind of view over each outcome's inspection
+tool call counts (emit calls excluded). The Dossier always records the counts
+when any calls were made; the digest carries the line only for a cascade (at
+least half of four or more calls errored), because a dead tool degrades every
+finding without changing any finding's shape, while one or two errored calls
+are ordinary model behaviour nobody should chase from stdout.
+
 ## The human-readable Dossier
 
 `dossier.md` is rendered deterministically from the machine-readable Dossier,
@@ -80,8 +87,9 @@ objects.
 - Header: target identity, recipe + seats, runnable lens list with seats,
   the one cost/duration line, coverage gaps, and one skipped line when the
   selected `spec-conformance` Lens had no ReviewSpecification.
-- Optional Run notes: low run-wide Finder cache reuse derived from completed
-  Finder outcomes, omitted when the soft-warning threshold is not met.
+- Optional Run notes: low run-wide Finder cache reuse (omitted when the
+  soft-warning threshold is not met) and Finder tool call counts (omitted only
+  when no Finder called a tool), both derived from completed Finder outcomes.
 - Findings: one P1-to-P3 work queue of Confirmed BugClaims and kept
   Observations, tagged `[confirmed]` / `[judgment]`, with Confirmed first inside
   a priority.

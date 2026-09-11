@@ -2,6 +2,10 @@ import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import { describeFinderCacheHealth } from "../run/finder-cache-health.ts"
+import {
+  describeFinderToolHealth,
+  isFinderToolCascade,
+} from "../run/finder-tool-health.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { viewDossier } from "./dossier-view.ts"
 import type { RunPaths } from "../run/run-record.ts"
@@ -71,9 +75,16 @@ export const renderDigest = (
     : boundedLine(
       `cache health: ${describeFinderCacheHealth(accounting.finderCacheHealth)}`,
     )
+  const toolHealth = accounting.finderToolHealth !== undefined &&
+      isFinderToolCascade(accounting.finderToolHealth)
+    ? boundedLine(
+      `tool health: ${describeFinderToolHealth(accounting.finderToolHealth)}`,
+    )
+    : undefined
   return [
     tally,
     ...(cacheHealth === undefined ? [] : [cacheHealth]),
+    ...(toolHealth === undefined ? [] : [toolHealth]),
     ...surviving,
     "",
     `dossier.md: ${paths.dossierMarkdown}`,

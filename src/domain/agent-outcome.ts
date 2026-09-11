@@ -33,6 +33,18 @@ export const AgentUsage = Schema.Struct({
 })
 export interface AgentUsage extends Schema.Schema.Type<typeof AgentUsage> {}
 
+// Inspection tool calls the agent made (emit calls excluded — those are the
+// output contract, judged elsewhere). `errored` counts calls whose result
+// went back to the model marked isError; a dead tool shows as errored ===
+// total, which is invisible in findings alone (measured 2026-09-10: three
+// weeks of every finder bash call erroring under Bun).
+export const AgentToolCalls = Schema.Struct({
+  total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  errored: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+})
+export interface AgentToolCalls
+  extends Schema.Schema.Type<typeof AgentToolCalls> {}
+
 // Everything one AgentInvocation yielded. The schema is a factory because
 // the same OutputContract schema owns the stage output here and in the emit
 // tool and Finder-stage checkpoint decoder.
@@ -40,6 +52,7 @@ export interface AgentOutcome<O> {
   readonly termination: Termination
   readonly output?: O
   readonly usage: AgentUsage
+  readonly toolCalls: AgentToolCalls
   readonly durationMillis: number
   readonly diagnostics: ReadonlyArray<string>
 }
@@ -49,6 +62,7 @@ export const AgentOutcome = <S extends Schema.Top>(output: S) =>
     termination: Termination,
     output: Schema.optionalKey(output),
     usage: AgentUsage,
+    toolCalls: AgentToolCalls,
     durationMillis: usageNumber,
     diagnostics: Schema.Array(Schema.String),
   })
