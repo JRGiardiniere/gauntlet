@@ -62,6 +62,10 @@ export const FindingsOutput = Schema.Struct({
           "Concrete inputs or state that produce the wrong behaviour. Required for any claim a reviewer could refute; omit only for judgment calls with no refutable fact.",
         ),
       ),
+      source_references: Schema.optionalKey(described(
+        Schema.Array(Schema.NonEmptyString),
+        "Repository-relative file paths needed to evaluate this candidate, including callers, helpers, guards, or configuration you actually read. Include evidence that limits or could refute the claim. Do not copy source or invent references. No URLs or absolute paths. Omit if no source file is available.",
+      )),
     }),
   ),
 })
