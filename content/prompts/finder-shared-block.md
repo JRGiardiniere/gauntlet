@@ -44,3 +44,14 @@ convention docs. Reading those is real work that cannot be pre-supplied, so:
   out of scope, but a pre-existing bug in a function this diff modifies is in
   scope — the change re-exposes it.
 - Do not report a finding you cannot locate in a file.
+
+## Source references
+
+Include `source_references` as a list of repository-relative file paths you
+actually read that someone needs to evaluate the candidate. Include its primary
+file and relevant callers, helpers, guards, or configuration, even in unchanged
+files. Include code that limits or could refute the claim as well as supporting
+code. Keep the list focused on the claimed scenario. Do not invent unread
+dependencies, copy source into the finding, or cite scratch files, URLs, or
+absolute paths. The application retrieves whole files, preserving definitions
+and their names. These pointers do not guarantee that the evidence is complete.

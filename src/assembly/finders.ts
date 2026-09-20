@@ -67,9 +67,12 @@ export const routeFinderResults = (
         file: finding.file,
         summary: finding.summary,
       }
-      const core = finding.line === undefined
+      const located = finding.line === undefined
         ? base
         : { ...base, line: finding.line }
+      const core = finding.source_references === undefined
+        ? located
+        : { ...located, sourceReferences: finding.source_references }
       if (finding.failure_scenario === undefined) {
         observations.push(Candidate.cases.Observation.make(core))
       } else {

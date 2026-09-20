@@ -60,6 +60,7 @@ describe("finder assembly", () => {
                 file: "src/a.ts",
                 summary: "a refutable defect",
                 failure_scenario: "empty input produces the wrong value",
+                source_references: ["src/helper.ts"],
               },
               { file: "src/b.ts", summary: "a judgment call" },
             ],
@@ -80,6 +81,7 @@ describe("finder assembly", () => {
         file: "src/a.ts",
         summary: "a refutable defect",
         failureScenario: "empty input produces the wrong value",
+        sourceReferences: ["src/helper.ts"],
       }],
       observations: [{
         _tag: "Observation",

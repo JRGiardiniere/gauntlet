@@ -25,6 +25,12 @@ array). Do not describe findings in prose instead of calling this tool."
 | `line` | integer | no | 1-indexed line in the new version of the file. Omit only when the finding is about the change as a whole rather than a location. |
 | `summary` | string | yes | One sentence stating the defect or issue. |
 | `failure_scenario` | string | no | Concrete inputs or state that produce the wrong behaviour. Required for any claim a reviewer could refute; omit only for judgment calls with no refutable fact. |
+| `source_references` | string[] | no | Repository-relative file paths needed to evaluate this candidate, including callers, helpers, guards, or configuration you actually read. Include evidence that limits or could refute the claim. Do not copy source or invent references. No URLs or absolute paths. Omit if no source file is available. |
+
+Candidates preserve these paths as `sourceReferences`; older outputs without
+references remain valid. The collector reads whole files from the review snapshot.
+References are retrieval hints, not independently verified evidence or a
+completeness guarantee.
 
 `failure_scenario` optionality is the routing discriminator (ADR 0004):
 present → BugClaim, absent → Observation. It stays optional by design.
