@@ -94,9 +94,11 @@ describe("source context", () => {
     Effect.gen(function* () {
       const { fs, path, snapshot } = yield* fixture
       yield* fs.writeFileString(path.join(snapshot, "binary"), "abc\0def")
+      yield* fs.writeFile(path.join(snapshot, "invalid-utf8"), new Uint8Array([0xff, 0xfe, 0xfd]))
+      yield* fs.writeFileString(path.join(snapshot, "unicode.ts"), 'const text = "café �"\n')
       yield* fs.writeFileString(path.join(snapshot, "huge.ts"), "a".repeat(1024 * 1024 + 1))
-      const result = yield* assembleSourceContext(snapshot, [claim("a", ["binary", "huge.ts"])], 2_000_000)
-      expect(result.files).toEqual([])
-      expect(result.omissions.map((item) => item.file)).toEqual(["binary", "huge.ts"])
+      const result = yield* assembleSourceContext(snapshot, [claim("a", ["binary", "invalid-utf8", "huge.ts", "unicode.ts"])], 2_000_000)
+      expect(result.files).toEqual([{ file: "unicode.ts", text: 'const text = "café �"\n' }])
+      expect(result.omissions.map((item) => item.file)).toEqual(["binary", "invalid-utf8", "huge.ts"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

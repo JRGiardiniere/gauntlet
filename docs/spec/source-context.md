@@ -38,24 +38,18 @@ read the current checkout. Files are deduplicated by resolved repository path.
 Candidates retain their references, so the output needs no reverse attribution.
 
 The caller supplies the source character budget, reserving room separately for
-claims, rubric, and other input. Files are admitted in Candidate/reference order;
+Candidates, rubric, and other input. Files are admitted in Candidate/reference order;
 files that do not fit are omitted whole and later smaller files may still fit.
 There is no truncation. This is a character budget, not a tokenizer or a guarantee
 that the eventual full Jev request fits.
 
 Paths must remain within repository source after symlink resolution. Git metadata,
-non-regular files, binary content, and files over the 1 MiB read limit are excluded.
+non-regular files, invalid UTF-8, NUL-containing content, and files over the 1 MiB
+read limit are excluded.
 Missing files and budget exclusions produce omissions naming the file and the
 first affected Candidate. Candidates without references have a visible omission.
 Other filesystem errors fail the operation instead of masquerading as missing
 source. The caller should save the complete result alongside the eventual request.
 
-The focused tests exercise complete snapshot source, shared unchanged dependencies,
-reference persistence, missing context, path and symlink escapes, aggregate budget
-exhaustion, duplicate budget accounting, and binary/oversized exclusions. They do
-not assert internal loop structure or incidental formatting.
-
-Pool behavior, verifier prompts, Jev invocation, orchestration, and delivery remain
-unchanged. The collector is not connected to the live run. No live Finder or Jev
-calls were made for this implementation. Whether Finders cite enough context, and
-how often whole files fit, remain questions for the experiment.
+The collector follows explicit citations. It does not discover dependencies or
+establish that the selected files contain all relevant evidence.

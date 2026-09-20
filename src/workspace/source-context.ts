@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -81,11 +82,12 @@ export const assembleSourceContext = Effect.fn(
         omit("source is not a regular file within the 1 MiB read limit")
         continue
       }
-      const text = yield* fs.readFileString(resolved.success)
-      if (text.includes("\0")) {
-        omit("source contains binary data")
+      const bytes = yield* fs.readFile(resolved.success)
+      if (!isUtf8(bytes) || bytes.includes(0)) {
+        omit("source is not UTF-8 text without NUL bytes")
         continue
       }
+      const text = new TextDecoder().decode(bytes)
       if (characters + text.length > maxCharacters) {
         omit("whole file exceeds the remaining source character budget")
         continue
