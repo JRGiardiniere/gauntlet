@@ -1,15 +1,18 @@
-// Self-upgrade: replace this executable with the latest release binary and
-// nothing else. Settings, recipes, runs (~/.gauntlet) and project lenses
-// (.gauntlet/lenses) survive by construction — the shipped lens catalog is
-// embedded in the binary, so swapping the file swaps the catalog atomically,
-// and a resumed run replays its frozen plan.json regardless (ADR 0004).
+// Self-upgrade: replace this executable with the latest release binary, then
+// move recipe seats to the newest Luna/Sol (#121). Settings, runs
+// (~/.gauntlet) and project lenses (.gauntlet/lenses) survive by construction
+// — the shipped lens catalog is embedded in the binary, so swapping the file
+// swaps the catalog atomically, and a resumed run replays its frozen
+// plan.json regardless (ADR 0004).
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Command from "effect/unstable/cli/Command"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClient from "effect/unstable/http/HttpClient"
+import { renderSeatChanges, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
+import { refreshedModelCatalog } from "../harness/pi-catalog.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
@@ -29,7 +32,30 @@ const releaseAsset = () =>
     ? `gauntlet-${process.platform}-${process.arch}`
     : undefined
 
-const executeUpgrade = Effect.fn("gauntlet.cli.execute_upgrade")(function* () {
+// Runs after the binary step in this (pre-upgrade) process. A seat upgrade
+// failure is reported and never fails the command: the binary step already
+// succeeded, and the next `gauntlet upgrade` retries the seats.
+const upgradeSeats = Effect.fn("gauntlet.cli.upgrade_seats")(function* () {
+  const catalog = yield* refreshedModelCatalog()
+  const changes = yield* upgradeRecipeSeats(catalog)
+  const lines = renderSeatChanges(changes)
+  yield* Console.log(lines.length === 0 ? "recipe seats are current" : lines.join("\n"))
+}, (effect) =>
+  effect.pipe(
+    Effect.catchTags({
+      ModelCatalogRefreshError: (failure) =>
+        reportSeatFailure(`model catalog refresh failed: ${failure.reason}`),
+      RecipeCatalogError: (failure) =>
+        reportSeatFailure(`${failure.reason} (${failure.path})`),
+      ArtifactWriteError: (failure) =>
+        reportSeatFailure(`could not write ${failure.path}`),
+    }),
+  ))
+
+const reportSeatFailure = (reason: string) =>
+  Console.error(`gauntlet: could not upgrade recipe seats — ${reason}`)
+
+const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
   if (!isCompiledBinary) {
     return yield* new UpgradeError({
       reason:
@@ -98,12 +124,17 @@ const executeUpgrade = Effect.fn("gauntlet.cli.execute_upgrade")(function* () {
   yield* Console.log(`upgraded to v${latest} (was v${gauntletVersion})`)
 })
 
+const executeUpgrade = Effect.fn("gauntlet.cli.execute_upgrade")(function* () {
+  yield* upgradeBinary()
+  yield* upgradeSeats()
+})
+
 export const upgradeCommand = Command.make(
   "upgrade",
   {},
   () => executeUpgrade(),
 ).pipe(
   Command.withDescription(
-    "Replace this binary with the latest GitHub release. Settings, recipes, runs, and project lenses are never touched",
+    "Replace this binary with the latest GitHub release, then move recipe seats to the newest Luna/Sol. Settings, runs, and project lenses are never touched",
   ),
 )
