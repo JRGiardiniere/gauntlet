@@ -24,17 +24,16 @@ export const refreshedModelCatalog = Effect.fn("gauntlet.pi.refresh_catalog")(
     const result = yield* Effect.tryPromise({
       try: (signal) => runtime.refresh({ allowNetwork: true, force: true, signal }),
       catch: refreshError,
-    }).pipe(
-      Effect.timeoutOrElse({
-        duration: "15 seconds",
-        orElse: () =>
-          Effect.fail(new ModelCatalogRefreshError({ reason: "timed out" })),
-      }),
-    )
+    })
     if (result.aborted) {
       return yield* new ModelCatalogRefreshError({ reason: "refresh aborted" })
     }
     return (provider: string): ReadonlyArray<string> =>
       runtime.getModels(provider).map((model) => model.id)
   },
+  Effect.timeoutOrElse({
+    duration: "15 seconds",
+    orElse: () =>
+      Effect.fail(new ModelCatalogRefreshError({ reason: "timed out" })),
+  }),
 )

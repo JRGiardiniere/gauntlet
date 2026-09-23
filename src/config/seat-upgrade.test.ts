@@ -7,7 +7,7 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { Recipe } from "../domain/recipe.ts"
-import { newerSeat, renderSeatChanges, upgradeRecipeSeats } from "./seat-upgrade.ts"
+import { newerSeat, renderSeatUpgrade, upgradeRecipeSeats } from "./seat-upgrade.ts"
 
 const catalog = new Map<string, ReadonlyArray<string>>([
   ["acme", [
@@ -52,8 +52,10 @@ describe("upgradeRecipeSeats", () => {
       )
       yield* fs.writeFileString(path.join(recipes, "fast.json"), '{"default":"acme/gpt-5.6-luna:low"}\n')
       yield* fs.writeFileString(path.join(recipes, "slow.json"), untouched)
+      const invalid = '{"default":"acme/gpt-5.6-luna:high","typo":true}\n'
+      yield* fs.writeFileString(path.join(recipes, "broken.json"), invalid)
 
-      const changes = yield* upgradeRecipeSeats(providerModelIds).pipe(
+      const upgrade = yield* upgradeRecipeSeats(providerModelIds).pipe(
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))),
       )
 
@@ -65,9 +67,11 @@ describe("upgradeRecipeSeats", () => {
         default: "acme/gpt-6-luna:low",
       })
       expect(yield* fs.readFileString(path.join(recipes, "slow.json"))).toBe(untouched)
-      expect(renderSeatChanges(changes)).toEqual([
-        "recipes fast, quick: acme/gpt-5.6-luna → acme/gpt-6-luna",
-        "recipes quick: acme/gpt-6-sol → acme/gpt-10-sol",
+      expect(yield* fs.readFileString(path.join(recipes, "broken.json"))).toBe(invalid)
+      expect(renderSeatUpgrade(upgrade)).toEqual([
+        "recipes fast, quick → acme/gpt-6-luna (was acme/gpt-5.6-luna)",
+        "recipes quick → acme/gpt-10-sol (was acme/gpt-6-sol)",
+        "skipped invalid recipes broken — run `gauntlet config`",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

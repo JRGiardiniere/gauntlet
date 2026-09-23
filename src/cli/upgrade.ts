@@ -10,7 +10,7 @@ import * as Effect from "effect/Effect"
 import * as Command from "effect/unstable/cli/Command"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import * as HttpClient from "effect/unstable/http/HttpClient"
-import { renderSeatChanges, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
+import { renderSeatUpgrade, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
 import { refreshedModelCatalog } from "../harness/pi-catalog.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
@@ -37,9 +37,8 @@ const releaseAsset = () =>
 // succeeded, and the next `gauntlet upgrade` retries the seats.
 const upgradeSeats = Effect.fn("gauntlet.cli.upgrade_seats")(function* () {
   const catalog = yield* refreshedModelCatalog()
-  const changes = yield* upgradeRecipeSeats(catalog)
-  const lines = renderSeatChanges(changes)
-  yield* Console.log(lines.length === 0 ? "recipe seats are current" : lines.join("\n"))
+  const upgrade = yield* upgradeRecipeSeats(catalog)
+  yield* Console.log(renderSeatUpgrade(upgrade).join("\n"))
 }, (effect) =>
   effect.pipe(
     Effect.catchTags({

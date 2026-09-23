@@ -53,7 +53,7 @@ export const newerSeat = (
     : Option.some(`${provider}/${newest.id}${seat.slice(effortSeparator)}`)
 }
 
-export interface SeatChange {
+interface SeatChange {
   readonly recipe: RecipeName
   readonly from: string
   readonly to: string
@@ -71,13 +71,17 @@ const seatFields = [
 const seatModel = (seat: Seat): string => seat.slice(0, seat.lastIndexOf(":"))
 
 // Rewrites every valid recipe with a newer Luna/Sol seat in place and reports
-// each change as provider/model pairs. Invalid recipes are left for
-// `config list` to surface; they are never rewritten.
+// each change as provider/model pairs. Invalid recipes are never rewritten;
+// they are named as skipped so "current" never covers an unchecked file.
 export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
   function* (providerModelIds: (provider: string) => ReadonlyArray<string>) {
     const changes: Array<SeatChange> = []
+    const skipped: Array<string> = []
     for (const entry of yield* listRecipes()) {
-      if (entry._tag === "InvalidRecipe") continue
+      if (entry._tag === "InvalidRecipe") {
+        skipped.push(entry.name)
+        continue
+      }
       const upgradedSeats = seatFields.flatMap((field) => {
         const seat = entry.recipe[field]
         const next = seat === undefined ? Option.none() : newerSeat(seat, providerModelIds)
@@ -92,18 +96,27 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
         })
       }
     }
-    return changes
+    return { changes, skipped }
   },
 )
 
-// One line per upgraded model, naming every recipe that moved with it.
-export const renderSeatChanges = (
-  changes: ReadonlyArray<SeatChange>,
+// One line per destination model, naming every recipe that moved to it and
+// the models it replaced, plus one line for any invalid recipe left unchecked.
+export const renderSeatUpgrade = (
+  upgrade: { readonly changes: ReadonlyArray<SeatChange>; readonly skipped: ReadonlyArray<string> },
 ): ReadonlyArray<string> => {
-  const grouped = new Map<string, Set<string>>()
-  for (const change of changes) {
-    const key = `${change.from} → ${change.to}`
-    grouped.set(key, (grouped.get(key) ?? new Set()).add(change.recipe))
+  const grouped = new Map<string, { recipes: Set<string>; from: Set<string> }>()
+  for (const change of upgrade.changes) {
+    const group = grouped.get(change.to) ?? { recipes: new Set(), from: new Set() }
+    group.recipes.add(change.recipe)
+    group.from.add(change.from)
+    grouped.set(change.to, group)
   }
-  return [...grouped].map(([move, recipes]) => `recipes ${[...recipes].join(", ")}: ${move}`)
+  const lines = [...grouped].map(([to, group]) =>
+    `recipes ${[...group.recipes].join(", ")} → ${to} (was ${[...group.from].join(", ")})`
+  )
+  if (upgrade.skipped.length > 0) {
+    lines.push(`skipped invalid recipes ${upgrade.skipped.join(", ")} — run \`gauntlet config\``)
+  }
+  return lines.length === 0 ? ["recipe seats are current"] : lines
 }
