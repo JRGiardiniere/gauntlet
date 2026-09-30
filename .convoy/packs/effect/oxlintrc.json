@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "extends": ["../../../node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "rules": {
+    "effecttsgo/extends-native-error": "error",
+    "effecttsgo/outdated-api": "error",
+    "effecttsgo/unnecessary-fail-yieldable-error": "error",
+    "effecttsgo/global-date-in-effect": "error",
+    "effecttsgo/global-random-in-effect": "error",
+    "effecttsgo/async-function": "error",
+    "effecttsgo/new-promise": "error",
+    "effecttsgo/node-builtin-import": "error",
+    "effecttsgo/prefer-schema-over-json": "error",
+    "effecttsgo/prefer-typed-schema-decoder": "error"
+  }
+}

@@ -2,7 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
   "extends": [
     "./.convoy/packs/anti-slop/oxlintrc.json",
-    "./.convoy/packs/effect-house-rules/oxlintrc.json"
+    "./.convoy/packs/effect-house-rules/oxlintrc.json",
+    "./.convoy/packs/effect/oxlintrc.json"
   ],
   "plugins": ["typescript", "import", "oxc", "eslint", "unicorn", "node"],
   "categories": {
@@ -29,6 +30,17 @@
     ".convoy/packs/anti-slop/**"
   ],
   "rules": {
+    "effecttsgo/process-env": "error",
+    "effecttsgo/process-env-in-effect": "error",
+    "effecttsgo/strict-effect-provide": "off",
+    "effecttsgo/any-unknown-in-error-context": "off",
+    "typescript/consistent-return": "off",
+    "typescript/no-unsafe-type-assertion": "off",
+    "typescript/no-unnecessary-type-arguments": "off",
+    "typescript/no-useless-default-assignment": "off",
+    "typescript/no-generated-empty-object-type": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/no-duplicate-type-constituents": "off",
     "anti-slop/require-readable-spacing": "off",
     "anti-slop-effect/no-manual-tagged-construction": "off",
     "anti-slop-effect/no-manual-tag-comparison": "off",

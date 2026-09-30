@@ -15,6 +15,7 @@
     "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
+    "prepare": "effect-tsgo patch --no-typescript --oxlint",
     "test": "bun --bun vitest run src/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
     "test:upgrade-compiled": "bun run bundle && sh scripts/upgrade-compiled.test.sh dist/gauntlet",
     "typecheck": "tsc --noEmit"
@@ -28,12 +29,13 @@
     "typebox": "1.3.7"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.36.5",
+    "@effect/tsgo": "0.47.1",
     "@effect/vitest": "4.0.0-rc.112",
-    "@oxlint/plugins": "1.78.0",
+    "@oxlint/plugins": "1.86.0",
     "@types/node": "26.0.1",
     "madge": "^8.0.0",
-    "oxlint": "1.78.0",
+    "oxlint": "1.86.0",
+    "oxlint-tsgolint": "7.0.2003",
     "typescript": "7.0.2",
     "vitest": "^4.1.9"
   }
