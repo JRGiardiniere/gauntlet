@@ -37,6 +37,7 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
         oxlintFormat,
         "src",
         "scripts",
+        ".convoy/packs/effect-house-rules",
         ...extraLintTargets,
       ],
     },
@@ -97,7 +98,7 @@ const lintHouseStyle = Command.make(
     targets: Argument.string("targets").pipe(
       Argument.variadic(),
       Argument.withDescription(
-        "Extra paths to lint beyond the standing src and scripts targets",
+        "Extra paths to lint beyond the standing src, scripts and .convoy/packs/effect-house-rules targets",
       ),
     ),
   },

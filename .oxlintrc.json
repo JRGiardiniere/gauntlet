@@ -26,7 +26,7 @@
     "**/dist/**",
     "**/build/**",
     "**/*.mjs",
-    ".convoy/**"
+    ".convoy/packs/anti-slop/**"
   ],
   "rules": {
     "anti-slop/require-readable-spacing": "off",
@@ -123,6 +123,14 @@
       "files": ["**/vitest.setup.ts"],
       "rules": {
         "house/no-import-from-barrel-package": "off"
+      }
+    },
+    {
+      "files": [".convoy/packs/effect-house-rules/**"],
+      "rules": {
+        "anti-slop/no-runtime-typeof": ["error", {
+          "allowInTypeGuards": true
+        }]
       }
     }
   ]
