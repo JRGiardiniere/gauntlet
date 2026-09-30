@@ -10,7 +10,7 @@ export default defineConfig({
     include: [
       "src/**/*.test.ts",
       "scripts/**/*.test.ts",
-      "tools/oxlint/house/**/*.test.ts",
+      ".convoy/packs/**/*.test.ts",
     ],
     setupFiles: ["vitest.setup.ts"],
     // Worker threads share one process; no test calls chdir or mutates

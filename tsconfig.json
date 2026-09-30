@@ -16,7 +16,7 @@
     "bin/**/*.ts",
     "src/**/*.ts",
     "scripts/**/*.ts",
-    "tools/oxlint/house/**/*.ts",
+    ".convoy/packs/effect-house-rules/**/*.ts",
     "vitest.config.ts",
     "vitest.setup.ts"
   ]
