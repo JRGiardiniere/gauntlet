@@ -31,7 +31,7 @@ ruleTester.run("no-instanceof-tagged-error", rule, {
       filename: productionFile,
       errors: [{
         message:
-          /Effect\.catchTag, Effect\.catchTags, or a tag predicate.*docs\/effect-house-style\.md rule 7/,
+          /Effect\.catchTag, Effect\.catchTags, or a tag predicate.*See the effect skill/,
       }],
     },
   ],

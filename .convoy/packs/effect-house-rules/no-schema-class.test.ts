@@ -3,7 +3,7 @@ import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const messageFor = (name: string) =>
   new RegExp(
-    `Schema\\.${name} is banned by the Effect skill's SCHEMA\\.md.*no numbered house-style rule covers this.*plain Schema\\.Struct models and Data\\.TaggedError`,
+    `Schema\\.${name} is banned by the effect skill.*plain Schema\\.Struct models and Data\\.TaggedError`,
   )
 
 ruleTester.run("no-schema-class", rule, {

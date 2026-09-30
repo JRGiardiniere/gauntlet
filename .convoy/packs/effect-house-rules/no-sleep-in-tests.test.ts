@@ -23,7 +23,7 @@ ruleTester.run("no-sleep-in-tests", rule, {
       filename: testFile,
       errors: [{
         message:
-          /TestClock\.adjust.*it\.live.*house-style rule 18.*docs\/effect-house-style\.md/,
+          /TestClock\.adjust.*it\.live.*the effect skill/,
       }],
     },
   ],

@@ -5,7 +5,7 @@ const boundedSchedule =
   `Schedule.spaced("1 second").pipe(Schedule.upTo({ times: 2 }))`
 
 const message =
-  /HttpClient\.retryTransient must be explicitly bounded.*Schedule\.spaced\(\.\.\.\)\.pipe\(Schedule\.upTo\(\{ times: n \}\)\).*house-style rules 13\/23.*docs\/effect-house-style\.md/
+  /HttpClient\.retryTransient must be explicitly bounded.*Schedule\.spaced\(\.\.\.\)\.pipe\(Schedule\.upTo\(\{ times: n \}\)\).*the effect skill/
 
 const bounded = (name: string, code: string) => ({
   name,

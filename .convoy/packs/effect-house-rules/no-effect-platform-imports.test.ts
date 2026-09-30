@@ -1,7 +1,7 @@
 import { noEffectPlatformImportsRule as rule } from "./no-effect-platform-imports.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const message = /house-style rule 2.*docs\/effect-house-style\.md/
+const message = /the effect skill/
 
 const forbidden = (source: string) => ({
   name: `an import from ${source}`,

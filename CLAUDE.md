@@ -8,8 +8,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 - `CONTEXT.md` — the domain terms and their avoid-lists are **binding on naming**
 - Spec: issue #15. Rationale: `docs/adr/` (0001–0008, binding)
 - `docs/spec/pipeline-shape.md`, `docs/spec/emit-tools.md` — normative specs
-- `docs/effect-house-style.md`, `docs/effect-v4-patterns.md` — house style,
-  with Gauntlet examples and guidance for the Effect version in `package.json`
+- The `effect` skill for Effect code, with the House rules below
 
 ## Expectations
 
@@ -32,3 +31,46 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
   `{{PLACEHOLDER}}` slots, never rewritten at runtime
 - Personal tool: no speculative safeguards. A new protection needs a measured
   or structural justification (standing directive from #8)
+
+## House rules
+
+Gauntlet's own deviations and constraints. Everything else follows the shared
+skills (`effect` for Effect code).
+
+### Effect
+
+- `scripts/check-effect-pin.ts` enforces the exact pin. A CLI switch whose
+  omission means false is `Flag.boolean(...).pipe(Flag.withDefault(false))`;
+  `Flag.optional` is for an absence with its own meaning.
+- Service ids are `gauntlet/Name`. `HarnessSessionFactory` has separate live and
+  scripted Layers instead of `Default`/`Fake`, because both adapters share Pi's
+  Promise and callback contract.
+- Node globals and `node:*` imports are fine at runtime and SDK adapter
+  boundaries; application logic uses the `FileSystem` and `Path` services.
+- The executable boundary is `bin/gauntlet.ts`; `runGauntlet` renders typed
+  failures as CLI messages and exit codes. Pi's Promise and callback contracts
+  are bridged in its adapters (`src/harness/pi-live.ts`), whose mutable cells
+  belong to that contract.
+- Expected invocation endings (provider endings, timeouts, missing emits) are
+  `AgentOutcome.termination` data, as `CONTEXT.md` defines, not errors.
+  `invoke.ts` keeps usage and available output beside an unsuccessful
+  termination, and relies on `Effect.raceFirst` for its watchdogs.
+- Finder partitions and evaluation scheduling are deliberate, and Pi owns
+  provider retries (ADR-0002): don't add concurrency limits or retries there.
+  `concurrency: "unbounded"` is allowed in the pipeline; partial work still
+  produces an explicit coverage gap or a typed failure.
+- Durable Run artifacts and delivery effects are outside finalizer rollback.
+  Artifact writes go to a sibling temporary file and rename.
+- A tool or domain contract's schema is authoritative for its TypeScript type,
+  decoder and JSON Schema projection. Pi events can carry an explicit
+  `undefined`, so adapter schemas allow it; persisted JSON uses
+  `Schema.optionalKey`.
+- `runGit` scrubs the Git environment variables that could redirect its working
+  directory. Tests use real temporary filesystems and fixture Git repositories,
+  and filesystem-backed settings use fixture files through the injected home
+  boundary.
+- Linear's GraphQL reads are POSTs and are retried; posting a delivery comment
+  is not. Linear's page limits bound its lookups.
+- The update cache is disposable, so an unreadable one degrades to no notice.
+- Span names in existing code still use `gauntlet.<module>.<method>`; new code
+  uses the skill's `Domain.operation`, and the renames are #126.

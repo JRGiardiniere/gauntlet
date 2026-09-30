@@ -14,7 +14,7 @@ export const noInstanceofTaggedErrorRule = defineRule({
     },
     messages: {
       instanceofTaggedError:
-        "Do not use instanceof for tagged errors. Use Effect.catchTag, Effect.catchTags, or a tag predicate. House style: docs/effect-house-style.md rule 7.",
+        "Do not use instanceof for tagged errors. Use Effect.catchTag, Effect.catchTags, or a tag predicate. See the effect skill.",
     },
   },
   createOnce(context) {

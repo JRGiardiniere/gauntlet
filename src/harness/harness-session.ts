@@ -137,7 +137,7 @@ export interface SessionConfig {
 }
 
 // The distinct steps an adapter's `open` can fail in — the coarse-error
-// operation discriminator (house style rule 7). The seam enumerates every
+// operation discriminator. The seam enumerates every
 // adapter's operations so the union stays a closed, typo-proof set.
 export type InvocationSetupOperation =
   | "validate-config"

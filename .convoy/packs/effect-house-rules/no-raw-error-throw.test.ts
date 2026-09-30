@@ -26,7 +26,7 @@ ruleTester.run("no-raw-error-throw", rule, {
       filename: productionFile,
       errors: [{
         message:
-          /Fail with a tagged error.*docs\/effect-house-style\.md rule 7/,
+          /Fail with a tagged error.*See the effect skill/,
       }],
     },
   ],
