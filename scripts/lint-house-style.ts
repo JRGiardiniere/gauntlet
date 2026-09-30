@@ -1,5 +1,6 @@
-// The house-style gate's runMain boundary: oxlint (twice), the Effect
-// diagnostics, the Effect pin check, and the import-cycle check. The checks
+// The house-style gate's runMain boundary: oxlint (with the official Effect
+// diagnostics as its effecttsgo rules), the Effect pin check, and the
+// import-cycle check. The checks
 // are independent, so they run concurrently with captured output, and each
 // report prints as one uninterleaved block in declaration order.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
@@ -35,16 +36,14 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
         ".oxlintrc.json",
         "--format",
         oxlintFormat,
+        "bin",
         "src",
         "scripts",
         ".convoy/packs/effect-house-rules",
+        "vitest.config.ts",
+        "vitest.setup.ts",
         ...extraLintTargets,
       ],
-    },
-    {
-      name: "official Effect diagnostics",
-      command: process.execPath,
-      args: ["scripts/lint-effect-diagnostics.ts"],
     },
     {
       name: "Effect dependency pins",
@@ -98,7 +97,7 @@ const lintHouseStyle = Command.make(
     targets: Argument.string("targets").pipe(
       Argument.variadic(),
       Argument.withDescription(
-        "Extra paths to lint beyond the standing src, scripts and .convoy/packs/effect-house-rules targets",
+        "Extra paths to lint beyond the standing bin, src, scripts, .convoy/packs/effect-house-rules and vitest targets",
       ),
     ),
   },

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "extends": ["../../../node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "rules": {
+    "effecttsgo/extends-native-error": "error",
+    "effecttsgo/outdated-api": "error",
+    "effecttsgo/unnecessary-fail-yieldable-error": "error",
+    "effecttsgo/global-date-in-effect": "error",
+    "effecttsgo/global-random-in-effect": "error",
+    "effecttsgo/async-function": "error",
+    "effecttsgo/new-promise": "error",
+    "effecttsgo/node-builtin-import": "error",
+    "effecttsgo/prefer-schema-over-json": "error",
+    "effecttsgo/prefer-typed-schema-decoder": "error",
+    "effecttsgo/any-unknown-in-error-context": "error",
+    "effecttsgo/global-date": "error",
+    "effecttsgo/global-fetch": "error",
+    "effecttsgo/global-fetch-in-effect": "error",
+    "effecttsgo/global-timers": "error",
+    "effecttsgo/global-timers-in-effect": "error",
+    "effecttsgo/process-env": "error",
+    "effecttsgo/process-env-in-effect": "error",
+    "effecttsgo/run-effect-inside-effect": "error",
+    "effecttsgo/strict-effect-provide": "error",
+    "effecttsgo/unsafe-effect-type-assertion": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.integration.ts", "**/*.fixture.ts", "scripts/**"],
+      "rules": { "effecttsgo/strict-effect-provide": "off" }
+    }
+  ]
+}

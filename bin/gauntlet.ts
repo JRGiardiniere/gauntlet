@@ -15,6 +15,7 @@ NodeRuntime.runMain(
     Effect.map((exitCode) => {
       process.exitCode = exitCode
     }),
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- the single runMain boundary
     Effect.provide(
       Layer.mergeAll(livePiLayer, Linear.Default, liveGitHubLayer).pipe(
         Layer.provideMerge(NodeServices.layer),

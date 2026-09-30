@@ -44,8 +44,10 @@ export const getPropertyName = (
   return undefined
 }
 
-export const isDottedSpanName = (value: string): boolean =>
-  /^[^.]+(?:\.[^.]+)+$/.test(value)
+// The effect skill's span names: Effect.fn("Domain.operation"), and
+// "Domain.Test.operation" for a test double.
+export const isServiceSpanName = (value: string): boolean =>
+  /^[A-Z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/.test(value)
 
 export const isEffectFnCall = (
   node: ESTree.Expression | null | undefined,
