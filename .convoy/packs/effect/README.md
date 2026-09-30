@@ -18,7 +18,7 @@ A choice every project shares goes here, not into each project's config; a proje
 
 ## Versions
 
-Each project keeps its own tool versions; the pack doesn't list or check them. An older tsgo just runs fewer rules. What can go wrong fails lint loudly:
+Each project keeps its own tool versions; the pack doesn't list or check them. An older tsgo's preset has fewer rules, so it runs fewer at their defaults; the rules this pack names must still exist in that tsgo, though not necessarily in its preset (below). What can go wrong fails lint loudly:
 
 - **A rule this pack names that the project's tsgo lacks:** oxlint refuses the config (`Rule '…' not found in plugin 'effecttsgo'`). The rules here exist in tsgo 0.39.1 and later (checked on 0.39.1 and 0.47.1), so only name rules every project's tsgo has. A house change to a newer-only rule would go in a version file here (such as `oxlintrc.tsgo-0.47.json`, extending this one) that projects on that version extend instead.
 - **An oxlint the project's tsgo doesn't support:** the patch refuses to run. Check tsgo's release notes for the supported `oxlint` and `oxlint-tsgolint` versions before upgrading either.
