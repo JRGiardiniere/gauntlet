@@ -90,7 +90,7 @@ Reject diagnostic laundering, including:
 - `SAFETY:` comments that restate the assertion without proving its invariant.
 
 Sanctioned exception: `.oxlintrc.json` scopes `anti-slop/no-runtime-typeof` to
-`["error", { "allowInTypeGuards": true }]` for `scripts/lint-rules/**`. Oxlint's
+`["error", { "allowInTypeGuards": true }]` for `tools/oxlint/house/**`. Oxlint's
 ESTree gives string and numeric literals the same `type: "Literal"`, so a
 declared type guard over `typeof node.value` is the only way a lint rule can
 discriminate them. Severity stays at error, and the option admits `typeof`

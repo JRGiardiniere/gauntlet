@@ -15,7 +15,7 @@ export const effectFnSpanFormatRule = defineRule({
     },
     messages: {
       malformedName:
-        "Effect.fn span names must have dotted, non-empty segments (production spans: gauntlet.<snake_case_module>.<snake_case_method>) — house-style rules 17/25, docs/effect-house-style.md.",
+        "Effect.fn span names must have dotted, non-empty segments (production spans: <prefix>.<snake_case_module>.<snake_case_method>) — house-style rules 17/25, docs/effect-house-style.md.",
       uncheckableName:
         "Effect.fn span names must be static string literals so the span vocabulary stays lint-checkable. Inline the name instead of computing it — house-style rules 17/25, docs/effect-house-style.md.",
     },

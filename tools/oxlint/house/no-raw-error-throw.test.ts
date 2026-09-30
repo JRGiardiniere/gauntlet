@@ -16,7 +16,7 @@ ruleTester.run("no-raw-error-throw", rule, {
     {
       name: "a JavaScript file, which sits outside the Effect error seam",
       code: `throw new Error("boom")`,
-      filename: "/gauntlet/src/publisher.js",
+      filename: "/project/src/publisher.js",
     },
   ],
   invalid: [

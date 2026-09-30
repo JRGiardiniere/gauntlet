@@ -24,7 +24,7 @@ ruleTester.run("no-effect-platform-imports", rule, {
     {
       name: "a JavaScript file, which sits outside the Effect platform seam",
       code: `import * as Platform from "@effect/platform"`,
-      filename: "/gauntlet/src/publisher.js",
+      filename: "/project/src/publisher.js",
     },
   ],
   invalid: [
