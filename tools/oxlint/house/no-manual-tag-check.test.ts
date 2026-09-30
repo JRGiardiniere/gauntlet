@@ -24,7 +24,7 @@ ruleTester.run("no-manual-tag-check", rule, {
     {
       name: "a JavaScript file, which sits outside the Effect error seam",
       code: `const isDomain = error._tag === "DomainError"`,
-      filename: "/gauntlet/src/publisher.js",
+      filename: "/project/src/publisher.js",
     },
   ],
   invalid: [

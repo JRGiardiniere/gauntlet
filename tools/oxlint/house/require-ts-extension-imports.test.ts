@@ -44,7 +44,7 @@ ruleTester.run("require-ts-extension-imports", rule, {
     {
       name: "a JavaScript file, which must keep runtime-resolvable imports",
       code: `import { value } from "./module.js"`,
-      filename: "/gauntlet/src/publisher.js",
+      filename: "/project/src/publisher.js",
     },
   ],
   invalid: [

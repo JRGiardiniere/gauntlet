@@ -16,6 +16,7 @@
     "bin/**/*.ts",
     "src/**/*.ts",
     "scripts/**/*.ts",
+    "tools/oxlint/house/**/*.ts",
     "vitest.config.ts",
     "vitest.setup.ts"
   ]

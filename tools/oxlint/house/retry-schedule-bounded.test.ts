@@ -54,7 +54,7 @@ ruleTester.run("retry-schedule-bounded", rule, {
     {
       name: "a JavaScript file, which carries no retry vocabulary",
       code: `HttpClient.retryTransient({})`,
-      filename: "/gauntlet/src/publisher.js",
+      filename: "/project/src/publisher.js",
     },
   ],
   invalid: [

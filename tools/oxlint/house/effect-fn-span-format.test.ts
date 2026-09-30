@@ -2,7 +2,7 @@ import { effectFnSpanFormatRule as rule } from "./effect-fn-span-format.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
 const malformedNameMessage =
-  /dotted, non-empty segments.*gauntlet\.<snake_case_module>\.<snake_case_method>.*house-style rules 17\/25.*docs\/effect-house-style\.md/
+  /dotted, non-empty segments.*<prefix>\.<snake_case_module>\.<snake_case_method>.*house-style rules 17\/25.*docs\/effect-house-style\.md/
 
 const uncheckableNameMessage =
   /static string literals.*house-style rules 17\/25.*docs\/effect-house-style\.md/
@@ -22,14 +22,14 @@ ruleTester.run("effect-fn-span-format", rule, {
       filename: productionFile,
     },
     {
-      name: "a dotted, gauntlet-prefixed span name",
-      code: `Effect.fn("gauntlet.publisher.publish")`,
+      name: "a dotted, prefixed span name",
+      code: `Effect.fn("project.publisher.publish")`,
       filename: productionFile,
     },
     {
       name: "a JavaScript file, which carries no span vocabulary",
       code: `Effect.fn("publish")`,
-      filename: "/gauntlet/src/publisher.js",
+      filename: "/project/src/publisher.js",
     },
   ],
   invalid: [

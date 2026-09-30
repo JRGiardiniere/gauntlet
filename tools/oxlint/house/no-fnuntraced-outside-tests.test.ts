@@ -10,7 +10,7 @@ ruleTester.run("no-fnuntraced-outside-tests", rule, {
     },
     {
       name: "a traced Effect.fn in production",
-      code: `const publish = Effect.fn("gauntlet.publisher.publish")(function* () {})`,
+      code: `const publish = Effect.fn("project.publisher.publish")(function* () {})`,
       filename: productionFile,
     },
   ],
@@ -21,7 +21,7 @@ ruleTester.run("no-fnuntraced-outside-tests", rule, {
       filename: productionFile,
       errors: [{
         message:
-          /Effect\.fn\("gauntlet\.\.\.\."\).*house-style rule 25.*docs\/effect-house-style\.md/,
+          /Effect\.fn\("<prefix>\.<snake_case_module>\.<snake_case_method>"\).*house-style rule 25.*docs\/effect-house-style\.md/,
       }],
     },
   ],
