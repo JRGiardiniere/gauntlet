@@ -12,7 +12,7 @@ export const noSchemaClassRule = defineRule({
     },
     messages: {
       schemaClass:
-        "Schema.{{name}} is banned by the effect skill (references/SCHEMA.md). Use plain Schema.Struct models, and Data.TaggedError for errors.",
+        "Schema.{{name}} is banned by the effect skill's references/SCHEMA.md. Use plain Schema.Struct models, and Data.TaggedError for errors.",
     },
   },
   createOnce(context) {

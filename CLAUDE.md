@@ -35,7 +35,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 ## House rules
 
 Gauntlet's own deviations and constraints. Everything else follows the shared
-skills (`effect` for Effect code).
+skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/skills/` and `~/.agents/skills/`.
 
 ### Effect
 
