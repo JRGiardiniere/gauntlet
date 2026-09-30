@@ -14,7 +14,7 @@ export const noRawErrorThrowRule = defineRule({
     },
     messages: {
       rawErrorThrow:
-        "Do not throw raw Error objects in Effect code. Fail with a tagged error. House style: docs/effect-house-style.md rule 7.",
+        "Do not throw raw Error objects in Effect code. Fail with a tagged error. See the effect skill.",
     },
   },
   createOnce(context) {

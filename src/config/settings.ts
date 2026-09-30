@@ -78,7 +78,7 @@ const decodeSettings = Schema.decodeUnknownEffect(
 )
 
 // A missing file is the unconfigured state (`config init` creates it); any
-// other read or decode failure is surfaced, never defaulted (house rule 22).
+// other read or decode failure is surfaced, never defaulted.
 export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* settingsPath()

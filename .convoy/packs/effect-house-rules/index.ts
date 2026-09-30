@@ -11,7 +11,7 @@ import { noSleepInTestsRule } from "./no-sleep-in-tests.ts"
 import { requireTsExtensionImportsRule } from "./require-ts-extension-imports.ts"
 import { retryScheduleBoundedRule } from "./retry-schedule-bounded.ts"
 
-// The Effect house-style rules shared by every project on the house style,
+// Our own Effect lint rules, shared by every Effect project,
 // wrapped like the anti-slop plugin so createOnce rules stay ESLint-compatible
 // (RuleTester drives them in tests). Project-specific values reach the rules
 // as options in the project's lint config.

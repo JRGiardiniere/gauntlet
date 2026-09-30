@@ -53,7 +53,7 @@ export const retryScheduleBoundedRule = defineRule({
     },
     messages: {
       unboundedRetry:
-        "HttpClient.retryTransient must be explicitly bounded. Set schedule to transientRetrySchedule or Schedule.spaced(...).pipe(Schedule.upTo({ times: n })), or cap any schedule with a numeric times option — house-style rules 13/23, docs/effect-house-style.md.",
+        "HttpClient.retryTransient must be explicitly bounded. Set schedule to transientRetrySchedule or Schedule.spaced(...).pipe(Schedule.upTo({ times: n })), or cap any schedule with a numeric times option, as the effect skill says.",
     },
   },
   createOnce(context) {

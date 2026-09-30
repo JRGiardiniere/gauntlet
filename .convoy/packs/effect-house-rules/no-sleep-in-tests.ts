@@ -10,7 +10,7 @@ export const noSleepInTestsRule = defineRule({
     },
     messages: {
       sleepInTest:
-        "Do not use Effect.sleep in *.test.ts files. Drive the TestClock with TestClock.adjust, or use it.live when real time is the behavior under test — house-style rule 18, docs/effect-house-style.md.",
+        "Do not use Effect.sleep in *.test.ts files. Drive the TestClock with TestClock.adjust, or use it.live when real time is the behavior under test, as the effect skill says.",
     },
   },
   createOnce(context) {
