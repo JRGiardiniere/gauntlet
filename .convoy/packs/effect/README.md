@@ -22,7 +22,7 @@ Each project keeps its own tool versions; the pack doesn't list or check them. A
 
 - **A rule this pack names that the project's tsgo lacks:** oxlint refuses the config (`Rule '…' not found in plugin 'effecttsgo'`). The 10 rules here exist in tsgo 0.39.1 and later (checked on 0.39.1 and 0.47.1), so only name rules every project's tsgo has. A house change to a newer-only rule would go in a version file here (such as `oxlintrc.tsgo-0.47.json`, extending this one) that projects on that version extend instead.
 - **An oxlint the project's tsgo doesn't support:** the patch refuses to run. Check tsgo's release notes for the supported `oxlint` and `oxlint-tsgolint` versions before upgrading either.
-- **A patch that hasn't run:** `Unknown plugin: 'effecttsgo'`. The patch has to run again after any upgrade of tsgo, oxlint or `oxlint-tsgolint`. pnpm runs `prepare` on `pnpm install`, but not on `pnpm add` or `pnpm update`; run `pnpm install` to fix it.
+- **A patch that hasn't run:** `Unknown plugin: 'effecttsgo'`. The patch has to run again after any upgrade of tsgo, oxlint or `oxlint-tsgolint`. pnpm runs `prepare` on `pnpm install`, but not on `pnpm add` or `pnpm update`, so run `pnpm install` to fix it. Bun runs it on every `bun install`.
 
 ## Hooking it up
 
@@ -35,6 +35,7 @@ Each project keeps its own tool versions; the pack doesn't list or check them. A
      "extends": ["./.convoy/packs/effect/oxlintrc.json"]
    }
    ```
+4. If the project's formatter checks every file (such as `oxfmt --check .`), ignore `.convoy/**` there.
 
 Type-aware linting also turns on Oxlint's own type-aware rules (`typescript/*`, through tsgolint) in the categories the project enables, and a project's `categories` turn on the `effecttsgo` rules the preset leaves off in those categories too (such as `strict-effect-provide` under `suspicious`). Both are the project's layer: turn off what it doesn't want in its own config.
 
