@@ -21,7 +21,7 @@ ruleTester.run("no-fnuntraced-outside-tests", rule, {
       filename: productionFile,
       errors: [{
         message:
-          /Effect\.fn\("<prefix>\.<snake_case_module>\.<snake_case_method>"\).*house-style rule 25.*docs\/effect-house-style\.md/,
+          /Effect\.fn\("Domain\.operation"\) for traced surfaces/,
       }],
     },
   ],

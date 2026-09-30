@@ -91,9 +91,7 @@ function collectTypeBindings(
 	const declared = declaredTypeBinding(node);
 	if (declared !== null) {
 		const bindings = bindingsByName.get(declared.name) ?? [];
-		// A class expression's own name is visible only inside that class.
-		const scope = node.type === "ClassExpression" ? node : enclosingTypeScope(node);
-		bindings.push({ ...declared, scope });
+		bindings.push({ ...declared, scope: enclosingTypeScope(node) });
 		bindingsByName.set(declared.name, bindings);
 		if (declared.alias !== null) aliases.push(declared.alias);
 	}
@@ -171,17 +169,6 @@ export function visibleTypeAlias(
 	if (lexicalTypeParameterNames(use, environment.visitorKeys).has(name)) return null;
 	const bindings = nearestTypeBindings(name, use, environment);
 	return bindings.length === 1 ? (bindings[0]?.alias ?? null) : null;
-}
-
-/** Return whether the nearest declarations of this name at this use are all at the top of the file. */
-export function isTopLevelTypeBinding(
-	name: string,
-	use: ESTree.Node,
-	environment: TypeAliasEnvironment,
-): boolean {
-	if (lexicalTypeParameterNames(use, environment.visitorKeys).has(name)) return false;
-	const bindings = nearestTypeBindings(name, use, environment);
-	return bindings.length > 0 && bindings.every((binding) => binding.scope.type === "Program");
 }
 
 /** Return whether a local declaration shadows a built-in type at this use. */

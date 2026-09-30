@@ -1,11 +1,9 @@
 import { effectFnSpanFormatRule as rule } from "./effect-fn-span-format.ts"
 import { productionFile, ruleTester } from "./rule-tester.ts"
 
-const malformedNameMessage =
-  /dotted, non-empty segments.*<prefix>\.<snake_case_module>\.<snake_case_method>.*house-style rules 17\/25.*docs\/effect-house-style\.md/
+const malformedNameMessage = /Domain\.operation, as in the effect skill/
 
-const uncheckableNameMessage =
-  /static string literals.*house-style rules 17\/25.*docs\/effect-house-style\.md/
+const uncheckableNameMessage = /static string literals/
 
 const malformed = (spanName: string) => ({
   name: `the malformed span name ${spanName}`,
@@ -22,8 +20,8 @@ ruleTester.run("effect-fn-span-format", rule, {
       filename: productionFile,
     },
     {
-      name: "a dotted, prefixed span name",
-      code: `Effect.fn("project.publisher.publish")`,
+      name: "a test double's span name",
+      code: `Effect.fn("Publisher.Test.publish")`,
       filename: productionFile,
     },
     {
@@ -37,6 +35,8 @@ ruleTester.run("effect-fn-span-format", rule, {
     malformed(".publish"),
     malformed("Publisher."),
     malformed("Publisher..publish"),
+    malformed("project.publisher.publish"),
+    malformed("Publisher.publish_now"),
     {
       name: "a template-literal span name",
       code: "Effect.fn(`Publisher.publish`)",

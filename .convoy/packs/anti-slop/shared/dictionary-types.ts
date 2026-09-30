@@ -3,7 +3,6 @@ import type { ESTree } from "@oxlint/plugins";
 import {
 	createTypeAliasEnvironment,
 	hasVisibleTypeBinding,
-	isTopLevelTypeBinding,
 	visibleTypeAlias,
 	type TypeAliasEnvironment as LexicalTypeAliasEnvironment,
 } from "./type-alias-resolution.ts";
@@ -217,17 +216,12 @@ function unsafeDirectValue(
 			? null
 			: unsafeDirectValue(substitution, environment, substitutions, resolvingAliases);
 	}
-	// The nearest declaration wins: a type alias, or the file's top-level
-	// interface only when nothing nearer (a local type, class or type
-	// parameter) shadows it.
-	const alias = visibleTypeAlias(name, unwrapped, environment.typeAliases);
-	if (alias === null) {
-		const interfaceDeclarations = environment.interfaces.get(name);
-		if (interfaceDeclarations === undefined) return null;
-		if (!isTopLevelTypeBinding(name, unwrapped, environment.typeAliases)) return null;
+	const interfaceDeclarations = environment.interfaces.get(name);
+	if (interfaceDeclarations !== undefined) {
 		return isEffectivelyEmptyInterface(interfaceDeclarations) ? "empty-object" : null;
 	}
-	if (resolvingAliases.has(name)) return null;
+	const alias = visibleTypeAlias(name, unwrapped, environment.typeAliases);
+	if (alias === null || resolvingAliases.has(name)) return null;
 	const nextSubstitutions = aliasSubstitution(alias, unwrapped, substitutions);
 	if (nextSubstitutions === null) return null;
 	const nextResolving = new Set(resolvingAliases);

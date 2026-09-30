@@ -42,9 +42,7 @@
     "anti-slop-effect/no-manual-tag-comparison": "off",
     "anti-slop-effect/no-service-constructor-imports": "off",
     "anti-slop/no-array-filter-map": "off",
-    "house/effect-fn-prefix": ["error", {
-      "prefix": "gauntlet"
-    }],
+    "house/effect-fn-span-format": "off",
     "house/no-import-from-barrel-package": ["error", {
       "checkPatterns": [
         "^effect$",
@@ -124,7 +122,7 @@
         "house/no-import-from-barrel-package": "off",
         "house/no-raw-error-throw": "off",
         "house/no-instanceof-tagged-error": "off",
-        "house/no-manual-tag-check": "off"
+        "anti-slop-effect/no-manual-tag-comparison": "off"
       }
     },
     {

@@ -7,14 +7,11 @@
     }
   ],
   "rules": {
-    "house/effect-fn-prefix": "error",
     "house/effect-fn-span-format": "error",
     "house/no-effect-platform-imports": "error",
-    "house/no-env-mutation-in-tests": "error",
     "house/no-fnuntraced-outside-tests": "error",
     "house/no-import-from-barrel-package": "error",
     "house/no-instanceof-tagged-error": "error",
-    "house/no-manual-tag-check": "error",
     "house/no-raw-error-throw": "error",
     "house/no-schema-class": "error",
     "house/no-sleep-in-tests": "error",

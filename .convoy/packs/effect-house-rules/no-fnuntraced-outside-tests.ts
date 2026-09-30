@@ -15,7 +15,7 @@ export const noFnUntracedOutsideTestsRule = defineRule({
     },
     messages: {
       untracedOutsideTests:
-        'Effect.fnUntraced is only allowed in *.test.ts files. Use Effect.fn("<prefix>.<snake_case_module>.<snake_case_method>") for traced surfaces — house-style rule 25, docs/effect-house-style.md.',
+        'Effect.fnUntraced is only allowed in *.test.ts files. Use Effect.fn("Domain.operation") for traced surfaces.',
     },
   },
   createOnce(context) {
