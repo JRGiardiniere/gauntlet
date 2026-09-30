@@ -30,10 +30,6 @@
     ".convoy/packs/anti-slop/**"
   ],
   "rules": {
-    "effecttsgo/process-env": "error",
-    "effecttsgo/process-env-in-effect": "error",
-    "effecttsgo/strict-effect-provide": "off",
-    "effecttsgo/any-unknown-in-error-context": "off",
     "typescript/consistent-return": "off",
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/no-unnecessary-type-arguments": "off",
@@ -143,6 +139,18 @@
         "anti-slop/no-runtime-typeof": ["error", {
           "allowInTypeGuards": true
         }]
+      }
+    },
+    {
+      "files": ["src/run/review-executor.ts", "src/cli/upgrade.ts", "src/harness/live-gate.ts"],
+      "rules": {
+        "effecttsgo/strict-effect-provide": "off"
+      }
+    },
+    {
+      "files": ["src/run/artifact.ts"],
+      "rules": {
+        "effecttsgo/any-unknown-in-error-context": "off"
       }
     }
   ]
