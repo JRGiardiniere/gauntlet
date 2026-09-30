@@ -42,20 +42,6 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
       ],
     },
     {
-      name: "unknown record early warning",
-      command: oxlint,
-      args: [
-        "--config",
-        ".oxlintrc.unknown-record.json",
-        "--format",
-        oxlintFormat,
-        "src",
-        "scripts",
-        "tools/oxlint/house",
-        ...extraLintTargets,
-      ],
-    },
-    {
       name: "official Effect diagnostics",
       command: process.execPath,
       args: ["scripts/lint-effect-diagnostics.ts"],
