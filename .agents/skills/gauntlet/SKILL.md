@@ -95,7 +95,10 @@ Dossier lives on disk.
    interruption with `--resume` as described below.
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
-   it could not review, or a PR comment failed after the review landed.
+   it could not review, or a PR comment failed after the review landed. When
+   the reason says to run `gauntlet login <provider>`, hand that command to
+   the user — it is an interactive browser sign-in only they can complete —
+   then launch the review again once they confirm.
 
    If a run was interrupted (killed shell, crash), do not start a replacement
    review: `gauntlet review --resume` continues the latest incomplete run from
