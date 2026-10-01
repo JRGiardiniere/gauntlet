@@ -22,7 +22,8 @@
     "effecttsgo/process-env-in-effect": "error",
     "effecttsgo/run-effect-inside-effect": "error",
     "effecttsgo/strict-effect-provide": "error",
-    "effecttsgo/unsafe-effect-type-assertion": "error"
+    "effecttsgo/unsafe-effect-type-assertion": "error",
+    "eslint/require-yield": "off"
   },
   "overrides": [
     {
