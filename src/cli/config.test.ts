@@ -138,10 +138,10 @@ describe("gauntlet config init", () => {
         default: "openai/gpt-6-luna:high",
       })
       expect(yield* readRecipe("medium")).toEqual({
-        default: "openai/gpt-6-sol:medium",
+        default: "openai/gpt-6.1-sol:medium",
       })
       expect(yield* readRecipe("high")).toEqual({
-        default: "openai/gpt-6-sol:high",
+        default: "openai/gpt-6.1-sol:high",
       })
       expect(yield* readSettings(fixture)).toEqual({
         "default-recipe": "medium",

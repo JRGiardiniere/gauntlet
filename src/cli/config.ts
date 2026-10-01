@@ -52,8 +52,8 @@ const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
     }),
   ],
   ["low", Recipe.make({ default: "openai/gpt-6-luna:high" })],
-  ["medium", Recipe.make({ default: "openai/gpt-6-sol:medium" })],
-  ["high", Recipe.make({ default: "openai/gpt-6-sol:high" })],
+  ["medium", Recipe.make({ default: "openai/gpt-6.1-sol:medium" })],
+  ["high", Recipe.make({ default: "openai/gpt-6.1-sol:high" })],
 ]
 
 const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
