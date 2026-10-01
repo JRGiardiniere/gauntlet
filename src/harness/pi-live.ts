@@ -94,10 +94,14 @@ const PiToolExecutionEnd = Schema.Struct({
 })
 
 // Pi's missing-credential error points at its own `/login` and at docs inside
-// node_modules; a Gauntlet user signs in with `gauntlet login` instead.
+// node_modules; a Gauntlet user signs in with `gauntlet login`, or sets an
+// API-key provider's key in the environment.
 const piLoginHelp = /Use \/login to log into a provider via OAuth or API key\. See:(?:\n {2}\S+)*/
-const withGauntletLoginHelp = (message: string, seat: string): string =>
-  message.replace(piLoginHelp, `Run \`gauntlet login ${seat.slice(0, seat.indexOf("/"))}\`.`)
+const withGauntletLoginHelp = (message: string, provider: string, hasSignIn: boolean): string =>
+  message.replace(
+    piLoginHelp,
+    hasSignIn ? `Run \`gauntlet login ${provider}\`.` : `Set ${provider}'s API key in the environment.`,
+  )
 
 const decodeMessageRole = Schema.decodeUnknownResult(PiMessageRole)
 const decodeAssistantMessageEnd = Schema.decodeUnknownResult(
@@ -410,7 +414,14 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                 }).catch((error) =>
                   Promise.reject(
                     error instanceof Error
-                      ? new Error(withGauntletLoginHelp(error.message, session.seat), { cause: error })
+                      ? new Error(
+                        withGauntletLoginHelp(
+                          error.message,
+                          model.provider,
+                          modelRuntime.getProvider(model.provider)?.auth.oauth !== undefined,
+                        ),
+                        { cause: error },
+                      )
                       : error,
                   )
                 ),

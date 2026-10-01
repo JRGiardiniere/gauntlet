@@ -21,6 +21,6 @@ export const loginCommand = Command.make(
   ({ provider }) => executeLogin(provider),
 ).pipe(
   Command.withDescription(
-    "Sign in to a model provider (subscription OAuth where offered, otherwise an API key) and store it where reviews read it",
+    "Sign in to a model provider's subscription and store the login where reviews read it",
   ),
 )
