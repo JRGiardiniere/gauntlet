@@ -34,21 +34,28 @@ import { withToolCallDeadline } from "./tool-deadline.ts"
 // invocation logic. Deadlines, capture, salvage, and outcome assembly live
 // above the seam and are identical under the scripted adapter.
 
-// Every listed role is checked against Pi's message role vocabulary at the
-// pinned version. `satisfies` fails the build if one stops being valid; it does
-// not prove this list is exhaustive. The closed runtime decode still turns an
-// unknown role into a contract_violation instead of silently dropping a
-// message that might carry terminal state and usage.
+// The listed roles are exactly Pi's message role vocabulary at the pinned
+// version: `satisfies` fails the build if one stops being valid, and
+// `piMessageRolesExhaustive` fails it when Pi adds one (0.99's transcript
+// `system` messages reached the runtime decode first). The closed runtime
+// decode still turns an unknown role into a contract_violation instead of
+// silently dropping a message that might carry terminal state and usage.
 type PiMessage = Extract<AgentSessionEvent, { type: "message_end" }>["message"]
 const PI_MESSAGE_ROLES = [
   "user",
   "assistant",
   "toolResult",
+  "system",
   "bashExecution",
   "custom",
   "branchSummary",
   "compactionSummary",
 ] as const satisfies ReadonlyArray<PiMessage["role"]>
+const piMessageRolesExhaustive: Exclude<
+  PiMessage["role"],
+  (typeof PI_MESSAGE_ROLES)[number]
+> extends never ? true : never = true
+void piMessageRolesExhaustive
 
 // Boundary decoders for the subset of Pi's event payloads the seam consumes.
 // A renamed SDK field compiles clean and reads undefined through a cast —
