@@ -2,7 +2,7 @@
 
 The official Effect diagnostics from [`@effect/tsgo`](https://github.com/Effect-TS/tsgo), run inside the project's normal type-aware Oxlint pass as the `effecttsgo/*` rules, with our house severities.
 
-- `oxlintrc.json` extends the `recommended` preset of the project's installed tsgo (`node_modules/@effect/tsgo/oxlint-presets/recommended.json`), which turns on type-aware linting, and makes the house choices: 21 rules at `error`, with `strict-effect-provide` off in `**/*.test.ts`, `**/*.integration.ts`, `**/*.fixture.ts` and `scripts/**`, which provide their own layers.
+- `oxlintrc.json` extends the `recommended` preset of the project's installed tsgo (`node_modules/@effect/tsgo/oxlint-presets/recommended.json`), which turns on type-aware linting, and makes the house choices: 21 rules at `error`, with `strict-effect-provide` off in `**/*.test.ts`, `**/*.integration.ts`, `**/*.fixture.ts` and `scripts/**`, which provide their own layers. It also turns off oxlint's `require-yield`, which misfires on Effect generators.
 
 **Convoy manages these files.** They're copied from `config/packs/effect/` in the convoy repo into `.convoy/packs/effect/` of every project whose `convoy.toml` lists `effect`, as uncommitted changes that go in with the project's next commit. An edit here shows in Convoy's Review, to promote to every project or discard.
 
@@ -37,6 +37,6 @@ Each project keeps its own tool versions; the pack doesn't list or check them. A
    ```
 4. If the project's formatter checks every file (such as `oxfmt --check .`), ignore `.convoy/**` there.
 
-Type-aware linting also turns on Oxlint's own type-aware rules (`typescript/*`, through tsgolint) in the categories the project enables; those are the project's config, not this pack's. A project's `categories` can still turn on an `effecttsgo` rule this pack doesn't name: today only `experimental-api-usage` and `unstable-api-usage`, which tsgo 0.39.1 lacks, so the pack can't name them yet.
+Type-aware linting also turns on Oxlint's own type-aware rules (`typescript/*`, through tsgolint) in the categories the project enables; our choices for those are in the `typescript` pack. A project's `categories` can still turn on an `effecttsgo` rule this pack doesn't name: today only `experimental-api-usage` and `unstable-api-usage`, which tsgo 0.39.1 lacks, so the pack can't name them yet.
 
 Severities are read from the Oxlint config only; a tsconfig `plugins` entry's severities don't apply here. To change a rule for the project or for some files, do it in the project's own `.oxlintrc.json`, e.g. `"effecttsgo/async-function": "off"`. `// @effect-diagnostics newPromise:off` (a whole file) and `// @effect-diagnostics-next-line newPromise:off` comments still work.
