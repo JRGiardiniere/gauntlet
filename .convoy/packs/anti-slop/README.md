@@ -19,3 +19,7 @@ In the project's `.oxlintrc.json`, extend the pack's config and ignore the packs
 ```
 
 The plugin imports `@oxlint/plugins`, so the project depends on it at exactly its `oxlint` version. To turn a rule off or pass it options, do it in the project's own `.oxlintrc.json`, e.g. `"anti-slop-effect/prefer-effect-match": "off"` in a project without Effect.
+
+## Fixing findings
+
+From upstream's `install-anti-slop` skill, which this pack replaces: fix a finding by improving the code, preferring inference, `as const`, `satisfies`, named owner contracts and parsing at the boundary. Don't make lint pass with an unsafe cast, a laundered type or a weaker severity. A rule the code can't pass yet is turned off in the project's own config, as tracked debt.

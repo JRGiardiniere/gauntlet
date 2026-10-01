@@ -24,13 +24,13 @@ Treat the implementer ledger as claims to verify, not evidence. A green diagnost
 Read these before judging the patch:
 
 1. Repository `AGENTS.md` instructions that apply to the changed paths.
-2. `.agents/skills/install-anti-slop/SKILL.md`.
+2. `.convoy/packs/anti-slop/README.md`, especially "Fixing findings".
 3. `.oxlintrc.json`.
-4. The implementation of every assigned rule under `tools/oxlint/anti-slop/rules/` and any shared helper it imports.
+4. The implementation of every assigned rule under `.convoy/packs/anti-slop/` (`rules/`, `effect/`) and any shared helper it imports.
 5. The changed production code, its direct consumers, and the tests that establish the affected behavior.
 6. Relevant ADRs, schemas, service interfaces, or domain contracts referenced by the changed code.
 
-The skill is migration policy. Rule source describes diagnostic intent. Existing owner contracts and observable behavior are the source of truth.
+The pack README is migration policy. Rule source describes diagnostic intent. Existing owner contracts and observable behavior are the source of truth.
 
 ## Review procedure
 
@@ -90,7 +90,7 @@ Reject diagnostic laundering, including:
 - `SAFETY:` comments that restate the assertion without proving its invariant.
 
 Sanctioned exception: `.oxlintrc.json` scopes `anti-slop/no-runtime-typeof` to
-`["error", { "allowInTypeGuards": true }]` for `tools/oxlint/house/**`. Oxlint's
+`["error", { "allowInTypeGuards": true }]` for `.convoy/packs/effect-house-rules/**`. Oxlint's
 ESTree gives string and numeric literals the same `type: "Literal"`, so a
 declared type guard over `typeof node.value` is the only way a lint rule can
 discriminate them. Severity stays at error, and the option admits `typeof`
