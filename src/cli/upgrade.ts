@@ -1,9 +1,9 @@
 // Self-upgrade: replace this executable with the latest release binary, then
-// move recipe seats to the newest Luna/Sol (#121). Settings, runs
-// (~/.gauntlet) and project lenses (.gauntlet/lenses) survive by construction
-// — the shipped lens catalog is embedded in the binary, so swapping the file
-// swaps the catalog atomically, and a resumed run replays its frozen
-// plan.json regardless (ADR 0004).
+// move recipe seats off legacy providers and onto the newest Luna/Sol (#121).
+// Settings, runs (~/.gauntlet) and project lenses (.gauntlet/lenses) survive
+// by construction — the shipped lens catalog is embedded in the binary, so
+// swapping the file swaps the catalog atomically, and a resumed run replays
+// its frozen plan.json regardless (ADR 0004).
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
@@ -134,6 +134,6 @@ export const upgradeCommand = Command.make(
   () => executeUpgrade(),
 ).pipe(
   Command.withDescription(
-    "Replace this binary with the latest GitHub release, then move recipe seats to the newest Luna/Sol. Settings, runs, and project lenses are never touched",
+    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Sol. Settings, runs, and project lenses are never touched",
   ),
 )
