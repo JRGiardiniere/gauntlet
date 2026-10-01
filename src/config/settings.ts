@@ -83,7 +83,7 @@ export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* settingsPath()
   const source = yield* fs.readFileString(path).pipe(
-    Effect.map(Option.some),
+    Effect.asSome,
     Effect.catchTag("PlatformError", (failure) =>
       Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed(Option.none<string>())

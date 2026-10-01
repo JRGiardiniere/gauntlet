@@ -19,7 +19,7 @@ export const readOptionalArtifactText = Effect.fn(
 )(function* (path: string) {
   const fs = yield* FileSystem.FileSystem
   return yield* fs.readFileString(path).pipe(
-    Effect.map(Option.some),
+    Effect.asSome,
     Effect.catchTag("PlatformError", (failure) =>
       Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed(Option.none<string>())
