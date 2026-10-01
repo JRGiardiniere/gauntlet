@@ -6,7 +6,8 @@ import { listRecipes } from "./recipe-catalog.ts"
 
 // Seat upgrade (#121): `gauntlet upgrade` moves recipe seats to the newest
 // Luna/Sol their provider's catalog lists. Only this hardcoded family pattern
-// matches — variants (-pro, -mini, :batch) never do — and versions compare
+// gets a newer model — variants (-pro, -mini, :batch) keep theirs, though a
+// legacy provider's seat still moves provider — and versions compare
 // numerically, so gpt-10 outranks gpt-6. Widen the pattern to add a family.
 const familyModel = /^gpt-(\d+(?:\.\d+)*)-(luna|sol)$/
 
