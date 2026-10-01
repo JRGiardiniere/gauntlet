@@ -36,8 +36,7 @@ import { withToolCallDeadline } from "./tool-deadline.ts"
 
 // The listed roles are exactly Pi's message role vocabulary at the pinned
 // version: `satisfies` fails the build if one stops being valid, and
-// `piMessageRolesExhaustive` fails it when Pi adds one (0.99's transcript
-// `system` messages reached the runtime decode first). The closed runtime
+// `piMessageRolesExhaustive` fails it when Pi adds one. The closed runtime
 // decode still turns an unknown role into a contract_violation instead of
 // silently dropping a message that might carry terminal state and usage.
 type PiMessage = Extract<AgentSessionEvent, { type: "message_end" }>["message"]
