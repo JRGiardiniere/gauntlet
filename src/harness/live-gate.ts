@@ -84,7 +84,7 @@ const usageDetail = (outcome: AgentOutcome<FindingsOutput>) => {
 
 export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
   function* (argv: ReadonlyArray<string>) {
-    const provider = argv[0] ?? "openai-codex"
+    const provider = argv[0] ?? "openai"
     const model = argv[1] ?? "gpt-6-luna:low"
     const seat = `${provider}/${model}`
 

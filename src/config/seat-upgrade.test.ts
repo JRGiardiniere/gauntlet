@@ -20,6 +20,8 @@ const catalog = new Map<string, ReadonlyArray<string>>([
     "gpt-7-astra",
   ]],
   ["lagging", ["gpt-5.6-luna"]],
+  ["openai-codex", ["gpt-6-sol"]],
+  ["openai", ["gpt-6-sol", "gpt-6.1-sol"]],
 ])
 const providerModelIds = (provider: string) => catalog.get(provider) ?? []
 const decodeRecipe = Schema.decodeUnknownEffect(Schema.fromJsonString(Recipe))
@@ -32,6 +34,7 @@ describe("newerSeat", () => {
     ["lagging/gpt-5.6-luna:high", undefined],
     ["acme/gpt-6-astra:high", undefined],
     ["acme/glm-5.3-flash:high", undefined],
+    ["openai-codex/gpt-6-sol:high", "openai/gpt-6.1-sol:high"],
   ])("%s → %s", (seat, expected) => {
     expect(Option.getOrUndefined(newerSeat(seat, providerModelIds))).toBe(expected)
   })

@@ -133,7 +133,7 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
     const cached = yield* readOptionalArtifactText(path).pipe(
       Effect.flatMap(Option.match({
         onNone: () => Effect.succeed(Option.none<typeof UpdateCheckState.Type>()),
-        onSome: (text) => decodeState(text).pipe(Effect.map(Option.some)),
+        onSome: (text) => decodeState(text).pipe(Effect.asSome),
       })),
       Effect.orElseSucceed(() =>
         Option.none<typeof UpdateCheckState.Type>()),

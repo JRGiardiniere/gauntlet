@@ -693,7 +693,7 @@ const outputFrom = <O>(
               reason: `validated ${contract.toolName} arguments failed their OutputContract decoder`,
             }),
         ),
-        Effect.map(Option.some),
+        Effect.asSome,
       )
     }
 

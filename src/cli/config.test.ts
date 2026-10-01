@@ -131,17 +131,17 @@ describe("gauntlet config init", () => {
           Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Recipe))),
         )
       expect(yield* readRecipe("quick")).toEqual({
-        default: "openai-codex/gpt-6-luna:high",
-        finders: "openai-codex/gpt-6-sol:low",
+        default: "openai/gpt-6-luna:high",
+        finders: "openai/gpt-6-sol:low",
       })
       expect(yield* readRecipe("low")).toEqual({
-        default: "openai-codex/gpt-6-luna:high",
+        default: "openai/gpt-6-luna:high",
       })
       expect(yield* readRecipe("medium")).toEqual({
-        default: "openai-codex/gpt-6-sol:medium",
+        default: "openai/gpt-6.1-sol:medium",
       })
       expect(yield* readRecipe("high")).toEqual({
-        default: "openai-codex/gpt-6-sol:high",
+        default: "openai/gpt-6.1-sol:high",
       })
       expect(yield* readSettings(fixture)).toEqual({
         "default-recipe": "medium",

@@ -6,9 +6,17 @@ import { listRecipes } from "./recipe-catalog.ts"
 
 // Seat upgrade (#121): `gauntlet upgrade` moves recipe seats to the newest
 // Luna/Sol their provider's catalog lists. Only this hardcoded family pattern
-// matches — variants (-pro, -mini, :batch) never do — and versions compare
+// gets a newer model — variants (-pro, -mini, :batch) keep theirs, though a
+// legacy provider's seat still moves provider — and versions compare
 // numerically, so gpt-10 outranks gpt-6. Widen the pattern to add a family.
 const familyModel = /^gpt-(\d+(?:\.\d+)*)-(luna|sol)$/
+
+// Pi superseded its OpenAI Codex provider with Sign in with ChatGPT on
+// `openai`, so a legacy seat always moves to its successor. Until the user
+// signs in there, reviews fail with Pi's own missing-credential error.
+const successorProviders: ReadonlyMap<string, string> = new Map([
+  ["openai-codex", "openai"],
+])
 
 const parseFamilyModel = (modelId: string) => {
   const match = familyModel.exec(modelId)
@@ -28,29 +36,35 @@ const compareVersions = (
   return 0
 }
 
-// The newest same-family model the seat's provider lists, keeping the seat's
-// thinking level; none when the seat is not Luna/Sol or is already newest.
+// The newest same-family model in `modelIds`; the model itself when it is not
+// Luna/Sol or is already newest.
+const newestFamilyModel = (modelId: string, modelIds: ReadonlyArray<string>): string => {
+  const current = parseFamilyModel(modelId)
+  if (Option.isNone(current)) return modelId
+  let newest = { id: modelId, version: current.value.version }
+  for (const id of modelIds) {
+    const candidate = parseFamilyModel(id)
+    if (Option.isNone(candidate) || candidate.value.family !== current.value.family) continue
+    if (compareVersions(candidate.value.version, newest.version) > 0) {
+      newest = { id, version: candidate.value.version }
+    }
+  }
+  return newest.id
+}
+
+// The seat on its successor provider, then on the newest same-family model
+// there, keeping the thinking level; none when neither step moves it.
 export const newerSeat = (
   seat: Seat,
   providerModelIds: (provider: string) => ReadonlyArray<string>,
 ): Option.Option<Seat> => {
   const providerSeparator = seat.indexOf("/")
   const effortSeparator = seat.lastIndexOf(":")
-  const provider = seat.slice(0, providerSeparator)
-  const current = parseFamilyModel(seat.slice(providerSeparator + 1, effortSeparator))
-  if (Option.isNone(current)) return Option.none()
-  let newest: { readonly id: string; readonly version: ReadonlyArray<number> } | undefined
-  for (const id of providerModelIds(provider)) {
-    const candidate = parseFamilyModel(id)
-    if (Option.isNone(candidate) || candidate.value.family !== current.value.family) continue
-    const baseline = newest?.version ?? current.value.version
-    if (compareVersions(candidate.value.version, baseline) > 0) {
-      newest = { id, version: candidate.value.version }
-    }
-  }
-  return newest === undefined
-    ? Option.none()
-    : Option.some(`${provider}/${newest.id}${seat.slice(effortSeparator)}`)
+  const model = seat.slice(providerSeparator + 1, effortSeparator)
+  const seatProvider = seat.slice(0, providerSeparator)
+  const provider = successorProviders.get(seatProvider) ?? seatProvider
+  const next = `${provider}/${newestFamilyModel(model, providerModelIds(provider))}${seat.slice(effortSeparator)}`
+  return next === seat ? Option.none() : Option.some(next)
 }
 
 interface SeatChange {

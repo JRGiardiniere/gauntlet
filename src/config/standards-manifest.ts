@@ -99,7 +99,7 @@ export const loadGoverningStandardsBlock = Effect.fn(
   const fs = yield* FileSystem.FileSystem
   const manifestPath = yield* standardsManifestPath(repoRoot)
   const source = yield* fs.readFileString(manifestPath).pipe(
-    Effect.map(Option.some),
+    Effect.asSome,
     Effect.catchTag("PlatformError", (failure) =>
       Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed(Option.none<string>())
