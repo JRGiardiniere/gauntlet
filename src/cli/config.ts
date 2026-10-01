@@ -41,18 +41,19 @@ export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
 // The initial catalog mirrors the old reviewer's MODEL_TIERS: quick keeps the
 // manual luna:high downstream tune under sol:low finders; low/medium/high run
 // one seat top to bottom (John's 2026-08-10 uniform-preset call). After init
-// these files are entirely user-owned; nothing here is re-read or replenished.
+// these files are user-owned; nothing here is re-read or replenished, and only
+// `gauntlet upgrade` touches them, moving Luna/Sol seats forward (#121).
 const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
   [
     "quick",
     Recipe.make({
-      default: "openai-codex/gpt-5.6-luna:high",
-      finders: "openai-codex/gpt-5.6-sol:low",
+      default: "openai/gpt-6-luna:high",
+      finders: "openai/gpt-6-sol:low",
     }),
   ],
-  ["low", Recipe.make({ default: "openai-codex/gpt-5.6-luna:high" })],
-  ["medium", Recipe.make({ default: "openai-codex/gpt-5.6-sol:medium" })],
-  ["high", Recipe.make({ default: "openai-codex/gpt-5.6-sol:high" })],
+  ["low", Recipe.make({ default: "openai/gpt-6-luna:high" })],
+  ["medium", Recipe.make({ default: "openai/gpt-6.1-sol:medium" })],
+  ["high", Recipe.make({ default: "openai/gpt-6.1-sol:high" })],
 ]
 
 const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"

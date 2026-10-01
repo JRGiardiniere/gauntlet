@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import { Candidate } from "../domain/candidate.ts"
 import {
   EmitFindings,
   EmitPool,
@@ -16,6 +17,7 @@ describe("output contracts", () => {
     Effect.gen(function* () {
       const sentinels = [
         [EmitFindings, "as it appears in the changed-file list"],
+        [EmitFindings, "Do not copy source or invent references"],
         [EmitPool, "must appear in exactly one cluster"],
         [EmitVerdicts, "Slice silence alone never lowers priority"],
         [EmitVerdicts, "include that reasoning on the same line"],
@@ -74,6 +76,19 @@ describe("output contracts", () => {
         clusters: [{ indexes: [1], summary: "canonical\nsummary" }],
       })
       expect(pool.clusters[0]?.summary).toBe("canonical summary")
+    }))
+
+  it.effect("preserves source references through the output and Candidate codecs", () =>
+    Effect.gen(function* () {
+      const references = ["src/helper.ts"]
+      const output = yield* strictDecode(EmitFindings.schema)({ findings: [{
+        file: "src/a.ts", summary: "claim", source_references: references,
+      }] })
+      expect(output.findings[0]?.source_references).toEqual(references)
+      const candidate: Candidate = { _tag: "Observation", id: "a", lens: "test", file: "a.ts",
+        summary: "claim", sourceReferences: references }
+      const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(Candidate))(candidate)
+      expect(yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)).toEqual(candidate)
     }))
 
   it.effect("requires JSON-safe 1-indexed integer locations", () =>

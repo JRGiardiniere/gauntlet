@@ -109,7 +109,8 @@ export interface EmitToolSpec {
 
 export interface SessionConfig {
   // Stable identity for attribution, scripted selection, and diagnostics.
-  // It carries no provider cache semantics.
+  // It names no shared cache partition; an adapter without a cacheGroupId
+  // may still use it as this session's own (unshared) identity.
   readonly invocationId: string
   // The invocation's resolved seat, frozen in ReviewPlan. The live adapter
   // resolves it through Pi; the factory carries no independently configured
@@ -136,7 +137,7 @@ export interface SessionConfig {
 }
 
 // The distinct steps an adapter's `open` can fail in — the coarse-error
-// operation discriminator (house style rule 7). The seam enumerates every
+// operation discriminator. The seam enumerates every
 // adapter's operations so the union stays a closed, typo-proof set.
 export type InvocationSetupOperation =
   | "validate-config"

@@ -161,8 +161,12 @@ export const executeFinders = Effect.fn(
       invocationId: `${cacheGroupId}-${invocation.invocationKey}`,
       seat: invocation.seat,
       cwd: reviewWorkingDirectory,
-      systemPrompt: promptTemplates.systemPrompt,
-      prompt: `${sharedContext}\n\n${assembleFinderAssignment(invocation.lens)}`,
+      // The shared block rides in the system prompt, not the first user
+      // message: OpenAI Codex shares a cached prefix across requests only for
+      // `instructions`, and a user-message prefix is reused only within one
+      // conversation (measured 2026-09-10: 0/3 vs 3/3 followers cached).
+      systemPrompt: `${promptTemplates.systemPrompt}\n\n${sharedContext}`,
+      prompt: assembleFinderAssignment(invocation.lens),
       cacheGroupId,
       contract: EmitFindings,
       tools: FINDER_TOOLS,

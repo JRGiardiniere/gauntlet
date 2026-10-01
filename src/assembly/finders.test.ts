@@ -31,6 +31,7 @@ describe("enforceCandidateCap", () => {
       termination: Termination.cases.Completed.make({}),
       output: { findings },
       usage: emptyUsage,
+      toolCalls: { total: 0, errored: 0 },
       durationMillis: 1,
       diagnostics: ["prior diagnostic"],
     })
@@ -59,11 +60,13 @@ describe("finder assembly", () => {
                 file: "src/a.ts",
                 summary: "a refutable defect",
                 failure_scenario: "empty input produces the wrong value",
+                source_references: ["src/helper.ts"],
               },
               { file: "src/b.ts", summary: "a judgment call" },
             ],
           },
           usage: emptyUsage,
+          toolCalls: { total: 0, errored: 0 },
           durationMillis: 1,
           diagnostics: [],
         },
@@ -78,6 +81,7 @@ describe("finder assembly", () => {
         file: "src/a.ts",
         summary: "a refutable defect",
         failureScenario: "empty input produces the wrong value",
+        sourceReferences: ["src/helper.ts"],
       }],
       observations: [{
         _tag: "Observation",
@@ -97,6 +101,7 @@ describe("finder assembly", () => {
         outcome: {
           termination: Termination.cases.FirstResponseTimeout.make({}),
           usage: emptyUsage,
+      toolCalls: { total: 0, errored: 0 },
           durationMillis: 120_000,
           diagnostics: [
             "attempt 1 completed",

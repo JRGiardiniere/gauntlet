@@ -34,21 +34,27 @@ import { withToolCallDeadline } from "./tool-deadline.ts"
 // invocation logic. Deadlines, capture, salvage, and outcome assembly live
 // above the seam and are identical under the scripted adapter.
 
-// Every listed role is checked against Pi's message role vocabulary at the
-// pinned version. `satisfies` fails the build if one stops being valid; it does
-// not prove this list is exhaustive. The closed runtime decode still turns an
-// unknown role into a contract_violation instead of silently dropping a
-// message that might carry terminal state and usage.
+// The listed roles are exactly Pi's message role vocabulary at the pinned
+// version: `satisfies` fails the build if one stops being valid, and
+// `piMessageRolesExhaustive` fails it when Pi adds one. The closed runtime
+// decode still turns an unknown role into a contract_violation instead of
+// silently dropping a message that might carry terminal state and usage.
 type PiMessage = Extract<AgentSessionEvent, { type: "message_end" }>["message"]
 const PI_MESSAGE_ROLES = [
   "user",
   "assistant",
   "toolResult",
+  "system",
   "bashExecution",
   "custom",
   "branchSummary",
   "compactionSummary",
 ] as const satisfies ReadonlyArray<PiMessage["role"]>
+const piMessageRolesExhaustive: Exclude<
+  PiMessage["role"],
+  (typeof PI_MESSAGE_ROLES)[number]
+> extends never ? true : never = true
+void piMessageRolesExhaustive
 
 // Boundary decoders for the subset of Pi's event payloads the seam consumes.
 // A renamed SDK field compiles clean and reads undefined through a cast —
@@ -86,6 +92,16 @@ const PiToolExecutionEnd = Schema.Struct({
     ),
   }),
 })
+
+// Pi's missing-credential error points at its own `/login` and at docs inside
+// node_modules; a Gauntlet user signs in with `gauntlet login`, or sets an
+// API-key provider's key in the environment.
+const piLoginHelp = /Use \/login to log into a provider via OAuth or API key\. See:(?:\n {2}\S+)*/
+const withGauntletLoginHelp = (message: string, provider: string, hasSignIn: boolean): string =>
+  message.replace(
+    piLoginHelp,
+    hasSignIn ? `Run \`gauntlet login ${provider}\`.` : `Set ${provider}'s API key in the environment.`,
+  )
 
 const decodeMessageRole = Schema.decodeUnknownResult(PiMessageRole)
 const decodeAssistantMessageEnd = Schema.decodeUnknownResult(
@@ -339,12 +355,15 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             )
             const customTools = [...workspaceTools, emitTool]
 
-            const sessionManager = SessionManager.inMemory(
-              session.cwd,
-              session.cacheGroupId === undefined
-                ? undefined
-                : { id: session.cacheGroupId },
-            )
+            // The session id is always present. A cacheGroupId maps to it
+            // when the caller asked for a shared prompt-cache partition;
+            // otherwise the invocation's own id gives this session a private
+            // partition. Pi only attributes a request (`x-opencode-session`)
+            // when the session has an id, and OpenCode Go rejects requests
+            // without that header, so an id-less session is not an option.
+            const sessionManager = SessionManager.inMemory(session.cwd, {
+              id: session.cacheGroupId ?? session.invocationId,
+            })
             // Every definition is already the non-generic `ToolDefinition`:
             // ReviewWorkspace exposes the erasure, and withToolCallDeadline
             // preserves it. The SDK's customTools option accepts the same
@@ -392,7 +411,20 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                 agentSession.prompt(text, {
                   expandPromptTemplates: false,
                   source: "rpc",
-                }),
+                }).catch((error) =>
+                  Promise.reject(
+                    error instanceof Error
+                      ? new Error(
+                        withGauntletLoginHelp(
+                          error.message,
+                          model.provider,
+                          modelRuntime.getProvider(model.provider)?.auth.oauth !== undefined,
+                        ),
+                        { cause: error },
+                      )
+                      : error,
+                  )
+                ),
               abort: () => agentSession.abort(),
               dispose: () => {
                 agentSession.dispose()

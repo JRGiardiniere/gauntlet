@@ -55,6 +55,7 @@ const outcome = (
     costUsd: 0,
     rawRows,
   },
+  toolCalls: { total: 0, errored: 0 },
   durationMillis: 0,
   diagnostics: [],
 })

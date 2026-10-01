@@ -1,0 +1,42 @@
+{
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "jsPlugins": [
+    {
+      "name": "house",
+      "specifier": "./index.ts"
+    }
+  ],
+  "rules": {
+    "house/effect-fn-span-format": "error",
+    "house/no-effect-platform-imports": "error",
+    "house/no-fnuntraced-outside-tests": "error",
+    "house/no-import-from-barrel-package": [
+      "error",
+      {
+        "checkPatterns": [
+          "^effect$",
+          "^effect/(.+/)?[a-z][a-z0-9]*$",
+          "^@effect/[^/]+$",
+          "^@effect/[^/]+/(.+/)?[a-z][a-z0-9]*$"
+        ],
+        "checkRelativeIndexImports": true
+      }
+    ],
+    "house/no-instanceof-tagged-error": "error",
+    "house/no-raw-error-throw": "error",
+    "house/no-schema-class": "error",
+    "house/no-sleep-in-tests": "error",
+    "house/require-ts-extension-imports": "error",
+    "house/retry-schedule-bounded": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.integration.ts", "**/*.fixture.ts", "**/vitest.setup.ts"],
+      "rules": {
+        "house/no-import-from-barrel-package": "off",
+        "house/no-raw-error-throw": "off",
+        "house/no-instanceof-tagged-error": "off"
+      }
+    }
+  ]
+}

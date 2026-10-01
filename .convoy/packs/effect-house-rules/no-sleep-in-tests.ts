@@ -1,0 +1,29 @@
+import { defineRule } from "@oxlint/plugins"
+
+import { getPropertyName, isIdentifier, isTestFile } from "./utils.ts"
+
+export const noSleepInTestsRule = defineRule({
+  meta: {
+    type: "problem",
+    docs: {
+      description: "Disallow Effect.sleep in unit test files",
+    },
+    messages: {
+      sleepInTest:
+        "Do not use Effect.sleep in *.test.ts files. Drive the TestClock with TestClock.adjust, or use it.live when real time is the behavior under test, as the effect skill says.",
+    },
+  },
+  createOnce(context) {
+    return {
+      before: () => isTestFile(context.filename),
+      MemberExpression(node) {
+        if (
+          isIdentifier(node.object, "Effect")
+          && getPropertyName(node.property) === "sleep"
+        ) {
+          context.report({ node, messageId: "sleepInTest" })
+        }
+      },
+    }
+  },
+})

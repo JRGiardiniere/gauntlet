@@ -33,6 +33,7 @@ const completed = (
   termination: Termination.cases.Completed.make({}),
   output: { verdicts },
   usage: emptyUsage,
+  toolCalls: { total: 0, errored: 0 },
   durationMillis: 1,
   diagnostics: [],
 })

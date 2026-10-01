@@ -138,6 +138,15 @@ created. An empty Default Lens selection is valid: the Run has no Finder
 invocations and produces the ordinary zero-result Dossier. Gauntlet adds no
 special protection for an obviously empty review.
 
+Amended by #121's 2026-09-22 complexity challenge: the Recipe Catalog stays
+user-owned, with one exception — `gauntlet upgrade` refreshes Pi's model
+catalog and rewrites any Seat whose model has a newer Luna/Sol on the same
+provider, preserving its thinking level. Seats keep exact model ids (runs record
+only the Seat string, so a fuzzy Seat would lose which model ran). Only the
+hardcoded `gpt-<version>-(luna|sol)` pattern matches, versions compare
+numerically, and a model launch reaches users as a Gauntlet release whose notice
+prompts the upgrade — no background check, separate command, or notified state.
+
 Lens selections express membership, not priority or execution order. Planning
 produces a deterministic invocation array and the ReviewPlan records that
 resolved array because downstream candidate indexes consume it. The array's

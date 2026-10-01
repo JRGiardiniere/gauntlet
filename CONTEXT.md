@@ -112,7 +112,7 @@ _Avoid_: baseline lenses, default Lens set, Lens roster
 **Candidate**:
 One finder-produced claim awaiting evaluation, with a stable identity. A tagged
 union of BugClaim and Observation sharing a common core (identity, lens,
-location, summary).
+location, summary) and optional citations to source files the finder read.
 _Avoid_: finding (reserved for what survives evaluation), issue, claim, result
 
 **BugClaim**:

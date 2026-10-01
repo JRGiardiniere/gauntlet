@@ -28,6 +28,7 @@ import {
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { configCommand } from "./config.ts"
+import { loginCommand } from "./login.ts"
 import { availableUpdateNotice } from "./update-check.ts"
 import { upgradeCommand } from "./upgrade.ts"
 import { gauntletVersion } from "./version.ts"
@@ -310,7 +311,7 @@ const deliver = Command.make(
 )
 
 const gauntlet = Command.make("gauntlet").pipe(
-  Command.withSubcommands([review, deliver, configCommand, upgradeCommand]),
+  Command.withSubcommands([review, deliver, configCommand, loginCommand, upgradeCommand]),
   Command.withDescription("Effect-native, Pi-harnessed code-review agent"),
 )
 
@@ -371,6 +372,8 @@ const runCli = (
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       UpgradeError: (failure) =>
         progress(`could not upgrade — ${failure.reason}`).pipe(Effect.as(1)),
+      LoginError: (failure) =>
+        progress(`could not sign in — ${failure.reason}`).pipe(Effect.as(1)),
       SubmissionError: (failure) =>
         progress(`could not review — ${failure.reason}`).pipe(Effect.as(1)),
       SpecificationLoadError: (failure) =>
