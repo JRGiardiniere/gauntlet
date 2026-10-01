@@ -22,4 +22,4 @@ The plugin imports `@oxlint/plugins`, so the project depends on it at exactly it
 
 ## Fixing findings
 
-From upstream's `install-anti-slop` skill, which this pack replaces: fix a finding by improving the code, preferring inference, `as const`, `satisfies`, named owner contracts and parsing at the boundary. Don't make lint pass with an unsafe cast, a laundered type or a weaker severity. A rule the code can't pass yet is turned off in the project's own config, as tracked debt.
+From upstream's `install-anti-slop` skill, which this pack replaces: fix a finding by improving the code, preferring inference, `as const`, `satisfies`, named owner contracts and parsing at the boundary. Don't make a finding pass with an unsafe cast, a laundered type, a disable comment, a new override or a lower severity. Turning a rule off isn't a fix but a separate decision about the project: a rule its code doesn't pass yet is off in its own config only as debt listed in its debt issue, and paying that debt means fixing the code this way.
