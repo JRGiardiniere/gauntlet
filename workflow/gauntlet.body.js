@@ -1,7 +1,7 @@
 export const meta = {
-  name: "gauntlet",
+  name: "gauntlet-claude",
   description: "Gauntlet's five-stage code review as a Claude Code workflow: lens finders → pool → adversarial verifiers and an observation judge → deterministic dossier",
-  whenToUse: "Use to run a Gauntlet review without the CLI. Args: \"[target] [--lenses=a,b] [--model=opus] [--effort=low] [--interpretive-model=opus] [--interpretive-effort=high] [--spec=<caller addendum, may be prose>]\" — target comes first: empty (working tree), a PR number, base..head, or a branch.",
+  whenToUse: "An alternative to the Gauntlet CLI, which stays the default: review requests (\"review this\", \"run gauntlet\", a PR or branch review) go to the gauntlet skill and `gauntlet review`. Run this workflow only when the user asks for gauntlet-claude or the Claude workflow by name, such as to compare Gauntlet on Claude with the CLI. Args: \"[target] [--level=low|medium|high] [--finders=standard|extra] [--lenses=a,b] [--spec=<caller addendum, may be prose>]\" — target comes first: empty (working tree), a PR number, base..head, or a branch.",
   phases: [
     { title: "Submission", detail: "Resolve the ReviewTarget, fetch the Review Specification, load the Standards Manifest" },
     { title: "Finders", detail: "One finder per selected lens over the frozen diff; candidates route by type" },
@@ -41,26 +41,42 @@ export const meta = {
 //     markdown) as its result; the workflow journal is the durable record.
 //   • Lenses are the shipped catalog frozen at build time. Project-local
 //     `.gauntlet/lenses/` and the `default-lenses` setting (the user's Default
-//     Lenses) are not read; without --lenses the run uses the list `config
-//     init` seeds, and --lenses is the only override.
+//     Lenses) are not read. --finders picks a lens set (standard by default,
+//     or extra for the full list `config init` seeds); --lenses names an
+//     exact list instead.
+//   • One seat runs every stage, chosen by --level, where the CLI's Recipe
+//     may give interpretive finders and the judge their own seat.
 //
-// Args (string): "[target] [--lenses=a,b,c] [--model=opus] [--effort=high]
-//                 [--interpretive-model=opus] [--interpretive-effort=xhigh]
-//                 [--spec=<caller addendum text>]"
+// Args (string): "[target] [--level=medium] [--finders=standard]
+//                 [--lenses=a,b,c] [--spec=<caller addendum text>]"
 //   target: everything before the first --flag: empty (working tree vs HEAD),
 //           a PR number, "<base>..<head>", a branch name, or free-form
 //           scoping text. --spec runs to the next --flag or the end, so it
 //           may carry prose; every other flag takes one token.
-// Args (object): { target, lenses: [...], model, effort, interpretiveModel,
-//                  interpretiveEffort, spec }
+// Args (object): { target, level, finders, lenses: [...], spec }
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ─── Pipeline constants — embedded from src/domain/review-plan.ts and
 // src/assembly/pool.ts by the build, so the two surfaces cannot drift.
 const { DEFAULT_CANDIDATE_CAP, SUBJECTIVE_CANDIDATE_CAP, POOL_SKIP_UNDER, VERIFIER_BUNDLE_SIZE } = CONTENT.constants
-// The list `config init` seeds as a user's Default Lenses. This surface reads
-// no settings, so it runs the seed when --lenses is absent.
-const SEEDED_LENSES = CONTENT.seededLenses
+// Finder sets. extra is the list `config init` seeds as a user's Default
+// Lenses. standard drops the five lenses that found the fewest high-priority
+// findings no other lens found, across 192 CLI runs from Aug 18 to Oct 1 2026
+// (cross-file, language-pitfalls, security, refactoring-checklist,
+// wrapper-proxy: 32 of 396 unique P1/P2s, a third of finder spend).
+const FINDER_SETS = {
+  standard: ["subjective", "spec-conformance", "presentation-environment", "standards", "absence", "diff-scan", "removed-behavior", "cleanup"],
+  extra: CONTENT.seededLenses,
+}
+// Levels: the Recipe analogue, one seat for every stage. Pinned, never
+// inherited from the session (user policy, same as code-review-tiered):
+// review cost and quality do not depend on which model the orchestrating
+// session happens to run.
+const LEVELS = {
+  low: { model: "sonnet", effort: "medium" },
+  medium: { model: "opus", effort: "medium" },
+  high: { model: "opus", effort: "high" },
+}
 const GOVERNING_STANDARDS_HEADING = "## Governing standards"
 
 // ─── Args
@@ -69,7 +85,7 @@ const GOVERNING_STANDARDS_HEADING = "## Governing standards"
 // the target; `--spec=` then runs to the next `--name=` token or the end, so
 // it may carry prose (a bare `--word` inside it is prose); every other flag
 // takes exactly one token.
-const OPTION_KEYS = { lenses: "lenses", model: "model", effort: "effort", "interpretive-model": "interpretiveModel", "interpretive-effort": "interpretiveEffort", spec: "spec" }
+const OPTION_KEYS = { level: "level", finders: "finders", lenses: "lenses", spec: "spec" }
 const OBJECT_KEYS = ["target", ...Object.values(OPTION_KEYS)]
 const parseArgs = raw => {
   const given = {}
@@ -101,12 +117,15 @@ const parseArgs = raw => {
   }
   const trimmed = key => (typeof given[key] === "string" && given[key].trim() !== "" ? given[key].trim() : undefined)
   const lenses = "lenses" in given ? given.lenses.split(",").map(x => x.trim()).filter(Boolean) : null
-  if (lenses !== null && lenses.length === 0) problems.push("lenses was given but names no lens; omit it to run the seeded list")
+  if (lenses !== null && lenses.length === 0) problems.push("lenses was given but names no lens; omit it to run a finder set")
+  const level = trimmed("level") ?? "medium"
+  if (!Object.hasOwn(LEVELS, level)) problems.push(`unknown level: ${level} (use ${Object.keys(LEVELS).join(", ")})`)
+  const finders = trimmed("finders")
+  if (finders !== undefined && !Object.hasOwn(FINDER_SETS, finders)) problems.push(`unknown finder set: ${finders} (use ${Object.keys(FINDER_SETS).join(", ")})`)
+  if (finders !== undefined && lenses !== null) problems.push("give --finders or --lenses, not both")
   return {
     target: target.trim(),
-    lenses,
-    model: trimmed("model"), effort: trimmed("effort"),
-    interpretiveModel: trimmed("interpretiveModel"), interpretiveEffort: trimmed("interpretiveEffort"),
+    level, finders: finders ?? "standard", lenses,
     spec: trimmed("spec") ?? "",
     problems, accepted,
   }
@@ -116,21 +135,12 @@ if (OPTS.problems.length > 0) {
   return { error: OPTS.problems.join("; "), accepted: OPTS.accepted, available: Object.keys(CONTENT.lenses).sort() }
 }
 
-// Seats: the Recipe analogue. A Default Seat for every stage, with the
-// interpretive Finder Class allowed its own override (CONTEXT.md: Finder Class).
-// Pinned, never inherited from the session (user policy, same as
-// code-review-tiered): review cost and quality do not depend on which model
-// the orchestrating session happens to run.
-const PINNED_MODEL = "opus"
-const PINNED_EFFORT = "low"
-const seatOpts = (model, effort) => ({ model, effort })
-const DEFAULT_SEAT = seatOpts(OPTS.model ?? PINNED_MODEL, OPTS.effort ?? PINNED_EFFORT)
-const INTERPRETIVE_SEAT = seatOpts(OPTS.interpretiveModel ?? DEFAULT_SEAT.model, OPTS.interpretiveEffort ?? DEFAULT_SEAT.effort)
+const SEAT = LEVELS[OPTS.level]
 const describeSeat = seat => `claude/${seat.model}:${seat.effort}`
 
-// Lens selection: exact caller override, otherwise the seeded list.
+// Lens selection: exact caller list, otherwise the chosen finder set.
 // Repeated names collapse by first occurrence.
-const selectedNames = [...new Set(OPTS.lenses ?? SEEDED_LENSES)]
+const selectedNames = [...new Set(OPTS.lenses ?? FINDER_SETS[OPTS.finders])]
 const unknownLenses = selectedNames.filter(n => !Object.hasOwn(CONTENT.lenses, n))
 if (unknownLenses.length > 0) {
   return { error: `selected lens does not exist: ${unknownLenses.join(", ")}`, available: Object.keys(CONTENT.lenses).sort() }
@@ -280,7 +290,7 @@ const scope = await agent(
   "\n## Governing standards (Standards Manifest)\n" +
   "Compute `git rev-parse --path-format=absolute --git-common-dir`, replace every character that is not A-Z, a-z, or 0-9 with '-', and look for the file `$HOME/.gauntlet/standards/<that>`. If it does not exist or lists nothing, return an empty `standardsDocuments`. Otherwise each non-blank line is a document path (`~/` = $HOME, absolute as-is, relative to repoRoot): resolve each to an absolute path, confirm it is readable (`test -r`), and return `{entry, path}` pairs in manifest order. Do not return document contents. A listed document that cannot be read is a configuration failure: put the problem in warnings and return an empty `standardsDocuments`.\n\n" +
   "Structured output only.",
-  { label: "submission", schema: SCOPE_SCHEMA, ...DEFAULT_SEAT },
+  { label: "submission", schema: SCOPE_SCHEMA, ...SEAT },
 )
 if (!scope) return { error: "Submission agent returned no result — could not resolve the ReviewTarget." }
 // An empty diff runs no finder; the pipeline falls through with zero
@@ -321,7 +331,7 @@ for (const name of (emptyDiffNote ? [] : selectedNames)) {
     candidateCap: name === "subjective" ? SUBJECTIVE_CANDIDATE_CAP : DEFAULT_CANDIDATE_CAP,
     // Submission bakes the Governing standards block into the standards lens's frozen prompt text.
     promptText: name === "standards" ? `${lens.promptText}\n\n${governingStandards}` : lens.promptText,
-    seat: lens.finderClass === "interpretive" ? INTERPRETIVE_SEAT : DEFAULT_SEAT,
+    seat: SEAT,
   })
 }
 for (const s of skipped) log(`skipped ${s.lens} — ${s.reason}`)
@@ -431,7 +441,7 @@ const poolBugClaims = async () => {
   } else {
     const prompt = render(CONTENT.prompts.pool, { CANDIDATES: bugClaims.map(candidateLine).join("\n") }) +
       "\n\n## Environment note\n\nDo not open any file or run any command — cluster from the text above only. Structured output only."
-    const out = await agent(prompt, { label: "pool", phase: "Pool", schema: POOL_SCHEMA, ...DEFAULT_SEAT })
+    const out = await agent(prompt, { label: "pool", phase: "Pool", schema: POOL_SCHEMA, ...SEAT })
     // Repair: keep each claim's first valid placement, drop impossible ones,
     // restore every uncovered claim as a singleton. A claim is never lost.
     const seen = new Set()
@@ -495,7 +505,7 @@ const bundleVerdicts = (out, bundle) => {
 const verifyBundle = async (bundle, i) => {
   const label = `verifier bundle ${i + 1}`
   const prompt = render(CONTENT.prompts.verifier, { SCOPE_BLOCK: stageScope, CLAIMS: verifierClaims(bundle) }) + `\n\n${ENVIRONMENT_NOTE}`
-  const out = await agent(prompt, { label: `verify:bundle-${i + 1}`, phase: "Verification", schema: VERDICTS_SCHEMA, ...DEFAULT_SEAT })
+  const out = await agent(prompt, { label: `verify:bundle-${i + 1}`, phase: "Verification", schema: VERDICTS_SCHEMA, ...SEAT })
   const { verdicts, failure } = bundleVerdicts(out, bundle)
   if (failure) coverageGaps.push({ stage: "Verification", reason: `${label} ${failure}; its clusters stay PLAUSIBLE` })
   // A cluster without a valid ruling is PLAUSIBLE — a first-class Verdict,
@@ -525,7 +535,7 @@ const bugClaimPath = async () => {
 const judgmentPath = async () => {
   if (observations.length === 0) return { kept: [], dropped: [], undecided: [] }
   const prompt = render(CONTENT.prompts.judge, { SCOPE_BLOCK: stageScope, CANDIDATES: observations.map(candidateLine).join("\n") }) + `\n\n${ENVIRONMENT_NOTE}`
-  const out = await agent(prompt, { label: "judge", phase: "Judgment", schema: JUDGMENTS_SCHEMA, ...INTERPRETIVE_SEAT })
+  const out = await agent(prompt, { label: "judge", phase: "Judgment", schema: JUDGMENTS_SCHEMA, ...SEAT })
   if (!out) coverageGaps.push({ stage: "Judgment", reason: "judge produced no decodable emit_judgments output" })
   const obsByIndex = new Map(observations.map(o => [o.index, o]))
   const decisions = new Map()
@@ -618,12 +628,13 @@ const entryLine = e => {
   return `- ${priority}\`[${e.tag}]\` ${oneLine(locationOf(e.candidate))} — ${oneLine(e.candidate.summary)} _(${attribution})_${detail}${tests}`
 }
 const renderEntries = (entries, empty) => (entries.length === 0 ? empty : entries.map(entryLine).join("\n"))
-const lensList = runnable.length === 0 ? "none" : runnable.map(l => `${l.name} (${describeSeat(l.seat)})`).join(", ")
+const lensList = runnable.length === 0 ? "none" : runnable.map(l => l.name).join(", ")
+const finderSet = OPTS.lenses ? "custom" : OPTS.finders
 const header = [
   `- Target: ${scope.targetDescription}`,
   `- Diff command: \`${scope.diffCommand}\``,
-  `- Recipe: workflow (default: ${describeSeat(DEFAULT_SEAT)}, interpretive: ${describeSeat(INTERPRETIVE_SEAT)})`,
-  `- Lenses: ${lensList}`,
+  `- Level: ${OPTS.level} (${describeSeat(SEAT)})`,
+  `- Lenses (${finderSet}): ${lensList}`,
   `- Coverage gaps: ${coverageGaps.length === 0 ? "none" : coverageGaps.map(g => `${g.stage}${g.lens ? ` (${g.lens})` : ""}: ${g.reason}`).join("; ")}`,
   `- Warnings: ${(scope.warnings || []).length === 0 ? "none" : scope.warnings.join("; ")}`,
   ...(emptyDiffNote ? [`- Note: ${emptyDiffNote}`] : []),
@@ -643,7 +654,7 @@ const keptCount = findings.filter(f => f.tag === "judgment").length
 const plausibleCount = unresolved.filter(u => u.tag === "plausible").length
 const undecidedCount = unresolved.filter(u => u.tag === "undecided").length
 const digest = [
-  `${confirmedCount} confirmed · ${keptCount} kept · ${plausibleCount} plausible · ${undecidedCount} undecided — ${scope.targetDescription} — recipe: workflow${emptyDiffNote ? ` — ${emptyDiffNote}` : ""}`,
+  `${confirmedCount} confirmed · ${keptCount} kept · ${plausibleCount} plausible · ${undecidedCount} undecided — ${scope.targetDescription} — level: ${OPTS.level} · finders: ${finderSet}${emptyDiffNote ? ` — ${emptyDiffNote}` : ""}`,
   ...[...findings, ...unresolved].map(e => `- [${e.reviewPriority ? `${e.reviewPriority} ` : ""}${e.tag}] ${locationOf(e.candidate)} — ${oneLine(e.candidate.summary).slice(0, 200)}`),
 ].join("\n")
 log(digest.split("\n")[0])
@@ -653,6 +664,7 @@ return {
   markdown,
   dossier: {
     target: scope.targetDescription,
+    level: OPTS.level, finders: finderSet,
     lenses: runnable.map(l => ({ name: l.name, seat: describeSeat(l.seat), candidateCap: l.candidateCap, finderClass: l.finderClass })),
     skipped, coverageGaps, warnings: scope.warnings || [],
     findings, unresolved,

@@ -5,7 +5,7 @@ import { compileFunction } from "node:vm"
 
 // Execute the built artifact with the host's five callbacks replaced. Only the
 // metadata export is adapted to the function body used by this local runner.
-const source = readFileSync(new URL("../.claude/workflows/gauntlet.js", import.meta.url), "utf8")
+const source = readFileSync(new URL("../.claude/workflows/gauntlet-claude.js", import.meta.url), "utf8")
 const execute = compileFunction(
   `return (async () => {\n${source.replace("export const meta =", "const meta =")}\n})()`,
   ["args", "agent", "parallel", "phase", "log"],
@@ -43,10 +43,10 @@ const run = async (args, replies) => {
 }
 
 for (const args of [
-  "42 --lenses=diff-scan,subjective --model=sonnet --effort=low --interpretive-model=opus --interpretive-effort=high --spec=caller prose --literal",
-  { target: "42", lenses: ["diff-scan", "subjective"], model: "sonnet", effort: "low", interpretiveModel: "opus", interpretiveEffort: "high", spec: "caller prose --literal" },
+  "42 --lenses=diff-scan,subjective --level=low --spec=caller prose --literal",
+  { target: "42", lenses: ["diff-scan", "subjective"], level: "low", spec: "caller prose --literal" },
 ]) {
-  test(`routes a mixed review with ${typeof args} arguments and preserves model assignments`, async () => {
+  test(`routes a mixed review with ${typeof args} arguments and runs every stage on the level's seat`, async () => {
     const { result, calls } = await run(args, {
       submission: scope,
       "finder:diff-scan": { findings: [finding("bug", true)] },
@@ -60,8 +60,8 @@ for (const args of [
     assert.deepEqual(result.dossier.accounting, { finders: 2, candidates: 2, bugClaims: 1, observations: 1, clusters: 1 })
     assert.deepEqual(result.dossier.coverageGaps, [])
     assert.deepEqual(calls.map(call => [call.label, call.model, call.effort]).sort(), [
-      ["finder:diff-scan", "sonnet", "low"], ["finder:subjective", "opus", "high"],
-      ["judge", "opus", "high"], ["submission", "sonnet", "low"], ["verify:bundle-1", "sonnet", "low"],
+      ["finder:diff-scan", "sonnet", "medium"], ["finder:subjective", "sonnet", "medium"],
+      ["judge", "sonnet", "medium"], ["submission", "sonnet", "medium"], ["verify:bundle-1", "sonnet", "medium"],
     ])
     assert.match(calls[0].prompt, /caller prose --literal/)
     const specific = calls.find(call => call.label === "finder:diff-scan").prompt
@@ -75,12 +75,27 @@ for (const args of [
     }
     for (const prompt of [specific, interpretive]) assert.match(prompt, /\/fixture\/diff\.patch/)
     assert.match(result.markdown, /bug/)
-    assert.match(result.digest, /1 confirmed · 1 kept/)
+    assert.match(result.digest, /1 confirmed · 1 kept .* level: low · finders: custom/)
   })
 }
 
+const finderLabels = calls => calls.map(call => call.label).filter(label => label.startsWith("finder:")).map(label => label.slice("finder:".length)).sort()
+const allFindersQuiet = names => Object.fromEntries(names.map(name => [`finder:${name}`, { findings: [] }]))
+const standardsScope = { ...scope, standardsDocuments: [{ entry: "AGENTS.md", path: "/fixture/repo/AGENTS.md" }] }
+
+test("finder sets choose the lenses: standard by default, extra for the seeded list", async () => {
+  const standard = ["absence", "cleanup", "diff-scan", "presentation-environment", "removed-behavior", "spec-conformance", "standards", "subjective"]
+  const extra = [...standard, "cross-file", "language-pitfalls", "refactoring-checklist", "security", "wrapper-proxy"].sort()
+  for (const [args, expected, level] of [["42", standard, ["opus", "medium"]], ["42 --finders=extra --level=high", extra, ["opus", "high"]]]) {
+    const { result, calls } = await run(args, { submission: standardsScope, ...allFindersQuiet(extra) })
+    assert.deepEqual(finderLabels(calls), expected)
+    assert.ok(calls.every(call => call.model === level[0] && call.effort === level[1]))
+    assert.equal(result.dossier.finders, args.includes("extra") ? "extra" : "standard")
+  }
+})
+
 test("invalid selections stop before any paid submission", async () => {
-  for (const args of ["--lenses=missing-lens", "--lenses=", "--unknown=value"]) {
+  for (const args of ["--lenses=missing-lens", "--lenses=", "--unknown=value", "--level=max", "--finders=all", "--finders=extra --lenses=diff-scan", "--model=opus"]) {
     const { result, calls } = await run(args, {})
     assert.ok(result.error)
     assert.deepEqual(calls, [])

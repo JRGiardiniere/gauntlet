@@ -19,4 +19,4 @@ docs/notes/issue-89-simplification-audit.md
 *.bun-build
 
 # Generated experimental Claude workflow
-.claude/workflows/gauntlet.js
+.claude/workflows/gauntlet-claude.js

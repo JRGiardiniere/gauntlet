@@ -24,7 +24,7 @@ class WorkflowBuildError extends Data.TaggedError("WorkflowBuildError")<{
 const repoRoot = `${import.meta.dirname}/..`
 process.chdir(repoRoot)
 
-const OUTPUT = ".claude/workflows/gauntlet.js"
+const OUTPUT = ".claude/workflows/gauntlet-claude.js"
 const BODY = "workflow/gauntlet.body.js"
 const PROMPTS = "content/prompts"
 const LENSES = "content/lenses"
