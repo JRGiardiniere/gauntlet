@@ -3,13 +3,12 @@ import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Candidate } from "../domain/candidate.ts"
 import {
+  decodeOutputContract,
   EmitFindings,
   EmitPool,
   EmitVerdicts,
+  projectOutputContract,
 } from "./output-contract.ts"
-
-const strictDecode = <O>(schema: Schema.Codec<O, O, never, never>) =>
-  Schema.decodeUnknownEffect(schema, { onExcessProperty: "error" })
 
 describe("output contracts", () => {
   // Projection regressions quietly degrade model guidance (ADR 0008).
@@ -24,7 +23,7 @@ describe("output contracts", () => {
         [EmitVerdicts, "Never generated test source or shell commands"],
       ] as const
       for (const [contract, sentinel] of sentinels) {
-        const document = Schema.toJsonSchemaDocument(contract.schema)
+        const document = projectOutputContract(contract)
         expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
         const projected = yield* Schema.encodeEffect(
           Schema.fromJsonString(Schema.Unknown),
@@ -34,15 +33,17 @@ describe("output contracts", () => {
           parameters: document.schema,
         })
         expect(projected).toContain(sentinel)
+        expect(projected).not.toContain('"additionalProperties":true')
+        expect(projected).toContain('"additionalProperties":false')
       }
     }))
 
   it.effect("accepts empty finder output and an arbitrary candidate path", () =>
     Effect.gen(function* () {
-      expect(yield* strictDecode(EmitFindings.schema)({ findings: [] })).toEqual({
+      expect(yield* decodeOutputContract(EmitFindings)({ findings: [] })).toEqual({
         findings: [],
       })
-      const output = yield* strictDecode(EmitFindings.schema)({
+      const output = yield* decodeOutputContract(EmitFindings)({
         findings: [
           {
             file: "not-in-the-changed-file-list.ts",
@@ -55,7 +56,7 @@ describe("output contracts", () => {
 
   it.effect("canonicalizes model-authored text used by line-oriented prompts", () =>
     Effect.gen(function* () {
-      const findings = yield* strictDecode(EmitFindings.schema)({
+      const findings = yield* decodeOutputContract(EmitFindings)({
         findings: [
           {
             file: " src/a.ts\n",
@@ -72,7 +73,7 @@ describe("output contracts", () => {
         },
       ])
 
-      const pool = yield* strictDecode(EmitPool.schema)({
+      const pool = yield* decodeOutputContract(EmitPool)({
         clusters: [{ indexes: [1], summary: "canonical\nsummary" }],
       })
       expect(pool.clusters[0]?.summary).toBe("canonical summary")
@@ -81,7 +82,7 @@ describe("output contracts", () => {
   it.effect("preserves source references through the output and Candidate codecs", () =>
     Effect.gen(function* () {
       const references = ["src/helper.ts"]
-      const output = yield* strictDecode(EmitFindings.schema)({ findings: [{
+      const output = yield* decodeOutputContract(EmitFindings)({ findings: [{
         file: "src/a.ts", summary: "claim", source_references: references,
       }] })
       expect(output.findings[0]?.source_references).toEqual(references)
@@ -93,7 +94,7 @@ describe("output contracts", () => {
 
   it.effect("requires JSON-safe 1-indexed integer locations", () =>
     Effect.gen(function* () {
-      const decode = strictDecode(EmitFindings.schema)
+      const decode = decodeOutputContract(EmitFindings)
       for (const line of [0, 1.5, Number.NaN]) {
         const failure = yield* Effect.flip(
           decode({
@@ -107,7 +108,7 @@ describe("output contracts", () => {
   it.effect("fails closed on excess fields and conditional verdict fields", () =>
     Effect.gen(function* () {
       const findingsFailure = yield* Effect.flip(
-        strictDecode(EmitFindings.schema)({
+        decodeOutputContract(EmitFindings)({
           findings: [
             { file: "src/a.ts", summary: "extra", review_priority: "P1" },
           ],
@@ -116,7 +117,7 @@ describe("output contracts", () => {
       expect(findingsFailure._tag).toBe("SchemaError")
 
       const verdictFailure = yield* Effect.flip(
-        strictDecode(EmitVerdicts.schema)({
+        decodeOutputContract(EmitVerdicts)({
           verdicts: [
             {
               cluster: 1,
@@ -130,7 +131,7 @@ describe("output contracts", () => {
 
       for (const evidence of ["first line\nsecond line", "trailing newline\n"]) {
         const multilineEvidenceFailure = yield* Effect.flip(
-          strictDecode(EmitVerdicts.schema)({
+          decodeOutputContract(EmitVerdicts)({
             verdicts: [
               {
                 cluster: 1,
@@ -144,7 +145,7 @@ describe("output contracts", () => {
         expect(multilineEvidenceFailure._tag).toBe("SchemaError")
       }
 
-      const refuted = yield* strictDecode(EmitVerdicts.schema)({
+      const refuted = yield* decodeOutputContract(EmitVerdicts)({
         verdicts: [
           { cluster: 1, verdict: "REFUTED", evidence: "guard rejects it" },
         ],
@@ -155,7 +156,7 @@ describe("output contracts", () => {
   // Missing and empty suggestion contents reach deterministic resolution.
   it.effect("preserves missing and empty test suggestion contents for resolution", () =>
     Effect.gen(function* () {
-      const decode = strictDecode(EmitVerdicts.schema)
+      const decode = decodeOutputContract(EmitVerdicts)
       const suggested = yield* decode({
         verdicts: [
           {
@@ -193,7 +194,7 @@ describe("output contracts", () => {
   it.effect("requires non-empty pool clusters", () =>
     Effect.gen(function* () {
       const poolFailure = yield* Effect.flip(
-        strictDecode(EmitPool.schema)({
+        decodeOutputContract(EmitPool)({
           clusters: [{ indexes: [], summary: "empty cluster" }],
         }),
       )

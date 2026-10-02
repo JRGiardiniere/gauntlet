@@ -439,6 +439,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                     ? [entry.message.usage]
                     : [],
                 ),
+              transcriptEntries: () => sessionManager.getEntries(),
             } satisfies HarnessSession
           },
           catch: (cause) =>

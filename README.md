@@ -55,3 +55,11 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
   review standards; `--lenses a,b` selects exactly those for one run.
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
+
+## Debugging a review
+
+Run a review with `gauntlet --log-level debug review ...` to include each
+invocation's complete Pi session transcript in that Run's existing `run.log`.
+The transcript entries include prompts, model messages, tool calls, and tool
+results. Normal terminal output stays bounded, and ordinary reviews do not
+read or persist transcripts.

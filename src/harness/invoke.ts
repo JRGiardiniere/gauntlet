@@ -5,6 +5,7 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Function from "effect/Function"
+import * as LogLevel from "effect/LogLevel"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
 import * as Schema from "effect/Schema"
@@ -28,7 +29,11 @@ import {
   type StopReason,
   UsageRow,
 } from "./harness-session.ts"
-import type { OutputContract } from "./output-contract.ts"
+import {
+  decodeOutputContract,
+  type OutputContract,
+  projectOutputContract,
+} from "./output-contract.ts"
 
 const MAX_CORRECTIVE_TURNS = 2
 const MIN_RETRY_REMAINING_MILLIS = 5_000
@@ -288,6 +293,42 @@ const bestEffortDispose = (
     ),
   )
 
+const logDebugTranscript = (
+  session: HarnessSession,
+  invocationId: string,
+  capture: CaptureAccumulator,
+) =>
+  Effect.gen(function* () {
+    if (!(yield* LogLevel.isEnabled("Debug"))) return
+    const entries = yield* Effect.try({
+      try: () => session.transcriptEntries().map(jsonSafeValue),
+      catch: (cause) => String(cause),
+    })
+    yield* Effect.forEach(
+      entries,
+      (entry, index) =>
+        Effect.logDebug("agent transcript", {
+          invocationId,
+          entryIndex: index + 1,
+          entry,
+        }),
+      { discard: true },
+    )
+  }).pipe(
+    Effect.catch((reason) =>
+      Effect.sync(() => {
+        capture.dispatch({
+          type: "diagnostic",
+          message: `debug transcript capture failed: ${reason}`,
+        })
+      }).pipe(
+        Effect.andThen(
+          Effect.logWarning(`debug transcript capture failed: ${reason}`),
+        ),
+      ),
+    ),
+  )
+
 const openCapturedSession = Effect.fn(
   "gauntlet.invocation.open_captured_session",
 )(function* <O>(
@@ -304,7 +345,7 @@ const openCapturedSession = Effect.fn(
     emitTool: {
       name: input.contract.toolName,
       description: input.contract.description,
-      parameters: Schema.toJsonSchemaDocument(input.contract.schema).schema,
+      parameters: projectOutputContract(input.contract).schema,
       execute: (raw: EmitToolArgs) =>
         capture.dispatch({ type: "validated_emit", raw }),
     },
@@ -328,7 +369,12 @@ const openCapturedSession = Effect.fn(
             reason: String(cause),
           })
         }
-      }).pipe(Effect.andThen(bestEffortDispose(opened, capture))),
+      }).pipe(
+        Effect.andThen(
+          logDebugTranscript(opened, input.invocationId, capture),
+        ),
+        Effect.andThen(bestEffortDispose(opened, capture)),
+      ),
     { interruptible: true },
   )
 
@@ -610,7 +656,8 @@ const decodeJsonValue = Schema.decodeUnknownSync(
 // Normalizes a raw usage row into the usage-accounting JSON contract. The
 // stringify/parse round-trip drops undefined fields (as JSON.stringify
 // would) and throws on non-serializable rows.
-const jsonSafeRow = Function.compose(encodeJsonString, decodeJsonValue)
+const jsonSafeValue = Function.compose(encodeJsonString, decodeJsonValue)
+const jsonSafeRow = jsonSafeValue
 
 const usageFrom = (states: ReadonlyArray<CaptureState>) =>
   Effect.gen(function* () {
@@ -668,14 +715,13 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
   })
 
 const outputFrom = <O>(
+  invocationId: string,
   contract: OutputContract<O>,
   states: ReadonlyArray<CaptureState>,
   diagnostics: Array<string>,
 ) =>
   Effect.gen(function* () {
-    const decode = Schema.decodeUnknownEffect(contract.schema, {
-      onExcessProperty: "error",
-    })
+    const decode = decodeOutputContract(contract)
     const validated = states.filter(isValidatedCapture)
     for (const state of validated) {
       if (state.duplicateCount > 0) {
@@ -687,10 +733,18 @@ const outputFrom = <O>(
     const newestValidated = validated.at(-1)
     if (newestValidated !== undefined) {
       return yield* decode(newestValidated.raw).pipe(
+        Effect.tapError((error) =>
+          Effect.logError("validated emit output contract violation", {
+            invocationId,
+            toolName: contract.toolName,
+            issue: String(error),
+            raw: newestValidated.raw,
+          }),
+        ),
         Effect.mapError(
-          () =>
+          (error) =>
             new AdapterContractViolation({
-              reason: `validated ${contract.toolName} arguments failed their OutputContract decoder`,
+              reason: `validated ${contract.toolName} arguments failed their OutputContract decoder: ${String(error)}`,
             }),
         ),
         Effect.asSome,
@@ -735,7 +789,12 @@ const finalizeOutcome = <O>(
       ...states.flatMap((state) => commonOf(state).diagnostics),
     ]
     const usage = yield* usageFrom(states)
-    const output = yield* outputFrom(input.contract, states, diagnostics)
+    const output = yield* outputFrom(
+      input.invocationId,
+      input.contract,
+      states,
+      diagnostics,
+    )
     const toolCalls = states.reduce<AgentToolCalls>(
       (sum, state) => ({
         total: sum.total + commonOf(state).toolCalls.total,

@@ -83,6 +83,7 @@ export interface ScriptedSession {
   readonly prompts: ReadonlyArray<ScriptedPrompt>
   readonly abortBehavior?: "resolves" | "hangs"
   readonly sweptUsageRows?: ReadonlyArray<unknown>
+  readonly transcriptEntries?: ReadonlyArray<unknown>
   readonly failUsageSweep?: string
   readonly failDispose?: string
 }
@@ -437,6 +438,10 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             throw new TypeError(behaviorForSession.failUsageSweep)
           }
           return behaviorForSession.sweptUsageRows ?? rows
+        },
+        transcriptEntries: () => {
+          log.push(`transcript-read:${String(sessionIndex)}`)
+          return behaviorForSession.transcriptEntries ?? []
         },
       }
       return session

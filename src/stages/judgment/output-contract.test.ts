@@ -1,18 +1,20 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import {
+  decodeOutputContract,
+  projectOutputContract,
+} from "../../harness/output-contract.ts"
 import { EmitJudgments } from "./output-contract.ts"
 
-const strictDecode = Schema.decodeUnknownEffect(EmitJudgments.schema, {
-  onExcessProperty: "error",
-})
+const strictDecode = decodeOutputContract(EmitJudgments)
 
 describe("EmitJudgments contract", () => {
   // Same quiet-degradation tripwire as the harness contracts: projection
   // regressions never fail a real run loudly.
   it.effect("projects self-contained with the rating descriptions intact", () =>
     Effect.gen(function* () {
-      const document = Schema.toJsonSchemaDocument(EmitJudgments.schema)
+      const document = projectOutputContract(EmitJudgments)
       expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),

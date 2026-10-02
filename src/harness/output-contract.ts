@@ -23,6 +23,22 @@ export const defineOutputContract = <O>(
   schema,
 })
 
+const outputContractParseOptions = {
+  onExcessProperty: "error",
+} as const
+
+// Pi validates model-authored arguments against this projection before
+// invoking the emit tool. Keep its excess-property policy identical to the
+// strict decoder below the adapter seam: otherwise Pi can accept a payload
+// that Gauntlet must immediately reject.
+export const projectOutputContract = (
+  contract: { readonly schema: Schema.Constraint },
+) =>
+  Schema.toJsonSchemaDocument(contract.schema, outputContractParseOptions)
+
+export const decodeOutputContract = <O>(contract: OutputContract<O>) =>
+  Schema.decodeUnknownEffect(contract.schema, outputContractParseOptions)
+
 export const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description })
 
