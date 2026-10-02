@@ -88,6 +88,10 @@ export interface HarnessSession {
   // from the agent that owns the messages. Rows decode against UsageRow in
   // invoke; drift fails loudly there.
   readonly usageRows: () => ReadonlyArray<unknown>
+  // Pi's complete in-memory session record. Invocation reads it only when the
+  // global debug log level is enabled, before dispose disconnects the agent,
+  // and writes each entry to the Run's existing run.log.
+  readonly transcriptEntries: () => ReadonlyArray<unknown>
 }
 
 // The terminating emit tool's validated arguments, delivered by Pi after its

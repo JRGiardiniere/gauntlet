@@ -6,6 +6,7 @@ import {
   EmitFindings,
   EmitPool,
   EmitVerdicts,
+  projectOutputContract,
 } from "./output-contract.ts"
 
 const strictDecode = <O>(schema: Schema.Codec<O, O, never, never>) =>
@@ -24,7 +25,7 @@ describe("output contracts", () => {
         [EmitVerdicts, "Never generated test source or shell commands"],
       ] as const
       for (const [contract, sentinel] of sentinels) {
-        const document = Schema.toJsonSchemaDocument(contract.schema)
+        const document = projectOutputContract(contract)
         expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
         const projected = yield* Schema.encodeEffect(
           Schema.fromJsonString(Schema.Unknown),
@@ -34,6 +35,8 @@ describe("output contracts", () => {
           parameters: document.schema,
         })
         expect(projected).toContain(sentinel)
+        expect(projected).not.toContain('"additionalProperties":true')
+        expect(projected).toContain('"additionalProperties":false')
       }
     }))
 

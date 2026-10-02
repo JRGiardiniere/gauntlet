@@ -1,13 +1,16 @@
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Schema from "effect/Schema"
 import {
   type AgentOutcome,
   Termination,
 } from "../domain/agent-outcome.ts"
 import { invoke } from "./invoke.ts"
-import { EmitFindings, type FindingsOutput } from "./output-contract.ts"
+import {
+  EmitFindings,
+  type FindingsOutput,
+  projectOutputContract,
+} from "./output-contract.ts"
 import { livePiLayer } from "./pi-live.ts"
 
 // The narrow live gate exercises the two properties only a real provider can
@@ -88,7 +91,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
     const model = argv[1] ?? "gpt-6-luna:low"
     const seat = `${provider}/${model}`
 
-    const document = Schema.toJsonSchemaDocument(EmitFindings.schema)
+    const document = projectOutputContract(EmitFindings)
     const definitionCount = Object.keys(document.definitions ?? {}).length
     if (definitionCount > 0) {
       return yield* reportChecks([

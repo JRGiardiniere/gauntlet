@@ -3,6 +3,9 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Layer from "effect/Layer"
+import * as Logger from "effect/Logger"
+import * as References from "effect/References"
 import * as TestClock from "effect/testing/TestClock"
 import { Termination } from "../domain/agent-outcome.ts"
 import {
@@ -548,6 +551,105 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       })
       expect(outcome.output).toEqual(GOOD_EMIT)
       expect(outcome.diagnostics.join(" ")).toContain("retained the first")
+    }))
+
+  it.effect("reports the exact validated-output issue and logs its raw payload", () =>
+    Effect.gen(function* () {
+      const raw = {
+        findings: [
+          {
+            file: "src/a.ts",
+            summary: "extra field",
+            review_priority: "P1",
+          },
+        ],
+      }
+      const messages: Array<unknown> = []
+      const collector = Logger.make<unknown, void>(({ message }) => {
+        messages.push(message)
+      })
+      const scripted = makeScripted({
+        sessions: [{ prompts: [completedPrompt(raw)] }],
+      })
+      const fiber = yield* Effect.forkChild(
+        invoke(INPUT).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              scriptedLayer(scripted),
+              Logger.layer([collector]),
+            ),
+          ),
+          Effect.flip,
+        ),
+      )
+      const failure = yield* advanceUntilComplete(
+        fiber,
+        INPUT.deadlines.overallMillis + INPUT.deadlines.startupMillis + 1,
+      )
+
+      expect(failure).toBeInstanceOf(AdapterContractViolation)
+      expect(failure.reason).toContain("review_priority")
+      expect(messages).toContainEqual([
+        "validated emit output contract violation",
+        expect.objectContaining({
+          invocationId: INPUT.invocationId,
+          toolName: EmitFindings.toolName,
+          raw,
+        }),
+      ])
+    }))
+
+  it.effect("reads and logs the complete session transcript only at debug level", () =>
+    Effect.gen(function* () {
+      const transcript = [
+        { type: "message", message: { role: "user", content: "review this diff" } },
+        {
+          type: "message",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", name: "emit_findings", arguments: GOOD_EMIT }],
+          },
+        },
+      ]
+      const ordinary = yield* run({
+        sessions: [{ prompts: [completedPrompt()], transcriptEntries: transcript }],
+      })
+      expect(ordinary.scripted.log).not.toContain("transcript-read:1")
+
+      const messages: Array<unknown> = []
+      const collector = Logger.make<unknown, void>(({ message }) => {
+        messages.push(message)
+      })
+      const scripted = makeScripted({
+        sessions: [{ prompts: [completedPrompt()], transcriptEntries: transcript }],
+      })
+      const fiber = yield* Effect.forkChild(
+        invoke(INPUT).pipe(
+          Effect.provide(
+            Layer.mergeAll(
+              scriptedLayer(scripted),
+              Logger.layer([collector]),
+            ),
+          ),
+          Effect.provideService(References.MinimumLogLevel, "Debug"),
+        ),
+      )
+      yield* advanceUntilComplete(
+        fiber,
+        INPUT.deadlines.overallMillis + INPUT.deadlines.startupMillis + 1,
+      )
+
+      expect(scripted.log).toContain("transcript-read:1")
+      for (const [index, entry] of transcript.entries()) {
+        expect(messages).toContainEqual([
+          "agent transcript",
+          {
+            invocationId: INPUT.invocationId,
+            entryIndex: index + 1,
+            entry,
+          },
+        ])
+      }
     }))
 
   it.effect("rejects assistant activity after a validated final emit", () =>

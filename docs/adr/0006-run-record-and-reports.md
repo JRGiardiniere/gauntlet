@@ -16,7 +16,7 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
   dossier.json       # machine-readable Dossier side artifact
   dossier.md         # human-readable Dossier
   receipt.json       # DeliveryReceipt, when delivery was attempted
-  run.log            # in-flight Effect log
+  run.log            # in-flight Effect log; full transcripts at debug level
 ```
 
 The old repo's 14-file zoo (`job/status/frozen-preset/request/scope/
@@ -100,9 +100,13 @@ objects.
 
 `Effect.log*` → one `run.log` per run (`Logger.toFile`), plus the #10 stderr
 progress lines. Stages are spans in one process — no per-stage log files, no
-subprocess stderr capture. No agent transcript or prompt persistence (the old
-repo never had it and the gap never bit); AgentOutcome diagnostics keep the
-interesting failures. Tracing stays gated off by default (#2).
+subprocess stderr capture. Ordinary runs do not read or persist agent
+transcripts. With the existing global `--log-level debug` flag, invocation
+teardown writes Pi's complete in-memory session entries to `run.log` before
+disposing the session, including prompts, model messages, tool calls, and tool
+results. This is an opt-in diagnostic view, not a second transcript artifact or
+a new retention system. Contract failures also log the exact decoder issue and
+raw validated emit payload. Tracing stays gated off by default (#2).
 
 ## Retention and size
 
@@ -115,8 +119,8 @@ if it ever annoys. No pruning code, no compression, no TTL.
 ## Consequences
 
 - Jettisoned: aggregate JSONL logs, the subjective corpus, any SQLite/index,
-  retention machinery, transcript persistence, per-stage log files, budget
-  fields and all proactive cost constraints.
+  retention machinery, default or dedicated transcript persistence, per-stage
+  log files, budget fields and all proactive cost constraints.
 - ADR 0005 and CONTEXT.md (Recipe, ReviewPlan) amended: seats only, no
   budgets.
 - Retrospective model assessment is a deferred reader over run dirs, never a
