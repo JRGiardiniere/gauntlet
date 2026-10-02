@@ -30,6 +30,7 @@ import {
   UsageRow,
 } from "./harness-session.ts"
 import {
+  decodeOutputContract,
   type OutputContract,
   projectOutputContract,
 } from "./output-contract.ts"
@@ -720,9 +721,7 @@ const outputFrom = <O>(
   diagnostics: Array<string>,
 ) =>
   Effect.gen(function* () {
-    const decode = Schema.decodeUnknownEffect(contract.schema, {
-      onExcessProperty: "error",
-    })
+    const decode = decodeOutputContract(contract)
     const validated = states.filter(isValidatedCapture)
     for (const state of validated) {
       if (state.duplicateCount > 0) {

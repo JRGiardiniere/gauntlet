@@ -1,12 +1,13 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
-import { projectOutputContract } from "../../harness/output-contract.ts"
+import {
+  decodeOutputContract,
+  projectOutputContract,
+} from "../../harness/output-contract.ts"
 import { EmitJudgments } from "./output-contract.ts"
 
-const strictDecode = Schema.decodeUnknownEffect(EmitJudgments.schema, {
-  onExcessProperty: "error",
-})
+const strictDecode = decodeOutputContract(EmitJudgments)
 
 describe("EmitJudgments contract", () => {
   // Same quiet-degradation tripwire as the harness contracts: projection
