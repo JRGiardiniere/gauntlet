@@ -4,9 +4,9 @@ import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
-import * as Argument from "effect/unstable/cli/Argument"
-import * as Command from "effect/unstable/cli/Command"
-import * as Flag from "effect/unstable/cli/Flag"
+import * as Argument from "effect/cli/Argument"
+import * as Command from "effect/cli/Command"
+import * as Flag from "effect/cli/Flag"
 import { renderAvailable } from "../config/recipe-catalog.ts"
 import { resolveRunsRoot } from "../config/settings.ts"
 import {
@@ -218,54 +218,54 @@ const executeReviewCommand = Effect.fn(
 const review = Command.make(
   "review",
   {
-    recipe: Argument.string("recipe").pipe(
+    recipe: Argument.String("recipe").pipe(
       Argument.optional,
       Argument.withDescription(
         "Named recipe from the catalog; omit to use the configured default-recipe",
       ),
     ),
-    pr: Flag.integer("pr").pipe(
+    pr: Flag.Int("pr").pipe(
       Flag.optional,
       Flag.withDescription("Review that pull request's range"),
     ),
-    commits: Flag.string("commits").pipe(
+    commits: Flag.String("commits").pipe(
       Flag.optional,
       Flag.withMetavar("<base>[..<head>]"),
       Flag.withDescription(
         "Review merge-base(base, head)..head; head defaults to HEAD. With --working-tree, extend that range to the current uncommitted work",
       ),
     ),
-    workingTree: Flag.boolean("working-tree").pipe(
+    workingTree: Flag.Boolean("working-tree").pipe(
       Flag.withDefault(false),
       Flag.withDescription("Review the uncommitted changes against HEAD"),
     ),
-    destination: Flag.choice("destination", ["local", "pr"]).pipe(
+    destination: Flag.Literals("destination", ["local", "pr"]).pipe(
       Flag.withDefault("local"),
       Flag.withDescription(
         "local writes the run directory and digest; pr also posts dossier.md",
       ),
     ),
-    lenses: Flag.string("lenses").pipe(
+    lenses: Flag.String("lenses").pipe(
       Flag.optional,
       Flag.withDescription(
         "Use exactly these comma-separated Lenses instead of Default Lenses",
       ),
     ),
-    resume: Flag.string("resume").pipe(
+    resume: Flag.String("resume").pipe(
       Flag.optional,
       Flag.withMetavar("[run-id]"),
       Flag.withDescription(
         "Continue that run from its frozen inputs; omit run-id to select the latest incomplete run. A named complete run reports or delivers its existing artifacts.",
       ),
     ),
-    spec: Flag.string("spec").pipe(
+    spec: Flag.String("spec").pipe(
       Flag.optional,
       Flag.withMetavar("<markdown-file>"),
       Flag.withDescription(
         "Caller Addendum: a Markdown requirements file frozen into the plan and shown to interpretive finders, verification, and judgment",
       ),
     ),
-    githubSpec: Flag.boolean("github-spec").pipe(
+    githubSpec: Flag.Boolean("github-spec").pipe(
       Flag.withDefault(false),
       Flag.withDescription(
         "Use only GitHub closing issues as the automatic ReviewSpecification source for this Run",
@@ -299,7 +299,7 @@ const executeDeliverCommand = Effect.fn(
 const deliver = Command.make(
   "deliver",
   {
-    runId: Argument.string("run-id").pipe(
+    runId: Argument.String("run-id").pipe(
       Argument.withDescription("Completed run to post"),
     ),
   },

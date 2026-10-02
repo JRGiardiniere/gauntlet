@@ -7,10 +7,10 @@ import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
-import * as HttpClient from "effect/unstable/http/HttpClient"
-import * as HttpClientRequest from "effect/unstable/http/HttpClientRequest"
-import type * as HttpClientResponse from "effect/unstable/http/HttpClientResponse"
+import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as HttpClient from "effect/http/HttpClient"
+import * as HttpClientRequest from "effect/http/HttpClientRequest"
+import type * as HttpClientResponse from "effect/http/HttpClientResponse"
 
 export type LinearErrorReason =
   | "invalid-api-key"
@@ -225,7 +225,7 @@ const flattenIssue = (
 })
 
 const makeLive = Effect.gen(function* () {
-  const apiKey = yield* Config.option(Config.redacted("LINEAR_API_KEY"))
+  const apiKey = yield* Config.option(Config.Redacted("LINEAR_API_KEY"))
   const client = (yield* HttpClient.HttpClient).pipe(
     HttpClient.transformResponse((attempt) =>
       attempt.pipe(Effect.timeout("15 seconds"))

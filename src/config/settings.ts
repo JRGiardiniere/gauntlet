@@ -40,7 +40,7 @@ export class SettingsError extends Data.TaggedError("SettingsError")<{
 // Config so tests point it at a temp directory instead of mutating env.
 export const gauntletHome = Effect.fn("gauntlet.settings.home")(function* () {
   const path = yield* Path.Path
-  const home = yield* Config.string("HOME").pipe(
+  const home = yield* Config.String("HOME").pipe(
     Effect.mapError((cause) =>
       new SettingsError({
         path: "$HOME",

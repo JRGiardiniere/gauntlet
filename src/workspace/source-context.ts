@@ -1,4 +1,5 @@
 import { isUtf8 } from "node:buffer"
+import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -25,7 +26,7 @@ export interface SourceContext {
 
 // Source-only character budget, not a promise that a complete Jev request fits.
 // Callers own the remaining prompt budget and must persist this result with it.
-const MAX_SOURCE_BYTES = FileSystem.MiB(1)
+const MAX_SOURCE_BYTES = ByteSize.mebibytes(1)
 
 // The caller supplies the Run's frozen review directory, including its working
 // tree overlay. Never substitute the current checkout or headCommit alone.

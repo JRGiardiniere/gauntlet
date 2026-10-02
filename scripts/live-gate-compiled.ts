@@ -13,7 +13,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Stream from "effect/Stream"
-import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import * as ChildProcess from "effect/process/ChildProcess"
 
 class LiveGateStepFailed extends Data.TaggedError("LiveGateStepFailed")<{
   readonly step: string
@@ -53,7 +53,7 @@ const runStep = (
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const realHome = yield* Config.string("HOME")
+  const realHome = yield* Config.String("HOME")
 
   yield* runStep("build binary", "bun", ["scripts/bundle.ts"], { cwd: repoRoot })
 

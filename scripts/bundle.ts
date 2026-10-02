@@ -17,7 +17,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import * as ChildProcess from "effect/process/ChildProcess"
 
 // Bun's bundler API, typed minimally — the project compiles against
 // @types/node only, without bun-types.
@@ -49,14 +49,14 @@ const program = Effect.gen(function* () {
   // Release builds (the tag workflow) set all three; a bare `bun run bundle`
   // produces a host-platform dev binary reporting the 0.0.0-dev sentinel.
   const version = Option.getOrElse(
-    yield* Config.option(Config.string("GAUNTLET_VERSION")),
+    yield* Config.option(Config.String("GAUNTLET_VERSION")),
     () => "0.0.0-dev",
   )
   const target = Option.getOrUndefined(
-    yield* Config.option(Config.string("GAUNTLET_TARGET")),
+    yield* Config.option(Config.String("GAUNTLET_TARGET")),
   )
   const outfile = Option.getOrElse(
-    yield* Config.option(Config.string("GAUNTLET_OUTFILE")),
+    yield* Config.option(Config.String("GAUNTLET_OUTFILE")),
     () => "dist/gauntlet",
   )
 
