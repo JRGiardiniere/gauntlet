@@ -6,8 +6,8 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Config from "effect/Config"
 import * as Result from "effect/Result"
-import * as Argument from "effect/unstable/cli/Argument"
-import * as Command from "effect/unstable/cli/Command"
+import * as Argument from "effect/cli/Argument"
+import * as Command from "effect/cli/Command"
 import {
   loadFinderLensCatalog,
   loadFinderLenses,
@@ -352,7 +352,7 @@ const normalizeRunsRoot = Effect.fn("gauntlet.cli.config_runs_root")(function* (
 ) {
   const path = yield* Path.Path
   if (value.startsWith("~/") || value === "~") {
-    const home = yield* Config.string("HOME")
+    const home = yield* Config.String("HOME")
     return path.normalize(path.join(home, value.slice(1)))
   }
   if (path.isAbsolute(value)) return path.normalize(value)
@@ -498,8 +498,8 @@ const init = Command.make("init", {}, () => runInit()).pipe(
 const set = Command.make(
   "set",
   {
-    key: Argument.string("key"),
-    values: Argument.string("value").pipe(Argument.variadic()),
+    key: Argument.String("key"),
+    values: Argument.String("value").pipe(Argument.variadic()),
   },
   ({ key, values }) => runSet(key, values),
 ).pipe(
@@ -510,7 +510,7 @@ const set = Command.make(
 
 const unset = Command.make(
   "unset",
-  { key: Argument.string("key") },
+  { key: Argument.String("key") },
   ({ key }) => runUnset(key),
 ).pipe(
   Command.withDescription(

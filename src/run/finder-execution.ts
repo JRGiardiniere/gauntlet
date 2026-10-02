@@ -220,7 +220,7 @@ export const executeFinders = Effect.fn(
           starter.context,
         )
         if (group.length === 1) {
-          const [failed, completed] = yield* Effect.partition(
+          const [completed, failed] = yield* Effect.partition(
             group,
             (invocation) =>
               executeFinder(invocation, cacheGroupId, sharedContext).pipe(
@@ -242,7 +242,7 @@ export const executeFinders = Effect.fn(
           yield* (yield* FinderCacheSettle)
         }
 
-        const [failed, completed] = yield* Effect.partition(
+        const [completed, failed] = yield* Effect.partition(
           group,
           (invocation) =>
             (invocation === starter

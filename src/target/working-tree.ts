@@ -1,3 +1,4 @@
+import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -23,7 +24,7 @@ const explainUntrackedFile = (reason: string) =>
 
 // Git already governs tracked files. Untracked files larger than this are
 // dropped from the included set and named in a scope-degradation warning.
-const UNTRACKED_SIZE_CAP = FileSystem.MiB(10)
+const UNTRACKED_SIZE_CAP = ByteSize.mebibytes(10)
 
 const inspectUntrackedFile = Effect.fn(
   "gauntlet.working_tree.inspect_untracked_file",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -87,11 +88,11 @@ describe("resolveWorkingTreeTarget", () => {
       yield* fs.writeFileString(path.join(repo, "small.txt"), "ok\n")
       yield* fs.writeFile(
         path.join(repo, "at-cap.bin"),
-        new Uint8Array(Number(FileSystem.MiB(10))),
+        new Uint8Array(Number(ByteSize.mebibytes(10))),
       )
       yield* fs.writeFile(
         path.join(repo, "huge.bin"),
-        new Uint8Array(Number(FileSystem.MiB(10)) + 1),
+        new Uint8Array(Number(ByteSize.mebibytes(10)) + 1),
       )
 
       const target = yield* resolveWorkingTreeTarget(repo, undefined)

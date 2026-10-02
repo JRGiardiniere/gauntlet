@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "$schema": "../../../node_modules/@effect/tsgo/oxlint-schema.json",
   "extends": ["../../../node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
   "rules": {
     "effecttsgo/extends-native-error": "error",

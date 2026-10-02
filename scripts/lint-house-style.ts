@@ -10,9 +10,9 @@ import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Stream from "effect/Stream"
-import * as Argument from "effect/unstable/cli/Argument"
-import * as Command from "effect/unstable/cli/Command"
-import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import * as Argument from "effect/cli/Argument"
+import * as Command from "effect/cli/Command"
+import * as ChildProcess from "effect/process/ChildProcess"
 
 const repoRoot = `${import.meta.dirname}/..`
 const oxlint = `${repoRoot}/node_modules/.bin/oxlint`
@@ -20,7 +20,7 @@ const oxlint = `${repoRoot}/node_modules/.bin/oxlint`
 const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
   extraLintTargets: ReadonlyArray<string>,
 ) {
-  const ci = yield* Config.option(Config.string("CI"))
+  const ci = yield* Config.option(Config.String("CI"))
   const oxlintFormat = Option.isNone(ci) ? "default" : "github"
 
   const checks: ReadonlyArray<{
@@ -94,7 +94,7 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
 const lintHouseStyle = Command.make(
   "lint-house-style",
   {
-    targets: Argument.string("targets").pipe(
+    targets: Argument.String("targets").pipe(
       Argument.variadic(),
       Argument.withDescription(
         "Extra paths to lint beyond the standing bin, src, scripts, .convoy/packs/effect-house-rules and vitest targets",

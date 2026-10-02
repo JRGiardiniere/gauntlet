@@ -1,7 +1,7 @@
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
-import * as ChildProcess from "effect/unstable/process/ChildProcess"
+import * as ChildProcess from "effect/process/ChildProcess"
 
 export class GitCommandError extends Data.TaggedError("GitCommandError")<{
   readonly args: ReadonlyArray<string>

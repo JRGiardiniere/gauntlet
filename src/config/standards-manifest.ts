@@ -75,7 +75,7 @@ const resolveEntry = Effect.fn("gauntlet.standards.resolve_entry")(function* (
 ) {
   const path = yield* Path.Path
   if (entry.startsWith("~/")) {
-    const home = yield* Config.string("HOME").pipe(
+    const home = yield* Config.String("HOME").pipe(
       Effect.mapError((cause) =>
         new StandardsManifestError({
           path: manifestPath,

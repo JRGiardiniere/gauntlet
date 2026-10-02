@@ -1,8 +1,7 @@
 // The Effect-pin gate's runMain boundary. The effect family must be pinned to
-// one exact version, but which version is the manifest's business — update
-// with `bun add --exact effect@rc` (plus the sibling @effect packages), and
-// this check re-verifies the result. `rc` is the v4 dist-tag until v4 reaches
-// `latest`.
+// one exact version, but which version is the manifest's business. Update
+// Effect and its sibling @effect packages to the same exact version; this
+// check re-verifies the result.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Console from "effect/Console"

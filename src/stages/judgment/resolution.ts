@@ -2,7 +2,6 @@ import * as Array from "effect/Array"
 import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
-import * as Result from "effect/Result"
 import type { Observation } from "../../domain/candidate.ts"
 import type { JudgedObservation } from "../../domain/dossier.ts"
 import { Judgment } from "../../domain/judgment.ts"
@@ -189,13 +188,12 @@ export const resolveJudgment = (
   const validIndexes = HashSet.fromIterable(
     Array.map(observations, ({ index }) => index),
   )
-  const [unknown, known] = Array.partition(
-    output?.decisions ?? [],
-    (decision) =>
-      HashSet.has(validIndexes, decision.index)
-        ? Result.succeed(decision)
-        : Result.fail(decision),
-  )
+  const known: Array<ReportedJudgment> = []
+  const unknown: Array<ReportedJudgment> = []
+  for (const decision of output?.decisions ?? []) {
+    if (HashSet.has(validIndexes, decision.index)) known.push(decision)
+    else unknown.push(decision)
+  }
 
   const ledger = indexDecisions(known)
   const plan = planMerges(known, validIndexes, ledger)
