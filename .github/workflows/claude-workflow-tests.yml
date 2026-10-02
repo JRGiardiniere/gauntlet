@@ -1,0 +1,29 @@
+name: Claude workflow tests
+
+on:
+  pull_request:
+    paths:
+      - "workflow/**"
+      - "scripts/build-workflow.ts"
+      - "content/**"
+      - "src/**"
+      - "package.json"
+      - "bun.lock"
+      - ".github/workflows/claude-workflow-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  scripted-workflow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run test:workflow

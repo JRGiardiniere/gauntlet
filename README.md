@@ -55,3 +55,10 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
   review standards; `--lenses a,b` selects exactly those for one run.
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
+
+## Claude workflow (alternative)
+
+The CLI is the default. `gauntlet-claude` runs the same pipeline as a Claude
+Code workflow on Claude subagents, for teams that want Claude models or a side
+by side comparison. It lives on `codex/claude-workflow`, outside CLI releases.
+See [workflow/README.md](workflow/README.md) to install and run it.
