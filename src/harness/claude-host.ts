@@ -144,6 +144,9 @@ interface Invocation {
   abortRequested: boolean
   opened: ((error: string | undefined) => void) | undefined
   settle: (() => void) | undefined
+  // An abort settles once Claude Code reports the stopped turn, which
+  // carries what the turn spent.
+  abortSettled: (() => void) | undefined
 }
 
 export interface ClaudeHost {
@@ -204,11 +207,13 @@ export const makeClaudeHost = (
         invocation.turns += 1
         send({ kind: "prompt", id: invocation.id, text, turn })
       }),
-    abort: () => {
-      invocation.abortRequested = true
-      send({ kind: "abort", id: invocation.id })
-      return Promise.resolve()
-    },
+    abort: () =>
+      new Promise<void>((resolve) => {
+        invocation.abortRequested = true
+        if (invocation.settle === undefined) resolve()
+        else invocation.abortSettled = resolve
+        send({ kind: "abort", id: invocation.id })
+      }),
     dispose: () => {
       invocations.delete(invocation.id)
       send({ kind: "dispose", id: invocation.id })
@@ -308,6 +313,9 @@ export const makeClaudeHost = (
     const settle = invocation.settle
     invocation.settle = undefined
     settle?.()
+    const abortSettled = invocation.abortSettled
+    invocation.abortSettled = undefined
+    abortSettled?.()
     return true
   }
 
@@ -332,6 +340,7 @@ export const makeClaudeHost = (
         abortRequested: false,
         opened: undefined,
         settle: undefined,
+        abortSettled: undefined,
       }
       invocation.opened = (error) => {
         invocation.opened = undefined

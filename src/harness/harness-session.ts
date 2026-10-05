@@ -78,9 +78,11 @@ export type HarnessEvent =
 export interface HarnessSession {
   readonly subscribe: (listener: (event: HarnessEvent) => void) => () => void
   readonly prompt: (text: string) => Promise<void>
-  // May never settle: Pi's abort awaits waitForIdle (#4 §4). Fire-and-forget
-  // always — Gauntlet never re-prompts an aborted session (stall retry is a
-  // fresh invocation; corrective turns re-prompt only after a clean stop).
+  // May never settle: Pi's abort awaits waitForIdle (#4 §4). Never awaited
+  // by the invocation itself — Gauntlet never re-prompts an aborted session
+  // (stall retry is a fresh invocation; corrective turns re-prompt only after
+  // a clean stop); teardown gives it a bounded wait before the usage sweep,
+  // since the Claude Code host reports a stopped turn's spend as it settles.
   readonly abort: () => Promise<void>
   readonly dispose: () => void
   // Terminal accounting sweep over the session's assistant messages, raw and
