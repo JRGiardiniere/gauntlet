@@ -58,20 +58,18 @@ const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
 
 const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
 
+// cross-file, language-pitfalls, refactoring-checklist, security and
+// wrapper-proxy stay in the catalog but are not seeded: across 192 runs they
+// found 32 of 396 unique P1/P2 findings for a third of Finder spend.
 const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
   "absence",
   "cleanup",
-  "cross-file",
   "diff-scan",
-  "language-pitfalls",
   "presentation-environment",
-  "refactoring-checklist",
   "removed-behavior",
-  "security",
   "spec-conformance",
   "standards",
   "subjective",
-  "wrapper-proxy",
 ]
 
 const SETTINGS_KEYS = "default-recipe, default-lenses, favorites, runs-root"

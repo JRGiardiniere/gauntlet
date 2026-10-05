@@ -27,17 +27,12 @@ interface Fixture {
 const INITIAL_DEFAULT_LENSES = [
   "absence",
   "cleanup",
-  "cross-file",
   "diff-scan",
-  "language-pitfalls",
   "presentation-environment",
-  "refactoring-checklist",
   "removed-behavior",
-  "security",
   "spec-conformance",
   "standards",
   "subjective",
-  "wrapper-proxy",
 ] as const
 
 const makeFixture = Effect.gen(function* () {
