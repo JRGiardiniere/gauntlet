@@ -108,6 +108,11 @@ function reviewArgv(args: string): ReadonlyArray<string> {
     else target ??= word
   }
   if (argv.some((word) => word.startsWith("--resume"))) return argv
+  // Related files are this host's default: they lifted seeded-bugs-2 from
+  // 3.7 to 5.5 of 7 on claude-code/ Seats, and the cost is plan usage (#135).
+  const optedOut = argv.indexOf("--no-related-files")
+  if (optedOut !== -1) argv.splice(optedOut, 1)
+  else if (!argv.includes("--related-files")) argv.push("--related-files")
   if (target === undefined) argv.push("--working-tree")
   else if (/^\d+$/.test(target)) argv.push(`--pr=${target}`)
   else argv.push(`--commits=${target}`)
@@ -280,7 +285,7 @@ export const register: Register = (on) => {
     }
     await $.command.register({
       name: "gc-cli",
-      description: "Gauntlet review, run in process: /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]",
+      description: "Gauntlet review, run in process: /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
     })
     await reportLostRun($)
     $.clock.every(2000, () => checkTrigger($).catch((error) => log($, `trigger failed: ${String(error)}`)))
