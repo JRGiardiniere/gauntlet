@@ -4,7 +4,10 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
 import { type BashArgs, makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
-import type { ReviewWorkspace } from "../workspace/review-workspace.ts"
+import {
+  REVIEW_WORKSPACE_ROOT,
+  type ReviewWorkspace,
+} from "../workspace/review-workspace.ts"
 import {
   type EmitToolArgs,
   type HarnessEvent,
@@ -12,6 +15,7 @@ import {
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
+  piSeatRefusal,
   type SessionConfig,
   type StopReason,
   type UsageRow,
@@ -447,7 +451,18 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       return session
     })
 
-  return { factory: { open }, log, configs, prompts, inspections }
+  return {
+    factory: {
+      open,
+      workspaceRoot: () => REVIEW_WORKSPACE_ROOT,
+      workspacePrompt: "workspace-pi.md",
+      seatRefusal: piSeatRefusal,
+    },
+    log,
+    configs,
+    prompts,
+    inspections,
+  }
 }
 
 export const scriptedLayer = (

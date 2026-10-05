@@ -60,6 +60,12 @@
       }
     },
     {
+      "files": ["src/harness/claude-host.ts"],
+      "rules": {
+        "effecttsgo/new-promise": "off"
+      }
+    },
+    {
       "files": ["src/run/artifact.ts"],
       "rules": {
         "effecttsgo/any-unknown-in-error-context": "off"

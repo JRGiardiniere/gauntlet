@@ -8,6 +8,7 @@ import * as Function from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import {
@@ -30,6 +31,7 @@ import {
   UsageRow,
 } from "./harness-session.ts"
 import {
+  checkOutputContract,
   decodeOutputContract,
   type OutputContract,
   projectOutputContract,
@@ -348,6 +350,11 @@ const openCapturedSession = Effect.fn(
       parameters: projectOutputContract(input.contract).schema,
       execute: (raw: EmitToolArgs) =>
         capture.dispatch({ type: "validated_emit", raw }),
+      check: (raw: EmitToolArgs) =>
+        Result.match(checkOutputContract(input.contract)(raw), {
+          onFailure: (error) => String(error),
+          onSuccess: () => undefined,
+        }),
     },
     tools: input.tools,
     toolTimeoutMillis: input.deadlines.toolMillis,
@@ -387,7 +394,14 @@ const openCapturedSession = Effect.fn(
           event,
           emitToolName: input.contract.toolName,
         })
-        if (event.type === "message_end" && prefixSignal !== undefined) {
+        // A tool call means the first response has finished, so its prefix
+        // is cached. On a host that reports usage only at turn end (Claude
+        // Code) this is the first sign, well before message_end.
+        if (
+          (event.type === "message_end" ||
+            event.type === "tool_execution_start") &&
+          prefixSignal !== undefined
+        ) {
           Deferred.doneUnsafe(
             prefixSignal,
             Effect.succeed(PrefixSignal.PrefixObserved()),

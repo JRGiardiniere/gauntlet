@@ -22,9 +22,9 @@ import {
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import type {
+import {
   HarnessSessionFactory,
-  InvocationFailure,
+  type InvocationFailure,
 } from "../harness/harness-session.ts"
 import {
   invoke,
@@ -35,7 +35,6 @@ import {
   EmitFindings,
   type FindingsOutput,
 } from "../harness/output-contract.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
@@ -147,7 +146,10 @@ export const executeFinders = Effect.fn(
   }
 
   const invocations = finderInvocationsInPlan(plan)
-  const templates = yield* Effect.cached(loadFinderPromptTemplates())
+  const host = yield* HarnessSessionFactory
+  const templates = yield* Effect.cached(
+    loadFinderPromptTemplates(host.workspacePrompt),
+  )
 
   const makeFinderInput = Effect.fn(
     "gauntlet.finder_execution.make_finder_input",
@@ -214,9 +216,9 @@ export const executeFinders = Effect.fn(
         const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
         const sharedContext = yield* assembleFinderContext(
-          promptTemplates.sharedPromptTemplate,
+          promptTemplates,
           plan.target,
-          REVIEW_WORKSPACE_ROOT,
+          host.workspaceRoot(reviewWorkingDirectory),
           starter.context,
         )
         if (group.length === 1) {

@@ -18,6 +18,7 @@ import {
   unusedGitHubContract,
   unusedGitHubLayer,
 } from "../github/github.ts"
+import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { Linear, LinearError, unusedLinearLayer } from "../linear/linear.ts"
 import { runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
@@ -71,6 +72,7 @@ const submitWith = (
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         github,
         linear,
+        scriptedLayer(makeScripted({ sessions: [] })),
       ),
     ),
   )
@@ -318,6 +320,29 @@ describe("submission", () => {
       expect(refusal).toBeInstanceOf(SubmissionError)
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("no Default Lenses are configured")
+      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("refuses a recipe that seats a provider this host cannot run, creating no Run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      // claude-code/ Seats run only on the Claude Code host; the scripted
+      // adapter stands in for Pi.
+      yield* writeRecipe(fixture, "fixture-claude", {
+        default: "fixture/default-model:low",
+        verification: "claude-code/sonnet:low",
+      })
+
+      const refusal = yield* Effect.flip(submitWith(fixture, {
+        target: SubmissionTargetRequest.WorkingTree({ base: undefined }),
+        recipeName: Option.some("fixture-claude"),
+        selectedLensNames: ["fixture-review"],
+        addendum: undefined,
+      }))
+      expect(refusal).toBeInstanceOf(SubmissionError)
+      if (!Predicate.isTagged(refusal, "SubmissionError")) return
+      expect(refusal.reason).toContain("seats claude-code/sonnet:low")
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

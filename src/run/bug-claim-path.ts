@@ -33,6 +33,7 @@ import type {
 } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { Verdict } from "../domain/verdict.ts"
+import { HarnessSessionFactory } from "../harness/harness-session.ts"
 import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
@@ -42,7 +43,6 @@ import {
   invocationTrail,
   wallSeconds,
 } from "./progress-text.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 
 const progress = Effect.fn("gauntlet.bug_claim_path.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -108,7 +108,10 @@ export const executeBugClaimPath = Effect.fn(
     } satisfies BugClaimPathResult
   }
 
-  const templates = yield* Effect.cached(loadEvaluationPromptTemplates())
+  const host = yield* HarnessSessionFactory
+  const templates = yield* Effect.cached(
+    loadEvaluationPromptTemplates(host.workspacePrompt),
+  )
   const coverageGaps: Array<CoverageGap> = []
   let repair = initialRepair(claims)
   let poolCostUsd = 0
@@ -187,7 +190,7 @@ export const executeBugClaimPath = Effect.fn(
           const prompt = yield* assembleVerifierPrompt(
             promptTemplates,
             plan.target,
-            REVIEW_WORKSPACE_ROOT,
+            host.workspaceRoot(reviewWorkingDirectory),
             claims,
             bundle,
             plan.specification,

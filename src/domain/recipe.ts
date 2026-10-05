@@ -42,6 +42,11 @@ export const finderSeat = (recipe: Recipe, finderClass: FinderClass): Seat =>
     ? recipe["interpretive-finders"] ?? recipe.finders ?? recipe.default
     : recipe.finders ?? recipe.default
 
+// Seats of the claude-code provider run only on the Claude Code host, which
+// runs no other provider (#134).
+export const isClaudeCodeSeat = (seat: Seat): boolean =>
+  seat.startsWith("claude-code/")
+
 // Every other seated stage resolves through its named override then `default`.
 export const stageSeat = (
   recipe: Recipe,

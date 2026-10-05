@@ -39,6 +39,9 @@ export const projectOutputContract = (
 export const decodeOutputContract = <O>(contract: OutputContract<O>) =>
   Schema.decodeUnknownEffect(contract.schema, outputContractParseOptions)
 
+export const checkOutputContract = <O>(contract: OutputContract<O>) =>
+  Schema.decodeUnknownResult(contract.schema, outputContractParseOptions)
+
 export const described = <S extends Schema.Top>(schema: S, description: string) =>
   schema.annotate({ description })
 

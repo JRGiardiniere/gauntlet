@@ -4,7 +4,8 @@ import * as FileSystem from "effect/FileSystem"
 import { formatCandidateLine } from "../../content/candidate-line.ts"
 import {
   assembleStageScope,
-  loadStageScopeTemplate,
+  loadStageScopeTemplates,
+  type StageScopeTemplates,
 } from "../../content/evaluation-prompt.ts"
 import { ContentLoadError, isCompiledBinary } from "../../content/lens.ts"
 import {
@@ -24,16 +25,15 @@ const judgeTemplatePath = isCompiledBinary
   ? `${import.meta.dirname}/src/stages/judgment/judge.md`
   : `${import.meta.dirname}/judge.md`
 
-export interface JudgmentPromptTemplates {
+export interface JudgmentPromptTemplates extends StageScopeTemplates {
   readonly judge: string
-  readonly stageScope: string
 }
 
 export const loadJudgmentPromptTemplates = Effect.fn(
   "gauntlet.judgment.load_prompt_templates",
-)(function* () {
+)(function* (workspacePrompt: string) {
   const fs = yield* FileSystem.FileSystem
-  const [judge, stageScope] = yield* Effect.all(
+  const [judge, scope] = yield* Effect.all(
     [
       fs.readFileString(judgeTemplatePath).pipe(
         Effect.mapError((cause) =>
@@ -43,11 +43,11 @@ export const loadJudgmentPromptTemplates = Effect.fn(
             cause,
           })),
       ),
-      loadStageScopeTemplate(),
+      loadStageScopeTemplates(workspacePrompt),
     ],
     { concurrency: 2 },
   )
-  return { judge, stageScope } satisfies JudgmentPromptTemplates
+  return { judge, ...scope } satisfies JudgmentPromptTemplates
 })
 
 export const assembleJudgmentPrompt = (
@@ -59,7 +59,7 @@ export const assembleJudgmentPrompt = (
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const scope = yield* assembleStageScope(
-      templates.stageScope,
+      templates,
       target,
       reviewRoot,
       specification,

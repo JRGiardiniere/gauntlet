@@ -128,7 +128,11 @@ const executeFixture = (
     )
     yield* fs.writeFileString(
       path.join(content, "prompts", "finder-shared-block.md"),
-      "shared start\nrepo={{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\ncap={{MAX_PER_LENS}}\nshared end\n",
+      "shared start\nrepo={{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{WORKSPACE_TOOLS}}\ncap={{MAX_PER_LENS}}\nshared end\n",
+    )
+    yield* fs.writeFileString(
+      path.join(content, "prompts", "workspace-pi.md"),
+      "fixture workspace tools at {{REPO_ROOT}}\n",
     )
     const runId = "finder-execution-test"
     const planCore = {

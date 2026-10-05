@@ -10,5 +10,5 @@ return shape, a new exception, a timing/ordering dependency. Also check callees:
 does a parallel change in the same PR make a call unsafe?
 
 The diff above is complete, but the files it does NOT touch are not included —
-tracing callers is exactly the work this lens exists to do, so use bash (rg /
-grep) and read freely on unchanged files.
+tracing callers is exactly the work this lens exists to do, so search the tree
+and read freely on unchanged files.

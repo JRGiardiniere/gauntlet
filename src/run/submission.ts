@@ -19,6 +19,7 @@ import type {
   SpecificationSourceDiagnostic,
 } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
+import { HarnessSessionFactory } from "../harness/harness-session.ts"
 import { combineReviewSpecifications } from "../specification/combine.ts"
 import { loadGitHubSpecification } from "../specification/github-source.ts"
 import {
@@ -249,6 +250,22 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
       ? FrozenLens.make({ ...frozen, finderClass: lens.finderClass })
       : FrozenLens.make(frozen)
   })
+
+  // Each host runs only its own providers' Seats (#134).
+  const host = yield* HarnessSessionFactory
+  for (const seat of [
+    ...frozenLenses.map((lens) => lens.seat),
+    stageSeat(selected.recipe, "pool"),
+    stageSeat(selected.recipe, "verification"),
+    stageSeat(selected.recipe, "judgment"),
+  ]) {
+    const refusal = host.seatRefusal(seat)
+    if (refusal !== undefined) {
+      return yield* new SubmissionError({
+        reason: `recipe ${selected.name} seats ${seat}; ${refusal}`,
+      })
+    }
+  }
 
   const { diagnostic, specification } = yield* acquireSpecification(
     request.target,

@@ -12,6 +12,7 @@ import {
   fenceMarkdownBlock,
   PromptAssemblyError,
   renderPromptTemplate,
+  renderWorkspaceTools,
 } from "./prompt-template.ts"
 import { renderSpecificationSection } from "./specification-section.ts"
 
@@ -22,6 +23,7 @@ export const FINDER_TOOLS = ["read", "bash"] as const
 export interface FinderPromptTemplates {
   readonly systemPrompt: string
   readonly sharedPromptTemplate: string
+  readonly workspaceTools: string
 }
 
 export type ResolvedFinderContext =
@@ -49,7 +51,7 @@ export const resolveFinderContext = (
 
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
-)(function* () {
+)(function* (workspacePrompt: string) {
   const root = yield* ContentDirectory
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
@@ -66,11 +68,19 @@ export const loadFinderPromptTemplates = Effect.fn(
     )
   }
 
-  const [systemPrompt, sharedPromptTemplate] = yield* Effect.all(
-    [readPrompt("finder-system.md"), readPrompt("finder-shared-block.md")],
-    { concurrency: 2 },
+  const [systemPrompt, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
+    [
+      readPrompt("finder-system.md"),
+      readPrompt("finder-shared-block.md"),
+      readPrompt(workspacePrompt),
+    ],
+    { concurrency: 3 },
   )
-  return { systemPrompt, sharedPromptTemplate } satisfies FinderPromptTemplates
+  return {
+    systemPrompt,
+    sharedPromptTemplate,
+    workspaceTools,
+  } satisfies FinderPromptTemplates
 })
 
 // The shared block follows the finder system prompt inside the system prompt
@@ -82,7 +92,7 @@ export const loadFinderPromptTemplates = Effect.fn(
 // leaking ahead of it. A Specific Finder never receives specification
 // material (issue #73).
 export const assembleFinderContext = (
-  template: string,
+  templates: Omit<FinderPromptTemplates, "systemPrompt">,
   target: ReviewTarget,
   reviewRoot: string,
   context: ResolvedFinderContext,
@@ -90,9 +100,13 @@ export const assembleFinderContext = (
   Effect.gen(function* () {
     const shared = yield* renderPromptTemplate(
       "finder shared-block",
-      template,
+      templates.sharedPromptTemplate,
       [
         ["REPO_ROOT", reviewRoot],
+        [
+          "WORKSPACE_TOOLS",
+          yield* renderWorkspaceTools(templates.workspaceTools, reviewRoot),
+        ],
         [
           "CHANGED_FILES",
           target.changedFiles.map((file) => `- ${file}`).join("\n"),
@@ -122,14 +136,14 @@ export const assembleFinderAssignment = (lens: FrozenLens): string => {
 }
 
 export const assembleFinderPrompt = (
-  template: string,
+  templates: Omit<FinderPromptTemplates, "systemPrompt">,
   target: ReviewTarget,
   reviewRoot: string,
   lens: FrozenLens,
   specification: ReviewSpecification | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   assembleFinderContext(
-    template,
+    templates,
     target,
     reviewRoot,
     resolveFinderContext(lens, specification),

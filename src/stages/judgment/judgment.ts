@@ -10,6 +10,7 @@ import type {
 } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Judgment } from "../../domain/judgment.ts"
+import { HarnessSessionFactory } from "../../harness/harness-session.ts"
 import { invoke } from "../../harness/invoke.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
@@ -18,7 +19,6 @@ import {
   invocationTrail,
   wallSeconds,
 } from "../../run/progress-text.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
   assembleJudgmentPrompt,
@@ -85,13 +85,16 @@ export const executeJudgment = Effect.fn(
   }
 
   const judgmentStartedAt = yield* DateTime.now
-  const promptTemplates = yield* loadJudgmentPromptTemplates()
-  // The prompt shows the stable virtual root the tools expose; cwd
-  // carries the host snapshot path the overlay mounts on.
+  const host = yield* HarnessSessionFactory
+  const promptTemplates = yield* loadJudgmentPromptTemplates(
+    host.workspacePrompt,
+  )
+  // The prompt shows the root the host's tools expose (Pi's stable virtual
+  // root); cwd carries the snapshot path itself.
   const prompt = yield* assembleJudgmentPrompt(
     promptTemplates,
     plan.target,
-    REVIEW_WORKSPACE_ROOT,
+    host.workspaceRoot(reviewWorkingDirectory),
     indexed,
     plan.specification,
   )
