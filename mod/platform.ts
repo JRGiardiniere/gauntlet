@@ -12,6 +12,7 @@
 //   makeDirectory       mkdir (-p when recursive)
 //   readLink            `$.fs.stat` says whether it is a link; readlink names it
 //   makeTempDirectory   mktemp -d under the host's TMPDIR; scoped: rm -rf
+//   makeTempFile        mktemp under the host's TMPDIR; scoped: rm -f
 //   open (append only)  Logger.toFile's run.log: the text is kept and
 //                       rewritten whole on each batch
 // Every other method fails NotFound (FileSystem.makeNoop): a CLI change that
@@ -153,9 +154,11 @@ const appendOnlyFile = (ports: PlatformPorts, path: string, initial: string): Fi
   }
 }
 
-const makeTempDirectory = (ports: PlatformPorts, prefix: string | undefined) => {
+const makeTemp = (ports: PlatformPorts, kind: "directory" | "file", prefix: string | undefined) => {
   const template = `${(ports.env.TMPDIR ?? "/tmp").replace(/\/$/, "")}/${prefix ?? "gauntlet-"}XXXXXX`
-  return tool(ports, "makeTempDirectory", template, ["mktemp", "-d", template]).pipe(Effect.map(chomp))
+  return kind === "directory"
+    ? tool(ports, "makeTempDirectory", template, ["mktemp", "-d", template]).pipe(Effect.map(chomp))
+    : tool(ports, "makeTempFile", template, ["mktemp", template]).pipe(Effect.map(chomp))
 }
 
 const fileSystemOver = (ports: PlatformPorts) =>
@@ -211,11 +214,17 @@ const fileSystemOver = (ports: PlatformPorts) =>
       tool(ports, "makeDirectory", path, ["mkdir", ...(options?.recursive === true ? ["-p"] : []), "--", path]).pipe(
         Effect.asVoid,
       ),
-    makeTempDirectory: (options) => makeTempDirectory(ports, options?.prefix),
+    makeTempDirectory: (options) => makeTemp(ports, "directory", options?.prefix),
     makeTempDirectoryScoped: (options) =>
       Effect.acquireRelease(
-        makeTempDirectory(ports, options?.prefix),
+        makeTemp(ports, "directory", options?.prefix),
         (directory) => tool(ports, "remove", directory, ["rm", "-rf", "--", directory]).pipe(Effect.ignore),
+      ),
+    makeTempFile: (options) => makeTemp(ports, "file", options?.prefix),
+    makeTempFileScoped: (options) =>
+      Effect.acquireRelease(
+        makeTemp(ports, "file", options?.prefix),
+        (file) => tool(ports, "remove", file, ["rm", "-f", "--", file]).pipe(Effect.ignore),
       ),
     open: (path, options) => {
       if (options?.flag !== "a" && options?.flag !== "a+") {
