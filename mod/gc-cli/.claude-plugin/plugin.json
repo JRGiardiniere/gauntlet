@@ -1,0 +1,6 @@
+{
+  "name": "gc-cli",
+  "version": "0.1.0",
+  "description": "Gauntlet review run in process inside Claude Code (#134 Idea 3): /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]",
+  "types": "./types/index.d.ts"
+}

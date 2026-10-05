@@ -9,6 +9,7 @@ export default defineConfig({
   test: {
     include: [
       "src/**/*.test.ts",
+      "mod/**/*.test.ts",
       "scripts/**/*.test.ts",
       ".convoy/packs/**/*.test.ts",
     ],

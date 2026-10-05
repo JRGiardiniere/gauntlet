@@ -11,14 +11,16 @@
     "bun": ">=1.4.0"
   },
   "scripts": {
+    "build-mod": "bun scripts/build-mod.ts",
     "bundle": "bun scripts/bundle.ts",
     "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
+    "mod-types": "sh scripts/mod-types.sh",
     "prepare": "effect-tsgo patch --typescript --oxlint",
-    "test": "bun --bun vitest run src/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
+    "test": "bun --bun vitest run src/ mod/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
     "test:upgrade-compiled": "bun run bundle && sh scripts/upgrade-compiled.test.sh dist/gauntlet",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && sh scripts/mod-types.sh --check && tsc --noEmit -p mod"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.99.2",

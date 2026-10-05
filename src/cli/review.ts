@@ -31,7 +31,8 @@ import { gauntletVersion } from "./version.ts"
 
 // The review program: the review and deliver verbs and the rendering of
 // their failures as CLI messages and exit codes. main.ts adds the config,
-// login and upgrade verbs around it.
+// login and upgrade verbs around it; the Claude Code mod (mod/engine.ts)
+// runs exactly this, in process, without them (#134).
 
 // Flag-combination refusals only: once flags are valid, assembly refusals
 // are Submission's own tagged error (issue #105).
@@ -395,4 +396,12 @@ export const renderReviewFailures = <R>(
     Effect.catch((unreviewable) =>
       progress(`could not review — ${String(unreviewable)}`).pipe(Effect.as(1)),
     ),
+  )
+
+// The review program alone, as the mod runs it: argv as `gauntlet` takes it,
+// resolving to the exit code.
+export const runReviewCli = (argv: ReadonlyArray<string>) =>
+  runReviewProgram(normalizeResumeFlag(argv)).pipe(
+    Effect.as(0),
+    renderReviewFailures,
   )

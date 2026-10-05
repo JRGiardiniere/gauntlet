@@ -1,0 +1,6 @@
+{
+  "name": "gc-cli-tools",
+  "version": "0.1.0",
+  "description": "Emit tools, tool events and the ReviewWorkspace fence for gc-cli's agents",
+  "types": "./types/index.d.ts"
+}

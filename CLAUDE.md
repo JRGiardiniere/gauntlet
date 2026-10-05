@@ -12,7 +12,10 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 
 ## Expectations
 
-- `bun run lint && bun run typecheck && bun run test` stays green. The gate includes
+- `bun run lint && bun run typecheck && bun run test` stays green. A fresh
+  checkout runs `bun run mod-types` once first: Claude Code writes the
+  mod's plugin declarations into `mod/types/` (gitignored); rerun it after a
+  Claude Code update. The gate includes
   custom rules that reject common Effect idioms (Schema.Class, raw throw,
   unbounded retries…) — read the rule's message, don't fight it
 - Effect pinned **exactly** (enforced); single `effect` package, unstable
