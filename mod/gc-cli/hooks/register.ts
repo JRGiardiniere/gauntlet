@@ -40,17 +40,22 @@ let home = ""
 let tick: { readonly cancel: () => void } | undefined
 let markedAgents = ""
 let runCwd = ""
-let logLines: Array<string> = []
+let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
 const loadedAt = Date.now()
 
 const gcDir = () => `${home}/.gauntlet/gc-cli`
 
+// Appends in batches: every session running the mod, and every reload of
+// it, shares the one log, so none may rewrite it.
 function log($: Engines, line: string) {
-  logLines.push(`${new Date().toISOString()} [+${((Date.now() - loadedAt) / 1000).toFixed(1)}s] ${line}`)
-  if (logLines.length > 5000) logLines = logLines.slice(-4000)
-  const text = `${logLines.join("\n")}\n`
-  logWriting = logWriting.then(() => $.fs.write(`${gcDir()}/mod.log`, text)).catch(() => undefined)
+  pendingLog.push(`${new Date().toISOString()} [+${((Date.now() - loadedAt) / 1000).toFixed(1)}s] ${line}`)
+  logWriting = logWriting.then(async () => {
+    if (pendingLog.length === 0 || home === "") return
+    const text = `${pendingLog.join("\n")}\n`
+    pendingLog = []
+    await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${gcDir()}/mod.log`], { stdin: text })
+  }).catch(() => undefined)
 }
 
 function portsOf($: Engines, env: Record<string, string>): EnginePorts {
@@ -254,9 +259,6 @@ export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
     home = (await $.env.get("HOME")) ?? ""
-    // A reload starts a new module: the log carries on from the last one's.
-    const previous = await $.fs.read(`${gcDir()}/mod.log`).catch(() => "")
-    logLines = [...previous.split("\n").filter((line) => line !== "").slice(-4000), ...logLines]
     const env = Object.fromEntries(
       [
         ["HOME", home],
