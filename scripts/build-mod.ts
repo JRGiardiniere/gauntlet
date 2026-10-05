@@ -183,6 +183,13 @@ const program = Effect.gen(function* () {
     for (const file of [".claude-plugin/plugin.json", "types/index.d.ts", "hooks/hooks.json"]) {
       yield* fs.copyFile(`${source}/${file}`, `${staging}/${file}`)
     }
+    // `claude plugin test <dir>` runs a built plugin's tests.
+    if (yield* fs.exists(`${source}/tests`)) {
+      yield* fs.makeDirectory(`${staging}/tests`, { recursive: true })
+      for (const file of yield* fs.readDirectory(`${source}/tests`)) {
+        yield* fs.copyFile(`${source}/tests/${file}`, `${staging}/tests/${file}`)
+      }
+    }
     const hooks = yield* fs.readFileString(`${source}/hooks/register.ts`)
     yield* fs.writeFileString(
       `${staging}/hooks/register.ts`,
