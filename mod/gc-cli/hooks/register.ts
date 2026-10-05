@@ -174,6 +174,11 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   $.ui.toast(`gc-cli: review ${verdict} after ${String(result.seconds)}s`)
   const tail = result.stderr.trim().split("\n").filter((line) => line.includes("could not")).slice(-3).join("\n")
   const text = digest === "" ? `gc-cli: review ${verdict} (exit ${String(result.exitCode)}).\n${tail}` : `gc-cli review ${verdict}:\n\n${digest}`
+  // The appended row reaches the model; the person sees transcript rows, one
+  // per line (a row draws no line breaks).
+  for (const line of (digest === "" ? text : digest).split("\n")) {
+    if (line.trim() !== "") $.ui.log(line)
+  }
   await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
     log($, `append failed: ${String(error)}`)
   )
@@ -277,8 +282,9 @@ export const register: Register = (on) => {
     return started
   })
 
+  // The host labels the answer with the plugin's name already.
   on("command.run", { command: "gc-cli" }, async ($, e) => ({
-    text: await startReview($, { cwd: await $.session.root(), args: e.args }),
+    text: (await startReview($, { cwd: await $.session.root(), args: e.args })).replace(/^gc-cli: /, ""),
   }))
 
   // Every turn of every loop passes here; only this run's agents are taken.
