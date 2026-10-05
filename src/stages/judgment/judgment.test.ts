@@ -67,6 +67,20 @@ const keepingSession = (): ScriptedSession => ({
   }],
 })
 
+const bugClaim = Candidate.cases.BugClaim.make({
+  id: "fixture/3",
+  lens: "fixture",
+  file: "alpha.txt",
+  line: 2,
+  summary: "added line breaks the parser",
+  failureScenario: "parsing alpha.txt fails on the added line",
+})
+
+const pooled = {
+  claims: [{ index: 1, candidate: bugClaim }],
+  clusters: [{ number: 1, indexes: [1], summary: "the added line breaks parsing" }],
+}
+
 const runJudgment = (
   scripted: Scripted,
   seatless = false,
@@ -84,6 +98,7 @@ const runJudgment = (
       plan,
       reviewWorkingDirectory: REVIEW_ROOT,
       observations,
+      pooled,
     })
   }).pipe(
     Effect.provide(
@@ -124,6 +139,10 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain("[2] (fixture) alpha.txt — observation 2")
       expect(prompt).toContain("```diff")
       expect(prompt).toContain("+added-line")
+      // Pool's clusters, so an Observation restating one is dropped.
+      expect(prompt).toContain(
+        "- [c1] alpha.txt:2 — the added line breaks parsing",
+      )
       // The prompt shows the stable virtual root, never a host path (#58).
       expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
       expect(prompt).not.toContain(REVIEW_ROOT)

@@ -8,7 +8,8 @@ from the old reviewer and restated in CONTEXT.md terms.
 
 ```
 Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
-        └─► (Observations) ─────────► Judgment ───────┴─► Assembly
+                                 │ (clusters)          │
+        └─► (Observations) ──────┴──► Judgment ───────┴─► Assembly
 ```
 
 1. **Finders** — one AgentInvocation per runnable selected lens, fanned out in
@@ -30,7 +31,9 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
 4. **Judgment** — one invocation, all Observations, decisions by index:
    kept (with Review Priority + reason + finder ratings), dropped (with reason), merged.
    Receives the frozen ReviewSpecification, when one exists, after the scope
-   block and before the candidates.
+   block and before the candidates. Starts once Pool has clustered the
+   BugClaims and runs beside Verification: it sees Pool's clusters (never
+   Verdicts) and drops an Observation restating one as a BugClaim-path claim.
 
 A run whose plan froze no ReviewSpecification carries no absence text in any
 prompt — nothing announces that no specification was supplied. Before freeze,

@@ -7,7 +7,7 @@ finders that produced them were told to over-generate and let you thin the
 list — expect to drop a substantial fraction. None of them has a failing
 input, and you must not demand one; that bar belongs to the BugClaim path.
 
-{{SCOPE_BLOCK}}
+{{SCOPE_BLOCK}}{{BUG_CLAIM_CLUSTERS}}
 
 ## Candidates
 

@@ -11,7 +11,7 @@ import { renderDigest } from "../render/digest.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
-import { executeBugClaimPath } from "./bug-claim-path.ts"
+import { executePool, executeVerification } from "./bug-claim-path.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
@@ -61,18 +61,22 @@ export const executeReviewPlan = Effect.fn(
         yield* progress(
           `${counted(routed.bugClaims.length, "BugClaim")} → Verification · ${counted(routed.observations.length, "Observation")} → Judgment`,
         )
-        // The two evaluation paths share no state until Assembly joins them.
+        // Judgment waits for Pool's clusters, so it can drop an Observation
+        // that restates one, then runs beside Verification; neither sees the
+        // other's decisions until Assembly joins them.
+        const pooled = yield* executePool({
+          plan,
+          reviewWorkingDirectory,
+          bugClaims: routed.bugClaims,
+        })
         const [bugClaimPath, judgmentPath] = yield* Effect.all(
           [
-            executeBugClaimPath({
-              plan,
-              reviewWorkingDirectory,
-              bugClaims: routed.bugClaims,
-            }),
+            executeVerification({ plan, reviewWorkingDirectory, pooled }),
             executeJudgment({
               plan,
               reviewWorkingDirectory,
               observations: routed.observations,
+              pooled,
             }),
           ],
           { concurrency: 2 },

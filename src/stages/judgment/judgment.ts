@@ -12,6 +12,7 @@ import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Judgment } from "../../domain/judgment.ts"
 import { HarnessSessionFactory } from "../../harness/harness-session.ts"
 import { invoke } from "../../harness/invoke.ts"
+import type { PooledBugClaims } from "../../run/bug-claim-path.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
   counted,
@@ -41,6 +42,8 @@ export interface JudgmentExecution {
   readonly plan: ReviewPlan
   readonly reviewWorkingDirectory: string
   readonly observations: ReadonlyArray<Observation>
+  // Pool's BugClaim clusters, which an Observation must not restate.
+  readonly pooled: Pick<PooledBugClaims, "claims" | "clusters">
 }
 
 export interface JudgmentResult {
@@ -57,6 +60,7 @@ export const executeJudgment = Effect.fn(
 )(function* ({
   observations,
   plan,
+  pooled,
   reviewWorkingDirectory,
 }: JudgmentExecution) {
   const indexed = indexObservations(observations)
@@ -97,6 +101,7 @@ export const executeJudgment = Effect.fn(
     host.workspaceRoot(reviewWorkingDirectory),
     indexed,
     plan.specification,
+    pooled,
   )
   yield* progress("invoking Judgment")
   const outcome = yield* invoke({
