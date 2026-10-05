@@ -59,6 +59,9 @@ export const ReviewPlan = Schema.Struct({
     judgment: Schema.optionalKey(Seat),
   }),
   lenses: Schema.Array(FrozenLens),
+  // Finders also see the touched files whole and their related unchanged
+  // files (`--related-files`); omission means they see the diff alone.
+  relatedFiles: Schema.optionalKey(Schema.Literal(true)),
   // Frozen exactly once at submission (issues #73, #74): resume never
   // re-fetches issues or re-reads the addendum file, and a run without a
   // specification carries no specification field and no absence text.

@@ -104,6 +104,7 @@ interface ReviewCommandInput {
   readonly destination: Destination
   readonly spec: Option.Option<string>
   readonly githubSpec: boolean
+  readonly relatedFiles: boolean
 }
 
 const executeReviewCommand = Effect.fn(
@@ -115,6 +116,7 @@ const executeReviewCommand = Effect.fn(
   lenses,
   pr,
   recipe,
+  relatedFiles,
   resume,
   spec,
   workingTree,
@@ -145,6 +147,12 @@ const executeReviewCommand = Effect.fn(
       return yield* new ReviewCommandError({
         reason:
           "--github-spec cannot be combined with --resume; the plan is frozen",
+      })
+    }
+    if (relatedFiles) {
+      return yield* new ReviewCommandError({
+        reason:
+          "--related-files cannot be combined with --resume; the plan is frozen",
       })
     }
     yield* resumeReview(
@@ -211,6 +219,7 @@ const executeReviewCommand = Effect.fn(
         ? undefined
         : lenses.value.split(",").map((name) => name.trim()),
       addendum: specification,
+      relatedFiles,
     },
     destination,
   )
@@ -270,6 +279,12 @@ export const reviewCommand = Command.make(
       Flag.withDefault(false),
       Flag.withDescription(
         "Use only GitHub closing issues as the automatic ReviewSpecification source for this Run",
+      ),
+    ),
+    relatedFiles: Flag.Boolean("related-files").pipe(
+      Flag.withDefault(false),
+      Flag.withDescription(
+        "Also show Finders every touched file whole, plus the unchanged files that import or are imported by one, tests included",
       ),
     ),
   },

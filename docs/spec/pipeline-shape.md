@@ -15,7 +15,11 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    parallel over the same frozen diff. System prompt = finder system prompt +
    shared block + ReviewSpecification (Interpretive Finders only, when the plan
    froze one); user message = lens tail (see the cache invariant below). Specific Finders never
-   receive specification material. Each emits Candidates via `emit_findings`.
+   receive specification material. A plan frozen with `--related-files` also
+   appends to every shared block the whole post-change text of each touched
+   file and the unchanged files a touched file imports or that import one,
+   tests included, read from the Run's snapshot. Each emits Candidates via
+   `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
    no ReviewSpecification.

@@ -81,6 +81,9 @@ export interface SubmissionRequest {
   // exact selection — settings are never consulted, repeated names collapse.
   readonly selectedLensNames: ReadonlyArray<string> | undefined
   readonly addendum: ReviewSpecification | undefined
+  // Finders also see the touched files whole and their related unchanged
+  // files.
+  readonly relatedFiles?: boolean
 }
 
 const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
@@ -294,7 +297,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     },
     lenses: frozenLenses,
   }
-  const plan = specification === undefined
+  const specified = specification === undefined
     ? diagnostic === undefined
       ? ReviewPlan.make(planFields)
       : ReviewPlan.make({
@@ -308,6 +311,9 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
           specification,
           specificationSourceDiagnostic: diagnostic,
         })
+  const plan = request.relatedFiles === true
+    ? ReviewPlan.make({ ...specified, relatedFiles: true })
+    : specified
   yield* progress("freezing review plan")
   // Overlay first: a persisted plan implies its overlay exists.
   if (overlay !== undefined) {

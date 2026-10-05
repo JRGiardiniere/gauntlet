@@ -15,6 +15,7 @@ import {
   renderWorkspaceTools,
 } from "./prompt-template.ts"
 import { renderSpecificationSection } from "./specification-section.ts"
+import type { RelatedFiles } from "../workspace/related-files.ts"
 
 export { PromptAssemblyError }
 
@@ -49,25 +50,29 @@ export const resolveFinderContext = (
       }
     : { key: "specific" }
 
+const promptReader = Effect.fn("FinderPrompt.promptReader")(
+  function* () {
+    const root = yield* ContentDirectory
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    return (name: string) => {
+      const promptPath = path.join(root, "prompts", name)
+      return fs.readFileString(promptPath).pipe(
+        Effect.mapError((cause) =>
+          new ContentLoadError({
+            path: promptPath,
+            reason: "could not read prompt",
+            cause,
+          })),
+      )
+    }
+  },
+)
+
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
 )(function* (workspacePrompt: string) {
-  const root = yield* ContentDirectory
-  const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const promptsDirectory = path.join(root, "prompts")
-  const readPrompt = (name: string) => {
-    const promptPath = path.join(promptsDirectory, name)
-    return fs.readFileString(promptPath).pipe(
-      Effect.mapError((cause) =>
-        new ContentLoadError({
-          path: promptPath,
-          reason: "could not read prompt",
-          cause,
-        })),
-    )
-  }
-
+  const readPrompt = yield* promptReader()
   const [systemPrompt, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
     [
       readPrompt("finder-system.md"),
@@ -124,6 +129,31 @@ export const assembleFinderContext = (
     }
     return sections.join("\n\n")
   })
+
+// Read only for a ReviewPlan that froze the related-file context.
+export const loadRelatedFilesTemplate = Effect.fn(
+  "FinderPrompt.loadRelatedFilesTemplate",
+)(function* () {
+  return yield* (yield* promptReader())("finder-related-files.md")
+})
+
+const wholeFiles = (files: RelatedFiles["touched"]): string =>
+  files.length === 0
+    ? "(none)"
+    : files.map(({ file, text }) =>
+      `### ${file}\n\n${fenceMarkdownBlock("", text)}`
+    ).join("\n\n")
+
+// Appended to the shared block, so every Finder in a partition still shares
+// one byte-identical system prompt.
+export const renderRelatedFiles = (
+  template: string,
+  relatedFiles: RelatedFiles,
+): Effect.Effect<string, PromptAssemblyError> =>
+  renderPromptTemplate("finder related-files", template, [
+    ["TOUCHED_FILES", wholeFiles(relatedFiles.touched)],
+    ["RELATED_FILES", wholeFiles(relatedFiles.related)],
+  ])
 
 export const assembleFinderAssignment = (lens: FrozenLens): string => {
   const sections = ["## Your lens", lens.promptText]

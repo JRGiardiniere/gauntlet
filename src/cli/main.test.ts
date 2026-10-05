@@ -473,7 +473,7 @@ describe("gauntlet review", () => {
       expect(stdout).not.toContain("gauntlet:")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("produces an ordinary zero-result Dossier from empty Default Lenses", () =>
+  it.effect("produces an ordinary zero-result Dossier from empty Default Lenses, freezing --related-files", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -486,7 +486,7 @@ describe("gauntlet review", () => {
 
       const run = runCommand(
         fixture,
-        ["review", "--working-tree"],
+        ["review", "--working-tree", "--related-files"],
         makeScripted({ sessions: [] }),
       )
       expect(yield* run.effect).toBe(0)
@@ -498,6 +498,7 @@ describe("gauntlet review", () => {
         Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
       )
       expect(plan.lenses).toEqual([])
+      expect(plan.relatedFiles).toBe(true)
       expect(yield* fs.exists(path.join(runDirectory, "dossier.md"))).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

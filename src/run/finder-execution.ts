@@ -16,6 +16,8 @@ import {
   assembleFinderContext,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
+  loadRelatedFilesTemplate,
+  renderRelatedFiles,
 } from "../content/finder-prompt.ts"
 import {
   AgentOutcome,
@@ -41,6 +43,7 @@ import {
   finderInvocationsInPlan,
   finderPartitionsInPlan,
 } from "./finder-partitions.ts"
+import { gatherRelatedFiles } from "../workspace/related-files.ts"
 import { counted, invocationTrail } from "./progress-text.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 
@@ -150,6 +153,30 @@ export const executeFinders = Effect.fn(
   const templates = yield* Effect.cached(
     loadFinderPromptTemplates(host.workspacePrompt),
   )
+  // Gathered once, by the first partition that needs it. The snapshot is
+  // frozen, so a resumed Run gathers the same files again.
+  const relatedFilesSection = yield* Effect.cached(
+    Effect.gen(function* () {
+      if (plan.relatedFiles !== true) return undefined
+      const relatedFiles = yield* gatherRelatedFiles(
+        reviewWorkingDirectory,
+        plan.target.changedFiles,
+      ).pipe(
+        Effect.mapError((cause) =>
+          new RunError({
+            operation: "execute-plan",
+            runId: plan.runId,
+            reason: "could not gather the related-file context",
+            cause,
+          })
+        ),
+      )
+      return yield* renderRelatedFiles(
+        yield* loadRelatedFilesTemplate(),
+        relatedFiles,
+      )
+    }),
+  )
 
   const makeFinderInput = Effect.fn(
     "gauntlet.finder_execution.make_finder_input",
@@ -215,12 +242,16 @@ export const executeFinders = Effect.fn(
         const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
         const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
-        const sharedContext = yield* assembleFinderContext(
+        const baseContext = yield* assembleFinderContext(
           promptTemplates,
           plan.target,
           host.workspaceRoot(reviewWorkingDirectory),
           starter.context,
         )
+        const relatedFiles = yield* relatedFilesSection
+        const sharedContext = relatedFiles === undefined
+          ? baseContext
+          : `${baseContext}\n\n${relatedFiles}`
         if (group.length === 1) {
           const [completed, failed] = yield* Effect.partition(
             group,

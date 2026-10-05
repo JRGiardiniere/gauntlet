@@ -92,7 +92,7 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
 // review` argv. The target is `gauntlet review`'s: nothing is the working
 // tree, a number a pull request, anything else `--commits` (`base..head`,
 // or a base whose merge-base with HEAD starts the range). Other flags pass
-// through as written (`--resume`, `--github-spec`).
+// through as written (`--resume`, `--github-spec`, `--related-files`).
 function reviewArgv(args: string): ReadonlyArray<string> {
   const words = args.match(/"[^"]*"|'[^']*'|\S+/g)?.map((word) => word.replace(/^(["'])(.*)\1$/, "$2")) ?? []
   const argv = ["review"]
