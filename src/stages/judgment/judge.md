@@ -76,9 +76,9 @@ reason. Slice silence alone never lowers priority.
 
 The same root observation often arrives twice — once locally, once as a
 whole-change point. When several candidates rest on the same root observation,
-keep the best-argued one and list the others in its `merge` array. Merge
-duplicates, not themes — distinct criticisms that merely touch the same file
-stay separate.
+keep the best-argued one and give each other a `merge` decision whose `into`
+is the kept index. Merge duplicates, not themes — distinct criticisms that
+merely touch the same file stay separate.
 
 ## Rate the finder's work on every keep
 
@@ -100,13 +100,14 @@ real signal about the finder, not a mistake to fix by dropping it.
 
 ## Output
 
-Return one decision per candidate, by index — never re-emit or rewrite
-finding text. Every index appears exactly once across keep, merge, and drop.
+Return exactly one decision per candidate index — never re-emit or rewrite
+finding text.
 
 - **keep**: index, `review_priority` (P1–P3), a one-line reason stating why it is warranted and what
   you checked in the tree to confirm the premise, plus `goodFind` and
   `cleanlyExplained`.
-- **merge**: indexes folded into a kept candidate.
+- **merge**: index, `into` (the kept duplicate's index) and a one-line reason
+  naming the shared root observation.
 - **drop**: index and a one-line reason (false premise / disproportionate /
   taste, not cost / repo convention / BugClaim-path claim / no nameable payer).
 

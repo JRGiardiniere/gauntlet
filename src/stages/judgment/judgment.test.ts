@@ -45,15 +45,22 @@ const keepingSession = (): ScriptedSession => ({
         kind: "emit",
         valid: true,
         args: {
-          decisions: [{
-            index: 1,
-            decision: "keep",
-            review_priority: "P2",
-            reason: "the call sites confirm the premise",
-            goodFind: true,
-            cleanlyExplained: true,
-            merge: [2],
-          }],
+          decisions: [
+            {
+              index: 1,
+              decision: "keep",
+              review_priority: "P2",
+              reason: "the call sites confirm the premise",
+              goodFind: true,
+              cleanlyExplained: true,
+            },
+            {
+              index: 2,
+              decision: "merge",
+              into: 1,
+              reason: "the same root observation",
+            },
+          ],
         },
       },
       {

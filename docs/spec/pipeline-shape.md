@@ -99,8 +99,8 @@ candidates with lens, location, and claimed failure.
 Each Stage enforces its own accounting and sanitization at its result seam;
 Assembly is the deterministic aggregation of those results.
 
-- Every candidate index is accounted for exactly once across keep / merge /
-  drop (Judgment) or appears in exactly one cluster (Pool). The stage output
+- Every candidate index takes exactly one keep / drop / merge decision
+  (Judgment) or appears in exactly one cluster (Pool). The stage output
   decoders are strict — one off-spec field fails the stage result so the
   affected candidates surface as plausible/undecided rather than silently
   relabeled.
@@ -112,8 +112,8 @@ Assembly is the deterministic aggregation of those results.
   single-member clusters; a candidate may never be lost to a clustering error.
 - A Pool cluster renders as one finding: its fullest member states it, every
   member's lens is credited, and all members stay in the Dossier.
-- Judge merge claims are sanitized: a candidate cannot be merged into itself,
-  into an unknown keeper, or into a keeper that another merge removed.
+- Judge merges are sanitized: a merge into itself, an unknown index, or an
+  index not kept leaves the merged candidate undecided.
 - Review Priority is judged downstream (verifier/judge), never self-reported by
   finders — a finder rates its own work and has seen only its own lens.
 - Refuted claims and judge drops are not discarded: they land under the
