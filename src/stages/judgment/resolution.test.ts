@@ -72,22 +72,34 @@ describe("Judgment resolution and Assembly accounting", () => {
     expectFullAccounting(resolved)
   })
 
-  it("leaves a merge into itself, an unknown or an unkept index undecided", () => {
+  it("drops a merge into a dropped index with that drop's reason", () => {
     const resolved = resolveJudgment(observations, {
-      decisions: [merge(1, 1), merge(2, 998), merge(3, 4), drop(4), keep(999)],
+      decisions: [drop(1), merge(2, 1), keep(3), drop(4)],
+    })
+
+    expect(resolved.observations[1]?.judgment).toEqual(
+      Judgment.cases.Dropped.make({ reason: "duplicate of [1]: repo convention" }),
+    )
+    expect(resolved.notes).toEqual([])
+    expectFullAccounting(resolved)
+  })
+
+  it("leaves a merge into itself, an unknown or an undecided index undecided", () => {
+    const resolved = resolveJudgment(observations, {
+      decisions: [merge(1, 1), merge(2, 998), merge(3, 1), keep(4), keep(999)],
     })
 
     expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
       "Undecided",
       "Undecided",
       "Undecided",
-      "Dropped",
+      "Kept",
     ])
     expect(resolved.notes).toEqual([
       "ignored decisions for unknown indexes 999",
       "ignored self-merges of indexes 1",
       "ignored merges into an unknown index by indexes 2",
-      "ignored merges into an unkept index by indexes 3",
+      "ignored merges into an undecided index by indexes 3",
     ])
     expectFullAccounting(resolved)
   })
@@ -105,7 +117,7 @@ describe("Judgment resolution and Assembly accounting", () => {
     ])
     expect(resolved.notes).toEqual([
       "retained conflicting decisions as undecided for indexes 1",
-      "ignored merges into an unkept index by indexes 4",
+      "ignored merges into an undecided index by indexes 4",
     ])
     expectFullAccounting(resolved)
   })

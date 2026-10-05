@@ -112,8 +112,9 @@ Assembly is the deterministic aggregation of those results.
   single-member clusters; a candidate may never be lost to a clustering error.
 - A Pool cluster renders as one finding: its fullest member states it, every
   member's lens is credited, and all members stay in the Dossier.
-- Judge merges are sanitized: a merge into itself, an unknown index, or an
-  index not kept leaves the merged candidate undecided.
+- Judge merges are sanitized: a merge into a dropped candidate shares its
+  drop; a merge into itself, an unknown index, or an undecided candidate
+  leaves the merged candidate undecided.
 - Review Priority is judged downstream (verifier/judge), never self-reported by
   finders — a finder rates its own work and has seen only its own lens.
 - Refuted claims and judge drops are not discarded: they land under the

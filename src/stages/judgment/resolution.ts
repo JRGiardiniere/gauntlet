@@ -60,11 +60,13 @@ const indexDecisions = (
   return { decided, conflicted, conflictedIndexes }
 }
 
-// Phase 2 — map each merged index to its keeper. A merge must name another
-// index whose own decision is keep; any other merge leaves its index
-// undecided. The diagnostic buckets hold the merging indexes.
+// Phase 2 — map each merged index to its keeper. A merge into a dropped
+// index shares that drop; a merge into itself, an unknown index or one with
+// no keep or drop decision leaves its index undecided. The diagnostic
+// buckets hold the merging indexes.
 interface MergePlan {
   readonly mergedInto: HashMap.HashMap<number, number>
+  readonly droppedWith: HashMap.HashMap<number, string>
   readonly selfMerges: ReadonlyArray<number>
   readonly unknownTargets: ReadonlyArray<number>
   readonly unkeptTargets: ReadonlyArray<number>
@@ -79,6 +81,7 @@ const planMerges = (
   const unknownTargets: Array<number> = []
   const unkeptTargets: Array<number> = []
   let mergedInto = HashMap.empty<number, number>()
+  let droppedWith = HashMap.empty<number, string>()
   for (const { index } of observations) {
     const decision = HashMap.get(ledger.decided, index)
     if (Option.isNone(decision) || decision.value.decision !== "merge") continue
@@ -88,13 +91,19 @@ const planMerges = (
       selfMerges.push(index)
     } else if (!HashSet.has(validIndexes, into)) {
       unknownTargets.push(index)
+    } else if (Option.isSome(keeper) && keeper.value.decision === "drop") {
+      droppedWith = HashMap.set(
+        droppedWith,
+        index,
+        `duplicate of [${String(into)}]: ${keeper.value.reason}`,
+      )
     } else if (Option.isNone(keeper) || keeper.value.decision !== "keep") {
       unkeptTargets.push(index)
     } else {
       mergedInto = HashMap.set(mergedInto, index, into)
     }
   }
-  return { mergedInto, selfMerges, unknownTargets, unkeptTargets }
+  return { mergedInto, droppedWith, selfMerges, unknownTargets, unkeptTargets }
 }
 
 // Phase 3 — walk the observations in order and produce exactly one Kept,
@@ -124,6 +133,13 @@ const materialize = (
     observations,
     ({ candidate, index }): ReadonlyArray<JudgedObservation> => {
       if (HashMap.has(plan.mergedInto, index)) return []
+      const sharedDrop = HashMap.get(plan.droppedWith, index)
+      if (Option.isSome(sharedDrop)) {
+        return [{
+          candidate,
+          judgment: Judgment.cases.Dropped.make({ reason: sharedDrop.value }),
+        }]
+      }
       const decision = HashMap.get(ledger.decided, index)
       if (Option.isNone(decision) || decision.value.decision === "merge") {
         if (Option.isNone(decision) && !HashSet.has(ledger.conflicted, index)) {
@@ -166,8 +182,9 @@ const materialize = (
 
 // Judgment output is advisory model text resolved against the paid
 // Observation set. Each index takes exactly one decision: conflicting
-// decisions fail closed to undecided, and a merge that names no other kept
-// index leaves its own index undecided. Every discarded claim surfaces as a
+// decisions fail closed to undecided, a merge into a dropped index shares its
+// drop, and any other merge that names no kept index leaves its own index
+// undecided. Every discarded claim surfaces as a
 // note (docs/spec/pipeline-shape.md).
 export const resolveJudgment = (
   observations: ReadonlyArray<IndexedObservation>,
@@ -200,7 +217,7 @@ export const resolveJudgment = (
       ),
       ...note("ignored self-merges of indexes", plan.selfMerges),
       ...note("ignored merges into an unknown index by indexes", plan.unknownTargets),
-      ...note("ignored merges into an unkept index by indexes", plan.unkeptTargets),
+      ...note("ignored merges into an undecided index by indexes", plan.unkeptTargets),
       ...note(
         "ignored quality notes on cleanly rated keeps",
         materialized.discardedQualityNotes,
