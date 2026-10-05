@@ -200,6 +200,7 @@ export const makeClaudeHost = (
       }
     },
     prompt: (text) =>
+      // @effect-diagnostics-next-line newPromise:off
       new Promise<void>((resolve) => {
         invocation.settle = resolve
         invocation.started = false
@@ -208,6 +209,7 @@ export const makeClaudeHost = (
         send({ kind: "prompt", id: invocation.id, text, turn })
       }),
     abort: () =>
+      // @effect-diagnostics-next-line newPromise:off
       new Promise<void>((resolve) => {
         invocation.abortRequested = true
         if (invocation.settle === undefined) resolve()
