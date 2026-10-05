@@ -645,7 +645,7 @@ describe("gauntlet review", () => {
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain(
-        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit",
+        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · cache 42% · MissingEmit",
       )
       expect(stderr).toContain(
         "gauntlet: coverage gap (fixture-review) — finder emitted nothing after 2 corrective turns",

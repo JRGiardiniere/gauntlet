@@ -3,6 +3,7 @@ import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
+import * as Option from "effect/Option"
 import { assembleDossier } from "../assembly/dossier.ts"
 import { routeFinderResults } from "../assembly/finders.ts"
 import { Dossier } from "../domain/dossier.ts"
@@ -15,13 +16,15 @@ import { executePool, executeVerification } from "./bug-claim-path.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
-import { counted, coverageGapLine, wallSeconds } from "./progress-text.ts"
+import {
+  cacheShare,
+  counted,
+  runProgress,
+  coverageGapLine,
+  wallSeconds,
+} from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
-
-const progress = Effect.fn("gauntlet.run_executor.progress")((text: string) =>
-  Console.error(`gauntlet: ${text}`),
-)
 
 export interface ReviewExecution {
   readonly plan: ReviewPlan
@@ -32,7 +35,7 @@ export interface ReviewExecution {
 export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
-  yield* progress(`run ${plan.runId}`)
+  yield* Console.error(`gauntlet: run ${plan.runId}`)
   yield* Effect.scoped(
     Effect.gen(function* () {
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
@@ -51,14 +54,19 @@ export const executeReviewPlan = Effect.fn(
         })
         const results = finderStage.finders
 
-        yield* progress(
-          `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
+        yield* runProgress(
+          [
+            `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
+            ...Option.toArray(Option.fromUndefinedOr(
+              cacheShare(results.map(({ outcome }) => outcome.usage)),
+            )),
+          ].join(" · "),
         )
         const routed = routeFinderResults(results)
         for (const gap of routed.coverageGaps) {
-          yield* progress(coverageGapLine(gap))
+          yield* runProgress(coverageGapLine(gap))
         }
-        yield* progress(
+        yield* runProgress(
           `${counted(routed.bugClaims.length, "BugClaim")} → Verification · ${counted(routed.observations.length, "Observation")} → Judgment`,
         )
         // Judgment waits for Pool's clusters, so it can drop an Observation
@@ -87,7 +95,7 @@ export const executeReviewPlan = Effect.fn(
           bugClaimPath,
           judgmentPath,
         })
-        yield* progress("assembling dossier")
+        yield* runProgress("assembling dossier")
         yield* writeArtifactJson(paths.dossier, Dossier, dossier)
 
         const endedAt = yield* DateTime.now

@@ -1,5 +1,4 @@
 import * as Array from "effect/Array"
-import * as Console from "effect/Console"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import {
@@ -43,12 +42,9 @@ import {
   counted,
   coverageGapLine,
   invocationTrail,
+  runProgress,
   wallSeconds,
 } from "./progress-text.ts"
-
-const progress = Effect.fn("gauntlet.bug_claim_path.progress")((text: string) =>
-  Console.error(`gauntlet: ${text}`),
-)
 
 const initialRepair = (
   claims: ReturnType<typeof indexBugClaims>,
@@ -107,7 +103,7 @@ export const executePool = Effect.fn("BugClaimPath.pool")(function* ({
 }: BugClaimPathExecution) {
   const claims = indexBugClaims(bugClaims)
   if (claims.length === 0) {
-    yield* progress(`skipping Pool (${counted(0, "BugClaim")})`)
+    yield* runProgress(`skipping Pool (${counted(0, "BugClaim")})`)
     return {
       claims,
       clusters: [],
@@ -130,14 +126,14 @@ export const executePool = Effect.fn("BugClaimPath.pool")(function* ({
         "pool has no seat frozen in the review plan; used singleton clusters"
       repair = repairPoolOutput(claims, undefined)
       coverageGaps.push({ stage: "pool", reason })
-      yield* progress(coverageGapLine({ reason }))
+      yield* runProgress(coverageGapLine({ reason }))
     } else {
       poolStartedAt = yield* DateTime.now
       const promptTemplates = yield* loadEvaluationPromptTemplates(
         (yield* HarnessSessionFactory).workspacePrompt,
       )
       const prompt = yield* assemblePoolPrompt(promptTemplates.pool, claims)
-      yield* progress("invoking Pool")
+      yield* runProgress("invoking Pool")
       const outcome = yield* invoke({
         invocationId: `${plan.runId}-pool`,
         seat,
@@ -148,8 +144,8 @@ export const executePool = Effect.fn("BugClaimPath.pool")(function* ({
         tools: POOL_TOOLS,
         deadlines: REVIEW_INVOCATION_DEADLINES,
       })
-      yield* progress(
-        `Pool done — ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
+      yield* runProgress(
+        `Pool done — ${invocationTrail(outcome)}`,
       )
       repair = repairPoolOutput(claims, outcome.output)
       poolCostUsd = outcome.usage.costUsd
@@ -159,19 +155,19 @@ export const executePool = Effect.fn("BugClaimPath.pool")(function* ({
         : repairedPoolReason(repair)
       if (repairReason !== undefined) {
         coverageGaps.push({ stage: "pool", reason: repairReason })
-        yield* progress(coverageGapLine({ reason: repairReason }))
+        yield* runProgress(coverageGapLine({ reason: repairReason }))
       }
     }
   } else {
-    yield* progress(`skipping Pool (${counted(claims.length, "BugClaim")})`)
+    yield* runProgress(`skipping Pool (${counted(claims.length, "BugClaim")})`)
   }
 
   const clusters = numberPoolClusters(repair.clusters)
   if (poolStartedAt !== undefined) {
-    yield* progress(
+    yield* runProgress(
       `${counted(bundlePoolClusters(clusters).length, "bundle")} → Verification`,
     )
-    yield* progress(
+    yield* runProgress(
       `Pool finished — ${String(yield* wallSeconds(poolStartedAt))}s`,
     )
   }
@@ -197,7 +193,7 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
 }: VerificationExecution) {
   const { claims, clusters } = pooled
   if (claims.length === 0) {
-    yield* progress(`skipping Verification (${counted(0, "BugClaim")})`)
+    yield* runProgress(`skipping Verification (${counted(0, "BugClaim")})`)
     return {
       bugClaims: [],
       testSuggestions: [],
@@ -220,7 +216,7 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
     const reason =
       "verification has no seat frozen in the review plan; retained every claim as plausible without examination"
     coverageGaps.push({ stage: "verification", reason })
-    yield* progress(coverageGapLine({ reason }))
+    yield* runProgress(coverageGapLine({ reason }))
   } else {
     verificationStartedAt = yield* DateTime.now
     verificationResults = yield* Effect.forEach(
@@ -239,7 +235,7 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
             bundle,
             plan.specification,
           )
-          yield* progress(
+          yield* runProgress(
             `invoking Verification bundle ${String(bundleNumber)}`,
           )
           const outcome = yield* invoke({
@@ -253,8 +249,8 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
             tools: VERIFICATION_TOOLS,
             deadlines: REVIEW_INVOCATION_DEADLINES,
           })
-          yield* progress(
-            `Verification bundle ${String(bundleNumber)} done — ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
+          yield* runProgress(
+            `Verification bundle ${String(bundleNumber)} done — ${invocationTrail(outcome)}`,
           )
           return {
             bundleNumber,
@@ -268,7 +264,7 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
 
   const resolved = resolveVerification(claims, clusters, verificationResults)
   for (const gap of resolved.coverageGaps) {
-    yield* progress(coverageGapLine(gap))
+    yield* runProgress(coverageGapLine(gap))
   }
   if (verificationStartedAt !== undefined) {
     const verdicts = clusterEvaluatedBugClaims(resolved.bugClaims).map(
@@ -277,7 +273,7 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
     const confirmed = verdicts.filter(Verdict.guards.Confirmed).length
     const refuted = verdicts.filter(Verdict.guards.Refuted).length
     const plausible = verdicts.filter(Verdict.guards.Plausible).length
-    yield* progress(
+    yield* runProgress(
       `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(plausible)} plausible · ${String(yield* wallSeconds(verificationStartedAt))}s`,
     )
   }

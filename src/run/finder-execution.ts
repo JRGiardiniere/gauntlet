@@ -1,5 +1,4 @@
 import * as Array from "effect/Array"
-import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -44,7 +43,7 @@ import {
   finderPartitionsInPlan,
 } from "./finder-partitions.ts"
 import { gatherRelatedFiles } from "../workspace/related-files.ts"
-import { counted, invocationTrail } from "./progress-text.ts"
+import { counted, invocationTrail, runProgress } from "./progress-text.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
@@ -59,10 +58,6 @@ export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
   {
     defaultValue: () => FinderCacheSettleDelay,
   },
-)
-
-const progress = Effect.fn("gauntlet.finder_execution.progress")((text: string) =>
-  Console.error(`gauntlet: ${text}`),
 )
 
 interface FinderExecutionInput {
@@ -129,8 +124,8 @@ const readCompletedFinderStage = Effect.fn(
 })
 
 const reportFinderDone = (result: FinderResult) =>
-  progress(
-    `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome.durationMillis, result.outcome.usage.costUsd, result.outcome.termination)}`,
+  runProgress(
+    `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome)}`,
   )
 
 // A completed Finder fan-out is the first resumable semantic checkpoint.
@@ -141,7 +136,7 @@ export const executeFinders = Effect.fn(
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
   const completed = yield* readCompletedFinderStage(plan, paths.finderStage)
   if (Option.isSome(completed)) {
-    yield* progress("reusing completed Finder stage")
+    yield* runProgress("reusing completed Finder stage")
     yield* Effect.forEach(completed.value.finders, reportFinderDone, {
       discard: true,
     })
@@ -225,7 +220,7 @@ export const executeFinders = Effect.fn(
     cacheGroupId: string,
     sharedContext: string,
   ) {
-    yield* progress(`invoking finder ${invocation.lens.name}`)
+    yield* runProgress(`invoking finder ${invocation.lens.name}`)
     const input = yield* makeFinderInput(
       invocation,
       cacheGroupId,
@@ -263,7 +258,7 @@ export const executeFinders = Effect.fn(
           return { failed, completed }
         }
 
-        yield* progress(`invoking finder ${starter.lens.name}`)
+        yield* runProgress(`invoking finder ${starter.lens.name}`)
         const starterInput = yield* makeFinderInput(
           starter,
           cacheGroupId,
