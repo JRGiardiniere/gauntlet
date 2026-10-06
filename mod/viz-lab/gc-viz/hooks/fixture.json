@@ -1,0 +1,617 @@
+{
+ "runId": "2026-10-06T01-08-33-582Z-0ceb",
+ "argv": [
+  "review",
+  "--related-files",
+  "--pr=641"
+ ],
+ "target": "cloudflare-hub PR #641 (ca51fa8)",
+ "recipe": "claude-opus-medium",
+ "lenses": [
+  "absence",
+  "cleanup",
+  "diff-scan",
+  "presentation-environment",
+  "removed-behavior",
+  "standards",
+  "subjective"
+ ],
+ "endedAt": 181066.0,
+ "invocations": [
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-absence",
+   "spawnedAt": 89.0,
+   "endedAt": 39983.0,
+   "items": 4,
+   "toolCalls": 1,
+   "tokens": {
+    "input": 6,
+    "output": 3764,
+    "cacheRead": 1100666,
+    "cacheWrite": 554763
+   },
+   "tools": [
+    {
+     "at": 8067.8,
+     "tool": "Read platform/operations/publish-app.ts"
+    },
+    {
+     "at": 16046.6,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    },
+    {
+     "at": 24025.4,
+     "tool": "Read platform/operations/operations.ts"
+    },
+    {
+     "at": 32004.2,
+     "tool": "Read platform/operations/app-authorization.ts"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-cleanup",
+   "spawnedAt": 24419.0,
+   "endedAt": 47239.0,
+   "items": 1,
+   "toolCalls": 0,
+   "tokens": {
+    "input": 4,
+    "output": 1794,
+    "cacheRead": 1093926,
+    "cacheWrite": 4851
+   },
+   "tools": [
+    {
+     "at": 30124.0,
+     "tool": "Read platform/operations/app-authorization.ts"
+    },
+    {
+     "at": 35829.0,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/git"
+    },
+    {
+     "at": 41534.0,
+     "tool": "Read docs/mcp/workspace.md"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-diff-scan",
+   "spawnedAt": 24421.0,
+   "endedAt": 120842.0,
+   "items": 2,
+   "toolCalls": 0,
+   "tokens": {
+    "input": 4,
+    "output": 9518,
+    "cacheRead": 1093474,
+    "cacheWrite": 12130
+   },
+   "tools": [
+    {
+     "at": 48526.25,
+     "tool": "Read platform/operations/app-manifest.ts"
+    },
+    {
+     "at": 72631.5,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/access"
+    },
+    {
+     "at": 96736.75,
+     "tool": "Read platform/operations/publish-app.ts"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-presentation-environment",
+   "spawnedAt": 24423.0,
+   "endedAt": 40312.0,
+   "items": 1,
+   "toolCalls": 0,
+   "tokens": {
+    "input": 4,
+    "output": 1248,
+    "cacheRead": 1093736,
+    "cacheWrite": 4134
+   },
+   "tools": [
+    {
+     "at": 28395.25,
+     "tool": "Read platform/operations/errors.ts"
+    },
+    {
+     "at": 32367.5,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    },
+    {
+     "at": 36339.75,
+     "tool": "Read platform/operations/app-authorization.ts"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-removed-behavior",
+   "spawnedAt": 24425.0,
+   "endedAt": 87802.0,
+   "items": 1,
+   "toolCalls": 1,
+   "tokens": {
+    "input": 6,
+    "output": 6096,
+    "cacheRead": 1647191,
+    "cacheWrite": 10308
+   },
+   "tools": [
+    {
+     "at": 37100.4,
+     "tool": "Read platform/git/git-writer.ts"
+    },
+    {
+     "at": 49775.8,
+     "tool": "Grep \"PostPushDeployFailed\" in docs/mcp"
+    },
+    {
+     "at": 62451.2,
+     "tool": "Read platform/operations/app-manifest.ts"
+    },
+    {
+     "at": 75126.6,
+     "tool": "Read platform/access/access-projection.ts"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-standards",
+   "spawnedAt": 24428.0,
+   "endedAt": 52720.0,
+   "items": 2,
+   "toolCalls": 1,
+   "tokens": {
+    "input": 6,
+    "output": 1997,
+    "cacheRead": 1662339,
+    "cacheWrite": 14710
+   },
+   "tools": [
+    {
+     "at": 30086.4,
+     "tool": "Read platform/access/access-projection.ts"
+    },
+    {
+     "at": 35744.8,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    },
+    {
+     "at": 41403.2,
+     "tool": "Read platform/operations/errors.ts"
+    },
+    {
+     "at": 47061.6,
+     "tool": "Read platform/operations/operations.ts"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-finders-1-finder-subjective",
+   "spawnedAt": 24429.0,
+   "endedAt": 76067.0,
+   "items": 12,
+   "toolCalls": 0,
+   "tokens": {
+    "input": 4,
+    "output": 4688,
+    "cacheRead": 1094078,
+    "cacheWrite": 7933
+   },
+   "tools": [
+    {
+     "at": 37338.5,
+     "tool": "Read platform/operations/operations.ts"
+    },
+    {
+     "at": 50248.0,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    },
+    {
+     "at": 63157.5,
+     "tool": "Read platform/git/git-writer.ts"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-pool",
+   "spawnedAt": 120858.0,
+   "endedAt": 136828.0,
+   "items": 2,
+   "toolCalls": 2,
+   "tokens": {
+    "input": 0,
+    "output": 191,
+    "cacheRead": 5816,
+    "cacheWrite": 8371
+   },
+   "tools": [
+    {
+     "at": 123519.66666666667,
+     "tool": "Read docs/mcp/workspace.md"
+    },
+    {
+     "at": 126181.33333333333,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    },
+    {
+     "at": 128843.0,
+     "tool": "Read platform/access/access-projection.ts"
+    },
+    {
+     "at": 131504.66666666666,
+     "tool": "Read platform/operations/publish-app.ts"
+    },
+    {
+     "at": 134166.33333333334,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-verification-2",
+   "spawnedAt": 136838.0,
+   "endedAt": 158903.0,
+   "items": 3,
+   "toolCalls": 2,
+   "tokens": {
+    "input": 0,
+    "output": 1664,
+    "cacheRead": 185187,
+    "cacheWrite": 61729
+   },
+   "tools": [
+    {
+     "at": 140515.5,
+     "tool": "Read platform/operations/app-authorization.ts"
+    },
+    {
+     "at": 144193.0,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/git"
+    },
+    {
+     "at": 147870.5,
+     "tool": "Read docs/mcp/workspace.md"
+    },
+    {
+     "at": 151548.0,
+     "tool": "Read platform/operations/app-manifest.ts"
+    },
+    {
+     "at": 155225.5,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/access"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-verification-1",
+   "spawnedAt": 136842.0,
+   "endedAt": 176571.0,
+   "items": 3,
+   "toolCalls": 2,
+   "tokens": {
+    "input": 0,
+    "output": 1952,
+    "cacheRead": 259646,
+    "cacheWrite": 69021
+   },
+   "tools": [
+    {
+     "at": 143463.5,
+     "tool": "Read platform/operations/publish-app.ts"
+    },
+    {
+     "at": 150085.0,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    },
+    {
+     "at": 156706.5,
+     "tool": "Read platform/operations/operations.ts"
+    },
+    {
+     "at": 163328.0,
+     "tool": "Read platform/operations/app-authorization.ts"
+    },
+    {
+     "at": 169949.5,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/git"
+    }
+   ]
+  },
+  {
+   "invocationId": "2026-10-06T01-08-33-582Z-0ceb-judgment",
+   "spawnedAt": 136848.0,
+   "endedAt": 180666.0,
+   "items": 14,
+   "toolCalls": 2,
+   "tokens": {
+    "input": 0,
+    "output": 1855,
+    "cacheRead": 143458,
+    "cacheWrite": 73904
+   },
+   "tools": [
+    {
+     "at": 144151.0,
+     "tool": "Read platform/operations/app-manifest.ts"
+    },
+    {
+     "at": 151454.0,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/access"
+    },
+    {
+     "at": 158757.0,
+     "tool": "Read platform/operations/publish-app.ts"
+    },
+    {
+     "at": 166060.0,
+     "tool": "Read platform/operations/errors.ts"
+    },
+    {
+     "at": 173363.0,
+     "tool": "Grep \"PostPushDeployFailed\" in platform/operations"
+    }
+   ]
+  }
+ ],
+ "progress": [
+  {
+   "at": 0.0,
+   "line": "gauntlet: run 2026-10-06T01-08-33-582Z-0ceb executing"
+  },
+  {
+   "at": 89.0,
+   "line": "gauntlet: invoking finder absence"
+  },
+  {
+   "at": 24419.0,
+   "line": "gauntlet: invoking finder cleanup"
+  },
+  {
+   "at": 24421.0,
+   "line": "gauntlet: invoking finder diff-scan"
+  },
+  {
+   "at": 24423.0,
+   "line": "gauntlet: invoking finder presentation-environment"
+  },
+  {
+   "at": 24425.0,
+   "line": "gauntlet: invoking finder removed-behavior"
+  },
+  {
+   "at": 24428.0,
+   "line": "gauntlet: invoking finder standards"
+  },
+  {
+   "at": 24429.0,
+   "line": "gauntlet: invoking finder subjective"
+  },
+  {
+   "at": 39986.0,
+   "line": "gauntlet: finder absence done \u2014 4 candidates \u00b7 40s \u00b7 $3.07 \u00b7 cache 66%"
+  },
+  {
+   "at": 40312.0,
+   "line": "gauntlet: finder presentation-environment done \u2014 1 candidate \u00b7 16s \u00b7 $0.26 \u00b7 cache 100%"
+  },
+  {
+   "at": 47241.0,
+   "line": "gauntlet: finder cleanup done \u2014 1 candidate \u00b7 23s \u00b7 $0.28 \u00b7 cache 100%"
+  },
+  {
+   "at": 52720.0,
+   "line": "gauntlet: finder standards done \u2014 2 candidates \u00b7 28s \u00b7 $0.45 \u00b7 cache 99%"
+  },
+  {
+   "at": 76068.0,
+   "line": "gauntlet: finder subjective done \u2014 12 candidates \u00b7 52s \u00b7 $0.35 \u00b7 cache 99%"
+  },
+  {
+   "at": 87803.0,
+   "line": "gauntlet: finder removed-behavior done \u2014 1 candidate \u00b7 63s \u00b7 $0.50 \u00b7 cache 99%"
+  },
+  {
+   "at": 120844.0,
+   "line": "gauntlet: finder diff-scan done \u2014 2 candidates \u00b7 96s \u00b7 $0.47 \u00b7 cache 99%"
+  },
+  {
+   "at": 120855.0,
+   "line": "gauntlet: Finder stage checkpointed"
+  },
+  {
+   "at": 120855.0,
+   "line": "gauntlet: Finders finished \u2014 121s \u00b7 cache 94%"
+  },
+  {
+   "at": 120856.0,
+   "line": "gauntlet: 9 BugClaims \u2192 Verification \u00b7 14 Observations \u2192 Judgment"
+  },
+  {
+   "at": 120858.0,
+   "line": "gauntlet: invoking Pool"
+  },
+  {
+   "at": 136828.0,
+   "line": "gauntlet: Pool done \u2014 16s \u00b7 $0.06 \u00b7 cache 41%"
+  },
+  {
+   "at": 136829.0,
+   "line": "gauntlet: 2 bundles \u2192 Verification"
+  },
+  {
+   "at": 136829.0,
+   "line": "gauntlet: Pool finished \u2014 16s"
+  },
+  {
+   "at": 136838.0,
+   "line": "gauntlet: invoking Verification bundle 2"
+  },
+  {
+   "at": 136842.0,
+   "line": "gauntlet: invoking Verification bundle 1"
+  },
+  {
+   "at": 136848.0,
+   "line": "gauntlet: invoking Judgment"
+  },
+  {
+   "at": 158903.0,
+   "line": "gauntlet: Verification bundle 2 done \u2014 22s \u00b7 $0.52 \u00b7 cache 75%"
+  },
+  {
+   "at": 176571.0,
+   "line": "gauntlet: Verification bundle 1 done \u2014 40s \u00b7 $0.61 \u00b7 cache 79%"
+  },
+  {
+   "at": 176572.0,
+   "line": "gauntlet: Verification finished \u2014 5 confirmed \u00b7 0 refuted \u00b7 1 plausible \u00b7 40s"
+  },
+  {
+   "at": 180666.0,
+   "line": "gauntlet: Judgment done \u2014 44s \u00b7 $0.58 \u00b7 cache 66%"
+  },
+  {
+   "at": 180667.0,
+   "line": "gauntlet: Judgment finished \u2014 4 kept \u00b7 10 dropped \u00b7 0 undecided \u00b7 44s"
+  },
+  {
+   "at": 180669.0,
+   "line": "gauntlet: assembling dossier"
+  },
+  {
+   "at": 180683.0,
+   "line": "gauntlet: dossier rendered"
+  }
+ ],
+ "findings": [
+  {
+   "verdict": "confirmed",
+   "priority": "P2",
+   "file": "platform/operations/publish-app.ts",
+   "line": 663,
+   "summary": "This change makes the Workspace and committed-source publish paths produce `PostPushDeployFailed`, but errors.ts still says \"Only the upload path (commit-before-deploy) produces this\", and its message claims the publish \"Committed and pushed\" the source.",
+   "lenses": [
+    "absence",
+    "diff-scan",
+    "presentation-environment",
+    "removed-behavior"
+   ],
+   "evidence": "publishAppEffect (publish-app.ts) wraps deploy CommandFailed/BundleFailed in PostPushDeployFailed for every source, including source:\"committed\" from publishCli. errors.ts:747 still says \"Only the upload path (commit-before-deploy) produces this\", and errors.ts:755 says \"Committed and pushed ... call publish again\". The removed publishInternalApp had no such catch, so its CommandFailed became PublishInfrastructureFailed through publishInfrastructureFailure. On a CLI deploy failure the operator is now told the publish committed and pushed something when it did not. Only the message is wrong; the failure is still reported.",
+   "failureScenario": "A CLI `hub.mjs publish <name>` (source: committed) whose `cf deploy` fails now returns PostPushDeployFailed with the text \"Committed and pushed \\\"demo\\\" ... Your source IS durable in the monorepo\". That operation committed and pushed nothing, and the comment on the error class in errors.ts says only the upload path produces it. The comment and the user-facing message no longer match the three sources that now emit it."
+  },
+  {
+   "verdict": "confirmed",
+   "priority": "P3",
+   "file": "docs/mcp/workspace.md",
+   "line": 21,
+   "summary": "The new paragraph says a post-fast-forward build failure returns `BuildFailed`, a deploy failure returns `PostPushDeployFailed`, and \"either way nothing new is live\"; the code also produces `DisallowedDependencies` from a build, and lets `AppDatabaseProvisioningFailed` and `VersionTagFailed` (which means the app IS live) pass through from deploy.",
+   "lenses": [
+    "absence"
+   ],
+   "evidence": "mapBuildError (operations.ts:135-138) returns DisallowedDependencies, not BuildFailed, when the compiler output names an undeclared bare package. The deploy catchTags only wraps Command*/BundleFailed, so VersionTagFailed passes through, and errors.ts:727-729 says \"The app IS live\". The new paragraph in workspace.md says the failure is \"either way\" BuildFailed or PostPushDeployFailed and that \"nothing new is live\". The doc is incomplete and partly wrong, but this is documentation only.",
+   "failureScenario": "publishAppEffect calls buildApp, whose error goes through mapBuildError. mapBuildError returns DisallowedDependencies whenever the compiler output names a bare package that is not declared, not BuildFailed. The deploy's catchTags only wraps Command*/BundleFailed in PostPushDeployFailed. AppDatabaseProvisioningFailed and VersionTagFailed are not caught, and VersionTagFailed is raised after the deploy has gone live. So a Workspace publish can fail with an error the doc does not list, or fail while the new version is in fact live, which contradicts \"nothing new is live\"."
+  },
+  {
+   "verdict": "confirmed",
+   "priority": "P3",
+   "file": "platform/operations/publish-app.ts",
+   "line": 633,
+   "summary": "landWorkspace runs `git.assertCleanWorkingTree` right after `writer.fastForwardMain`, but fastForwardMain already ends with `git reset --hard <head>` and `git clean -fd` on the same clone, so the tree is clean by construction. The check is dead and costs an extra `git status --porcelain` subprocess on every Workspace publish.",
+   "lenses": [
+    "cleanup"
+   ],
+   "evidence": "fastForwardMain ends with `git reset --hard head` and `git clean -fd` (git-writer.ts:442-443). The assertCleanWorkingTree that follows runs `status --porcelain` (git-repo.ts:122), which hides ignored files just as clean -fd leaves them, so it cannot fail. The check is dead, but the cost is one extra git subprocess, and the old path paid the same cost through publishInternalApp, so this is cleanup only.",
+   "failureScenario": "Every publish_workspace call: GitWriter.Default.fastForwardMain finishes with `reset --hard head` and then `clean -fd`, which leaves no tracked changes and no untracked non-ignored files. The `status --porcelain` that follows can't report anything, so it can't fail. Ignored files are hidden from both commands. The check just adds a subprocess round trip. Leaner form: drop the line and go straight to `loader.load(root, name)`. The old publishWorkspace only got this check indirectly, through publishInternalApp."
+  },
+  {
+   "verdict": "confirmed",
+   "priority": "P3",
+   "file": "platform/operations/app-authorization.ts",
+   "line": 142,
+   "summary": "New traced functions use the legacy `hub.<module>.<method>` span names (`hub.app_authorization.in_audience`, `hub.app_authorization.authorize` at line 185). AGENTS.md House rules say: \"Span names in existing code still use `hub.<module>.<method>`; new code uses the skill's `Domain.operation`\".",
+   "lenses": [
+    "standards"
+   ],
+   "evidence": "AGENTS.md:101-103 says 'Span names in existing code still use `hub.<module>.<method>`; new code uses the skill's `Domain.operation`'. The new module app-authorization.ts adds `Effect.fn(\"hub.app_authorization.in_audience\")` and `Effect.fn(\"hub.app_authorization.authorize\")`, which are new spans in the legacy form. Only decideProjectedAppAccess was moved here and keeps its old name, which the rule allows. Nothing breaks at runtime; it only adds to the #591 rename backlog, so it is non-blocking.",
+   "failureScenario": "app-authorization.ts is a new module. Its new `callerInAudience` and `authorize` functions are named in the legacy scheme, which makes the backlog the #591 rename has to cover bigger, not smaller."
+  },
+  {
+   "verdict": "confirmed",
+   "priority": "P3",
+   "file": "platform/operations/publish-app.ts",
+   "line": 194,
+   "summary": "Functions that are new in publish-app.ts use legacy `hub.publish.*` span names: `hub.publish.build_recipe` (194), `hub.publish.build_app` (224), `hub.publish.land_upload` (340), `hub.publish.land_workspace` (591) and `hub.publish.land_committed` (620). AGENTS.md House rules require \"new code uses the skill's `Domain.operation`\".",
+   "lenses": [
+    "standards"
+   ],
+   "evidence": "publish-app.ts adds new spans named hub.publish.build_recipe, hub.publish.build_app, hub.publish.land_upload, hub.publish.land_workspace and hub.publish.land_committed. These functions did not exist before (the old code had publish_from_upload and inline logic), so AGENTS.md:101-103 asks for `Domain.operation` names. Code that was only moved, such as readLegacyCacheSetting, is exempt. The spans have no runtime effect; this only adds to the #591 rename backlog.",
+   "failureScenario": "buildRecipe, buildApp and the three land* functions did not exist before this change, so the legacy-naming exemption for existing code does not cover them. Their spans come out in the old `hub.<module>.<method>` form instead of `Domain.operation` (for example `Publish.landUpload`)."
+  },
+  {
+   "verdict": "kept",
+   "priority": "P3",
+   "file": "platform/operations/index.ts",
+   "line": 8,
+   "summary": "The barrel's header still says `scripts/hub.mjs` imports `operations.ts` / `runtime.ts` directly, but this change makes hub.mjs import `publishCli` from `publish-app.ts`, so the comment no longer lists the modules the CLI edge depends on.",
+   "lenses": [
+    "absence"
+   ],
+   "evidence": "Confirmed: index.ts:8 still says hub.mjs imports operations.ts/runtime.ts, but this diff makes hub.mjs import publishCli from publish-app.ts. The comment is now stale."
+  },
+  {
+   "verdict": "kept",
+   "priority": "P3",
+   "file": "platform/operations/publish-app.ts",
+   "line": 589,
+   "summary": "The workspace source fast-forwards `main` and only then builds, so 'one pipeline' keeps two different invariants: an upload commits only a tree that built, but a Workspace publish can make unbuildable source the app's `main`. The new doc paragraph and the new tests now treat that gap as intended behaviour. A better design is to build the fork head before `fastForwardMain`, for example through the same `beforeCommit`/artifact mechanism the upload path uses, and carry that preparedBuild through `LandedSource` so every source keeps the same guarantee.",
+   "lenses": [
+    "subjective"
+   ],
+   "evidence": "Confirmed: landUpload builds in beforeCommit, but landWorkspace calls fastForwardMain and the build only runs later in publishAppEffect. The new doc paragraph and tests now treat unbuildable source on main as intended, even though the PR claims a single pipeline. The behaviour predates this PR, so it is not blocking."
+  },
+  {
+   "verdict": "kept",
+   "priority": "P3",
+   "file": "platform/operations/publish-app.ts",
+   "line": 684,
+   "summary": "`publishApp` takes a union of three request types, so its `R` channel is the union of every source's services. The CLI's committed-source publish now requires Artifacts, GitWriter, ManifestPolicy and AppClone even though it never uses them. You can see this in operations.test.ts: every `publishCli` and `layerFor` layer had to grow `GitWriter.Fake`, `ManifestPolicy.Fake`, `artifactsTestLayer` and `AppClone.Fake`. A cleaner seam is to export one entry point per source (`publishUpload`, `publishWorkspace`, `publishCommitted`) that each land and then call a shared `buildProjectDeploy(landed)` tail. Each caller then needs only what its own source uses.",
+   "lenses": [
+    "subjective"
+   ],
+   "evidence": "Confirmed: the union request makes the R channel the union of every source's services, and the diff adds GitWriter/ManifestPolicy/artifacts/AppClone fakes to every committed-path and publishCli test layer. Exporting one entry point per source over a shared tail is a concrete fix with a bounded cost."
+  },
+  {
+   "verdict": "kept",
+   "priority": "P3",
+   "file": "platform/operations/publish-app.ts",
+   "line": 617,
+   "summary": "`buildRecipe` runs twice for an upload. It runs once inside `prepare` on the admitted manifest, and again in `publishAppEffect` on the reloaded committed manifest, where the result only feeds the publish-notes cache flag because the preparedBuild already exists. The second run can, in principle, fail with a manifest error after the commit has been pushed. It would be simpler and safer to have `LandedSource` carry the recipe (or the preparedBuild plus its recipe) so the tail never re-derives it.",
+   "lenses": [
+    "subjective"
+   ],
+   "evidence": "Confirmed: an upload runs buildRecipe in prepare, and publishAppEffect runs it again on the reloaded manifest after the push, where the result only feeds the notes flag. Carrying the recipe on LandedSource is a small change that removes a post-push failure point."
+  },
+  {
+   "verdict": "plausible",
+   "priority": "P2",
+   "file": "platform/operations/publish-app.ts",
+   "line": 595,
+   "summary": "Workspace publish validates the fork's app.json read at the moving `main` branch over REST, but fast-forwards whatever a later `git fetch <fork> main` returns, and the post-fast-forward ownership recheck that publishInternalApp used to do was removed, so an unvalidated owner/audience/mode change can land, be projected and be deployed.",
+   "lenses": [
+    "diff-scan"
+   ],
+   "evidence": "landWorkspace checks the manifest it reads with artifacts.readFile(workspaceRepoRef, DEFAULT_BRANCH, APP_MANIFEST_PATH). It then calls fastForwardMain, which runs a separate `git fetch <source.remote> main` and pushes FETCH_HEAD (git-writer.ts:422-424) with no check that FETCH_HEAD is the commit that was checked. The fast-forward is then loaded, projected and deployed without another manifest check. The removed publishInternalApp re-ran publishOwnershipError on the landed manifest, which would have blocked projection and deploy after an owner change. The trigger needs a push to the fork inside the window between the read and the fetch; Sandbox pushes are not serialized by the write semaphore, so this is reachable but depends on timing.",
+   "failureScenario": "An Agent in the Sandbox (fork pushes are not under the write semaphore) pushes an app.json changing `owner` or `audience` to the fork just after `artifacts.readFile(workspaceRepoRef, DEFAULT_BRANCH, APP_MANIFEST_PATH)` passes workspaceManifestChange and before `writer.fastForwardMain` fetches the fork's main. The new head is fast-forwarded onto the app's main, loaded, projected by projectCommittedAppAccess and deployed. The old code's publishInternalApp ran publishOwnershipError against the landed manifest and would at least have refused an owner change; now nothing re-checks the manifest after landing."
+  }
+ ],
+ "dropped": 10,
+ "refuted": 0,
+ "result": "5 confirmed \u00b7 4 kept \u00b7 1 plausible \u00b7 0 undecided"
+}

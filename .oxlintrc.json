@@ -23,7 +23,8 @@
     "**/build/**",
     "**/*.mjs",
     ".convoy/packs/anti-slop/**",
-    "mod/types/**"
+    "mod/types/**",
+    "mod/viz-lab/**"
   ],
   "rules": {
     "typescript/no-unsafe-type-assertion": "off",

@@ -4,5 +4,5 @@
     "lib": ["esnext"]
   },
   "include": ["**/*.ts"],
-  "exclude": ["dist"]
+  "exclude": ["dist", "viz-lab"]
 }

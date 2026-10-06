@@ -1,0 +1,5 @@
+{
+  "name": "gc-viz",
+  "version": "0.0.1",
+  "description": "viz-lab: prototype views of a replayed Gauntlet review. /viz <run|side|band|findings|timeline|card|off> [seconds|play [speed]]"
+}
