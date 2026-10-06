@@ -27,6 +27,7 @@ interface Fixture {
 const INITIAL_DEFAULT_LENSES = [
   "absence",
   "cleanup",
+  "cross-file",
   "diff-scan",
   "presentation-environment",
   "removed-behavior",
