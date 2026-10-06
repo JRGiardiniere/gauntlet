@@ -62,6 +62,7 @@ describe("run pane", () => {
     expect(drawn).toMatch(/● lens-b +Read platform\/publish-app.ts · 14 calls +1:40/)
     expect(drawn).toMatch(/○ lens-c +not started/)
     expect(drawn).toMatch(/○ Pool +waiting for an agent slot/)
+    expect(drawn).toContain("finder absence done — 5 candidates · 68s · cache 99%")
   })
 
   it("folds a stage whose agents have all ended into one row", () => {

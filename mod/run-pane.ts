@@ -272,7 +272,9 @@ export const renderRunPane = <N>(
   const tokens = tokenText(sum(view.activity))
   if (tokens !== "") children.push(Text({ dimColor: true, wrap: "truncate-end", children: `Tokens: ${tokens}` }))
   if (view.latest !== undefined) {
-    children.push(Text({ dimColor: true, wrap: "truncate-end", children: view.latest.replace(/^gauntlet: /, "") }))
+    // The CLI's progress lines price each invocation; the pane shows no dollars.
+    const latest = view.latest.replace(/^gauntlet: /, "").replace(/ · \$[\d.]+/g, "")
+    children.push(Text({ dimColor: true, wrap: "truncate-end", children: latest }))
   }
   return Box({ flexDirection: "column", children })
 }
