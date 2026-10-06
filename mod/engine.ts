@@ -24,7 +24,10 @@ import { Linear } from "../src/linear/linear.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
 import { type AgentPorts, makeAgentDriver, type TurnComplete } from "./agents.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
+import type { RunView } from "./run-pane.ts"
 
+export { renderRunPane } from "./run-pane.ts"
+export type { PaneElements, RunView } from "./run-pane.ts"
 export { inputsStamp } from "./stamp.ts"
 export type { ToolsEvent, PublishedAgent } from "./agents.ts"
 
@@ -97,6 +100,11 @@ const fetchOver = (http: HttpPort) => {
   return fetch as unknown as typeof globalThis.fetch
 }
 
+// The run pane's view less the driver's activity.
+type Progress = {
+  -readonly [K in Exclude<keyof RunView, "activity">]: RunView[K]
+}
+
 export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
   const driver = makeAgentDriver(ports)
   let current:
@@ -107,6 +115,9 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       runId: string | undefined
     }
     | undefined
+  // What the run pane draws: the run in flight, or the last one, kept
+  // until the next starts.
+  let progress: Progress | undefined
 
   const start = (
     request: { readonly argv: ReadonlyArray<string>; readonly cwd: string },
@@ -117,6 +128,17 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     let stderr = ""
     let pending = ""
     const startedAt = Date.now()
+    const shown: Progress = {
+      argv: request.argv,
+      runId: undefined,
+      startedAt,
+      endedAt: undefined,
+      lenses: [],
+      findersFinished: false,
+      latest: undefined,
+      exitCode: undefined,
+    }
+    progress = shown
     const onStderr = (text: string) => {
       stderr += text
       pending += text
@@ -125,6 +147,11 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       for (const line of lines) {
         const id = /^gauntlet: run (\S+)$/.exec(line)?.[1]
         if (id !== undefined && current !== undefined) current.runId = id
+        if (id !== undefined) shown.runId = id
+        const lenses = /^gauntlet: loading (?:Default|exact caller) Lenses (.+)$/.exec(line)?.[1]
+        if (lenses !== undefined && lenses !== "(none)") shown.lenses = lenses.split(", ")
+        if (line.startsWith("gauntlet: Finders finished")) shown.findersFinished = true
+        if (!/^gauntlet: (invoking|loading|run \S+$)/.test(line)) shown.latest = line
         onLine(line)
       }
     }
@@ -164,6 +191,14 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       fiber.addObserver((exit) => {
         current = undefined
         void driver.stopAll("run ended")
+        // The digest's first line leads with the counts: "0 confirmed · 2 kept · … — target — …".
+        const counts = stdout.trim().split("\n")[0]?.split(" — ")[0]
+        progress = {
+          ...shown,
+          endedAt: Date.now(),
+          exitCode: Exit.isSuccess(exit) ? exit.value : 1,
+          latest: counts === undefined || counts === "" ? shown.latest : `Result: ${counts}`,
+        }
         resolve({
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
           stdout,
@@ -201,6 +236,13 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           snapshots: driver.snapshots(),
         },
     stats: driver.stats,
+    view: (): RunView | undefined =>
+      progress === undefined
+        ? undefined
+        : {
+          ...progress,
+          activity: driver.activity(),
+        },
   }
 }
 

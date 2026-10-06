@@ -2,5 +2,17 @@
   "name": "gc-cli",
   "version": "0.1.0",
   "description": "Gauntlet review run in process inside Claude Code (#134 Idea 3): /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "view": {
+      "type": "string",
+      "title": "Review progress",
+      "description": "How /gc-cli shows a review in flight: pane, a live run pane; status, one status line.",
+      "options": [
+        "pane",
+        "status"
+      ],
+      "default": "pane"
+    }
+  }
 }
