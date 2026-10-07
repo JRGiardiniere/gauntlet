@@ -208,7 +208,7 @@ export interface HarnessSessionFactoryContract {
 // that stands in for it.
 export const piSeatRefusal = (seat: Seat): string | undefined =>
   isClaudeCodeSeat(seat)
-    ? "claude-code/ Seats run only inside Claude Code, through the gc-cli mod's /gc-cli"
+    ? "claude-code/ Seats run only inside Claude Code, through the gc-cli mod (its review tool or /gc-cli)"
     : undefined
 
 // The single primary testing seam. Live layer: pi-live.ts. Test layer: the

@@ -248,7 +248,9 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
     "`args` is the /gc-cli syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
     "then `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`. " +
-    (recipes.length === 0 ? "No Claude Code recipes are installed." : `Installed Claude Code recipes: ${recipes.join(", ")}.`),
+    (recipes.length === 0
+      ? "No Claude Code recipes are installed."
+      : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
   inputSchema: {
     type: "object",
     properties: { args: { type: "string", description: "The review's target and flags, as /gc-cli takes them" } },
