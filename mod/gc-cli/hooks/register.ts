@@ -42,6 +42,9 @@ interface InFlight {
 interface TriggerRequest {
   readonly cwd: string
   readonly args: string
+  // The subagent whose review tool call started the run; absent for the main
+  // agent and /gc-cli.
+  readonly agentId?: string | undefined
   readonly afterRebuild?: "stop" | "run"
 }
 
@@ -200,27 +203,42 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   const text = digest === ""
     ? `gc-cli: ${shown.join("\n")}`
     : `gc-cli ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
-  await deliver($, text, shown)
+  await deliver($, text, shown, request.agentId)
   // Bookkeeping comes after the result is shown: a failed write only logs.
   await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
     .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
 
-// A submitted prompt shows the person its text; an appended row is the
-// model's alone, so the person gets transcript rows, one per line (a row
-// draws no line breaks).
-async function deliver($: Engines, text: string, shown: ReadonlyArray<string>) {
+// A subagent that started the review gets its digest as a message, which
+// reaches it between tool calls or resumes it once it has stopped; when it
+// cannot be reached, the main agent gets it. A submitted prompt shows the
+// person its text; an appended row or a subagent's message is the model's
+// alone, so the person gets transcript rows, one per line (a row draws no
+// line breaks).
+async function deliver($: Engines, text: string, shown: ReadonlyArray<string>, agentId: string | undefined) {
+  if (agentId !== undefined) {
+    const sent = await $.session.send({ to: { agentId }, text }).catch((error) => ({ isDelivered: false as const, reason: String(error) }))
+    if (sent.isDelivered) {
+      logRows($, shown)
+      return
+    }
+    log($, `digest not sent to ${agentId}: ${sent.reason}`)
+  }
   if (delivery.route(text) === "submit") {
     await submit($, text)
     return
   }
-  for (const line of shown) {
-    if (line.trim() !== "") $.ui.log(line)
-  }
+  logRows($, shown)
   await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
     log($, `append failed: ${String(error)}`)
   )
+}
+
+function logRows($: Engines, shown: ReadonlyArray<string>) {
+  for (const line of shown) {
+    if (line.trim() !== "") $.ui.log(line)
+  }
 }
 
 async function submit($: Engines, text: string) {
@@ -390,7 +408,7 @@ export const register: Register = (on) => {
   on("tool.call", { tool: "mcp__gc-cli__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
     if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gc-cli takes them." }
-    const answer = await startReview($, { cwd: await $.session.root(), args })
+    const answer = await startReview($, { cwd: await $.session.root(), args, agentId: e.agentId })
     return { result: answer.replace(/^gc-cli: /, "") }
   })
 
