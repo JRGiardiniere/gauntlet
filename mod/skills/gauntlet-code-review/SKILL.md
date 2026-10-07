@@ -4,7 +4,8 @@ description: >-
   Runs a Gauntlet code review inside Claude Code with the gc-cli mod's review
   tool and carries on with the findings when its digest arrives. Use when asked
   to run Gauntlet, or a Gauntlet review of uncommitted changes, a branch's
-  commits, or a pull request.
+  commits, or a pull request, and when asked to update Gauntlet, the gc-cli
+  plugin or the beta.
 ---
 
 # Gauntlet
@@ -47,3 +48,11 @@ which holds each finding in full. Relay the findings to the person, then go on
 with what they asked the review for. A digest that says the review could not
 run says why; an interrupted run's digest names the `--resume <run id>` that
 continues it.
+
+## Update
+
+The beta is built from a git checkout, `<clone>`: the folder two levels above
+`mod/dist/gc-cli` in `env.CLAUDE_CODE_PLUGIN_DIRS` of `~/.claude/settings.json`.
+It sits on a release tag, not a branch, so don't `git pull`. Follow the
+**Update** section of `<clone>/INSTALL.md`, then tell the person to restart
+Claude Code.

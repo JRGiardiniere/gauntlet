@@ -146,7 +146,7 @@ Tell the person:
 In `<clone>`:
 
 ```sh
-git fetch --tags
+git fetch --tags --force
 git tag --list 'gc-cli-beta.*' --sort=-v:refname   # newest first
 git checkout <newest tag>
 bun install
