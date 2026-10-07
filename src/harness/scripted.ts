@@ -169,17 +169,15 @@ const executeWorkspaceTool = (
   // read tool reads it only through optional chaining (ctx?.model) and the
   // bash tool ignores it — so undefined is a faithful placeholder in a fake
   // that constructs no context.
-  return Effect.promise(() =>
-    tool
-      .execute("scripted", call.args, undefined, undefined, undefined as never)
-      .then((result) => ({
-        isError: false as const,
-        text: toolText(result),
-      }))
-      .catch((cause: unknown) => ({
-        isError: true as const,
-        text: cause instanceof Error ? cause.message : String(cause),
-      })),
+  return Effect.tryPromise({
+    try: () =>
+      tool.execute("scripted", call.args, undefined, undefined, undefined as never),
+    catch: (cause) => cause instanceof Error ? cause.message : String(cause),
+  }).pipe(
+    Effect.match({
+      onSuccess: (result) => ({ isError: false as const, text: toolText(result) }),
+      onFailure: (text) => ({ isError: true as const, text }),
+    }),
   )
 }
 

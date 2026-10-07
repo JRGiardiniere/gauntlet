@@ -9,6 +9,7 @@
   "rules": {
     "house/effect-fn-span-format": "error",
     "house/no-effect-platform-imports": "error",
+    "house/no-effect-promise": "error",
     "house/no-fnuntraced-outside-tests": "error",
     "house/no-import-from-barrel-package": [
       "error",

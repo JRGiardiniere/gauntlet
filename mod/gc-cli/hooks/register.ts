@@ -85,6 +85,7 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     exists: (path) => $.fs.exists(path),
     stat: (path, resolve) => $.fs.stat(path, { resolve }),
     run: (argv, init) => $.process.run(argv, init),
+    spawnProcess: (request) => $.process.spawn(request),
     env,
     stdout: () => undefined,
     stderr: () => undefined,
@@ -166,12 +167,12 @@ function startTick($: Engines) {
   tick = $.clock.every(250, async () => {
     const running = engine?.running()
     if (running === undefined) return
-    await engine?.poll()
+    await engine?.poll().catch((error) => log($, `poll failed: ${String(error)}`))
     redraw($)
     const agents = running.agentIds.join(",")
     if (agents !== markedAgents) {
       markedAgents = agents
-      await markInFlight($, { ...running, cwd: runCwd })
+      await markInFlight($, { ...running, cwd: runCwd }).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
     }
   })
 }
@@ -181,20 +182,23 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   tick = undefined
   drawnAt = 0
   redraw($)
-  await markInFlight($, undefined)
   await setStatus($, undefined)
   const digest = result.stdout.trim()
-  const verdict = result.exitCode === 0 ? "review finished" : "could not review"
+  const verdict = result.interrupted ? "cancelled" : result.exitCode === 0 ? "review finished" : "could not review"
   log($, `run ${verdict} exit ${String(result.exitCode)} after ${String(result.seconds)}s interrupted=${String(result.interrupted)}`)
-  await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
   $.ui.toast(`gc-cli: ${verdict} after ${String(result.seconds)}s`)
-  // With no digest, the refusal says why; a completed run resumed or a
-  // cancelled one has the CLI's own closing lines.
-  const said = result.refusal === undefined
-    ? result.stderr.trim().split("\n").filter((line) => /already complete|posted|run ended/.test(line)).slice(-3)
-    : [result.refusal]
-  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...said] : digest.split("\n")
-  const text = digest === "" ? `gc-cli: ${shown.join("\n")}` : `gc-cli ${verdict}:\n\n${digest}`
+  // Why it could not run or deliver, and how a run that reached no exit code
+  // ended, show beside a digest too.
+  const said = [...(result.refusal === undefined ? [] : [result.refusal]), ...(result.ending === undefined ? [] : [result.ending])]
+  // With no digest and nothing said, a completed run resumed has the CLI's
+  // own closing lines.
+  const closing = said.length > 0
+    ? said
+    : result.stderr.trim().split("\n").filter((line) => /already complete|posted/.test(line)).slice(-3)
+  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...closing] : [...digest.split("\n"), ...said]
+  const text = digest === ""
+    ? `gc-cli: ${shown.join("\n")}`
+    : `gc-cli ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
   // The appended row reaches the model; the person sees transcript rows, one
   // per line (a row draws no line breaks).
   for (const line of shown) {
@@ -203,6 +207,10 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
     log($, `append failed: ${String(error)}`)
   )
+  // Bookkeeping comes after the result is shown: a failed write only logs.
+  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
+  await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
+    .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
 
 // Starts a review in the background; answers the command's one line.
@@ -213,8 +221,13 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
     return `gc-cli: a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
   }
   const hashStart = Date.now()
-  const fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
-    .catch((error) => ({ stamp: `unknown (${String(error)})`, files: 0 }))
+  let fresh: Awaited<ReturnType<typeof inputsStamp>>
+  try {
+    fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
+  } catch (error) {
+    log($, `stamp failed: ${String(error)}`)
+    return `gc-cli: could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
+  }
   const hashMs = Date.now() - hashStart
   // The stamp on disk, not the one loaded: a rebuild whose code came out
   // byte-identical (a docs or build-script change) rewrites only build.json,

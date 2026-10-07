@@ -21,8 +21,17 @@
 // The engine refuses a hooks module that hands `$` itself to imported code,
 // so the hooks module passes these ports: closures that each spell out one
 // `$.noun.call(...)`.
-import type { FsEntry, FsStat, ProcessRunInit, ProcessRunResult } from "claude-code"
+import type {
+  FsEntry,
+  FsStat,
+  ProcessRunInit,
+  ProcessRunResult,
+  ProcessSpawnChunk,
+  ProcessSpawnRequest,
+  ProcessSpawnResult,
+} from "claude-code"
 import * as ByteSize from "effect/ByteSize"
+import * as Channel from "effect/Channel"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
@@ -47,6 +56,9 @@ export interface PlatformPorts {
   readonly exists: (path: string) => Promise<boolean>
   readonly stat: (path: string, resolve: boolean) => Promise<FsStat>
   readonly run: (argv: ReadonlyArray<string>, init?: ProcessRunInit) => Promise<ProcessRunResult>
+  // `$.process.spawn`: the child's output piece by piece, then how it ended.
+  // Leaving the loop (`return()`) kills the child.
+  readonly spawnProcess: (request: ProcessSpawnRequest) => AsyncIterable<ProcessSpawnChunk, ProcessSpawnResult>
   // The variables the review program reads (HOME, LINEAR_API_KEY) and
   // TMPDIR, as `$.env.get` answered them.
   readonly env: Readonly<Record<string, string>>
@@ -78,7 +90,7 @@ const failure = (
 const hostCall = <A>(ports: PlatformPorts, method: string, path: string, call: () => Promise<A>) =>
   Effect.tryPromise({ try: call, catch: String }).pipe(
     Effect.catch((cause) =>
-      Effect.promise(() => ports.exists(path).catch(() => true)).pipe(
+      Effect.tryPromise({ try: () => ports.exists(path), catch: () => failure("Unknown", method, path, cause) }).pipe(
         Effect.flatMap((present) =>
           Effect.fail(failure(present ? "Unknown" : "NotFound", method, path, cause))
         ),
@@ -130,22 +142,27 @@ const fileInfo = (stat: FsStat): FileSystem.File.Info => ({
 const chomp = (text: string) => text.replace(/\n$/, "")
 
 // Logger.toFile opens run.log for appending and writes batches to it.
+// Each write rewrites the whole text after the one before it settles, so a
+// write left behind by an interrupted batch never lands over a later one; a
+// failed write fails its own batch and the next write goes on.
 const appendOnlyFile = (ports: PlatformPorts, path: string, initial: string): FileSystem.File => {
   let text = initial
   let writing = Promise.resolve()
   const unsupported = (method: string) => Effect.fail(failure("Unknown", method, path, "only appending is available in the mod"))
+  const settled = (method: string, call: () => Promise<void>) =>
+    Effect.tryPromise({ try: call, catch: (cause) => failure("Unknown", method, path, String(cause)) })
   const writeAll = (bytes: Uint8Array) =>
-    Effect.promise(() => {
+    settled("writeAll", () => {
       text += new TextDecoder().decode(bytes)
       const snapshot = text
-      writing = writing.then(() => ports.write(path, snapshot)).catch(() => undefined)
+      writing = writing.then(() => undefined, () => undefined).then(() => ports.write(path, snapshot))
       return writing
     })
   return {
     [FileSystem.FileTypeId]: FileSystem.FileTypeId,
     stat: unsupported("stat"),
     seek: () => unsupported("seek"),
-    sync: Effect.promise(() => writing),
+    sync: settled("sync", () => writing),
     read: () => unsupported("read"),
     readAlloc: () => unsupported("readAlloc"),
     truncate: () => unsupported("truncate"),
@@ -230,14 +247,14 @@ const fileSystemOver = (ports: PlatformPorts) =>
       if (options?.flag !== "a" && options?.flag !== "a+") {
         return Effect.fail(failure("Unknown", "open", path, "only appending is available in the mod"))
       }
-      return Effect.promise(() => ports.exists(path)).pipe(
+      return Effect.tryPromise({ try: () => ports.exists(path), catch: (cause) => failure("Unknown", "open", path, String(cause)) }).pipe(
         Effect.flatMap((present) => (present ? hostCall(ports, "open", path, () => ports.read(path)) : Effect.succeed(""))),
         Effect.map((initial) => appendOnlyFile(ports, path, initial)),
       )
     },
   })
 
-// `$.process.run` sets variables over the host's environment and cannot
+// `$.process.spawn` sets variables over the host's environment and cannot
 // unset one, so a variable the command unsets (the CLI's Git scrub: an
 // `undefined` value) is unset by running the command under `env -u`.
 const commandArgv = (command: ChildProcess.StandardCommand) => {
@@ -268,28 +285,27 @@ const spawnOver = (ports: PlatformPorts) => (command: ChildProcess.Command) =>
         description: "a child without the host's environment is not available in the mod",
       })
     }
-    const argv = commandArgv(command)
-    const init: ProcessRunInit = { env: definedEnv(command.options.env), timeoutMs: 600_000 }
-    if (command.options.cwd !== undefined) init.cwd = command.options.cwd
-    const result = yield* Effect.tryPromise({
-      try: () => ports.run(argv, init),
-      catch: (cause) =>
+    const request: ProcessSpawnRequest = { argv: commandArgv(command), env: definedEnv(command.options.env) }
+    if (command.options.cwd !== undefined) request.cwd = command.options.cwd
+    // The loop runs in a scope of its own: an interrupt (a cancelled run)
+    // closes it, which leaves the loop and so kills the child before cleanup
+    // removes the snapshot under it.
+    const output = { stdout: "", stderr: "" }
+    const ended = yield* Channel.runForEach(
+      Channel.fromAsyncIterable(ports.spawnProcess(request), (cause) =>
         PlatformError.systemError({
           _tag: "NotFound",
           module: "ChildProcess",
           method: "spawn",
           description: `${command.command} could not run: ${String(cause)}`,
+        })),
+      (chunk) =>
+        Effect.sync(() => {
+          output[chunk.stream] += chunk.text
         }),
-    })
-    // A cut stream would be a silently wrong diff; refuse it instead.
-    if (result.isStdoutTruncated) {
-      return yield* PlatformError.systemError({
-        _tag: "Unknown",
-        module: "ChildProcess",
-        method: "spawn",
-        description: `${command.command} ${command.args[0] ?? ""} wrote more than 4 MiB, which the mod cannot carry`,
-      })
-    }
+    )
+    // A child a signal ended reads as 1, as `$.process.run` reports it.
+    const result = { exitCode: ended.code ?? 1, ...output }
     const once = (text: string) => Stream.make(encoder.encode(text))
     return ChildProcessSpawner.makeHandle({
       pid: ChildProcessSpawner.ProcessId(0),

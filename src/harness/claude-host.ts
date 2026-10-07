@@ -1,5 +1,5 @@
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Result from "effect/Result"
 import type * as Schema from "effect/Schema"
 import {
   type HarnessEvent,
@@ -118,8 +118,9 @@ export interface ClaudeModelCost {
 export type ClaudePrice = (model: string) => ((usage: ClaudeUsage) => number) | undefined
 
 // Notional API-equivalent price: Claude Code reports token counts, never a
-// cost, and an unpriced row must not read as $0. A dated model id falls
-// back to its undated catalog entry.
+// cost. A dated model id falls back to its undated catalog entry. Cost only
+// feeds debugging, so a model with no entry counts its tokens at $0 and the
+// run.log names it once.
 export const claudePrice = (
   lookup: (model: string) => ClaudeModelCost | undefined,
 ): ClaudePrice => (model) => {
@@ -139,6 +140,8 @@ interface Invocation {
   readonly listeners: Set<(event: HarnessEvent) => void>
   readonly usageRows: Array<UsageRow>
   readonly transcript: Array<unknown>
+  // The opening fiber's services, so a report can write to its run.log.
+  readonly services: Context.Context<never>
   turns: number
   started: boolean
   abortRequested: boolean
@@ -164,6 +167,7 @@ export const makeClaudeHost = (
   send: (command: ClaudeHostCommand) => void,
 ): ClaudeHost => {
   const invocations = new Map<string, Invocation>()
+  const unpriced = new Set<string>()
   let sequence = 0
 
   const dispatch = (invocation: Invocation, event: HarnessEvent) => {
@@ -179,17 +183,22 @@ export const makeClaudeHost = (
     dispatch(invocation, { type: "message_start" })
   }
 
-  const usageRowOf = (usage: ClaudeUsage): Result.Result<UsageRow, string> => {
+  const usageRowOf = (invocation: Invocation, usage: ClaudeUsage): UsageRow => {
     const model = usage.model ?? ""
     const cost = price(model)
-    if (cost === undefined) return Result.fail(`no price for Claude model ${model}`)
-    return Result.succeed({
+    if (cost === undefined && !unpriced.has(model)) {
+      unpriced.add(model)
+      Effect.runSyncWith(invocation.services)(
+        Effect.logWarning(`no price for Claude model ${model}; its tokens count at $0`),
+      )
+    }
+    return {
       input: usage.input_tokens,
       output: usage.output_tokens,
       cacheRead: usage.cache_read_input_tokens ?? 0,
       cacheWrite: usage.cache_creation_input_tokens ?? 0,
-      cost: { total: cost(usage) },
-    })
+      cost: { total: cost?.(usage) ?? 0 },
+    }
   }
 
   const sessionOf = (invocation: Invocation): HarnessSession => ({
@@ -236,12 +245,7 @@ export const makeClaudeHost = (
         // No response arrived (a failed or interrupted request): the turn's
         // ending carries the terminal evidence instead.
         if (reported.stopReason === null) break
-        const priced = reported.usage === null ? Result.succeed(ZERO_USAGE) : usageRowOf(reported.usage)
-        if (Result.isFailure(priced)) {
-          dispatch(invocation, { type: "contract_violation", reason: priced.failure })
-          break
-        }
-        const row = priced.success
+        const row = reported.usage === null ? ZERO_USAGE : usageRowOf(invocation, reported.usage)
         invocation.usageRows.push(row)
         const stopReason = stopReasonOf(reported.stopReason)
         dispatch(
@@ -295,12 +299,7 @@ export const makeClaudeHost = (
     const invocation = invocations.get(id)
     if (invocation === undefined) return false
     markStarted(invocation)
-    const spent = usage === undefined ? Result.succeed(ZERO_USAGE) : usageRowOf(usage)
-    if (Result.isFailure(spent)) {
-      dispatch(invocation, { type: "contract_violation", reason: spent.failure })
-    } else if (usage !== undefined) {
-      invocation.usageRows.push(spent.success)
-    }
+    if (usage !== undefined) invocation.usageRows.push(usageRowOf(invocation, usage))
     if (reason === "error" || reason === "refusal") {
       if (usage === undefined) invocation.usageRows.push(ZERO_USAGE)
       dispatch(invocation, {
@@ -310,7 +309,8 @@ export const makeClaudeHost = (
         errorMessage: detail ?? `Claude turn ended: ${reason}`,
       })
     } else if (reason === "aborted" && !invocation.abortRequested) {
-      dispatch(invocation, { type: "message_end", stopReason: "aborted", usage: ZERO_USAGE })
+      // The run did not ask for this stop: a person stopped the subagent.
+      dispatch(invocation, { type: "interrupted", reason: "the Claude Code subagent was stopped outside the run" })
     }
     const settle = invocation.settle
     invocation.settle = undefined
@@ -329,6 +329,7 @@ export const makeClaudeHost = (
   }
 
   const open = (config: SessionConfig) =>
+    Effect.flatMap(Effect.context<never>(), (services) =>
     Effect.callback<HarnessSession, InvocationSetupError>((resume) => {
       sequence += 1
       const invocation: Invocation = {
@@ -337,6 +338,7 @@ export const makeClaudeHost = (
         listeners: new Set(),
         usageRows: [],
         transcript: [],
+        services,
         turns: 0,
         started: false,
         abortRequested: false,
@@ -373,7 +375,7 @@ export const makeClaudeHost = (
         invocations.delete(invocation.id)
         send({ kind: "dispose", id: invocation.id })
       })
-    })
+    }))
 
   return {
     // Claude Code's own filesystem tools see the snapshot path itself.

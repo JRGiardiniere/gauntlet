@@ -2,6 +2,7 @@ import { eslintCompatPlugin } from "@oxlint/plugins"
 
 import { effectFnSpanFormatRule } from "./effect-fn-span-format.ts"
 import { noEffectPlatformImportsRule } from "./no-effect-platform-imports.ts"
+import { noEffectPromiseRule } from "./no-effect-promise.ts"
 import { noFnUntracedOutsideTestsRule } from "./no-fnuntraced-outside-tests.ts"
 import { noImportFromBarrelPackageRule } from "./no-import-from-barrel-package.ts"
 import { noInstanceofTaggedErrorRule } from "./no-instanceof-tagged-error.ts"
@@ -22,6 +23,7 @@ const housePlugin = eslintCompatPlugin({
   rules: {
     "effect-fn-span-format": effectFnSpanFormatRule,
     "no-effect-platform-imports": noEffectPlatformImportsRule,
+    "no-effect-promise": noEffectPromiseRule,
     "no-fnuntraced-outside-tests": noFnUntracedOutsideTestsRule,
     "no-import-from-barrel-package": noImportFromBarrelPackageRule,
     "no-instanceof-tagged-error": noInstanceofTaggedErrorRule,

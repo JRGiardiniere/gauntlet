@@ -1,6 +1,6 @@
 # effect-house-rules
 
-Our own Oxlint rules for Effect code, shared by every Effect project, as the `house` plugin: `Domain.operation` span names (the effect skill's form), no raw `Error` throws, no `instanceof` on tagged errors, barrel imports, `.ts` import extensions, `@effect/platform` imports, bounded retries, and test hygiene. They sit beside tsgo's rules (the `effect` pack) and anti-slop's, and only cover what those don't: a rule either of them has is dropped here. Each rule has its test beside it (`*.test.ts`, run with the project's test runner through `rule-tester.ts`).
+Our own Oxlint rules for Effect code, shared by every Effect project, as the `house` plugin: `Domain.operation` span names (the effect skill's form), no raw `Error` throws, no `instanceof` on tagged errors, barrel imports, `.ts` import extensions, `@effect/platform` imports, `Effect.tryPromise` with a typed error over `Effect.promise`, bounded retries, and test hygiene. They sit beside tsgo's rules (the `effect` pack) and anti-slop's, and only cover what those don't: a rule either of them has is dropped here. Each rule has its test beside it (`*.test.ts`, run with the project's test runner through `rule-tester.ts`).
 
 - `oxlintrc.json` loads the plugin and turns every rule on, with `no-import-from-barrel-package` checking the `effect` and `@effect/*` packages. `no-import-from-barrel-package`, `no-raw-error-throw` and `no-instanceof-tagged-error` are off in tests, integration tests, fixtures and `vitest.setup.ts`. A rule added here is on in every project at the next sync.
 

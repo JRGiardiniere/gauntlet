@@ -74,6 +74,9 @@ export type HarnessEvent =
       readonly detail?: string
     }
   | { readonly type: "contract_violation"; readonly reason: string }
+  // The turn was stopped from outside the run (a person stopped the Claude
+  // Code subagent): the invocation ends Interrupted. Pi never sends it.
+  | { readonly type: "interrupted"; readonly reason: string }
 
 export interface HarnessSession {
   readonly subscribe: (listener: (event: HarnessEvent) => void) => () => void

@@ -201,14 +201,17 @@ describe("Finder stage interface", () => {
       yield* write("uses-gone.ts", `export * from "./gone.js"\nUSES-GONE-BODY\n`)
       yield* write("added-dep.ts", "ADDED-DEP-BODY\n")
       yield* write("unrelated.ts", `import "./helper.ts"\nUNRELATED-BODY\n`)
+      yield* write("locked.ts", "LOCKED-BODY\n")
       yield* commitAll(repo, "fixture")
       // Untracked, as a working-tree overlay leaves a new file.
       yield* write("added.ts", `import "./added-dep.ts"\nADDED-BODY\n`)
+      // A file that cannot be read is skipped, not a failed run.
+      yield* fs.chmod(path.join(repo, "locked.ts"), 0o000)
       const scripted = makeScripted({ sessions: [successfulSession("one")] })
       const fixture = yield* executeFixture([lens("one", "one tail")], scripted, {
         relatedFiles: {
           snapshot: repo,
-          changedFiles: ["touched.ts", "added.ts", "gone.ts"],
+          changedFiles: ["touched.ts", "added.ts", "gone.ts", "locked.ts"],
         },
       })
 
@@ -220,6 +223,7 @@ describe("Finder stage interface", () => {
       expect(touched).toContain("TOUCHED-BODY")
       expect(touched).toContain("ADDED-BODY")
       expect(touched).not.toContain("### gone.ts")
+      expect(touched).not.toContain("### locked.ts")
       expect([...related.matchAll(/^### (\S+)$/gm)].map(([, file]) => file))
         .toEqual(["added-dep.ts", "helper.ts", "touched.test.ts", "uses-gone.ts"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))

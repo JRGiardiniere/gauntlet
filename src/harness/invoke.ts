@@ -80,7 +80,7 @@ export interface RunningInvocation<O> {
 }
 
 interface TerminalEvidence {
-  readonly stopReason: StopReason
+  readonly stopReason: StopReason | "interrupted"
   readonly errorMessage: string | undefined
 }
 
@@ -214,6 +214,13 @@ const reduceCapture = (
             violations: [...common.violations, event.reason],
           })
         }
+        case "interrupted": {
+          return withCommon(state, {
+            ...common,
+            acceptedActivity: true,
+            terminal: { stopReason: "interrupted", errorMessage: event.reason },
+          })
+        }
       }
     }
     case "validated_emit": {
@@ -335,12 +342,27 @@ const logDebugTranscript = (
     ),
   )
 
-const settleAbort = (aborting: Promise<void> | undefined) =>
+const settleAbort = (
+  aborting: Promise<void> | undefined,
+  capture: CaptureAccumulator,
+) =>
   aborting === undefined
     ? Effect.void
-    : Effect.promise(() => aborting.catch(() => undefined)).pipe(
+    : Effect.tryPromise({ try: () => aborting, catch: String }).pipe(
       Effect.timeoutOption(Duration.millis(ABORT_SETTLE_MILLIS)),
       Effect.asVoid,
+      Effect.catch((reason) =>
+        Effect.sync(() => {
+          capture.dispatch({
+            type: "diagnostic",
+            message: `abort failed during session teardown: ${reason}`,
+          })
+        }).pipe(
+          Effect.andThen(
+            Effect.logWarning(`abort failed during session teardown: ${reason}`),
+          ),
+        )
+      ),
     )
 
 const openCapturedSession = Effect.fn(
@@ -384,7 +406,7 @@ const openCapturedSession = Effect.fn(
       })),
     ),
     (opened) =>
-      settleAbort(aborting).pipe(
+      settleAbort(aborting, capture).pipe(
         Effect.andThen(Effect.sync(() => {
           try {
             const rows = opened.usageRows().map(jsonSafeRow)
@@ -601,6 +623,13 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
           message: `provider failed${terminal.errorMessage === undefined ? "" : `: ${terminal.errorMessage}`}`,
         })
         return Termination.cases.ProviderFailed.make({})
+      }
+      case "interrupted": {
+        capture.dispatch({
+          type: "diagnostic",
+          message: `interrupted: ${terminal.errorMessage ?? "stopped outside the run"}`,
+        })
+        return Termination.cases.Interrupted.make({})
       }
       case "pending":
       case "deferred":

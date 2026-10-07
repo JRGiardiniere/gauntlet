@@ -50,8 +50,10 @@ const canonicalizeInlineText = (value: string): string =>
 
 // Model-authored text used by the line-oriented stage prompts is normalized at
 // the OutputContract seam so capture, persistence, and every consumer agree.
+// The projected pattern rejects blank text at tool validation, on Pi as in the
+// strict decode, instead of failing the run after a blank emit is accepted.
 export const inlineText = (description: string) =>
-  described(Schema.NonEmptyString, description).pipe(
+  described(Schema.String.check(Schema.isPattern(/\S/u)), description).pipe(
     Schema.decodeTo(
       Schema.NonEmptyString,
       SchemaTransformation.transform({

@@ -3,7 +3,6 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
-import * as Predicate from "effect/Predicate"
 import { runGit } from "../target/git.ts"
 import type { SourceFile } from "./source-context.ts"
 
@@ -30,7 +29,9 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   const path = yield* Path.Path
 
   // A file the change deletes, or a listed path that is not a readable text
-  // file, has no text to show.
+  // file, has no text to show. Related files are optional context, so a file
+  // that cannot be read for any reason (a submodule's empty directory, an
+  // error the Claude Code host cannot tag) is skipped and logged.
   const readText = (file: string) =>
     fs.readFile(path.join(snapshotRoot, file)).pipe(
       Effect.map((bytes) =>
@@ -38,11 +39,10 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
           ? Option.some({ file, text: new TextDecoder().decode(bytes) })
           : Option.none<SourceFile>()
       ),
-      Effect.catchIf(
-        (error) =>
-          Predicate.isTagged(error.reason, "NotFound") ||
-          Predicate.isTagged(error.reason, "BadResource"),
-        () => Effect.succeedNone,
+      Effect.catch((error) =>
+        Effect.log(`related files: skipped ${file}: ${error.message}`).pipe(
+          Effect.as(Option.none<SourceFile>()),
+        )
       ),
     )
   const readAll = (files: ReadonlyArray<string>) =>
