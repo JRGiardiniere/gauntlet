@@ -63,7 +63,7 @@ export const renderDigest = (
     `${String(confirmed)} confirmed · ${String(kept)} kept · ` +
     `${String(plausible)} plausible · ${String(undecided)} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
-    `$${accounting.costUsd.toFixed(2)} · ${accounting.wallTimeSeconds}s`
+    `${accounting.wallTimeSeconds}s`
   const surviving = [...view.findings, ...view.unresolved].map((entry) => {
     const label = entry.reviewPriority === undefined
       ? entry.tag

@@ -128,7 +128,12 @@ export const doing = (view: RunView): string => {
   if (finders.length === 0) return "Building the first prompt"
   if (!stageState(view, "Finders").finished) {
     if (finders.length === 1 && !hasEnded(finders[0]?.state ?? "opening")) return "Sending the first finder to set the cache"
-    const looking = plural(finders.filter((each) => !hasEnded(each.state)).length, "finder", "finders")
+    // A lens whose Finder has not opened yet is still to look.
+    const ended = view.lenses.filter((lens) => {
+      const state = finders.find((each) => stageOf(each.invocationId)?.name === lens)?.state
+      return state !== undefined && hasEnded(state)
+    }).length
+    const looking = plural(view.lenses.length - ended, "finder", "finders")
     const found = leads(view)
     return found === 0 ? `${looking} looking for bugs` : `${looking} still looking · ${plural(found, "lead", "leads")} so far`
   }

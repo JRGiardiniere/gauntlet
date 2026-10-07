@@ -365,9 +365,10 @@ describe("digest rendering", () => {
   const digest = renderDigest(plan, dossier, accounting, paths)
   const lines = digest.split("\n")
 
-  it("tallies every partition plus cost and wall time", () => {
+  it("tallies every partition plus wall time, and no cost", () => {
     expect(lines[0]).toContain("1 confirmed · 1 kept · 2 plausible · 1 undecided")
-    expect(lines[0]).toContain("$1.23 · 42s")
+    expect(lines[0]).toMatch(/ — 42s$/)
+    expect(lines[0]).not.toContain("$")
   })
 
   it("keeps candidate text from breaking the line-oriented contract", () => {

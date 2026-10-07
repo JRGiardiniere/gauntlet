@@ -73,7 +73,7 @@ describe("strip", () => {
       "Building the first prompt",
       "Sending the first finder to set the cache",
       "2 finders still looking · 5 leads so far",
-      "2 finders looking for bugs",
+      "3 finders looking for bugs",
       "Grouping 9 possible bugs for checking · 14 notes to weigh",
       "Double-checking 9 possible bugs · weighing 14 notes",
       "Weighing 14 notes",

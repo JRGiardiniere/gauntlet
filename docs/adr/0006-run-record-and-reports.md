@@ -57,9 +57,10 @@ read/write, cost, duration — unaggregated. Finder accounting describes the
 completed stage attempt whose outputs feed the Dossier, not abandoned process
 attempts. Derived totals live durably in the Dossier header
 (`cost $0.84 · 12 invocations · 6m 10s`). The initial run's stdout digest
-repeats the cost and wall time but is not another accounting store. Live stderr
-may echo duration and cost already present on an AgentOutcome, plus stage wall
-time, as progress narration. Any future cost model is a script over run
+repeats the wall time but not the cost (#146: the digest reaches agents and
+people, and cost is a debugging figure), and is not another accounting store.
+Live stderr may echo the duration already present on an AgentOutcome, plus
+stage wall time, as progress narration. Any future cost model is a script over run
 artifacts.
 
 Finder cache health is another derived Run-accounting view over those completed
