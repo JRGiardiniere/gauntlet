@@ -70,6 +70,17 @@ export const renderDigest = (
       : `${entry.reviewPriority} ${entry.tag}`
     return `- [${label}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
   })
+  // A review missing work must say so where the agent relays it: a run whose
+  // every Finder failed otherwise reads as a clean zero (ADR 0005, #137).
+  const coverageGaps = dossier.coverageGaps.length === 0
+    ? undefined
+    : boundedLine(
+      `coverage gaps: ${String(dossier.coverageGaps.length)} — ${
+        dossier.coverageGaps.map((gap) =>
+          `${gap.lens ?? gap.stage} (${gap.reason})`
+        ).join("; ")
+      }`,
+    )
   const cacheHealth = accounting.finderCacheHealth === undefined
     ? undefined
     : boundedLine(
@@ -83,6 +94,7 @@ export const renderDigest = (
     : undefined
   return [
     tally,
+    ...(coverageGaps === undefined ? [] : [coverageGaps]),
     ...(cacheHealth === undefined ? [] : [cacheHealth]),
     ...(toolHealth === undefined ? [] : [toolHealth]),
     ...surviving,

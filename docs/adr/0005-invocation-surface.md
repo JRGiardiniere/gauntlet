@@ -228,6 +228,11 @@ stdout never carries the review, it lands it:
   Unresolved entry in their Dossier order, an optional single bounded
   cache-health line, then paths to `dossier.md` and `dossier.json`. Refuted,
   dropped, and evidence live only in the run dir.
+  Amended per #137: an optional single bounded coverage-gap line follows the
+  tally whenever the Dossier has coverage gaps. Agents relay the digest
+  verbatim, so with gaps left to `dossier.md` a run whose every Finder failed
+  read as a clean `0 confirmed` exit 0 and the person never heard. The exit
+  code is unchanged: a review with gaps is still a review produced.
 - **stderr**: progress narration only.
 - **exit code**: 0 = review produced (even with zero findings), 1 = could not
   review or delivery failed. Findings never affect the exit code.
