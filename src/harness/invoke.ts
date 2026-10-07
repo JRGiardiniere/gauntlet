@@ -335,12 +335,27 @@ const logDebugTranscript = (
     ),
   )
 
-const settleAbort = (aborting: Promise<void> | undefined) =>
+const settleAbort = (
+  aborting: Promise<void> | undefined,
+  capture: CaptureAccumulator,
+) =>
   aborting === undefined
     ? Effect.void
-    : Effect.promise(() => aborting.catch(() => undefined)).pipe(
+    : Effect.tryPromise({ try: () => aborting, catch: String }).pipe(
       Effect.timeoutOption(Duration.millis(ABORT_SETTLE_MILLIS)),
       Effect.asVoid,
+      Effect.catch((reason) =>
+        Effect.sync(() => {
+          capture.dispatch({
+            type: "diagnostic",
+            message: `abort failed during session teardown: ${reason}`,
+          })
+        }).pipe(
+          Effect.andThen(
+            Effect.logWarning(`abort failed during session teardown: ${reason}`),
+          ),
+        )
+      ),
     )
 
 const openCapturedSession = Effect.fn(
@@ -384,7 +399,7 @@ const openCapturedSession = Effect.fn(
       })),
     ),
     (opened) =>
-      settleAbort(aborting).pipe(
+      settleAbort(aborting, capture).pipe(
         Effect.andThen(Effect.sync(() => {
           try {
             const rows = opened.usageRows().map(jsonSafeRow)

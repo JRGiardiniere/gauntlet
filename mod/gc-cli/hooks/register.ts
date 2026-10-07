@@ -85,6 +85,7 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     exists: (path) => $.fs.exists(path),
     stat: (path, resolve) => $.fs.stat(path, { resolve }),
     run: (argv, init) => $.process.run(argv, init),
+    spawnProcess: (request) => $.process.spawn(request),
     env,
     stdout: () => undefined,
     stderr: () => undefined,
