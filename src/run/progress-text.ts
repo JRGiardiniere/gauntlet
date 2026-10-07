@@ -2,14 +2,17 @@ import * as Console from "effect/Console"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
 import { type AgentUsage, Termination } from "../domain/agent-outcome.ts"
 
 // A progress line of a Run's stages: on stderr, and in the Run's run.log,
-// since a Run's own logs go only to that file.
-export const runProgress = Effect.fn("Progress.report")(function* (text: string) {
+// since a Run's own logs go only to that file. `logged` follows the line in
+// run.log alone: the cache share, which the live output leaves out (#138).
+export const runProgress = Effect.fn("Progress.report")(function* (
+  text: string,
+  logged?: string,
+) {
   yield* Console.error(`gauntlet: ${text}`)
-  yield* Effect.log(text)
+  yield* Effect.log(logged === undefined ? text : `${text} · ${logged}`)
 })
 
 // An invocation's diagnostics (a refusal, a provider's error body) go to the
@@ -50,7 +53,6 @@ export const invocationTrail = (outcome: {
   [
     `${String(Math.round(outcome.durationMillis / 1000))}s`,
     `$${outcome.usage.costUsd.toFixed(2)}`,
-    ...Option.toArray(Option.fromUndefinedOr(cacheShare([outcome.usage]))),
     ...(Termination.guards.Completed(outcome.termination)
       ? []
       : [outcome.termination._tag]),

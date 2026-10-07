@@ -65,7 +65,8 @@ artifacts.
 Finder cache health is another derived Run-accounting view over those completed
 outcomes. It reconstructs the frozen Finder partitions only to exclude each
 starter, then aggregates every eligible follower across the Run using only its
-first raw usage row. Low reuse is a soft report/digest note, never Dossier
+first raw usage row. Low reuse is a soft `dossier.md` note (out of the digest
+since #138), never Dossier
 semantics, coverage, a warning on the ReviewTarget, or another persisted
 artifact.
 

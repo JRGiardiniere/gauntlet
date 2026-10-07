@@ -646,7 +646,15 @@ describe("gauntlet review", () => {
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain(
-        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · cache 42% · MissingEmit",
+        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit\n",
+      )
+      // The cache share is for run.log alone.
+      expect(stderr).not.toContain("cache 42%")
+      const runLog = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "run.log"),
+      )
+      expect(runLog).toContain(
+        "finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit · cache 42%",
       )
       expect(stderr).toContain(
         "gauntlet: coverage gap (fixture-review) — finder emitted nothing after 2 corrective turns",

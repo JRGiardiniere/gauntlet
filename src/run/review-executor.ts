@@ -3,7 +3,6 @@ import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
-import * as Option from "effect/Option"
 import { assembleDossier } from "../assembly/dossier.ts"
 import { routeFinderResults } from "../assembly/finders.ts"
 import { Dossier } from "../domain/dossier.ts"
@@ -61,12 +60,8 @@ export const executeReviewPlan = Effect.fn(
         const results = finderStage.finders
 
         yield* runProgress(
-          [
-            `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
-            ...Option.toArray(Option.fromUndefinedOr(
-              cacheShare(results.map(({ outcome }) => outcome.usage)),
-            )),
-          ].join(" · "),
+          `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
+          cacheShare(results.map(({ outcome }) => outcome.usage)),
         )
         yield* reportMilestone(RunMilestone.FindersFinished())
         const routed = routeFinderResults(results)

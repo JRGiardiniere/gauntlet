@@ -1,7 +1,6 @@
 import type { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
-import { describeFinderCacheHealth } from "../run/finder-cache-health.ts"
 import {
   describeFinderToolHealth,
   isFinderToolCascade,
@@ -42,7 +41,8 @@ const candidateLocation = (candidate: {
 // The bounded stdout digest (ADR 0005): one tally line (counts, target,
 // recipe, cost, wall time — ADR 0006), one line per surviving finding
 // plus one bounded line per candidate still carried in the main findings
-// section, then artifact paths. Refuted, dropped, and evidence live only in
+// section, then artifact paths. Finder cache health stays in dossier.md: an
+// agent relaying the digest called it out as if it were a finding (#138). Refuted, dropped, and evidence live only in
 // the run dir — machine consumers parse dossier.json from disk, never stdout.
 export const renderDigest = (
   plan: ReviewPlan,
@@ -81,11 +81,6 @@ export const renderDigest = (
         ).join("; ")
       }`,
     )
-  const cacheHealth = accounting.finderCacheHealth === undefined
-    ? undefined
-    : boundedLine(
-      `cache health: ${describeFinderCacheHealth(accounting.finderCacheHealth)}`,
-    )
   const toolHealth = accounting.finderToolHealth !== undefined &&
       isFinderToolCascade(accounting.finderToolHealth)
     ? boundedLine(
@@ -95,7 +90,6 @@ export const renderDigest = (
   return [
     tally,
     ...(coverageGaps === undefined ? [] : [coverageGaps]),
-    ...(cacheHealth === undefined ? [] : [cacheHealth]),
     ...(toolHealth === undefined ? [] : [toolHealth]),
     ...surviving,
     "",
