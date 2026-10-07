@@ -5,6 +5,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as TestConsole from "effect/testing/TestConsole"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
@@ -120,6 +121,25 @@ describe("PR review working directory", () => {
       expect(reason).toBe("fixture failure")
       expect(yield* fs.exists(reviewDirectory)).toBe(false)
       expect(yield* countWorktrees(repo)).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("warns, without failing the scope, when the worktree cannot be removed", () =>
+    Effect.gen(function* () {
+      const { repo, target } = yield* makeMismatchedPullRequestTarget
+
+      const result = yield* Effect.scoped(
+        Effect.gen(function* () {
+          const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+          // Removed behind the release's back, so its own removal fails.
+          yield* runGit(repo, ["worktree", "remove", "--force", directory])
+          return "reviewed"
+        }),
+      )
+
+      expect(result).toBe("reviewed")
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "gauntlet: warning — could not remove the review worktree",
+      )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("cleans up when the Run is interrupted", () =>

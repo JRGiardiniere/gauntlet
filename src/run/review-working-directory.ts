@@ -1,3 +1,4 @@
+import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -125,13 +126,25 @@ export const acquireReviewWorkingDirectory = Effect.fn(
         )
       ),
     ),
+    // The release runs after the Dossier is written: a worktree left behind
+    // is a warning, never a review that failed.
     () =>
       runGit(target.repoRoot, [
         "worktree",
         "remove",
         "--force",
         directory,
-      ]).pipe(Effect.orDie),
+      ]).pipe(
+        Effect.catchTag("GitCommandError", (cause) =>
+          Console.error(
+            `gauntlet: warning — ${
+              describeGitFailure(
+                `could not remove the review worktree ${directory}`,
+                cause,
+              )
+            }; run \`git worktree prune\` in ${target.repoRoot} to clear it`,
+          )),
+      ),
   )
   if (target._tag !== "WorkingTree") return directory
   const present = yield* fs.exists(overlayPath).pipe(
