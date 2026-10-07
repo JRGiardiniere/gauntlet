@@ -133,7 +133,9 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
       Effect.mapError((cause) =>
         runError(
           "load-plan",
-          `could not read frozen plan for run ${runId}`,
+          Predicate.isTagged("NotFound")(cause.reason)
+            ? `no such run ${runId} in ${runsRoot}`
+            : `could not read frozen plan for run ${runId}`,
           runId,
           cause,
         )),
@@ -144,7 +146,9 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
       Effect.mapError((cause) =>
         runError(
           "load-plan",
-          `frozen plan for run ${runId} is corrupt`,
+          `frozen plan ${paths.plan} is corrupt: ${
+            cause.message.replace(/\s+/g, " ")
+          }`,
           runId,
           cause,
         )),

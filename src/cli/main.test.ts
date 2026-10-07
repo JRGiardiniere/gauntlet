@@ -788,9 +788,12 @@ describe("gauntlet review", () => {
       expect(yield* fs.exists(path.join(runDir, "dossier.json"))).toBe(false)
       expect(yield* fs.exists(path.join(runDir, "dossier.md"))).toBe(false)
 
-      // Without a completed checkpoint the whole Finder stage reruns, inside
-      // the same Run: the rerun returns to its own run dir.
-      yield* fs.remove(path.join(runDir, "finder-stage.json"))
+      // Without a usable checkpoint the whole Finder stage reruns, inside
+      // the same Run, and says so: the rerun returns to its own run dir.
+      yield* fs.writeFileString(
+        path.join(runDir, "finder-stage.json"),
+        "{ truncated",
+      )
       const rerun = resume(
         fixture,
         runId,
@@ -800,6 +803,9 @@ describe("gauntlet review", () => {
       )
       expect(yield* runUntilFinderStage(rerun.effect)).toBe(runId)
       expect(rerun.scripted.configs).toHaveLength(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "finder-stage.json is corrupt or not this run's — rerunning the Finders",
+      )
       expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       expect(
         yield* fs.exists(path.join(runDir, "finder-stage.json")),
@@ -985,6 +991,12 @@ describe("gauntlet review", () => {
       expect(resumed.scripted.configs).toHaveLength(0)
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         `no incomplete run of ${elsewhere.repo} with a valid frozen plan was found`,
+      )
+
+      const mistyped = resume(fixture, "no-such-run", successfulScripted())
+      expect(yield* mistyped.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `could not review — no such run no-such-run in ${fixture.runsRoot}`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

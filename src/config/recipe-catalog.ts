@@ -188,7 +188,9 @@ export const resolveReviewRecipe = Effect.fn(
     const entries = yield* listRecipes()
     return yield* new RecipeSelectionError({
       reason:
-        "no default recipe is configured — pass a recipe (`gauntlet review <recipe>`) or run `gauntlet config init`",
+        // An empty catalog's rendering adds `gauntlet config init`; with
+        // recipes present, init would refuse the partial configuration.
+        "no default recipe is configured — pass a recipe (`gauntlet review <recipe>`)",
       available: availableRecipeNames(entries),
     })
   }
@@ -207,5 +209,5 @@ export const renderAvailable = (
   available: ReadonlyArray<string>,
 ): string =>
   available.length === 0
-    ? "; the recipe catalog is empty"
+    ? "; the recipe catalog is empty — run `gauntlet config init`"
     : `; available recipes: ${available.join(", ")}`
