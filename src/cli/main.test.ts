@@ -918,8 +918,9 @@ describe("gauntlet review", () => {
       expect(yield* resumed.effect).toBe(1)
       expect(resumed.scripted.configs).toHaveLength(0)
       expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
+      // The Run started before failing, so the refusal names how to resume.
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        `could not review — the frozen working-tree overlay ${overlay} is missing`,
+        `could not review — the frozen working-tree overlay ${overlay} is missing — resume with gauntlet review --resume ${runId}`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

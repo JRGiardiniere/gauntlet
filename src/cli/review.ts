@@ -4,6 +4,7 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Ref from "effect/Ref"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
@@ -28,7 +29,7 @@ import {
 } from "../run/submission.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
-import { reportMilestone, RunMilestone } from "../run/run-milestones.ts"
+import { RunMilestone, RunMilestones } from "../run/run-milestones.ts"
 import { gauntletVersion } from "./version.ts"
 
 // The review program: the review and deliver verbs and the rendering of
@@ -361,71 +362,90 @@ type ReviewProgramFailure =
 // findings included), 1 = could not review. Findings never affect the exit
 // code. Every "could not review" is rendered to stderr before the Promise
 // boundary erases its type.
-// Renders a review that could not run (or could not be delivered) as its
-// one stderr line, and reports the same text as data for the mod.
-const refuse = (message: string) =>
-  progress(message).pipe(
-    Effect.andThen(reportMilestone(RunMilestone.Refused({ message }))),
-    Effect.as(1),
-  )
-
 export const renderReviewFailures = <R>(
   self: Effect.Effect<number, ReviewProgramFailure, R>,
 ) =>
-  self.pipe(
-    Effect.catchTags({
-      // ShowHelp is help control flow, not a failed review: the CLI has
-      // already rendered help (and any parse errors). Plain help exits 0;
-      // help shown because arguments failed to parse exits 1.
-      ShowHelp: (help) =>
-        help.errors.length === 0
-          ? Effect.succeed(0)
-          : reportMilestone(RunMilestone.Refused({
-            message: help.errors.map((error) => error.message).join("; "),
-          })).pipe(Effect.as(1)),
-      TargetUnresolvable: (unresolvable) =>
-        refuse(`could not review — ${unresolvable.reason}`),
-      ArtifactWriteError: (failure) =>
-        refuse(`could not review — failed to write ${failure.path}`),
-      ContentLoadError: (failure) =>
-        refuse(`could not review — ${failure.reason} (${failure.path})`),
-      ReviewCommandError: (failure) =>
-        refuse(`could not review — ${failure.reason}`),
-      SubmissionError: (failure) =>
-        refuse(`could not review — ${failure.reason}`),
-      SpecificationLoadError: (failure) =>
-        refuse(`could not review — ${failure.reason} (${failure.path})`),
-      DeliveryError: (failure) =>
-        refuse(
-          failure.operation === "post" && failure.runId !== undefined
-            ? `could not deliver — ${failure.reason}; retry with gauntlet deliver ${failure.runId}`
-            : `could not deliver — ${failure.reason}`,
+  Effect.gen(function* () {
+    // A Run that started and never reached its Dossier is resumable, so a
+    // refusal in between names it. Started is reported once the run
+    // directory and frozen plan exist, Reviewed once the Dossier does.
+    const unfinishedRun = yield* Ref.make<string | undefined>(undefined)
+    const report = yield* RunMilestones
+    const tracked = (milestone: RunMilestone) =>
+      (RunMilestone.$is("Started")(milestone)
+        ? Ref.set(unfinishedRun, milestone.runId)
+        : RunMilestone.$is("Reviewed")(milestone)
+        ? Ref.set(unfinishedRun, undefined)
+        : Effect.void).pipe(Effect.andThen(report(milestone)))
+    // Renders a review that could not run (or could not be delivered) as its
+    // one stderr line, and reports the same text as data for the mod.
+    const refuse = (reason: string) =>
+      Ref.get(unfinishedRun).pipe(
+        Effect.map((runId) =>
+          runId === undefined
+            ? reason
+            : `${reason} — resume with gauntlet review --resume ${runId}`
         ),
-      // Configuration failures render standalone: their reasons already name
-      // the file or recipe at fault, for review and config verbs alike.
-      SettingsError: (failure) =>
-        refuse(`${failure.reason} (${failure.path})`),
-      RecipeCatalogError: (failure) =>
-        refuse(`${failure.reason} (${failure.path})`),
-      RecipeSelectionError: (failure) =>
-        refuse(
-          `could not review — ${failure.reason}${renderAvailable(failure.available)}`,
-        ),
-      RunError: (failure) =>
-        refuse(`could not review — ${failure.reason}`),
-      PromptAssemblyError: (failure) =>
-        refuse(`could not review — ${failure.reason}`),
-      InvocationSetupError: (failure) =>
-        refuse(
-          `could not review — invocation ${failure.operation}: ${failure.reason}`,
-        ),
-      AdapterContractViolation: (failure) =>
-        refuse(`could not review — ${failure.reason}`),
-    }),
-    Effect.catch((unreviewable) =>
-      refuse(`could not review — ${String(unreviewable)}`),
-    ),
-  )
+        Effect.tap(progress),
+        Effect.tap((message) => report(RunMilestone.Refused({ message }))),
+        Effect.as(1),
+      )
+    return yield* self.pipe(
+      Effect.provideService(RunMilestones, tracked),
+      Effect.catchTags({
+        // ShowHelp is help control flow, not a failed review: the CLI has
+        // already rendered help (and any parse errors). Plain help exits 0;
+        // help shown because arguments failed to parse exits 1.
+        ShowHelp: (help) =>
+          help.errors.length === 0
+            ? Effect.succeed(0)
+            : report(RunMilestone.Refused({
+              message: help.errors.map((error) => error.message).join("; "),
+            })).pipe(Effect.as(1)),
+        TargetUnresolvable: (unresolvable) =>
+          refuse(`could not review — ${unresolvable.reason}`),
+        ArtifactWriteError: (failure) =>
+          refuse(`could not review — failed to write ${failure.path}`),
+        ContentLoadError: (failure) =>
+          refuse(`could not review — ${failure.reason} (${failure.path})`),
+        ReviewCommandError: (failure) =>
+          refuse(`could not review — ${failure.reason}`),
+        SubmissionError: (failure) =>
+          refuse(`could not review — ${failure.reason}`),
+        SpecificationLoadError: (failure) =>
+          refuse(`could not review — ${failure.reason} (${failure.path})`),
+        DeliveryError: (failure) =>
+          refuse(
+            failure.operation === "post" && failure.runId !== undefined
+              ? `could not deliver — ${failure.reason}; retry with gauntlet deliver ${failure.runId}`
+              : `could not deliver — ${failure.reason}`,
+          ),
+        // Configuration failures render standalone: their reasons already
+        // name the file or recipe at fault, for review and config verbs alike.
+        SettingsError: (failure) =>
+          refuse(`${failure.reason} (${failure.path})`),
+        RecipeCatalogError: (failure) =>
+          refuse(`${failure.reason} (${failure.path})`),
+        RecipeSelectionError: (failure) =>
+          refuse(
+            `could not review — ${failure.reason}${renderAvailable(failure.available)}`,
+          ),
+        RunError: (failure) =>
+          refuse(`could not review — ${failure.reason}`),
+        PromptAssemblyError: (failure) =>
+          refuse(`could not review — ${failure.reason}`),
+        InvocationSetupError: (failure) =>
+          refuse(
+            `could not review — invocation ${failure.operation}: ${failure.reason}`,
+          ),
+        AdapterContractViolation: (failure) =>
+          refuse(`could not review — ${failure.reason}`),
+      }),
+      Effect.catch((unreviewable) =>
+        refuse(`could not review — ${String(unreviewable)}`),
+      ),
+    )
+  })
 
 // The review program alone, as the mod runs it: argv as `gauntlet` takes it,
 // resolving to the exit code.
