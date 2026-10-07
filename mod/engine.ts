@@ -14,6 +14,8 @@ import * as Fiber from "effect/Fiber"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import { runReviewCli } from "../src/cli/review.ts"
+import { listRecipes } from "../src/config/recipe-catalog.ts"
+import { isClaudeCodeSeat } from "../src/domain/recipe.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
 import {
   type ClaudeModelCost,
@@ -30,7 +32,8 @@ import type { RunView } from "./strip.ts"
 
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
-export { reviewArgv } from "./review-argv.ts"
+export { reviewArgv, reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
+export { digestDelivery } from "./digest-delivery.ts"
 export { inputsStamp } from "./stamp.ts"
 export type { ToolsEvent, PublishedAgent } from "./agents.ts"
 
@@ -266,9 +269,22 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
 
   const turnComplete = (e: TurnComplete) => driver.turnComplete(e)
 
+  // The catalog's valid Recipes this Host can run: every Seat claude-code/.
+  const claudeRecipes = (): Promise<ReadonlyArray<string>> =>
+    listRecipes().pipe(
+      Effect.map((entries) =>
+        entries.flatMap((entry) =>
+          entry._tag === "ValidRecipe" && Object.values(entry.recipe).every(isClaudeCodeSeat) ? [entry.name] : []
+        )
+      ),
+      Effect.provide(platformLayer(ports)),
+      Effect.runPromise,
+    )
+
   return {
     start,
     cancel,
+    claudeRecipes,
     turnComplete,
     poll: driver.poll,
     isOffering: driver.isOffering,

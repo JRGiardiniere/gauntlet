@@ -52,7 +52,6 @@ export const invocationTrail = (outcome: {
 }): string =>
   [
     `${String(Math.round(outcome.durationMillis / 1000))}s`,
-    `$${outcome.usage.costUsd.toFixed(2)}`,
     ...(Termination.guards.Completed(outcome.termination)
       ? []
       : [outcome.termination._tag]),

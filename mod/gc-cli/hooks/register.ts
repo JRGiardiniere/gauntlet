@@ -2,23 +2,29 @@ import type { EngineInterface, Register } from "claude-code"
 import {
   type BuildInfo,
   createEngine,
+  digestDelivery,
   type Engine,
   type EnginePorts,
   inputsStamp,
   renderStrip,
   reviewArgv,
+  reviewToolArgs,
+  reviewToolInputSchema,
   type RunResult,
 } from "../../engine.ts"
 
 // gc-cli (#134 Idea 3): the Gauntlet review program, bundled into this mod
 // as hooks/vendor/engine.js and run in process. This module is the glue the
 // engine cannot be: it is the only code that may spell `$`, so it hands the
-// engine closures over `$` (ports), registers /gc-cli, relays turn endings
+// engine closures over `$` (ports), registers /gc-cli and the agent's review
+// tool, hands each digest to the main agent, relays turn endings
 // and gc-cli-tools' observations, keeps the bundle fresh, and makes a
 // reload that loses a run loud.
 //
 // Every tool and agent hook names its tool or agent: matcher-less
-// tool.call/tool.check/turn.step/agent.offer hooks break other subagents.
+// tool.call/tool.check/agent.offer hooks broke other subagents (#134). The
+// turn.step hook only passes through; a worktree subagent's Bash still ran
+// with it loaded (Claude Code 2.1.291, #146).
 
 type Engines = EngineInterface
 
@@ -37,6 +43,9 @@ interface InFlight {
 interface TriggerRequest {
   readonly cwd: string
   readonly args: string
+  // The subagent whose review tool call started the run; absent for the main
+  // agent and /gc-cli.
+  readonly agentId?: string | undefined
   readonly afterRebuild?: "stop" | "run"
 }
 
@@ -55,6 +64,8 @@ let drawn = ""
 let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
+const delivery = digestDelivery()
+let starting = false
 const loadedAt = Date.now()
 
 const gcDir = () => `${home}/.gauntlet/gc-cli`
@@ -194,19 +205,62 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   const text = digest === ""
     ? `gc-cli: ${shown.join("\n")}`
     : `gc-cli ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
-  // The appended row reaches the model; the person sees transcript rows, one
-  // per line (a row draws no line breaks).
-  for (const line of shown) {
-    if (line.trim() !== "") $.ui.log(line)
-  }
-  await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
-    log($, `append failed: ${String(error)}`)
-  )
+  await deliver($, text, shown, request.agentId)
   // Bookkeeping comes after the result is shown: a failed write only logs.
   await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
     .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
+
+// A subagent that started the review gets its digest as a message, which
+// reaches it between tool calls or resumes it once it has stopped; when it
+// cannot be reached, the main agent gets it. A submitted prompt shows the
+// person its text; an appended row or a subagent's message is the model's
+// alone, so the person gets transcript rows, one per line (a row draws no
+// line breaks).
+async function deliver($: Engines, text: string, shown: ReadonlyArray<string>, agentId: string | undefined) {
+  if (agentId !== undefined) {
+    const sent = await $.session.send({ to: { agentId }, text }).catch((error) => ({ isDelivered: false as const, reason: String(error) }))
+    if (sent.isDelivered) {
+      logRows($, shown)
+      return
+    }
+    log($, `digest not sent to ${agentId}: ${sent.reason}`)
+  }
+  if (delivery.route(text) === "submit" && (await submit($, text))) return
+  logRows($, shown)
+  await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
+    log($, `append failed: ${String(error)}`)
+  )
+}
+
+function logRows($: Engines, shown: ReadonlyArray<string>) {
+  for (const line of shown) {
+    if (line.trim() !== "") $.ui.log(line)
+  }
+}
+
+// Whether the prompt entered; a dropped one leaves the digest to the rows and
+// an appended message.
+async function submit($: Engines, text: string): Promise<boolean> {
+  const submitted = await $.prompt.submit({ text }).catch((error) => ({ drop: String(error) }))
+  if (!("drop" in submitted)) return true
+  log($, `submit dropped: ${String(submitted.drop)}`)
+  return false
+}
+
+const reviewTool = (recipes: ReadonlyArray<string>) => ({
+  name: "review",
+  description: "Runs a Gauntlet code review in the background, here in Claude Code: finder agents, verification and judgment over a diff, ending in a Dossier and a short digest. " +
+    "Use it when asked to run Gauntlet or a Gauntlet review; it replaces running the `gauntlet` CLI from a shell. " +
+    "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
+    "`args` is the /gc-cli syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
+    "then `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`. " +
+    (recipes.length === 0
+      ? "No Claude Code recipes are installed."
+      : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
+  inputSchema: { ...reviewToolInputSchema },
+})
 
 async function openDossier($: Engines, path: string) {
   const opened = await $.process.run(["open", path]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
@@ -223,6 +277,18 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
   if (running !== undefined) {
     return `gc-cli: a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
   }
+  // Two calls can overlap while the first checks the checkout; the engine is
+  // running once the first returns.
+  if (starting) return "gc-cli: a review is already starting; one per session."
+  starting = true
+  try {
+    return await prepareAndStart($, engine, build, request)
+  } finally {
+    starting = false
+  }
+}
+
+async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, request: TriggerRequest): Promise<string> {
   const hashStart = Date.now()
   let fresh: Awaited<ReturnType<typeof inputsStamp>>
   try {
@@ -250,7 +316,7 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
     await setStatus($, undefined)
     if (built.exitCode !== 0) return `gc-cli: the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
     if (request.afterRebuild !== "run") {
-      return `gc-cli: rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Run /gc-cli again.`
+      return `gc-cli: rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
     }
   }
   const argv = reviewArgv(request.args)
@@ -264,7 +330,7 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
     .start({ argv, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
     .then((result) => finishRun($, result, request))
     .catch((error) => log($, `run failed to start: ${String(error)}`))
-  return `gc-cli: review started (${argv.slice(1).join(" ")}); progress above the prompt, the digest lands here when it finishes.`
+  return `gc-cli: review started (${argv.slice(1).join(" ")}); progress shows above the prompt, and the digest arrives as a message when it finishes.`
 }
 
 // Test runs and cancels arrive as files the mod polls (a command registered
@@ -305,6 +371,11 @@ export const register: Register = (on) => {
     } catch (error) {
       log($, `engine failed to load: ${String(error)}`)
     }
+    const recipes = await (engine?.claudeRecipes() ?? Promise.resolve([])).catch((error) => {
+      log($, `recipe catalog unreadable: ${String(error)}`)
+      return []
+    })
+    await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gc-cli",
       description: "Gauntlet review, run in process: /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
@@ -336,8 +407,30 @@ export const register: Register = (on) => {
     text: (await startReview($, { cwd: await $.session.root(), args: e.args })).replace(/^gc-cli: /, ""),
   }))
 
+  on("tool.call", { tool: "mcp__gc-cli__review" }, async ($, e) => {
+    const args = reviewToolArgs(e)
+    if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gc-cli takes them." }
+    const answer = await startReview($, { cwd: await $.session.root(), args, agentId: e.agentId })
+    return { result: answer.replace(/^gc-cli: /, "") }
+  })
+
+  // The main agent's turns (no agentId), so a digest knows whether it would
+  // land in a running turn.
+  on("turn.start", ($, e, next) => {
+    delivery.turnStarted()
+    return next(e)
+  })
+  on("turn.step", async function* ($, e, next) {
+    if (e.agentId === undefined) delivery.stepped()
+    return yield* next(e)
+  })
+
   // Every turn of every loop passes here; only this run's agents are taken.
   on("turn.complete", async ($, e, next) => {
+    if (e.agentId === undefined) {
+      const unread = delivery.turnEnded()
+      if (unread !== undefined) void submit($, unread).then((entered) => entered ? undefined : log($, "unread digest left in the conversation"))
+    }
     if (engine !== undefined && e.agentId !== undefined) {
       await engine.turnComplete({
         agentId: e.agentId,

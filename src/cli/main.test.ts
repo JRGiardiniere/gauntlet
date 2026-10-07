@@ -464,7 +464,7 @@ describe("gauntlet review", () => {
       expect(tally).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
       expect(tally).toContain("working tree @")
       expect(tally).toContain("recipe: fixture-recipe")
-      expect(tally).toMatch(/\$0\.15 · \d+s/)
+      expect(tally).toMatch(/ — \d+s$/)
       expect(stdout).toContain("- [P2 confirmed] alpha.txt:2")
       expect(stdout).toContain(
         "- [P2 judgment] alpha.txt — the name hides the value's role",
@@ -646,7 +646,7 @@ describe("gauntlet review", () => {
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain(
-        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit\n",
+        "gauntlet: finder fixture-review done — 0 candidates · 0s · MissingEmit\n",
       )
       // The cache share is for run.log alone.
       expect(stderr).not.toContain("cache 42%")
@@ -654,7 +654,7 @@ describe("gauntlet review", () => {
         path.join(fixture.runsRoot, runId, "run.log"),
       )
       expect(runLog).toContain(
-        "finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit · cache 42%",
+        "finder fixture-review done — 0 candidates · 0s · MissingEmit · cache 42%",
       )
       expect(stderr).toContain(
         "gauntlet: coverage gap (fixture-review) — finder emitted nothing after 2 corrective turns",
@@ -899,7 +899,7 @@ describe("gauntlet review", () => {
       expect(stderr).toContain(`resuming run ${runId}`)
       expect(stderr).toContain("reusing completed Finder stage")
       expect(stderr).toContain(
-        "gauntlet: finder fixture-review done — 4 candidates · 0s · $0.05",
+        "gauntlet: finder fixture-review done — 4 candidates · 0s",
       )
 
       // /repo is rebuilt from the frozen head commit plus the saved overlay.

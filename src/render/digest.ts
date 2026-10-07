@@ -39,7 +39,7 @@ const candidateLocation = (candidate: {
   )
 
 // The bounded stdout digest (ADR 0005): one tally line (counts, target,
-// recipe, cost, wall time — ADR 0006), one line per surviving finding
+// recipe, wall time; cost stays in dossier.md — ADR 0006), one line per surviving finding
 // plus one bounded line per candidate still carried in the main findings
 // section, then artifact paths. Finder cache health stays in dossier.md: an
 // agent relaying the digest called it out as if it were a finding (#138). Refuted, dropped, and evidence live only in
@@ -63,7 +63,7 @@ export const renderDigest = (
     `${String(confirmed)} confirmed · ${String(kept)} kept · ` +
     `${String(plausible)} plausible · ${String(undecided)} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
-    `$${accounting.costUsd.toFixed(2)} · ${accounting.wallTimeSeconds}s`
+    `${accounting.wallTimeSeconds}s`
   const surviving = [...view.findings, ...view.unresolved].map((entry) => {
     const label = entry.reviewPriority === undefined
       ? entry.tag

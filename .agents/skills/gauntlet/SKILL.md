@@ -12,6 +12,11 @@ description: >-
 One host-managed command. Stdout is a bounded digest to relay verbatim. The
 Dossier lives on disk.
 
+**In Claude Code with the gc-cli mod loaded** (an `mcp__gc-cli__review` tool
+exists), start a review with that tool instead: it runs the same review on
+`claude-code/` Seats, which the CLI cannot run, and its digest reaches you as
+a message. Everything below is the CLI.
+
 ## Review
 
 1. **Aim.** Every review names its target — point the tool at what you mean;

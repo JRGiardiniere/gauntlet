@@ -1,3 +1,7 @@
+import { flow } from "effect/Function"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
+
 // `/gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]` as `gauntlet
 // review` argv. The target is `gauntlet review`'s: nothing is the working
 // tree, a number a pull request, anything else `--commits` (`base..head`,
@@ -26,8 +30,25 @@ export const reviewArgv = (args: string): ReadonlyArray<string> => {
   const optedOut = argv.indexOf("--no-related-files")
   if (optedOut !== -1) argv.splice(optedOut, 1)
   else if (!argv.includes("--related-files")) argv.push("--related-files")
+  // An explicit target flag names the target itself.
+  if (argv.some((word) => /^--(pr|commits|working-tree)(=|$)/.test(word))) return argv
   if (target === undefined) argv.push("--working-tree")
   else if (/^\d+$/.test(target)) argv.push(`--pr=${target}`)
   else argv.push(`--commits=${target}`)
   return argv
 }
+
+// The review tool's `args`, decoded where the call arrives; undefined when
+// the call carries none.
+const ReviewToolInput = Schema.Struct({
+  args: Schema.String.annotate({ description: "The review's target and flags, as /gc-cli takes them" }),
+})
+
+// The tool's input schema, projected from the decoder below.
+export const reviewToolInputSchema = Schema.toJsonSchemaDocument(ReviewToolInput).schema
+
+export const reviewToolArgs = flow(
+  Schema.decodeUnknownOption(ReviewToolInput),
+  Option.map(({ args }) => args),
+  Option.getOrUndefined,
+)
