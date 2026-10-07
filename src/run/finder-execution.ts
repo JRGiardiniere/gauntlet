@@ -43,7 +43,7 @@ import {
   finderPartitionsInPlan,
 } from "./finder-partitions.ts"
 import { gatherRelatedFiles } from "../workspace/related-files.ts"
-import { counted, invocationTrail, runProgress } from "./progress-text.ts"
+import { cacheShare, counted, invocationTrail, runProgress } from "./progress-text.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
@@ -132,6 +132,7 @@ const readCompletedFinderStage = Effect.fn(
 const reportFinderDone = (result: FinderResult) =>
   runProgress(
     `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome)}`,
+    cacheShare([result.outcome.usage]),
   )
 
 // A completed Finder fan-out is the first resumable semantic checkpoint.

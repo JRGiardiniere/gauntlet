@@ -39,6 +39,7 @@ import { invoke } from "../harness/invoke.ts"
 import { EmitPool, EmitVerdicts } from "../harness/output-contract.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
+  cacheShare,
   counted,
   coverageGapLine,
   invocationTrail,
@@ -147,6 +148,7 @@ export const executePool = Effect.fn("BugClaimPath.pool")(function* ({
       })
       yield* runProgress(
         `Pool done — ${invocationTrail(outcome)}`,
+        cacheShare([outcome.usage]),
       )
       yield* logDiagnostics("Pool", outcome.diagnostics)
       repair = repairPoolOutput(claims, outcome.output)
@@ -253,6 +255,7 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
           })
           yield* runProgress(
             `Verification bundle ${String(bundleNumber)} done — ${invocationTrail(outcome)}`,
+            cacheShare([outcome.usage]),
           )
           yield* logDiagnostics(
             `Verification bundle ${String(bundleNumber)}`,

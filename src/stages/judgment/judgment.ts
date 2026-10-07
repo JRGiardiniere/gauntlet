@@ -14,6 +14,7 @@ import { invoke } from "../../harness/invoke.ts"
 import type { PooledBugClaims } from "../../run/bug-claim-path.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
+  cacheShare,
   counted,
   coverageGapLine,
   invocationTrail,
@@ -113,6 +114,7 @@ export const executeJudgment = Effect.fn(
   })
   yield* runProgress(
     `Judgment done — ${invocationTrail(outcome)}`,
+    cacheShare([outcome.usage]),
   )
   yield* logDiagnostics("Judgment", outcome.diagnostics)
 

@@ -233,7 +233,10 @@ stdout never carries the review, it lands it:
   verbatim, so with gaps left to `dossier.md` a run whose every Finder failed
   read as a clean `0 confirmed` exit 0 and the person never heard. The exit
   code is unchanged: a review with gaps is still a review produced.
-- **stderr**: progress narration only.
+  Amended per #138: the cache-health line leaves the digest for `dossier.md`'s
+  Run notes; relayed verbatim, it was called out as if it were a finding.
+- **stderr**: progress narration only. Amended per #138: its lines carry no
+  cache share; `run.log` keeps it.
 - **exit code**: 0 = review produced (even with zero findings), 1 = could not
   review or delivery failed. Findings never affect the exit code.
 

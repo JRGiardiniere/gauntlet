@@ -404,20 +404,8 @@ describe("digest rendering", () => {
     )
   })
 
-  it("adds one bounded cache-health line only when low reuse is measured", () => {
-    expect(digest).not.toContain("cache health:")
-    const withCacheNote = renderDigest(
-      plan,
-      dossier,
-      lowCacheAccounting,
-      paths,
-    )
-    const cacheLines = withCacheNote.split("\n").filter((line) =>
-      line.startsWith("cache health:")
-    )
-    expect(cacheLines).toHaveLength(1)
-    expect(cacheLines[0]?.length).toBeLessThanOrEqual(200)
-    expect(cacheLines[0]).toContain("10% reuse")
+  it("leaves measured low cache reuse to dossier.md", () => {
+    expect(renderDigest(plan, dossier, lowCacheAccounting, paths)).toBe(digest)
   })
 
   it("names coverage gaps on one bounded line, so a review missing work never reads as clean", () => {
