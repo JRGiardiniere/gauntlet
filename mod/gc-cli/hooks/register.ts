@@ -167,12 +167,12 @@ function startTick($: Engines) {
   tick = $.clock.every(250, async () => {
     const running = engine?.running()
     if (running === undefined) return
-    await engine?.poll()
+    await engine?.poll().catch((error) => log($, `poll failed: ${String(error)}`))
     redraw($)
     const agents = running.agentIds.join(",")
     if (agents !== markedAgents) {
       markedAgents = agents
-      await markInFlight($, { ...running, cwd: runCwd })
+      await markInFlight($, { ...running, cwd: runCwd }).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
     }
   })
 }

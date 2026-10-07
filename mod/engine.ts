@@ -68,6 +68,8 @@ export interface RunResult {
 // `$.http.fetch`. FetchHttpClient calls it with a URL, a method, a header
 // record and a Uint8Array or string body, and reads only status, url,
 // headers and arrayBuffer() of the answer (HttpClientResponse.fromWeb).
+// A request cannot be cancelled: `$.http.fetch` takes no AbortSignal, so an
+// interrupted run stops waiting while the request runs on to its end.
 interface FetchInit {
   readonly method?: string
   readonly headers?: Readonly<Record<string, string>>

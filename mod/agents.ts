@@ -406,7 +406,9 @@ export const makeAgentDriver = (ports: AgentPorts) => {
   const turnComplete = async (e: TurnComplete) => {
     const agent = e.agentId === undefined ? undefined : byAgentId.get(e.agentId)
     if (agent === undefined || !agents.has(agent.id)) return false
-    await absorb(agent)
+    // The ending still reaches the host when the pull fails: a missed emit
+    // is a missing emit, not a turn that never ends.
+    await absorb(agent).catch((error) => ports.log(`pull ${agent.id} failed: ${String(error)}`))
     let detail: string | undefined
     if (e.reason === "refusal") detail = e.refusal?.explanation ?? "refusal"
     if (e.reason === "error") detail = e.answer
