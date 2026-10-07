@@ -21,6 +21,7 @@ import {
   type LoadedRun,
 } from "../run/run-record.ts"
 import {
+  refuseForeignSeats,
   submit,
   SubmissionTargetRequest,
   type SubmissionRequest,
@@ -83,7 +84,12 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
     yield* maybeDeliver(destination, resumable)
     return
   }
-  yield* progress(`resuming run ${resumable.plan.runId}`)
+  const { plan } = resumable
+  yield* refuseForeignSeats(`run ${plan.runId}`, [
+    ...plan.lenses.map((lens) => lens.seat),
+    ...Object.values(plan.seats),
+  ])
+  yield* progress(`resuming run ${plan.runId}`)
   const startedAt = yield* DateTime.now
   yield* executeReviewPlan({
     ...resumable,

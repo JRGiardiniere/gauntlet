@@ -8,7 +8,7 @@ import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
 import { STANDARDS_LENS_NAME } from "../domain/finder-selection.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
-import { finderSeat, stageSeat } from "../domain/recipe.ts"
+import { finderSeat, type Seat, stageSeat } from "../domain/recipe.ts"
 import {
   candidateCapForLens,
   FrozenLens,
@@ -53,6 +53,22 @@ import {
 export class SubmissionError extends Data.TaggedError("SubmissionError")<{
   readonly reason: string
 }> {}
+
+// Each host runs only its own providers' Seats (#134): a new plan's Seats
+// and a resumed plan's frozen ones alike.
+export const refuseForeignSeats = Effect.fn("Submission.refuseForeignSeats")(
+  function* (owner: string, seats: ReadonlyArray<Seat>) {
+    const host = yield* HarnessSessionFactory
+    for (const seat of seats) {
+      const refusal = host.seatRefusal(seat)
+      if (refusal !== undefined) {
+        return yield* new SubmissionError({
+          reason: `${owner} seats ${seat}; ${refusal}`,
+        })
+      }
+    }
+  },
+)
 
 const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -254,21 +270,12 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
       : FrozenLens.make(frozen)
   })
 
-  // Each host runs only its own providers' Seats (#134).
-  const host = yield* HarnessSessionFactory
-  for (const seat of [
+  yield* refuseForeignSeats(`recipe ${selected.name}`, [
     ...frozenLenses.map((lens) => lens.seat),
     stageSeat(selected.recipe, "pool"),
     stageSeat(selected.recipe, "verification"),
     stageSeat(selected.recipe, "judgment"),
-  ]) {
-    const refusal = host.seatRefusal(seat)
-    if (refusal !== undefined) {
-      return yield* new SubmissionError({
-        reason: `recipe ${selected.name} seats ${seat}; ${refusal}`,
-      })
-    }
-  }
+  ])
 
   const { diagnostic, specification } = yield* acquireSpecification(
     request.target,

@@ -922,6 +922,36 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("refuses to resume a plan whose frozen Seats this host cannot run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const runId = yield* runUntilFinderStage(review(fixture).effect)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+
+      // A run frozen on the Claude Code host, resumed by the Pi CLI (the
+      // scripted adapter stands in for Pi).
+      const planPath = path.join(fixture.runsRoot, runId, "plan.json")
+      const planJson = Schema.fromJsonString(ReviewPlan)
+      const plan = yield* Schema.decodeEffect(planJson)(
+        yield* fs.readFileString(planPath),
+      )
+      yield* fs.writeFileString(
+        planPath,
+        yield* Schema.encodeEffect(planJson)(ReviewPlan.make({
+          ...plan,
+          seats: { ...plan.seats, verification: "claude-code/sonnet:low" },
+        })),
+      )
+
+      const resumed = resume(fixture, runId, successfulScripted())
+      expect(yield* resumed.effect).toBe(1)
+      expect(resumed.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "seats claude-code/sonnet:low",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("shows the caller addendum to interpretive finders, verification, and judgment — never specific finders or pool", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
