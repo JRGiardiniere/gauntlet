@@ -7,6 +7,7 @@
 // snapshot worktree, invoke.ts deadlines and corrective turns, the Stages,
 // the run record and the digest exactly as `gauntlet review` does. Only the
 // platform services and the HarnessSession adapter differ.
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -61,7 +62,26 @@ export interface RunResult {
   readonly stdout: string
   readonly stderr: string
   readonly seconds: number
+  // Cancelled: the run was interrupted, and nothing else ended it.
   readonly interrupted: boolean
+  // How a run that reached no exit code ended: cancelled (with the run to
+  // resume), or the defect's own message.
+  readonly ending: string | undefined
+}
+
+// An error's own words: its message, or a tagged error's fields (git's
+// stderr on a GitCommandError) when it has none.
+const errorText = (error: Error) =>
+  error.message === ""
+    ? `${error.name} ${JSON.stringify(Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause" && key !== "_tag")))}`
+    : `${error.name}: ${error.message}`
+
+const endingOf = (cause: Cause.Cause<unknown>, runId: string | undefined) => {
+  if (Cause.hasInterruptsOnly(cause)) {
+    return runId === undefined ? "cancelled" : `cancelled; resume it with /gc-cli --resume=${runId}`
+  }
+  const defect = Cause.squash(cause)
+  return `run ended: ${defect instanceof Error ? errorText(defect) : String(defect)}`
 }
 
 // The mod has no global fetch; Linear's FetchHttpClient gets this one over
@@ -245,13 +265,15 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
           latest: shown.result === undefined ? shown.latest : `Result: ${resultCounts(shown.result)}`,
         }
+        const ending = Exit.isSuccess(exit) ? undefined : endingOf(exit.cause, shown.runId)
         resolve({
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
           refusal: shown.refusal,
           stdout,
-          stderr: `${stderr}${Exit.isSuccess(exit) ? "" : `gauntlet: run ended: ${String(exit.cause)}\n`}`,
+          stderr: `${stderr}${ending === undefined ? "" : `gauntlet: ${ending}\n`}`,
           seconds: Math.round((Date.now() - startedAt) / 1000),
-          interrupted: Exit.isFailure(exit),
+          interrupted: Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
+          ending,
         })
       })
     })
