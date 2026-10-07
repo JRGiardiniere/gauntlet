@@ -32,6 +32,7 @@ import {
 } from "./finder-execution.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { runPaths } from "./run-record.ts"
+import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 
 const SEAT = "fixture/fixture-model:low" as const
 
@@ -112,6 +113,11 @@ const executeFixture = (
   options: {
     readonly specification?: ReviewSpecification
     readonly settle?: Effect.Effect<void>
+    // A snapshot to gather the related-file context from.
+    readonly relatedFiles?: {
+      readonly snapshot: string
+      readonly changedFiles: ReadonlyArray<string>
+    }
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -128,7 +134,15 @@ const executeFixture = (
     )
     yield* fs.writeFileString(
       path.join(content, "prompts", "finder-shared-block.md"),
-      "shared start\nrepo={{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\ncap={{MAX_PER_LENS}}\nshared end\n",
+      "shared start\nrepo={{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{WORKSPACE_TOOLS}}\ncap={{MAX_PER_LENS}}\nshared end\n",
+    )
+    yield* fs.writeFileString(
+      path.join(content, "prompts", "workspace-pi.md"),
+      "fixture workspace tools at {{REPO_ROOT}}\n",
+    )
+    yield* fs.writeFileString(
+      path.join(content, "prompts", "finder-related-files.md"),
+      "touched:\n{{TOUCHED_FILES}}\nrelated:\n{{RELATED_FILES}}\n",
     )
     const runId = "finder-execution-test"
     const planCore = {
@@ -138,24 +152,28 @@ const executeFixture = (
         number: 79,
         headCommit: "head",
         baseCommit: "base",
-        changedFiles: ["alpha.txt"],
+        changedFiles: options.relatedFiles?.changedFiles ?? ["alpha.txt"],
         diff: "--- a/alpha.txt\n+++ b/alpha.txt\n@@ -1 +1,2 @@\n base\n+change\n",
         warnings: [],
       }),
       seats: {},
       lenses,
     }
-    const plan = ReviewPlan.make(
+    const specified = ReviewPlan.make(
       options.specification === undefined
         ? planCore
         : { ...planCore, specification: options.specification },
     )
+    const plan = options.relatedFiles === undefined
+      ? specified
+      : ReviewPlan.make({ ...specified, relatedFiles: true })
     const paths = runPaths(path.join(root, "runs"), runId, path)
     yield* fs.makeDirectory(paths.root, { recursive: true })
     const effect = executeFinders({
       plan,
       paths,
-      reviewWorkingDirectory: path.join(root, "review"),
+      reviewWorkingDirectory: options.relatedFiles?.snapshot ??
+        path.join(root, "review"),
     }).pipe(
       Effect.provideService(FinderCacheSettle, options.settle ?? Effect.void),
       Effect.provide(
@@ -170,6 +188,42 @@ const executeFixture = (
   }).pipe(Effect.provide(NodeServices.layer))
 
 describe("Finder stage interface", () => {
+  it.effect("shares touched files whole and their importers and imports when the plan froze related files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { repo } = yield* makeGitFixture()
+      const write = (file: string, text: string) =>
+        fs.writeFileString(path.join(repo, file), text)
+      yield* write("touched.ts", `import { helper } from "./helper.ts"\nTOUCHED-BODY\n`)
+      yield* write("helper.ts", "HELPER-BODY\n")
+      yield* write("touched.test.ts", `import "./touched"\nTEST-BODY\n`)
+      yield* write("uses-gone.ts", `export * from "./gone.js"\nUSES-GONE-BODY\n`)
+      yield* write("added-dep.ts", "ADDED-DEP-BODY\n")
+      yield* write("unrelated.ts", `import "./helper.ts"\nUNRELATED-BODY\n`)
+      yield* commitAll(repo, "fixture")
+      // Untracked, as a working-tree overlay leaves a new file.
+      yield* write("added.ts", `import "./added-dep.ts"\nADDED-BODY\n`)
+      const scripted = makeScripted({ sessions: [successfulSession("one")] })
+      const fixture = yield* executeFixture([lens("one", "one tail")], scripted, {
+        relatedFiles: {
+          snapshot: repo,
+          changedFiles: ["touched.ts", "added.ts", "gone.ts"],
+        },
+      })
+
+      yield* fixture.effect
+
+      const systemPrompt = scripted.configs[0]?.systemPrompt ?? ""
+      const [touched = "", related = ""] = systemPrompt.split("related:")
+      expect(touched).toContain("### touched.ts")
+      expect(touched).toContain("TOUCHED-BODY")
+      expect(touched).toContain("ADDED-BODY")
+      expect(touched).not.toContain("### gone.ts")
+      expect([...related.matchAll(/^### (\S+)$/gm)].map(([, file]) => file))
+        .toEqual(["added-dep.ts", "helper.ts", "touched.test.ts", "uses-gone.ts"])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("partitions by Seat/context and gives every Finder the complete shared prefix", () =>
     Effect.gen(function* () {
       const scripted = makeScripted({

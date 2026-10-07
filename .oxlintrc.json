@@ -22,7 +22,8 @@
     "**/dist/**",
     "**/build/**",
     "**/*.mjs",
-    ".convoy/packs/anti-slop/**"
+    ".convoy/packs/anti-slop/**",
+    "mod/types/**"
   ],
   "rules": {
     "typescript/no-unsafe-type-assertion": "off",
@@ -40,6 +41,16 @@
   },
   "overrides": [
     {
+      "files": ["mod/gc-cli/hooks/*.ts", "mod/gc-cli-tools/hooks/*.ts", "mod/*/tests/*.ts", "mod/agents.ts", "mod/agents.test.ts", "mod/stamp.ts", "mod/engine.ts"],
+      "rules": {
+        "effecttsgo/async-function": "off",
+        "effecttsgo/global-date": "off",
+        "effecttsgo/global-timers": "off",
+        "effecttsgo/new-promise": "off",
+        "house/no-raw-error-throw": "off"
+      }
+    },
+    {
       "files": ["**/*.test.ts", "**/*.fixture.ts"],
       "rules": {
         "anti-slop-effect/no-manual-tag-comparison": "off"
@@ -54,7 +65,7 @@
       }
     },
     {
-      "files": ["src/run/review-executor.ts", "src/cli/upgrade.ts", "src/harness/live-gate.ts"],
+      "files": ["src/run/review-executor.ts", "src/cli/upgrade.ts", "src/harness/live-gate.ts", "mod/engine.ts"],
       "rules": {
         "effecttsgo/strict-effect-provide": "off"
       }

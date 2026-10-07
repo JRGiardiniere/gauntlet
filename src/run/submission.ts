@@ -8,7 +8,7 @@ import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
 import { STANDARDS_LENS_NAME } from "../domain/finder-selection.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
-import { finderSeat, stageSeat } from "../domain/recipe.ts"
+import { finderSeat, type Seat, stageSeat } from "../domain/recipe.ts"
 import {
   candidateCapForLens,
   FrozenLens,
@@ -19,6 +19,7 @@ import type {
   SpecificationSourceDiagnostic,
 } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
+import { HarnessSessionFactory } from "../harness/harness-session.ts"
 import { combineReviewSpecifications } from "../specification/combine.ts"
 import { loadGitHubSpecification } from "../specification/github-source.ts"
 import {
@@ -53,6 +54,22 @@ export class SubmissionError extends Data.TaggedError("SubmissionError")<{
   readonly reason: string
 }> {}
 
+// Each host runs only its own providers' Seats (#134): a new plan's Seats
+// and a resumed plan's frozen ones alike.
+export const refuseForeignSeats = Effect.fn("Submission.refuseForeignSeats")(
+  function* (owner: string, seats: ReadonlyArray<Seat>) {
+    const host = yield* HarnessSessionFactory
+    for (const seat of seats) {
+      const refusal = host.seatRefusal(seat)
+      if (refusal !== undefined) {
+        return yield* new SubmissionError({
+          reason: `${owner} seats ${seat}; ${refusal}`,
+        })
+      }
+    }
+  },
+)
+
 const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
@@ -80,6 +97,9 @@ export interface SubmissionRequest {
   // exact selection — settings are never consulted, repeated names collapse.
   readonly selectedLensNames: ReadonlyArray<string> | undefined
   readonly addendum: ReviewSpecification | undefined
+  // Finders also see the touched files whole and their related unchanged
+  // files.
+  readonly relatedFiles?: boolean
 }
 
 const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
@@ -250,6 +270,13 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
       : FrozenLens.make(frozen)
   })
 
+  yield* refuseForeignSeats(`recipe ${selected.name}`, [
+    ...frozenLenses.map((lens) => lens.seat),
+    stageSeat(selected.recipe, "pool"),
+    stageSeat(selected.recipe, "verification"),
+    stageSeat(selected.recipe, "judgment"),
+  ])
+
   const { diagnostic, specification } = yield* acquireSpecification(
     request.target,
     target,
@@ -277,7 +304,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     },
     lenses: frozenLenses,
   }
-  const plan = specification === undefined
+  const specified = specification === undefined
     ? diagnostic === undefined
       ? ReviewPlan.make(planFields)
       : ReviewPlan.make({
@@ -291,6 +318,9 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
           specification,
           specificationSourceDiagnostic: diagnostic,
         })
+  const plan = request.relatedFiles === true
+    ? ReviewPlan.make({ ...specified, relatedFiles: true })
+    : specified
   yield* progress("freezing review plan")
   // Overlay first: a persisted plan implies its overlay exists.
   if (overlay !== undefined) {

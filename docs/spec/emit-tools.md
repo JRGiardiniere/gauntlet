@@ -71,8 +71,9 @@ suggestion with a diagnostic while every verdict stands.
 
 ## `emit_judgments` — Judgment
 
-Tool description: "Report one keep/drop decision per candidate index. Call
-this exactly once, as your final action. Do not answer in prose instead."
+Tool description: "Report one keep, drop or merge decision per candidate
+index: every index appears exactly once. Call this exactly once, as your final
+action. Do not answer in prose instead."
 
 `decisions`: array of objects (exactly one entry per candidate index, no
 duplicates, none omitted) —
@@ -80,10 +81,10 @@ duplicates, none omitted) —
 | field | type | req | description |
 |---|---|---|---|
 | `index` | integer | yes | The [i] label of the candidate this decision is about. |
-| `decision` | enum | yes | `keep` = warranted criticism worth reporting; `drop` = not worth the author's time. |
+| `decision` | enum | yes | `keep` = warranted criticism worth reporting; `drop` = not worth the author's time; `merge` = a duplicate of the kept candidate named in `into`. |
 | `review_priority` | enum | keeps | `P1` \| `P2` \| `P3`. Review Priority. Required when keep, omitted when drop — a dropped candidate has no Review Priority at all; "not actually a problem" is a drop with a reason, never a priority. |
-| `merge` | integer[] | no | Indexes of duplicate candidates folded into this kept one — same root observation arriving at two altitudes. Merge duplicates, not themes. |
-| `reason` | string | yes | One line. Keeps: why it is warranted AND what was checked in the tree to confirm the premise. Drops: which failure it is — false premise / disproportionate / taste, not cost / repo convention / BugClaim-path claim / no nameable payer. |
+| `into` | integer | merges | Merges only: the index of the kept candidate this one duplicates — same root observation arriving at two altitudes. Merge duplicates, not themes. |
+| `reason` | string | yes | One line. Keeps: why it is warranted AND what was checked in the tree to confirm the premise. Drops: which failure it is — false premise / disproportionate / taste, not cost / repo convention / BugClaim-path claim / no nameable payer. Merges: the shared root observation. |
 | `goodFind` | boolean | keeps | Was this genuinely worth catching, as opposed to merely admissible? Admissible but obvious is `false`. |
 | `cleanlyExplained` | boolean | keeps | Reading ONLY the finder's own summary, are the problem and the better shape clear enough to act on? Judge the text as written. |
 | `qualityNote` | string | no | Keeps only, when either rating is false: one line on what is weak. |

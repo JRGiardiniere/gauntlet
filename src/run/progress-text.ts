@@ -1,20 +1,47 @@
+import * as Console from "effect/Console"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import { Termination } from "../domain/agent-outcome.ts"
+import * as Option from "effect/Option"
+import { type AgentUsage, Termination } from "../domain/agent-outcome.ts"
+
+// A progress line of a Run's stages: on stderr, and in the Run's run.log,
+// since a Run's own logs go only to that file.
+export const runProgress = Effect.fn("Progress.report")(function* (text: string) {
+  yield* Console.error(`gauntlet: ${text}`)
+  yield* Effect.log(text)
+})
 
 export const counted = (count: number, singular: string): string =>
   `${String(count)} ${count === 1 ? singular : `${singular}s`}`
 
-export const invocationTrail = (
-  durationMillis: number,
-  costUsd: number,
-  termination: Termination,
-): string =>
+// The share of prompt tokens read from the provider's cache, over one or
+// many invocations; undefined when nothing was prompted.
+export const cacheShare = (
+  usages: ReadonlyArray<Pick<AgentUsage, "input" | "cacheRead" | "cacheWrite">>,
+): string | undefined => {
+  const read = usages.reduce((total, usage) => total + usage.cacheRead, 0)
+  const prompted = usages.reduce(
+    (total, usage) => total + usage.input + usage.cacheRead + usage.cacheWrite,
+    0,
+  )
+  return prompted === 0
+    ? undefined
+    : `cache ${String(Math.round((read / prompted) * 100))}%`
+}
+
+export const invocationTrail = (outcome: {
+  readonly durationMillis: number
+  readonly usage: AgentUsage
+  readonly termination: Termination
+}): string =>
   [
-    `${String(Math.round(durationMillis / 1000))}s`,
-    `$${costUsd.toFixed(2)}`,
-    ...(Termination.guards.Completed(termination) ? [] : [termination._tag]),
+    `${String(Math.round(outcome.durationMillis / 1000))}s`,
+    `$${outcome.usage.costUsd.toFixed(2)}`,
+    ...Option.toArray(Option.fromUndefinedOr(cacheShare([outcome.usage]))),
+    ...(Termination.guards.Completed(outcome.termination)
+      ? []
+      : [outcome.termination._tag]),
   ].join(" · ")
 
 export const coverageGapLine = (gap: {

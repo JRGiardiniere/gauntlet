@@ -1,5 +1,4 @@
 import * as Array from "effect/Array"
-import * as Console from "effect/Console"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -16,15 +15,17 @@ import {
   assembleFinderContext,
   FINDER_TOOLS,
   loadFinderPromptTemplates,
+  loadRelatedFilesTemplate,
+  renderRelatedFiles,
 } from "../content/finder-prompt.ts"
 import {
   AgentOutcome,
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import type {
+import {
   HarnessSessionFactory,
-  InvocationFailure,
+  type InvocationFailure,
 } from "../harness/harness-session.ts"
 import {
   invoke,
@@ -35,14 +36,14 @@ import {
   EmitFindings,
   type FindingsOutput,
 } from "../harness/output-contract.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
   finderInvocationsInPlan,
   finderPartitionsInPlan,
 } from "./finder-partitions.ts"
-import { counted, invocationTrail } from "./progress-text.ts"
+import { gatherRelatedFiles } from "../workspace/related-files.ts"
+import { counted, invocationTrail, runProgress } from "./progress-text.ts"
 import { RunError, type RunPaths } from "./run-record.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
@@ -57,10 +58,6 @@ export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
   {
     defaultValue: () => FinderCacheSettleDelay,
   },
-)
-
-const progress = Effect.fn("gauntlet.finder_execution.progress")((text: string) =>
-  Console.error(`gauntlet: ${text}`),
 )
 
 interface FinderExecutionInput {
@@ -127,8 +124,8 @@ const readCompletedFinderStage = Effect.fn(
 })
 
 const reportFinderDone = (result: FinderResult) =>
-  progress(
-    `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome.durationMillis, result.outcome.usage.costUsd, result.outcome.termination)}`,
+  runProgress(
+    `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome)}`,
   )
 
 // A completed Finder fan-out is the first resumable semantic checkpoint.
@@ -139,7 +136,7 @@ export const executeFinders = Effect.fn(
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
   const completed = yield* readCompletedFinderStage(plan, paths.finderStage)
   if (Option.isSome(completed)) {
-    yield* progress("reusing completed Finder stage")
+    yield* runProgress("reusing completed Finder stage")
     yield* Effect.forEach(completed.value.finders, reportFinderDone, {
       discard: true,
     })
@@ -147,7 +144,34 @@ export const executeFinders = Effect.fn(
   }
 
   const invocations = finderInvocationsInPlan(plan)
-  const templates = yield* Effect.cached(loadFinderPromptTemplates())
+  const host = yield* HarnessSessionFactory
+  const templates = yield* Effect.cached(
+    loadFinderPromptTemplates(host.workspacePrompt),
+  )
+  // Gathered once, by the first partition that needs it. The snapshot is
+  // frozen, so a resumed Run gathers the same files again.
+  const relatedFilesSection = yield* Effect.cached(
+    Effect.gen(function* () {
+      if (plan.relatedFiles !== true) return undefined
+      const relatedFiles = yield* gatherRelatedFiles(
+        reviewWorkingDirectory,
+        plan.target.changedFiles,
+      ).pipe(
+        Effect.mapError((cause) =>
+          new RunError({
+            operation: "execute-plan",
+            runId: plan.runId,
+            reason: "could not gather the related-file context",
+            cause,
+          })
+        ),
+      )
+      return yield* renderRelatedFiles(
+        yield* loadRelatedFilesTemplate(),
+        relatedFiles,
+      )
+    }),
+  )
 
   const makeFinderInput = Effect.fn(
     "gauntlet.finder_execution.make_finder_input",
@@ -196,7 +220,7 @@ export const executeFinders = Effect.fn(
     cacheGroupId: string,
     sharedContext: string,
   ) {
-    yield* progress(`invoking finder ${invocation.lens.name}`)
+    yield* runProgress(`invoking finder ${invocation.lens.name}`)
     const input = yield* makeFinderInput(
       invocation,
       cacheGroupId,
@@ -213,12 +237,16 @@ export const executeFinders = Effect.fn(
         const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
         const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
-        const sharedContext = yield* assembleFinderContext(
-          promptTemplates.sharedPromptTemplate,
+        const baseContext = yield* assembleFinderContext(
+          promptTemplates,
           plan.target,
-          REVIEW_WORKSPACE_ROOT,
+          host.workspaceRoot(reviewWorkingDirectory),
           starter.context,
         )
+        const relatedFiles = yield* relatedFilesSection
+        const sharedContext = relatedFiles === undefined
+          ? baseContext
+          : `${baseContext}\n\n${relatedFiles}`
         if (group.length === 1) {
           const [completed, failed] = yield* Effect.partition(
             group,
@@ -230,7 +258,7 @@ export const executeFinders = Effect.fn(
           return { failed, completed }
         }
 
-        yield* progress(`invoking finder ${starter.lens.name}`)
+        yield* runProgress(`invoking finder ${starter.lens.name}`)
         const starterInput = yield* makeFinderInput(
           starter,
           cacheGroupId,

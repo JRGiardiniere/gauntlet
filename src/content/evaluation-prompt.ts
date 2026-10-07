@@ -16,6 +16,7 @@ import {
   fenceMarkdownBlock,
   type PromptAssemblyError,
   renderPromptTemplate,
+  renderWorkspaceTools,
 } from "./prompt-template.ts"
 import { renderSpecificationSection } from "./specification-section.ts"
 
@@ -25,10 +26,15 @@ export const VERIFICATION_TOOLS = ["read", "bash"] as const
 export const EVALUATION_SYSTEM_PROMPT =
   "You are a stage in a code-review pipeline. Follow the supplied stage instructions and finish by calling the required emit tool."
 
-export interface EvaluationPromptTemplates {
+// The scope block and the host's workspace wording it carries.
+export interface StageScopeTemplates {
+  readonly stageScope: string
+  readonly workspaceTools: string
+}
+
+export interface EvaluationPromptTemplates extends StageScopeTemplates {
   readonly pool: string
   readonly verifier: string
-  readonly stageScope: string
 }
 
 const promptReader = Effect.fn(
@@ -53,26 +59,30 @@ const promptReader = Effect.fn(
 
 export const loadEvaluationPromptTemplates = Effect.fn(
   "gauntlet.evaluation_prompt.load_templates",
-)(function* () {
+)(function* (workspacePrompt: string) {
   const readPrompt = yield* promptReader()
-  const [pool, verifier, stageScope] = yield* Effect.all(
+  const [pool, verifier, scope] = yield* Effect.all(
     [
       readPrompt("pool.md"),
       readPrompt("verifier.md"),
-      readPrompt("stage-scope-block.md"),
+      loadStageScopeTemplates(workspacePrompt),
     ],
     { concurrency: 3 },
   )
-  return { pool, verifier, stageScope } satisfies EvaluationPromptTemplates
+  return { pool, verifier, ...scope } satisfies EvaluationPromptTemplates
 })
 
 // The scope block is shared by every candidate-evaluating stage; a Stage
 // module that owns its main template still loads this one from content.
-export const loadStageScopeTemplate = Effect.fn(
-  "gauntlet.evaluation_prompt.load_stage_scope_template",
-)(function* () {
+export const loadStageScopeTemplates = Effect.fn(
+  "EvaluationPrompt.loadStageScopeTemplates",
+)(function* (workspacePrompt: string) {
   const readPrompt = yield* promptReader()
-  return yield* readPrompt("stage-scope-block.md")
+  const [stageScope, workspaceTools] = yield* Effect.all(
+    [readPrompt("stage-scope-block.md"), readPrompt(workspacePrompt)],
+    { concurrency: 2 },
+  )
+  return { stageScope, workspaceTools } satisfies StageScopeTemplates
 })
 
 export const assemblePoolPrompt = (
@@ -105,14 +115,18 @@ const verifierClaims = (
 // one exists, appended after the stable scope and before their assignment
 // (issue #73). Pool never does — assemblePoolPrompt stays candidate-only.
 export const assembleStageScope = (
-  template: string,
+  templates: StageScopeTemplates,
   target: ReviewTarget,
   reviewRoot: string,
   specification: ReviewSpecification | undefined,
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
-    const scope = yield* renderPromptTemplate("stage scope", template, [
+    const scope = yield* renderPromptTemplate("stage scope", templates.stageScope, [
       ["REPO_ROOT", reviewRoot],
+      [
+        "WORKSPACE_TOOLS",
+        yield* renderWorkspaceTools(templates.workspaceTools, reviewRoot),
+      ],
       [
         "CHANGED_FILES",
         Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
@@ -137,7 +151,7 @@ export const assembleVerifierPrompt = (
 ): Effect.Effect<string, PromptAssemblyError> =>
   Effect.gen(function* () {
     const scope = yield* assembleStageScope(
-      templates.stageScope,
+      templates,
       target,
       reviewRoot,
       specification,

@@ -1,12 +1,16 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import { Candidate } from "../domain/candidate.ts"
 import { FrozenLens } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
+import { makeClaudeHost } from "../harness/claude-host.ts"
 import { formatCandidateLine } from "./candidate-line.ts"
 import {
+  assembleStageScope,
   assembleVerifierPrompt,
   type EvaluationPromptTemplates,
+  loadStageScopeTemplates,
 } from "./evaluation-prompt.ts"
 import { assembleFinderPrompt } from "./finder-prompt.ts"
 
@@ -47,8 +51,13 @@ describe("evaluation prompts", () => {
 
   it.effect("frames embedded Markdown fences safely in both prompt paths", () =>
     Effect.gen(function* () {
+      const workspaceTools = "tools at {{REPO_ROOT}}"
       const finder = yield* assembleFinderPrompt(
-        "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\ncap={{MAX_PER_LENS}}",
+        {
+          sharedPromptTemplate:
+            "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{WORKSPACE_TOOLS}}\ncap={{MAX_PER_LENS}}",
+          workspaceTools,
+        },
         target,
         reviewRoot,
         FrozenLens.make({
@@ -63,7 +72,8 @@ describe("evaluation prompts", () => {
         pool: "{{CANDIDATES}}",
         verifier: "{{SCOPE_BLOCK}}\n{{CLAIMS}}",
         stageScope:
-          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}",
+          "{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{WORKSPACE_TOOLS}}\n{{DIFF_SECTION}}",
+        workspaceTools,
       }
       const verifier = yield* assembleVerifierPrompt(
         templates,
@@ -74,11 +84,24 @@ describe("evaluation prompts", () => {
         undefined,
       )
       for (const prompt of [finder, verifier]) {
-        expect(prompt).toContain(reviewRoot)
+        expect(prompt).toContain(`tools at ${reviewRoot}`)
         expect(prompt).not.toContain(target.repoRoot)
         expect(prompt).toContain("````diff\n")
         expect(prompt).toContain("\n ```\n")
         expect(prompt).toContain("\n````")
       }
     }))
+
+  it.effect("tells the model on the Claude Code host about that host's tools", () =>
+    Effect.gen(function* () {
+      const host = makeClaudeHost(() => undefined, () => undefined)
+      const scope = yield* assembleStageScope(
+        yield* loadStageScopeTemplates(host.factory.workspacePrompt),
+        target,
+        host.factory.workspaceRoot(reviewRoot),
+        undefined,
+      )
+      expect(scope).toContain("`Grep`")
+      expect(scope).not.toContain("`bash`")
+    }).pipe(Effect.provide(NodeServices.layer)))
 })

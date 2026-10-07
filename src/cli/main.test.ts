@@ -44,6 +44,7 @@ import {
 } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import { viewDossier } from "../render/dossier-view.ts"
+import { type RunMilestone, RunMilestones } from "../run/run-milestones.ts"
 import { runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { commitAll } from "../test-support/git.fixture.ts"
@@ -473,7 +474,7 @@ describe("gauntlet review", () => {
       expect(stdout).not.toContain("gauntlet:")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("produces an ordinary zero-result Dossier from empty Default Lenses", () =>
+  it.effect("produces an ordinary zero-result Dossier from empty Default Lenses, freezing --related-files", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
@@ -486,7 +487,7 @@ describe("gauntlet review", () => {
 
       const run = runCommand(
         fixture,
-        ["review", "--working-tree"],
+        ["review", "--working-tree", "--related-files"],
         makeScripted({ sessions: [] }),
       )
       expect(yield* run.effect).toBe(0)
@@ -498,6 +499,7 @@ describe("gauntlet review", () => {
         Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))),
       )
       expect(plan.lenses).toEqual([])
+      expect(plan.relatedFiles).toBe(true)
       expect(yield* fs.exists(path.join(runDirectory, "dossier.md"))).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -644,7 +646,7 @@ describe("gauntlet review", () => {
 
       const stderr = (yield* TestConsole.errorLines).join("\n")
       expect(stderr).toContain(
-        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · MissingEmit",
+        "gauntlet: finder fixture-review done — 0 candidates · 0s · $0.15 · cache 42% · MissingEmit",
       )
       expect(stderr).toContain(
         "gauntlet: coverage gap (fixture-review) — finder emitted nothing after 2 corrective turns",
@@ -918,6 +920,92 @@ describe("gauntlet review", () => {
       expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         `could not review — the frozen working-tree overlay ${overlay} is missing`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reports the Run's milestones as data beside its progress lines", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const reported: Array<RunMilestone> = []
+      const run = review(fixture)
+      expect(
+        yield* run.effect.pipe(
+          Effect.provideService(RunMilestones, (milestone) =>
+            Effect.sync(() => {
+              reported.push(milestone)
+            })),
+        ),
+      ).toBe(0)
+
+      expect(reported.map((milestone) => milestone._tag)).toEqual([
+        "Started",
+        "FindersFinished",
+        "Routed",
+        "Reviewed",
+      ])
+      const [started, , routed, reviewed] = reported
+      expect(started).toMatchObject({ lenses: ["fixture-review"] })
+      expect(routed).toMatchObject({ bugClaims: 1, observations: 1 })
+      expect(reviewed).toMatchObject({
+        entries: [
+          { tag: "confirmed", reviewPriority: "P2" },
+          { tag: "judgment", reviewPriority: "P2" },
+        ],
+      })
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reports a refusal as the line it rendered, a settings failure included", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.writeFileString(fixture.settingsFile, "{ not json\n")
+      const reported: Array<RunMilestone> = []
+      const run = review(fixture)
+      expect(
+        yield* run.effect.pipe(
+          Effect.provideService(RunMilestones, (milestone) =>
+            Effect.sync(() => {
+              reported.push(milestone)
+            })),
+        ),
+      ).toBe(1)
+
+      const [refused] = reported
+      expect(refused?._tag).toBe("Refused")
+      if (refused?._tag !== "Refused") return
+      expect(refused.message).toContain(fixture.settingsFile)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `gauntlet: ${refused.message}`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("refuses to resume a plan whose frozen Seats this host cannot run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const runId = yield* runUntilFinderStage(review(fixture).effect)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+
+      // A run frozen on the Claude Code host, resumed by the Pi CLI (the
+      // scripted adapter stands in for Pi).
+      const planPath = path.join(fixture.runsRoot, runId, "plan.json")
+      const planJson = Schema.fromJsonString(ReviewPlan)
+      const plan = yield* Schema.decodeEffect(planJson)(
+        yield* fs.readFileString(planPath),
+      )
+      yield* fs.writeFileString(
+        planPath,
+        yield* Schema.encodeEffect(planJson)(ReviewPlan.make({
+          ...plan,
+          seats: { ...plan.seats, verification: "claude-code/sonnet:low" },
+        })),
+      )
+
+      const resumed = resume(fixture, runId, successfulScripted())
+      expect(yield* resumed.effect).toBe(1)
+      expect(resumed.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "seats claude-code/sonnet:low",
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

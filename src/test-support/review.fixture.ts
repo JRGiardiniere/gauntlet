@@ -62,6 +62,7 @@ repo={{REPO_ROOT}}
 files:
 {{CHANGED_FILES}}
 {{DIFF_SECTION}}
+{{WORKSPACE_TOOLS}}
 cap={{MAX_PER_LENS}}
 shared end
 `
@@ -88,6 +89,10 @@ export const makeFixture = Effect.gen(function* () {
     SHARED_PROMPT,
   )
   yield* fs.writeFileString(
+    path.join(content, "prompts", "workspace-pi.md"),
+    "fixture workspace tools at {{REPO_ROOT}}\n",
+  )
+  yield* fs.writeFileString(
     path.join(content, "prompts", "pool.md"),
     "pool candidates\n{{CANDIDATES}}\n",
   )
@@ -97,7 +102,7 @@ export const makeFixture = Effect.gen(function* () {
   )
   yield* fs.writeFileString(
     path.join(content, "prompts", "stage-scope-block.md"),
-    "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{DIFF_SECTION}}\n",
+    "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{WORKSPACE_TOOLS}}\n{{DIFF_SECTION}}\n",
   )
   const fixture: Fixture = {
     repo,

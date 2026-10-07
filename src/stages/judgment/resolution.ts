@@ -60,54 +60,50 @@ const indexDecisions = (
   return { decided, conflicted, conflictedIndexes }
 }
 
-// Phase 2 — map each merge target to its keeper. An index's own decision
-// always beats a merge claim on it, and the first keeper to claim a target
-// wins; every discarded claim lands in a diagnostic bucket.
+// Phase 2 — map each merged index to its keeper. A merge into a dropped
+// index shares that drop; a merge into itself, an unknown index or one with
+// no keep or drop decision leaves its index undecided. The diagnostic
+// buckets hold the merging indexes.
 interface MergePlan {
   readonly mergedInto: HashMap.HashMap<number, number>
+  readonly droppedWith: HashMap.HashMap<number, string>
   readonly selfMerges: ReadonlyArray<number>
   readonly unknownTargets: ReadonlyArray<number>
-  readonly decidedTargets: ReadonlyArray<number>
-  readonly contestedTargets: ReadonlyArray<number>
+  readonly unkeptTargets: ReadonlyArray<number>
 }
 
 const planMerges = (
-  decisions: ReadonlyArray<ReportedJudgment>,
+  observations: ReadonlyArray<IndexedObservation>,
   validIndexes: HashSet.HashSet<number>,
   ledger: DecisionLedger,
 ): MergePlan => {
   const selfMerges: Array<number> = []
   const unknownTargets: Array<number> = []
-  const decidedTargets: Array<number> = []
-  const contestedTargets: Array<number> = []
+  const unkeptTargets: Array<number> = []
   let mergedInto = HashMap.empty<number, number>()
-  for (const decision of decisions) {
-    if (decision.decision !== "keep") continue
-    if (HashSet.has(ledger.conflicted, decision.index)) continue
-    for (const target of decision.merge ?? []) {
-      if (target === decision.index) {
-        selfMerges.push(target)
-      } else if (!HashSet.has(validIndexes, target)) {
-        unknownTargets.push(target)
-      } else if (
-        HashMap.has(ledger.decided, target) ||
-        HashSet.has(ledger.conflicted, target)
-      ) {
-        decidedTargets.push(target)
-      } else if (HashMap.has(mergedInto, target)) {
-        contestedTargets.push(target)
-      } else {
-        mergedInto = HashMap.set(mergedInto, target, decision.index)
-      }
+  let droppedWith = HashMap.empty<number, string>()
+  for (const { index } of observations) {
+    const decision = HashMap.get(ledger.decided, index)
+    if (Option.isNone(decision) || decision.value.decision !== "merge") continue
+    const { into } = decision.value
+    const keeper = HashMap.get(ledger.decided, into)
+    if (into === index) {
+      selfMerges.push(index)
+    } else if (!HashSet.has(validIndexes, into)) {
+      unknownTargets.push(index)
+    } else if (Option.isSome(keeper) && keeper.value.decision === "drop") {
+      droppedWith = HashMap.set(
+        droppedWith,
+        index,
+        `duplicate of [${String(into)}]: ${keeper.value.reason}`,
+      )
+    } else if (Option.isNone(keeper) || keeper.value.decision !== "keep") {
+      unkeptTargets.push(index)
+    } else {
+      mergedInto = HashMap.set(mergedInto, index, into)
     }
   }
-  return {
-    mergedInto,
-    selfMerges,
-    unknownTargets,
-    decidedTargets,
-    contestedTargets,
-  }
+  return { mergedInto, droppedWith, selfMerges, unknownTargets, unkeptTargets }
 }
 
 // Phase 3 — walk the observations in order and produce exactly one Kept,
@@ -137,9 +133,18 @@ const materialize = (
     observations,
     ({ candidate, index }): ReadonlyArray<JudgedObservation> => {
       if (HashMap.has(plan.mergedInto, index)) return []
+      const sharedDrop = HashMap.get(plan.droppedWith, index)
+      if (Option.isSome(sharedDrop)) {
+        return [{
+          candidate,
+          judgment: Judgment.cases.Dropped.make({ reason: sharedDrop.value }),
+        }]
+      }
       const decision = HashMap.get(ledger.decided, index)
-      if (Option.isNone(decision)) {
-        if (!HashSet.has(ledger.conflicted, index)) undecidedIndexes.push(index)
+      if (Option.isNone(decision) || decision.value.decision === "merge") {
+        if (Option.isNone(decision) && !HashSet.has(ledger.conflicted, index)) {
+          undecidedIndexes.push(index)
+        }
         return [{ candidate, judgment: Judgment.cases.Undecided.make({}) }]
       }
       if (decision.value.decision === "drop") {
@@ -176,11 +181,11 @@ const materialize = (
 }
 
 // Judgment output is advisory model text resolved against the paid
-// Observation set. Three precedence rules keep every index accounted for
-// exactly once: an index's own decision always beats a merge claim on it,
-// conflicting decisions fail closed to undecided, and the first keeper to
-// claim a merge target wins. Every discarded claim surfaces as a note
-// (docs/spec/pipeline-shape.md).
+// Observation set. Each index takes exactly one decision: conflicting
+// decisions fail closed to undecided, a merge into a dropped index shares its
+// drop, and any other merge that names no kept index leaves its own index
+// undecided. Every discarded claim surfaces as a
+// note (docs/spec/pipeline-shape.md).
 export const resolveJudgment = (
   observations: ReadonlyArray<IndexedObservation>,
   output: JudgmentsOutput | undefined,
@@ -196,7 +201,7 @@ export const resolveJudgment = (
   }
 
   const ledger = indexDecisions(known)
-  const plan = planMerges(known, validIndexes, ledger)
+  const plan = planMerges(observations, validIndexes, ledger)
   const materialized = materialize(observations, ledger, plan)
 
   return {
@@ -211,15 +216,8 @@ export const resolveJudgment = (
         ledger.conflictedIndexes,
       ),
       ...note("ignored self-merges of indexes", plan.selfMerges),
-      ...note("ignored merges of unknown indexes", plan.unknownTargets),
-      ...note(
-        "ignored merges of explicitly decided indexes",
-        plan.decidedTargets,
-      ),
-      ...note(
-        "ignored competing merge claims for indexes",
-        plan.contestedTargets,
-      ),
+      ...note("ignored merges into an unknown index by indexes", plan.unknownTargets),
+      ...note("ignored merges into an undecided index by indexes", plan.unkeptTargets),
       ...note(
         "ignored quality notes on cleanly rated keeps",
         materialized.discardedQualityNotes,

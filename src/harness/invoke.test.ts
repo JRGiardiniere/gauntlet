@@ -185,6 +185,38 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         expect(metered.log).not.toContain("dispose:1")
         yield* Fiber.interrupt(observed.owner)
 
+        // A tool call before any message_end signals too: the response that
+        // asked for it has finished.
+        const tooled = makeScripted({
+          sessions: [{
+            prompts: [{
+              events: [{
+                afterMillis: 100,
+                kind: "emit",
+                args: { findings: [] },
+                valid: true,
+              }],
+              settles: "never",
+            }],
+          }],
+        })
+        const tooledRun = yield* startSignaled(tooled)
+        const tooledSignal = yield* Effect.forkChild(
+          tooledRun.running.firstResponse,
+        )
+        for (
+          let step = 0;
+          step < 4 && tooledSignal.pollUnsafe() === undefined;
+          step += 1
+        ) {
+          yield* TestClock.adjust("100 millis")
+          yield* Effect.yieldNow
+        }
+        expect(PrefixSignal.$is("PrefixObserved")(
+          yield* Fiber.join(tooledSignal),
+        )).toBe(true)
+        yield* Fiber.interrupt(tooledRun.owner)
+
         const stalled = makeScripted({
           sessions: [{ prompts: [{ events: [], settles: "never" }] }],
         })

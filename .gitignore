@@ -17,3 +17,6 @@ docs/research/oxlint-event-emission-options.md
 docs/spec/default-lenses-and-recipe-selection.md
 docs/notes/issue-89-simplification-audit.md
 *.bun-build
+
+# Claude Code's plugin declarations for mod/: `bun run mod-types` writes them
+mod/types/claude-code*/

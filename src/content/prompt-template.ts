@@ -45,6 +45,15 @@ export const renderPromptTemplate = Effect.fn(
   return parts.join("").trimEnd()
 })
 
+// The host's own tool wording, filled into a template's {{WORKSPACE_TOOLS}}.
+export const renderWorkspaceTools = (
+  template: string,
+  reviewRoot: string,
+): Effect.Effect<string, PromptAssemblyError> =>
+  renderPromptTemplate("workspace tools", template, [
+    ["REPO_ROOT", reviewRoot],
+  ])
+
 export const fenceMarkdownBlock = (language: string, content: string): string => {
   const longestBacktickRun = Array.reduce(
     Array.fromIterable(content.matchAll(/`+/g)),

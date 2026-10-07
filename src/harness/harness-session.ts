@@ -4,7 +4,7 @@ import type * as Effect from "effect/Effect"
 import type * as JsonSchema from "effect/JsonSchema"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
-import type { Seat } from "../domain/recipe.ts"
+import { isClaudeCodeSeat, type Seat } from "../domain/recipe.ts"
 
 // The adapter seam between Gauntlet and the Pi harness (ADR 0002, #4, #13).
 // `HarnessSession` deliberately mirrors Pi's literal surface — push-callback
@@ -78,9 +78,11 @@ export type HarnessEvent =
 export interface HarnessSession {
   readonly subscribe: (listener: (event: HarnessEvent) => void) => () => void
   readonly prompt: (text: string) => Promise<void>
-  // May never settle: Pi's abort awaits waitForIdle (#4 §4). Fire-and-forget
-  // always — Gauntlet never re-prompts an aborted session (stall retry is a
-  // fresh invocation; corrective turns re-prompt only after a clean stop).
+  // May never settle: Pi's abort awaits waitForIdle (#4 §4). Never awaited
+  // by the invocation itself — Gauntlet never re-prompts an aborted session
+  // (stall retry is a fresh invocation; corrective turns re-prompt only after
+  // a clean stop); teardown gives it a bounded wait before the usage sweep,
+  // since the Claude Code host reports a stopped turn's spend as it settles.
   readonly abort: () => Promise<void>
   readonly dispose: () => void
   // Terminal accounting sweep over the session's assistant messages, raw and
@@ -109,6 +111,11 @@ export interface EmitToolSpec {
   readonly description: string
   readonly parameters: JsonSchema.JsonSchema
   readonly execute: (args: EmitToolArgs) => void
+  // The strict OutputContract decode, for hosts that do not validate tool
+  // arguments against `parameters` themselves (Claude Code does not enforce
+  // a registered tool's schema). Answers the rejection reason, or undefined
+  // when the arguments decode.
+  readonly check: (args: EmitToolArgs) => string | undefined
 }
 
 export interface SessionConfig {
@@ -181,7 +188,25 @@ export interface HarnessSessionFactoryContract {
   readonly open: (
     config: SessionConfig,
   ) => Effect.Effect<HarnessSession, InvocationSetupError, Scope.Scope>
+  // The repository root as this host's filesystem tools show it to the model,
+  // given the Run's snapshot worktree: Pi's ReviewWorkspace mounts it at a
+  // stable virtual root; Claude Code's own tools see the snapshot path itself.
+  readonly workspaceRoot: (snapshot: string) => string
+  // The content/prompts/ file that tells the model what those tools are:
+  // Pi's read and simulated bash over writable scratch, or Claude Code's
+  // read-only Read, Grep and Glob.
+  readonly workspacePrompt: string
+  // Why this host cannot run a Seat, or undefined when it can. Submission
+  // refuses a recipe that seats one, before any Run exists.
+  readonly seatRefusal: (seat: Seat) => string | undefined
 }
+
+// Pi runs every provider but claude-code, and so does the scripted adapter
+// that stands in for it.
+export const piSeatRefusal = (seat: Seat): string | undefined =>
+  isClaudeCodeSeat(seat)
+    ? "claude-code/ Seats run only inside Claude Code, through the gc-cli mod's /gc-cli"
+    : undefined
 
 // The single primary testing seam. Live layer: pi-live.ts. Test layer: the
 // scripted adapter (scripted.ts) — behavior-parameterized, so it plays the

@@ -12,8 +12,8 @@ reason through the concrete failure scenario.
 
 - CONFIRMED — you can name the triggering inputs/state and the wrong output,
   and every fact the failure rests on is witnessed in this workspace. Quote
-  the line for each. Your bash is a confined interpreter over a snapshot: it
-  cannot run host binaries, tests, or the network — so what an external tool,
+  the line for each. Your tools are confined to a snapshot: they cannot
+  run host binaries, tests, or the network — so what an external tool,
   library, or service actually does is never witnessable here, and a claim
   that rests on such behavior is at most PLAUSIBLE no matter how confident
   the reasoning.

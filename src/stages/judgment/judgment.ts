@@ -1,4 +1,3 @@
-import * as Console from "effect/Console"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import { describeMissingOutput } from "../../assembly/outcome.ts"
@@ -10,15 +9,17 @@ import type {
 } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Judgment } from "../../domain/judgment.ts"
+import { HarnessSessionFactory } from "../../harness/harness-session.ts"
 import { invoke } from "../../harness/invoke.ts"
+import type { PooledBugClaims } from "../../run/bug-claim-path.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
   counted,
   coverageGapLine,
   invocationTrail,
+  runProgress,
   wallSeconds,
 } from "../../run/progress-text.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
   assembleJudgmentPrompt,
@@ -27,10 +28,6 @@ import {
 import { indexObservations, resolveJudgment } from "./resolution.ts"
 
 export const JUDGMENT_TOOLS = ["read", "bash"] as const
-
-const progress = Effect.fn("gauntlet.judgment.progress")((text: string) =>
-  Console.error(`gauntlet: ${text}`),
-)
 
 const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
   notes.length === 0
@@ -41,6 +38,8 @@ export interface JudgmentExecution {
   readonly plan: ReviewPlan
   readonly reviewWorkingDirectory: string
   readonly observations: ReadonlyArray<Observation>
+  // Pool's BugClaim clusters, which an Observation must not restate.
+  readonly pooled: Pick<PooledBugClaims, "claims" | "clusters">
 }
 
 export interface JudgmentResult {
@@ -57,11 +56,12 @@ export const executeJudgment = Effect.fn(
 )(function* ({
   observations,
   plan,
+  pooled,
   reviewWorkingDirectory,
 }: JudgmentExecution) {
   const indexed = indexObservations(observations)
   if (indexed.length === 0) {
-    yield* progress(`skipping Judgment (${counted(0, "Observation")})`)
+    yield* runProgress(`skipping Judgment (${counted(0, "Observation")})`)
     return {
       observations: [],
       coverageGaps: [],
@@ -75,7 +75,7 @@ export const executeJudgment = Effect.fn(
     const reason =
       "judgment has no seat frozen in the review plan; retained every observation as undecided"
     const repair = resolveJudgment(indexed, undefined)
-    yield* progress(coverageGapLine({ reason }))
+    yield* runProgress(coverageGapLine({ reason }))
     return {
       observations: repair.observations,
       coverageGaps: [{ stage: "judgment", reason }],
@@ -85,17 +85,21 @@ export const executeJudgment = Effect.fn(
   }
 
   const judgmentStartedAt = yield* DateTime.now
-  const promptTemplates = yield* loadJudgmentPromptTemplates()
-  // The prompt shows the stable virtual root the tools expose; cwd
-  // carries the host snapshot path the overlay mounts on.
+  const host = yield* HarnessSessionFactory
+  const promptTemplates = yield* loadJudgmentPromptTemplates(
+    host.workspacePrompt,
+  )
+  // The prompt shows the root the host's tools expose (Pi's stable virtual
+  // root); cwd carries the snapshot path itself.
   const prompt = yield* assembleJudgmentPrompt(
     promptTemplates,
     plan.target,
-    REVIEW_WORKSPACE_ROOT,
+    host.workspaceRoot(reviewWorkingDirectory),
     indexed,
     plan.specification,
+    pooled,
   )
-  yield* progress("invoking Judgment")
+  yield* runProgress("invoking Judgment")
   const outcome = yield* invoke({
     invocationId: `${plan.runId}-judgment`,
     seat,
@@ -106,8 +110,8 @@ export const executeJudgment = Effect.fn(
     tools: JUDGMENT_TOOLS,
     deadlines: REVIEW_INVOCATION_DEADLINES,
   })
-  yield* progress(
-    `Judgment done — ${invocationTrail(outcome.durationMillis, outcome.usage.costUsd, outcome.termination)}`,
+  yield* runProgress(
+    `Judgment done — ${invocationTrail(outcome)}`,
   )
 
   const repair = resolveJudgment(indexed, outcome.output)
@@ -115,13 +119,13 @@ export const executeJudgment = Effect.fn(
     ? describeMissingOutput("judgment", outcome)
     : repairReason(repair.notes)
   if (reason !== undefined) {
-    yield* progress(coverageGapLine({ reason }))
+    yield* runProgress(coverageGapLine({ reason }))
   }
   const judgments = repair.observations.map(({ judgment }) => judgment)
   const kept = judgments.filter(Judgment.guards.Kept).length
   const dropped = judgments.filter(Judgment.guards.Dropped).length
   const undecided = judgments.filter(Judgment.guards.Undecided).length
-  yield* progress(
+  yield* runProgress(
     `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(yield* wallSeconds(judgmentStartedAt))}s`,
   )
   return {

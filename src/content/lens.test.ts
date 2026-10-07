@@ -128,7 +128,11 @@ describe("finder prompt cache prefix", () => {
         untrackedFiles: [],
         warnings: [],
       })
-      const template = "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}"
+      const templates = {
+        sharedPromptTemplate:
+          "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{WORKSPACE_TOOLS}}\n{{DIFF_SECTION}}",
+        workspaceTools: "fixture tools at {{REPO_ROOT}}",
+      }
       const ordinary = FrozenLens.make({
         name: "fixture-ordinary",
         promptText: "ORDINARY TAIL",
@@ -142,14 +146,14 @@ describe("finder prompt cache prefix", () => {
         candidateCap: 12,
       })
       const ordinaryPrompt = yield* assembleFinderPrompt(
-        template,
+        templates,
         target,
         target.repoRoot,
         ordinary,
         undefined,
       )
       const expandedPrompt = yield* assembleFinderPrompt(
-        template,
+        templates,
         target,
         target.repoRoot,
         expanded,

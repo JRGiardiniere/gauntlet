@@ -51,13 +51,21 @@ are invocations too (paid, metered, deadlined), with a trivial output contract.
 _Avoid_: agent run, agent call, session (a session is the harness resource an
 invocation uses, not the invocation itself)
 
+**Host**:
+The agent platform a Run's AgentInvocations execute on: Pi, under `gauntlet
+review`, or Claude Code, under `/gc-cli`. Each Host runs only its own Seats;
+the review program is the same on both.
+_Avoid_: harness, backend, runtime, provider (a provider serves models; a Host
+runs invocations)
+
 **ReviewWorkspace**:
-The confined repository view exposed to filesystem-capable AgentInvocations —
-per invocation, a copy-on-write overlay on the Run's frozen snapshot behind a
-stable virtual root, owning both filesystem-facing model tools. Writes are
-invocation-local disposable scratch; the snapshot stays unmodified, and the
-host is out of reach by capability reduction — no guest git, host processes,
-or network — not by hardened isolation against a hostile repository.
+The confined repository view exposed to filesystem-capable AgentInvocations,
+over the Run's frozen snapshot. On Pi it is, per invocation, a copy-on-write
+overlay behind a stable virtual root, with invocation-local disposable
+scratch writes; on Claude Code it is read-only tools fenced to the snapshot
+itself. Either way the snapshot stays unmodified, and the machine is out of
+reach by capability reduction — no guest git, host processes, or network —
+not by hardened isolation against a hostile repository.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 
@@ -85,7 +93,9 @@ _Avoid_: preset, tier, model config
 
 **Seat**:
 One concrete provider, model, and inference-effort assignment for an
-AgentInvocation, written `provider/model:effort`.
+AgentInvocation, written `provider/model:effort`. A `claude-code/` Seat names
+a Claude model and effort run by the Claude Code Host, on the person's Claude
+plan.
 _Avoid_: model (omits provider and effort), model config
 
 **Default Seat**:

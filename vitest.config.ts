@@ -9,9 +9,12 @@ export default defineConfig({
   test: {
     include: [
       "src/**/*.test.ts",
+      "mod/**/*.test.ts",
       "scripts/**/*.test.ts",
       ".convoy/packs/**/*.test.ts",
     ],
+    // A plugin's own tests run under `claude plugin test` on the built mod.
+    exclude: ["mod/*/tests/**", "mod/dist/**", "**/node_modules/**"],
     setupFiles: ["vitest.setup.ts"],
     // Worker threads share one process; no test calls chdir or mutates
     // process.env (a house-style lint rule bans the latter), and the setup

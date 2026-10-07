@@ -8,14 +8,19 @@ from the old reviewer and restated in CONTEXT.md terms.
 
 ```
 Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
-        └─► (Observations) ─────────► Judgment ───────┴─► Assembly
+                                 │ (clusters)          │
+        └─► (Observations) ──────┴──► Judgment ───────┴─► Assembly
 ```
 
 1. **Finders** — one AgentInvocation per runnable selected lens, fanned out in
    parallel over the same frozen diff. System prompt = finder system prompt +
    shared block + ReviewSpecification (Interpretive Finders only, when the plan
    froze one); user message = lens tail (see the cache invariant below). Specific Finders never
-   receive specification material. Each emits Candidates via `emit_findings`.
+   receive specification material. A plan frozen with `--related-files` also
+   appends to every shared block the whole post-change text of each touched
+   file and the unchanged files a touched file imports or that import one,
+   tests included, read from the Run's snapshot. Each emits Candidates via
+   `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
    no ReviewSpecification.
@@ -26,7 +31,9 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
 4. **Judgment** — one invocation, all Observations, decisions by index:
    kept (with Review Priority + reason + finder ratings), dropped (with reason), merged.
    Receives the frozen ReviewSpecification, when one exists, after the scope
-   block and before the candidates.
+   block and before the candidates. Starts once Pool has clustered the
+   BugClaims and runs beside Verification: it sees Pool's clusters (never
+   Verdicts) and drops an Observation restating one as a BugClaim-path claim.
 
 A run whose plan froze no ReviewSpecification carries no absence text in any
 prompt — nothing announces that no specification was supplied. Before freeze,
@@ -92,8 +99,8 @@ candidates with lens, location, and claimed failure.
 Each Stage enforces its own accounting and sanitization at its result seam;
 Assembly is the deterministic aggregation of those results.
 
-- Every candidate index is accounted for exactly once across keep / merge /
-  drop (Judgment) or appears in exactly one cluster (Pool). The stage output
+- Every candidate index takes exactly one keep / drop / merge decision
+  (Judgment) or appears in exactly one cluster (Pool). The stage output
   decoders are strict — one off-spec field fails the stage result so the
   affected candidates surface as plausible/undecided rather than silently
   relabeled.
@@ -105,8 +112,9 @@ Assembly is the deterministic aggregation of those results.
   single-member clusters; a candidate may never be lost to a clustering error.
 - A Pool cluster renders as one finding: its fullest member states it, every
   member's lens is credited, and all members stay in the Dossier.
-- Judge merge claims are sanitized: a candidate cannot be merged into itself,
-  into an unknown keeper, or into a keeper that another merge removed.
+- Judge merges are sanitized: a merge into a dropped candidate shares its
+  drop; a merge into itself, an unknown index, or an undecided candidate
+  leaves the merged candidate undecided.
 - Review Priority is judged downstream (verifier/judge), never self-reported by
   finders — a finder rates its own work and has seen only its own lens.
 - Refuted claims and judge drops are not discarded: they land under the
