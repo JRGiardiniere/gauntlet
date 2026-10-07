@@ -35,7 +35,8 @@ async function agentOf($: Engines, agentId: string | undefined): Promise<Publish
 }
 
 // Appends to one agent's log, in call order. The log is the host's: a
-// reload of this plugin picks it up where it stood.
+// reload of this plugin picks it up where it stood. A write that fails
+// rejects and leaves the log as it was; later writes carry on.
 function record($: Engines, agentId: string, event: GcCliToolsEvent) {
   const previous = writing.get(agentId) ?? Promise.resolve()
   const next = previous.then(async () => {
@@ -44,11 +45,16 @@ function record($: Engines, agentId: string, event: GcCliToolsEvent) {
       log = [...((await $.state.get({ ...eventsRef, id: agentId })).value ?? [])]
       logs.set(agentId, log)
     }
+    await $.state.set({ ...eventsRef, id: agentId }, [...log, event])
     log.push(event)
-    await $.state.set({ ...eventsRef, id: agentId }, [...log])
-  }).catch(() => undefined)
-  writing.set(agentId, next)
+  })
+  writing.set(agentId, next.catch(() => undefined))
   return next
+}
+
+// A tool event only feeds the run view, which does without a lost one.
+function recordQuietly($: Engines, agentId: string, event: GcCliToolsEvent) {
+  record($, agentId, event).catch(() => undefined)
 }
 
 interface ToolEnvelope {
@@ -72,8 +78,12 @@ async function serveEmit($: Engines, e: ToolEnvelope, name: string) {
   }
   const args = argsOf(e)
   const rejection = checkEmit(name, args)
-  await record($, e.agentId, { type: "emit", args, accepted: rejection === undefined })
+  // An emit the engine never sees is no emit: the agent is told to send it
+  // again rather than told it was recorded.
+  const unrecorded = await record($, e.agentId, { type: "emit", args, accepted: rejection === undefined })
+    .then(() => undefined, String)
   if (rejection !== undefined) return { deny: rejection }
+  if (unrecorded !== undefined) return { deny: `${name} could not be recorded (${cut(unrecorded, 200)}); call it again with the same arguments.` }
   return { result: "Recorded. Your work is complete: reply with the single word DONE." }
 }
 
@@ -86,10 +96,10 @@ async function trackTool<E extends ToolEnvelope>($: Engines, e: E, next: (e: E) 
   if (agent === undefined || e.agentId === undefined) return next(e)
   const agentId = e.agentId
   if (e.tool_use_id !== undefined) byToolUse.set(e.tool_use_id, agent)
-  void record($, agentId, { type: "tool_start", toolName: e.tool, args: argsOf(e) })
+  recordQuietly($, agentId, { type: "tool_start", toolName: e.tool, args: argsOf(e) })
   const result = await next(e)
   const isError = result.deny !== undefined || result.isError === true
-  void record(
+  recordQuietly(
     $,
     agentId,
     isError
