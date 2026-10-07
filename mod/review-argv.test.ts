@@ -27,6 +27,11 @@ describe("/gc-cli arguments as gauntlet review argv", () => {
     expect(reviewArgv("--recipe=fixture-recipe 641")).toEqual(["review", "fixture-recipe", "--related-files", "--pr=641"])
   })
 
+  it("lets an explicit target flag name the target", () => {
+    expect(reviewArgv("--pr 42")).toEqual(["review", "--pr=42", "--related-files"])
+    expect(reviewArgv("--commits main --working-tree")).toEqual(["review", "--commits=main", "--working-tree", "--related-files"])
+  })
+
   it("takes the review tool's args from its call, and nothing from a call without them", () => {
     expect(reviewToolArgs({ tool: "mcp__gc-cli__review", args: "--recipe fixture-recipe 145" })).toBe("--recipe fixture-recipe 145")
     expect(reviewToolArgs({ tool: "mcp__gc-cli__review" })).toBeUndefined()

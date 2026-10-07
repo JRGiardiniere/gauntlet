@@ -39,7 +39,7 @@ const candidateLocation = (candidate: {
   )
 
 // The bounded stdout digest (ADR 0005): one tally line (counts, target,
-// recipe, cost, wall time — ADR 0006), one line per surviving finding
+// recipe, wall time; cost stays in dossier.md — ADR 0006), one line per surviving finding
 // plus one bounded line per candidate still carried in the main findings
 // section, then artifact paths. Finder cache health stays in dossier.md: an
 // agent relaying the digest called it out as if it were a finding (#138). Refuted, dropped, and evidence live only in

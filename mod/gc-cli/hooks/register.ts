@@ -9,6 +9,7 @@ import {
   renderStrip,
   reviewArgv,
   reviewToolArgs,
+  reviewToolInputSchema,
   type RunResult,
 } from "../../engine.ts"
 
@@ -64,6 +65,7 @@ let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
 const delivery = digestDelivery()
+let starting = false
 const loadedAt = Date.now()
 
 const gcDir = () => `${home}/.gauntlet/gc-cli`
@@ -225,10 +227,7 @@ async function deliver($: Engines, text: string, shown: ReadonlyArray<string>, a
     }
     log($, `digest not sent to ${agentId}: ${sent.reason}`)
   }
-  if (delivery.route(text) === "submit") {
-    await submit($, text)
-    return
-  }
+  if (delivery.route(text) === "submit" && (await submit($, text))) return
   logRows($, shown)
   await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
     log($, `append failed: ${String(error)}`)
@@ -241,22 +240,13 @@ function logRows($: Engines, shown: ReadonlyArray<string>) {
   }
 }
 
-async function submit($: Engines, text: string) {
+// Whether the prompt entered; a dropped one leaves the digest to the rows and
+// an appended message.
+async function submit($: Engines, text: string): Promise<boolean> {
   const submitted = await $.prompt.submit({ text }).catch((error) => ({ drop: String(error) }))
-  if ("drop" in submitted) log($, `submit dropped: ${String(submitted.drop)}`)
-}
-
-// The installed Recipes this Host can run, for the review tool's description.
-async function claudeRecipes($: Engines): Promise<ReadonlyArray<string>> {
-  const dir = `${home}/.gauntlet/recipes`
-  const entries = await $.fs.list(dir).catch(() => [])
-  const found: Array<string> = []
-  for (const { name } of entries) {
-    if (!name.endsWith(".json")) continue
-    const text = await $.fs.read(`${dir}/${name}`).catch(() => "")
-    if (text.includes("claude-code/")) found.push(name.slice(0, -".json".length))
-  }
-  return found.sort()
+  if (!("drop" in submitted)) return true
+  log($, `submit dropped: ${String(submitted.drop)}`)
+  return false
 }
 
 const reviewTool = (recipes: ReadonlyArray<string>) => ({
@@ -269,11 +259,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     (recipes.length === 0
       ? "No Claude Code recipes are installed."
       : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
-  inputSchema: {
-    type: "object",
-    properties: { args: { type: "string", description: "The review's target and flags, as /gc-cli takes them" } },
-    required: ["args"],
-  },
+  inputSchema: { ...reviewToolInputSchema },
 })
 
 async function openDossier($: Engines, path: string) {
@@ -291,6 +277,18 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
   if (running !== undefined) {
     return `gc-cli: a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
   }
+  // Two calls can overlap while the first checks the checkout; the engine is
+  // running once the first returns.
+  if (starting) return "gc-cli: a review is already starting; one per session."
+  starting = true
+  try {
+    return await prepareAndStart($, engine, build, request)
+  } finally {
+    starting = false
+  }
+}
+
+async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, request: TriggerRequest): Promise<string> {
   const hashStart = Date.now()
   let fresh: Awaited<ReturnType<typeof inputsStamp>>
   try {
@@ -373,7 +371,11 @@ export const register: Register = (on) => {
     } catch (error) {
       log($, `engine failed to load: ${String(error)}`)
     }
-    await $.tool.register(reviewTool(await claudeRecipes($)))
+    const recipes = await (engine?.claudeRecipes() ?? Promise.resolve([])).catch((error) => {
+      log($, `recipe catalog unreadable: ${String(error)}`)
+      return []
+    })
+    await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gc-cli",
       description: "Gauntlet review, run in process: /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
@@ -427,7 +429,7 @@ export const register: Register = (on) => {
   on("turn.complete", async ($, e, next) => {
     if (e.agentId === undefined) {
       const unread = delivery.turnEnded()
-      if (unread !== undefined) void submit($, unread)
+      if (unread !== undefined) void submit($, unread).then((entered) => entered ? undefined : log($, "unread digest left in the conversation"))
     }
     if (engine !== undefined && e.agentId !== undefined) {
       await engine.turnComplete({

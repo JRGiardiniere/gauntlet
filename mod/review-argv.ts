@@ -30,6 +30,8 @@ export const reviewArgv = (args: string): ReadonlyArray<string> => {
   const optedOut = argv.indexOf("--no-related-files")
   if (optedOut !== -1) argv.splice(optedOut, 1)
   else if (!argv.includes("--related-files")) argv.push("--related-files")
+  // An explicit target flag names the target itself.
+  if (argv.some((word) => /^--(pr|commits|working-tree)(=|$)/.test(word))) return argv
   if (target === undefined) argv.push("--working-tree")
   else if (/^\d+$/.test(target)) argv.push(`--pr=${target}`)
   else argv.push(`--commits=${target}`)
@@ -38,8 +40,15 @@ export const reviewArgv = (args: string): ReadonlyArray<string> => {
 
 // The review tool's `args`, decoded where the call arrives; undefined when
 // the call carries none.
+const ReviewToolInput = Schema.Struct({
+  args: Schema.String.annotate({ description: "The review's target and flags, as /gc-cli takes them" }),
+})
+
+// The tool's input schema, projected from the decoder below.
+export const reviewToolInputSchema = Schema.toJsonSchemaDocument(ReviewToolInput).schema
+
 export const reviewToolArgs = flow(
-  Schema.decodeUnknownOption(Schema.Struct({ args: Schema.String })),
+  Schema.decodeUnknownOption(ReviewToolInput),
   Option.map(({ args }) => args),
   Option.getOrUndefined,
 )

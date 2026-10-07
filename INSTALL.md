@@ -109,7 +109,7 @@ The skill tells Claude when and how to start a review with the mod's tool.
 - `gauntlet` on the PATH (`command -v gauntlet`): the person uses the Gauntlet
   CLI, whose own `gauntlet` skill covers both. Leave their skills alone.
 - Otherwise: link the beta's skill, so it follows the checkout:
-  `ln -s <clone>/mod/skills/gauntlet-code-review ~/.claude/skills/gauntlet-code-review`.
+  `mkdir -p ~/.claude/skills && ln -s <clone>/mod/skills/gauntlet-code-review ~/.claude/skills/gauntlet-code-review`.
   A `~/.claude/skills/gauntlet` without the CLI is left from an earlier CLI
   install and sends Claude to a command that isn't there: show the person its
   path and ask before removing it.
