@@ -86,18 +86,22 @@ describe("gatherRelatedFiles", () => {
       expect(related).toEqual(["a/models/account.py", "b/models/account.py", "c/models/account.py"])
     }))
 
-  it.effect("keeps the most-linked files within the budget and renders them in path order", () =>
+  it.effect("keeps dependencies, then the most-linked and smallest files, within the budget", () =>
     Effect.gen(function* () {
       const filler = "x".repeat(55_000)
       const related = yield* relatedTo({
-        "hub.ts": "export {}\n",
+        // A dependency of a touched file outranks every referrer.
+        "hub.ts": `import "./w.ts"\n`,
         "other.ts": "export {}\n",
-        // Linked to both touched files, so ranked ahead of the rest.
+        "w.ts": filler,
+        // Linked to both touched files, so ranked ahead of the other referrers.
         "e.ts": `import "./hub.ts"\nimport "./other.ts"\n${filler}`,
-        ...Object.fromEntries(["a", "b", "c", "d"].map((name) => [`${name}.ts`, `import "./hub.ts"\n${filler}`])),
+        ...Object.fromEntries(["a", "b", "c"].map((name) => [`${name}.ts`, `import "./hub.ts"\n${filler}`])),
+        // Smaller, so ranked ahead of the same-linked referrers.
+        "d.ts": `import "./hub.ts"\n${"x".repeat(20_000)}`,
         // Over a quarter of the budget: skipped, and the fill goes on.
         "big.ts": `import "./hub.ts"\n${"x".repeat(70_000)}`,
       }, ["hub.ts", "other.ts"])
-      expect(related).toEqual(["a.ts", "b.ts", "c.ts", "e.ts"])
+      expect(related).toEqual(["a.ts", "d.ts", "e.ts", "w.ts"])
     }))
 })

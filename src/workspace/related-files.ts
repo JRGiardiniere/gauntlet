@@ -145,13 +145,17 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
       .map(({ file, text }) => [file, text]),
   )
   const links = new Map<string, Set<string>>()
+  const dependencies = new Set<string>()
   const link = (file: string, to: string) => {
     if (!touchedSet.has(file)) links.set(file, (links.get(file) ?? new Set()).add(to))
   }
   changedFiles.forEach((file, i) => {
     const text = texts.get(file)
     if (text !== undefined) {
-      referencesOf({ file, text }).forEach((named) => link(named, file))
+      referencesOf({ file, text }).forEach((named) => {
+        link(named, file)
+        dependencies.add(named)
+      })
       for (const sibling of byDirectory.get(path.dirname(file)) ?? []) {
         if (TYPE_LIKE.test(stem(sibling)) && mentions(text, stem(sibling))) link(sibling, file)
       }
@@ -165,13 +169,18 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
     }
   })
 
-  // Most distinct touched files linked first; rendered in path order so the
-  // cached prompt prefix stays stable.
-  const ranked = [...links]
-    .sort(([a, x], [b, y]) => y.size - x.size || a.localeCompare(b))
-    .map(([file]) => file)
-  const unread = yield* readAll(ranked.filter((file) => !texts.has(file)))
+  // A touched file's own dependencies first, then referrers and siblings;
+  // within each, most distinct touched files linked, then smallest, so more
+  // files fit. Rendered in path order so the cached prompt prefix stays stable.
+  const unread = yield* readAll([...links.keys()].filter((file) => !texts.has(file)))
   unread.forEach(({ file, text }) => texts.set(file, text))
+  const size = (file: string) => texts.get(file)?.length ?? 0
+  const tier = (file: string) => (dependencies.has(file) ? 0 : 1)
+  const ranked = [...links]
+    .sort(([a, x], [b, y]) =>
+      tier(a) - tier(b) || y.size - x.size || size(a) - size(b) || a.localeCompare(b)
+    )
+    .map(([file]) => file)
   const kept: Array<SourceFile> = []
   let chars = 0
   for (const file of ranked) {

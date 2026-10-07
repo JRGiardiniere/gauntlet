@@ -27,9 +27,11 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    among the files `git grep` says mention the touched file's stem. A file in
    the same directory also counts when it mentions the other's stem as a
    word, for type-like stems (PascalCase or multi-word) only. Related files
-   are ranked by how many distinct touched files they link to and kept in
-   that order up to 240K characters, skipping any file over a quarter of that;
-   the kept set renders in path order. Each emits Candidates via
+   that a touched file references rank above those that reference one and
+   siblings; within each tier, more distinct touched files linked ranks
+   higher, then the smaller file. They are kept in that order up to 240K
+   characters, skipping any file over a quarter of that; the kept set renders
+   in path order. Each emits Candidates via
    `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
