@@ -89,7 +89,8 @@ const clock = (millis: number) => {
   const seconds = Math.max(0, Math.round(millis / 1000))
   return `${String(Math.floor(seconds / 60))}:${String(seconds % 60).padStart(2, "0")}`
 }
-const noDollars = (line: string) => line.replace(/ · \$[\d.]+/g, "").replace(/^gauntlet: /, "")
+const noDollars = (line: string) =>
+  line.replace(/ · \$[\d.]+/g, "").replace(/ · cache \d+%/g, "").replace(/^gauntlet: /, "")
 const kilo = (count: number) =>
   count >= 1_000_000 ? `${(count / 1_000_000).toFixed(1)}M` : count >= 1000 ? `${String(Math.round(count / 1000))}K` : String(count)
 
@@ -151,9 +152,9 @@ export const renderBand = (
     for (const [at, each] of stageState(view).entries()) {
       if (at > 0) cells.push(Text({ dimColor: true, children: " → " }))
       if (each.total > 1 && each.started && !each.finished) {
-        const bar = "▰".repeat(each.done) + "▱".repeat(Math.max(0, each.total - each.done))
         cells.push(Text({ color: STAGE_COLOR[each.stage], bold: true, children: `${SHORT[each.stage]} ` }))
-        cells.push(Text({ color: STAGE_COLOR[each.stage], children: `${bar} ${String(each.done)}/${String(each.total)}` }))
+        cells.push(Box({ width: Math.max(6, each.total), flexShrink: 0, children: [meter(el, 0, each.done / each.total, STAGE_COLOR[each.stage], Math.max(6, each.total))] }))
+        cells.push(Text({ color: STAGE_COLOR[each.stage], children: ` ${String(each.done)}/${String(each.total)}` }))
       } else if (each.finished) {
         cells.push(Text({ color: "green", children: `✓ ${SHORT[each.stage]}` }))
       } else if (each.started) {
@@ -166,11 +167,11 @@ export const renderBand = (
   }
   return Box({
     flexDirection: "column",
-    width,
+    width: "100%",
     children: [
       Box({
         flexDirection: "row",
-        width,
+        width: "100%",
         children: [
           Box({ flexGrow: 1, flexShrink: 1, flexDirection: "row", children: cells }),
           Button({ key: "open", label: ended ? "Findings" : "Details", hotkey: "o", onPress: actions.open }),
@@ -184,19 +185,47 @@ export const renderBand = (
 
 // ── Dock: the run as a sidebar, floor to ceiling ──────────────────────────
 
-const bar = (el: El, from: number, to: number, span: number, cells: number, color: string, live: boolean): Node => {
-  const { Box, Text } = el
-  const start = Math.min(cells - 1, Math.floor((from / span) * cells))
-  const end = Math.max(start + 1, Math.min(cells, Math.round((to / span) * cells)))
-  return Box({
-    flexDirection: "row",
-    children: [
-      Text({ dimColor: true, children: "·".repeat(start) }),
-      Text({ color: color, children: (live ? "━".repeat(end - start - 1) + "╸" : "━".repeat(end - start)) }),
-      Text({ dimColor: true, children: "·".repeat(Math.max(0, cells - end)) }),
-    ],
-  })
+// A bar sized as a share of its lane, never by counting glyphs: the desktop
+// draws text in a proportional font, so a run of characters counted for N
+// cells never spans N cells there. Where the surface has Svg (every surface
+// but the terminal) the bar is a drawn rect stretched to the lane; the
+// terminal gets a run of rule glyphs clipped to a Box of the same share.
+// Which surface draws, set by each render hook: the element tables at runtime
+// don't match their types (the terminal's carries an Svg it draws as
+// nothing), so what a table holds can't tell the surfaces apart.
+let surface = "terminal"
+export const drawOn = (name: string) => {
+  surface = name
 }
+const stretches = (_el: El) => surface !== "terminal"
+
+const meter = (el: El, from: number, to: number, color: string, cells: number): Node => {
+  const { Box, Text } = el
+  const lo = Math.max(0, Math.min(1, from))
+  const hi = Math.max(lo, Math.min(1, to))
+  const svg = el["Svg"]
+  if (stretches(el)) {
+    const x = (lo * 1000).toFixed(1)
+    const w = Math.max(4, (hi - lo) * 1000).toFixed(1)
+    return Box({ flexGrow: 1, flexDirection: "column", justifyContent: "center", children: [svg({
+      source: `<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="8" viewBox="0 0 1000 8" preserveAspectRatio="none"><rect x="0" y="3" width="1000" height="2" fill="${color}" fill-opacity="0.15"/><rect x="${x}" y="1" width="${w}" height="6" fill="${color}"/></svg>`,
+      alt: `${String(Math.round(lo * 100))}% to ${String(Math.round(hi * 100))}% of the run`,
+      height: 8,
+    })] })
+  }
+  // The terminal draws in a monospaced grid, so there a bar is counted in
+  // cells; flex shares and percentages inside a flex-grown lane draw nothing.
+  const lead = Math.round(lo * cells)
+  const run = Math.max(1, Math.round(hi * cells) - lead)
+  return Box({ flexDirection: "row", height: 1, children: [Text({ children: " ".repeat(lead) }), Text({ color, children: "━".repeat(run) })] })
+}
+
+// A lane a bar runs in: the rest of the row where the surface stretches an
+// Svg, `cells` wide on the terminal.
+const lane = (el: El, cells: number, child: Node): Node =>
+  el["Box"]({ ...(stretches(el) ? { flexGrow: 1, flexShrink: 1, minWidth: 8 } : { width: cells, flexShrink: 0 }), children: [child] })
+
+const bar = (el: El, from: number, to: number, span: number, color: string, cells: number): Node => meter(el, from / span, to / span, color, cells)
 
 export const renderDock = (
   view: RunView,
@@ -214,9 +243,9 @@ export const renderDock = (
   const children: Array<Node> = [
     Box({
       flexDirection: "row",
-      width,
+      width: "100%",
       children: [
-        Box({ flexGrow: 1, flexShrink: 1, flexDirection: "column", children: [
+        Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "column", children: [
           Text({ bold: true, wrap: "truncate-end", children: fx.target }),
           Text({ dimColor: true, wrap: "truncate-end", children: `${fx.recipe} · run ${fx.runId.slice(-4)} · ${clock(elapsed)}` }),
         ] }),
@@ -237,7 +266,7 @@ export const renderDock = (
   // Every agent with its own lane on the run's timeline.
   const nameWidth = 16
   const timeWidth = 6
-  const lane = Math.max(8, width - nameWidth - timeWidth - 2)
+  const cells = Math.max(8, width - nameWidth - timeWidth - 2 - 2)
   for (const stage of STAGES) {
     const rows = stage === "Finders"
       ? view.lenses.map((lens) => ({ name: lens, activity: view.activity.find((each) => rowOf(each.invocationId)?.name === lens && rowOf(each.invocationId)?.stage === "Finders") }))
@@ -250,10 +279,10 @@ export const renderDock = (
       const from = Math.min(...ran.map((row) => row.activity?.spawnedAt ?? now)) - view.startedAt
       const to = Math.max(...ran.map((row) => row.activity?.endedAt ?? now)) - view.startedAt
       const label = rows.length > 1 ? `${String(ran.length)} ${stage === "Finders" ? "lenses" : "bundles"}` : ""
-      children.push(Box({ flexDirection: "row", width, ...(stage === "Finders" ? { marginTop: 1 } : {}), children: [
+      children.push(Box({ flexDirection: "row", alignItems: "center", width: "100%", ...(stage === "Finders" ? { marginTop: 1 } : {}), children: [
         Box({ width: 2, flexShrink: 0, children: [Text({ color: "green", children: "✓" })] }),
         Box({ width: nameWidth, flexShrink: 0, children: [Text({ bold: true, color: STAGE_COLOR[stage], children: stage })] }),
-        Box({ width: lane, flexShrink: 0, children: [bar(el, from, to, span, lane, STAGE_COLOR[stage], false)] }),
+        lane(el, cells, bar(el, from, to, span, STAGE_COLOR[stage], cells)),
         Box({ width: timeWidth, flexShrink: 0, justifyContent: "flex-end", children: [Text({ dimColor: true, children: clock(to - from) })] }),
       ] }))
       children.push(Box({ flexDirection: "row", children: [Box({ width: 2 + nameWidth, flexShrink: 0 }), Text({ dimColor: true, children: [label, `${String(items)} ${noun}`].filter((part) => part !== "").join(" · ") })] }))
@@ -272,10 +301,10 @@ export const renderDock = (
       const color = activity === undefined ? undefined : live ? "cyan" : "green"
       const from = (activity?.spawnedAt ?? now) - view.startedAt
       const to = (activity?.endedAt ?? (ended ? view.endedAt ?? now : now)) - view.startedAt
-      children.push(Box({ flexDirection: "row", width, children: [
+      children.push(Box({ flexDirection: "row", alignItems: "center", width: "100%", children: [
         Box({ width: 2, flexShrink: 0, children: [Text(color === undefined ? { dimColor: true, children: mark } : { color, children: mark })] }),
         Box({ width: nameWidth, flexShrink: 0, children: [Text({ wrap: "truncate-end", dimColor: activity === undefined, children: row.name })] }),
-        Box({ width: lane, flexShrink: 0, children: [activity === undefined ? Text({ dimColor: true, children: "·".repeat(lane) }) : bar(el, from, to, span, lane, live ? "cyan" : STAGE_COLOR[stage], live)] }),
+        lane(el, cells, activity === undefined ? Box({}) : bar(el, from, to, span, live ? "cyan" : STAGE_COLOR[stage], cells)),
         Box({ width: timeWidth, flexShrink: 0, justifyContent: "flex-end", children: [Text({ dimColor: true, children: activity === undefined ? "" : clock(to - from) })] }),
       ] }))
       if (live && activity.lastTool !== undefined) {
@@ -287,14 +316,170 @@ export const renderDock = (
   if (tokens !== "") children.push(Box({ marginTop: 1, children: [Text({ dimColor: true, children: `Tokens  ${tokens}` })] }))
   if (!ended) {
     children.push(Text({ dimColor: true, wrap: "truncate-end", children: noDollars(view.latest ?? "") }))
-    return Box({ flexDirection: "column", children })
+    return Box({ flexDirection: "column", paddingRight: 2, children })
   }
   // Findings once the run is done.
   children.push(Box({ marginTop: 1, children: [Text({ bold: true, children: `FINDINGS  ` }), Text({ dimColor: true, children: fx.result })] }))
   children.push(...findingRows(el, fx.findings, width, selected, actions.select))
   const pick = fx.findings[selected]
   if (pick !== undefined) children.push(findingDetail(el, pick, width, actions.fix))
-  return Box({ flexDirection: "column", children })
+  return Box({ flexDirection: "column", paddingRight: 2, children })
+}
+
+// ── Progress: one view at two sizes, sidebar and strip ────────────────────
+// While the run goes it shows progress only; once the dossier is rendered it
+// shows the result and a way to open the dossier. No finding text here: the
+// dossier is where the findings are read.
+
+// Each stage as one span on the run's timeline, with how far it has got.
+const stageSpans = (view: RunView, now: number) =>
+  stageState(view).map((each) => {
+    const ran = view.activity.filter((activity) => rowOf(activity.invocationId)?.stage === each.stage)
+    const from = Math.min(...ran.map((activity) => activity.spawnedAt)) - view.startedAt
+    const to = Math.max(...ran.map((activity) => activity.endedAt ?? now)) - view.startedAt
+    return { ...each, from, to }
+  })
+
+// One mark per agent of a stage: done, running or still to start. A
+// Finder lens that hasn't been invoked yet counts as one to start.
+const agentMarks = (el: El, view: RunView, stage: (typeof STAGES)[number], now: number): Array<Node> => {
+  const { Text } = el
+  const ran = view.activity.filter((activity) => rowOf(activity.invocationId)?.stage === stage)
+  const states = stage === "Finders"
+    ? view.lenses.map((lens) => ran.find((activity) => rowOf(activity.invocationId)?.name === lens)?.state)
+    : ran.map((activity) => activity.state)
+  const pulse = Math.floor(now / 500) % 2 === 0 ? "●" : "◉"
+  if (states.length === 0) return [Text({ dimColor: true, children: "○" })]
+  // Done first, then running, then to start: the row fills left to right.
+  const order = (state: string | undefined) => (state === undefined ? 2 : state === "running" ? 1 : 0)
+  return [...states].sort((a, b) => order(a) - order(b)).map((state) =>
+    state === undefined
+      ? Text({ dimColor: true, children: "○" })
+      : state === "running"
+        ? Text({ color: STAGE_COLOR[stage], bold: true, children: pulse })
+        : Text({ color: STAGE_COLOR[stage], children: "✓" }))
+}
+
+const resultCells = (el: El, fx: Fixture): Array<Node> => {
+  const { Text } = el
+  const counts = fx.findings.reduce<Record<string, number>>((sum, each) => ({ ...sum, [each.priority]: (sum[each.priority] ?? 0) + 1 }), {})
+  const cells: Array<Node> = []
+  for (const priority of ["P0", "P1", "P2", "P3"]) {
+    const count = counts[priority] ?? 0
+    if (count === 0) continue
+    if (cells.length > 0) cells.push(Text({ dimColor: true, children: " · " }))
+    cells.push(Text({ color: PRIORITY_COLOR[priority], bold: priority !== "P3", children: `${priority} ${String(count)}` }))
+  }
+  if (cells.length === 0) cells.push(Text({ color: "green", children: "no findings" }))
+  return cells
+}
+
+export const renderProgress = (
+  view: RunView,
+  fx: Fixture,
+  el: El,
+  width: number,
+  now: number,
+  actions: { readonly stop: () => void; readonly close: () => void; readonly dossier: () => void },
+): Node => {
+  const { Box, Text, Button } = el
+  const ended = view.exitCode !== undefined
+  const elapsed = (view.endedAt ?? now) - view.startedAt
+  const children: Array<Node> = [
+    Box({ flexDirection: "row", width: "100%", children: [
+      Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "column", children: [
+        Text({ bold: true, wrap: "truncate-end", children: fx.target }),
+        Text({ dimColor: true, wrap: "truncate-end", children: `${fx.recipe} · ${clock(elapsed)}` }),
+      ] }),
+      ended
+        ? Button({ key: "close", label: "Close", hotkey: "c", onPress: actions.close })
+        : Button({ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }),
+    ] }),
+  ]
+  for (const [at, each] of stageSpans(view, now).entries()) {
+    const color = STAGE_COLOR[each.stage]
+    const mark = each.finished ? "✓" : each.started ? "●" : "○"
+    children.push(Box({ flexDirection: "row", width: "100%", ...(at === 0 ? { marginTop: 1 } : {}), children: [
+      Box({ width: 2, flexShrink: 0, children: [Text(each.started ? { color: each.finished ? "green" : color, children: mark } : { dimColor: true, children: mark })] }),
+      Box({ width: 14, flexShrink: 0, children: [Text(each.started ? { color, bold: !each.finished, wrap: "truncate-end", children: each.stage } : { dimColor: true, wrap: "truncate-end", children: each.stage })] }),
+      Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", children: agentMarks(el, view, each.stage, now) }),
+      Box({ width: 6, flexShrink: 0, justifyContent: "flex-end", children: [Text({ dimColor: true, children: each.started ? clock(each.to - each.from) : "" })] }),
+    ] }))
+  }
+  if (!ended) {
+    children.push(Box({ marginTop: 1, children: [Text({ dimColor: true, wrap: "truncate-end", children: noDollars(view.latest ?? "") })] }))
+    return Box({ flexDirection: "column", paddingRight: 2, children })
+  }
+  children.push(Box({ flexDirection: "row", marginTop: 1, children: resultCells(el, fx) }))
+  children.push(Box({ flexDirection: "row", marginTop: 1, children: [Button({ key: "dossier", label: "Open dossier", hotkey: "o", onPress: actions.dossier })] }))
+  return Box({ flexDirection: "column", paddingRight: 2, children })
+}
+
+// What the run is doing, in plain words, from its state rather than the
+// CLI's progress lines. The split between possible bugs and notes comes from
+// the routing line, the one count the agents' activity doesn't carry.
+const plural = (count: number, one: string, many: string) => `${String(count)} ${count === 1 ? one : many}`
+const doing = (view: RunView, fx: Fixture, now: number) => {
+  const t = now - view.startedAt
+  const routed = fx.progress
+    .filter((each) => each.at <= t)
+    .map((each) => /(\d+) BugClaims → Verification · (\d+) Observations → Judgment/.exec(each.line))
+    .find((match) => match !== null)
+  const [finders, pool, verification, judgment] = stageState(view)
+  const finderRuns = view.activity.filter((each) => rowOf(each.invocationId)?.stage === "Finders")
+  const candidates = finderRuns.reduce((sum, each) => sum + (each.items ?? 0), 0)
+  if (finderRuns.length === 0) return "Building the first prompt"
+  if (!finders.finished) {
+    if (finderRuns.length === 1 && finders.done === 0) return "Sending the first finder to set the cache"
+    const looking = finderRuns.filter((each) => each.state === "running").length
+    return candidates === 0
+      ? `${plural(looking, "finder", "finders")} looking for bugs`
+      : `${plural(looking, "finder", "finders")} still looking · ${plural(candidates, "lead", "leads")} so far`
+  }
+  const claims = Number(routed?.[1] ?? candidates)
+  const notes = Number(routed?.[2] ?? 0)
+  if (!pool.finished) return `Grouping ${plural(claims, "possible bug", "possible bugs")} for checking · ${plural(notes, "note", "notes")} to weigh`
+  if (!verification.finished) {
+    const weighing = judgment.started && !judgment.finished ? ` · weighing ${plural(notes, "note", "notes")}` : ""
+    return `Double-checking ${plural(claims, "possible bug", "possible bugs")}${weighing}`
+  }
+  if (!judgment.finished) return `Weighing ${plural(notes, "note", "notes")}`
+  return "Writing the dossier"
+}
+
+// The same at one line above the prompt, with the latest step under it.
+export const renderStrip = (
+  view: RunView,
+  fx: Fixture,
+  el: El,
+  now: number,
+  actions: { readonly dossier: () => void; readonly dismiss: () => void },
+): Node => {
+  const { Box, Text, Button } = el
+  const ended = view.exitCode !== undefined
+  const cells: Array<Node> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
+  if (ended) cells.push(...resultCells(el, fx))
+  else {
+    for (const [at, each] of stageState(view).entries()) {
+      const color = STAGE_COLOR[each.stage]
+      if (at > 0) cells.push(Text({ dimColor: true, children: "  " }))
+      cells.push(Text(each.started ? { color, bold: !each.finished, children: `${SHORT[each.stage]} ` } : { dimColor: true, children: `${SHORT[each.stage]} ` }))
+      cells.push(...agentMarks(el, view, each.stage, now))
+    }
+  }
+  // The clock leads the second line, which the strip always keeps: the latest
+  // step while the run goes, what was checked once it's done.
+  const candidates = view.activity.filter((each) => rowOf(each.invocationId)?.stage === "Finders").reduce((sum, each) => sum + (each.items ?? 0), 0)
+  const status = ended ? `${plural(fx.findings.length, "finding", "findings")} from ${plural(candidates, "lead", "leads")}` : doing(view, fx, now)
+  return Box({ flexDirection: "column", width: "100%", paddingRight: 2, children: [
+    Box({ flexDirection: "row", width: "100%", alignItems: "center", children: [
+      Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", children: cells }),
+      ...(ended
+        ? [Button({ key: "dossier", label: "Open dossier", hotkey: "o", onPress: actions.dossier }), Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss })]
+        : []),
+    ] }),
+    Text({ dimColor: true, wrap: "truncate-end", children: `${clock((view.endedAt ?? now) - view.startedAt)} · ${status}` }),
+  ] })
 }
 
 // ── Findings browser ─────────────────────────────────────────────────────
@@ -314,28 +499,28 @@ const findingRows = (el: El, findings: ReadonlyArray<Finding>, width: number, se
     return Box({
       key: `finding-${String(at)}`,
       flexDirection: "row",
-      width,
+      width: "100%",
       ...(isSelected ? { backgroundColor: "#303030" } : {}),
       children: [
         Text({ color: isSelected ? "#ffaf5f" : "#444444", children: isSelected ? "▌" : " " }),
         Box({ width: 3, flexShrink: 0, children: [Text({ bold: true, color: PRIORITY_COLOR[finding.priority] ?? "white", children: finding.priority })] }),
         Box({ width: 2, flexShrink: 0, children: [Text({ color: VERDICT[finding.verdict].color, children: VERDICT[finding.verdict].mark })] }),
-        Box({ width: 27, flexShrink: 0, children: [
+        Box({ width: 22, flexShrink: 0, children: [
           at < 9
             ? Button({ key: `pick-${String(at)}`, label: where, hotkey: String(at + 1), plain: true, dimColor: !isSelected, onPress: () => select(at) })
             : Text({ wrap: "truncate-end", children: `   ${where}` }),
         ] }),
-        Box({ flexGrow: 1, flexShrink: 1, children: [Text({ wrap: "truncate-end", dimColor: !isSelected, children: finding.summary })] }),
+        Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, children: [Text({ wrap: "truncate-end", dimColor: !isSelected, children: finding.summary })] }),
       ],
     })
   })
 }
 
 const findingDetail = (el: El, finding: Finding, width: number, fix: (finding: Finding) => void): Node => {
-  const { Box, Text, Button, Link } = el
+  const { Box, Text, Button } = el
   return Box({
     flexDirection: "column",
-    width,
+    width: "100%",
     borderStyle: "round",
     borderColor: "#585858",
     paddingX: 1,
@@ -344,7 +529,7 @@ const findingDetail = (el: El, finding: Finding, width: number, fix: (finding: F
       Box({ flexDirection: "row", children: [
         Text({ bold: true, color: PRIORITY_COLOR[finding.priority] ?? "white", children: `${finding.priority} ` }),
         Text({ color: VERDICT[finding.verdict].color, children: `${finding.verdict}  ` }),
-        Link({ href: `vscode://file/Users/johngiardiniere/projects/cloudflare-hub/${finding.file}:${finding.line}`, label: `${finding.file}:${finding.line}` }),
+        Box({ flexShrink: 1, minWidth: 0, children: [Text({ color: "cyan", wrap: "truncate-start", children: `${finding.file}:${finding.line}` })] }),
       ] }),
       Text({ wrap: "wrap", children: finding.summary }),
       Text({ dimColor: true, wrap: "wrap", children: `Evidence: ${finding.evidence}` }),
@@ -369,7 +554,7 @@ export const renderFindings = (
   return Box({
     flexDirection: "column",
     children: [
-      Box({ flexDirection: "row", width, children: [
+      Box({ flexDirection: "row", width: "100%", children: [
         Box({ flexGrow: 1, flexShrink: 1, flexDirection: "row", children: [
           Text({ bold: true, children: `${String(fx.findings.length)} findings  ` }),
           Text({ color: "green", children: `✓${String(counts["confirmed"] ?? 0)} ` }),
@@ -548,7 +733,7 @@ export const renderReportHtml = (fx: Fixture): string => {
   const card = (finding: Finding, at: number) => `
     <article class="finding ${finding.priority.toLowerCase()}">
       <header><span class="prio">${finding.priority}</span>${chip(finding.verdict)}
-        <a href="vscode://file${esc(fx.repoRoot ?? "/Users/johngiardiniere/projects/cloudflare-hub")}/${esc(finding.file)}:${esc(finding.line)}">${esc(finding.file)}:${esc(finding.line)}</a>
+        <span class="path">${esc(finding.file)}:${esc(finding.line)}</span>
         <span class="num">#${String(at + 1)}</span></header>
       <p>${code(finding.summary)}</p>
       ${finding.failureScenario ? `<details><summary>Failure scenario</summary><p>${code(finding.failureScenario)}</p></details>` : ""}
@@ -571,7 +756,7 @@ h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)
 .finding{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--p3);border-radius:10px;padding:12px 16px;margin:10px 0}
 .finding.p2,.finding.p1,.finding.p0{border-left-color:var(--p2)}
 .finding header{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:13.5px}.prio{font-weight:700;color:var(--p3)}.p2 .prio{color:var(--p2)}
-.finding a{color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:13px}.num{margin-left:auto;color:var(--dim)}
+.finding .path{color:var(--ink);font-family:ui-monospace,Menlo,monospace;font-size:13px}.num{margin-left:auto;color:var(--dim)}
 .chip{font-size:11.5px;padding:1px 8px;border-radius:99px;border:1px solid}.chip.confirmed{color:var(--ok)}.chip.kept{color:var(--kept)}.chip.plausible{color:var(--warn)}
 .finding p{margin:8px 0}details{color:var(--dim);font-size:14px}summary{cursor:pointer}code{font:12.5px ui-monospace,Menlo,monospace;background:color-mix(in srgb,var(--line) 60%,transparent);padding:1px 4px;border-radius:4px}
 footer{display:flex;gap:6px;flex-wrap:wrap}.lens{font-size:12px;color:var(--dim);border:1px solid var(--line);border-radius:6px;padding:0 6px}
