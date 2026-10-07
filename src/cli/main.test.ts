@@ -1044,6 +1044,21 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("renders a filesystem failure as its operation, path and reason", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      // A file where the runs root belongs: the run directory cannot be made.
+      yield* fs.writeFileString(fixture.runsRoot, "not a directory\n")
+
+      const run = review(fixture)
+      expect(yield* run.effect).toBe(1)
+      expect(run.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `gauntlet: could not review — FileSystem.makeDirectory failed on ${fixture.runsRoot}: AlreadyExists (EEXIST)`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("refuses to resume a plan whose frozen Seats this host cannot run", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo

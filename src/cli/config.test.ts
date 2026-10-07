@@ -253,6 +253,28 @@ describe("gauntlet config init", () => {
       expect(yield* stderr()).toContain("not admitted: routing")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("renders a failed settings write as a configuration failure naming its cause", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture
+      expect(yield* config(fixture, "init")).toBe(0)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const directory = path.dirname(fixture.settingsFile)
+
+      yield* fs.chmod(directory, 0o555)
+      const exitCode = yield* config(fixture, "set", "favorites", "quick").pipe(
+        Effect.ensuring(fs.chmod(directory, 0o755).pipe(Effect.orDie)),
+      )
+
+      expect(exitCode).toBe(1)
+      const rendered = yield* stderr()
+      expect(rendered).toContain(
+        `could not configure — failed to write ${fixture.settingsFile}: FileSystem.`,
+      )
+      expect(rendered).toContain(": PermissionDenied (EACCES)")
+      expect(rendered).not.toContain("could not review")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("uses the Git repository root for project-local Lens discovery", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture

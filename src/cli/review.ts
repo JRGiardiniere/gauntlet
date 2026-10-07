@@ -4,6 +4,8 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
 import * as Ref from "effect/Ref"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
@@ -15,6 +17,7 @@ import {
   DeliveryError,
   requirePullRequestTarget,
 } from "../delivery/delivery.ts"
+import type { ArtifactWriteError } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
 import {
   loadLatestIncompleteRun,
@@ -366,6 +369,34 @@ type ReviewProgramFailure =
   | Effect.Error<ReturnType<typeof runReviewProgram>>
   | Config.ConfigError
 
+// The one rendering of a filesystem or process failure that reaches the CLI
+// boundary: `<operation> failed on <path>: <reason>`. Node's errno failures
+// carry no description, so their code stands in for one.
+export const describePlatformError = (
+  failure: PlatformError.PlatformError,
+): string => {
+  const { reason } = failure
+  const operation = `${reason.module}.${reason.method}`
+  if (reason._tag === "BadArgument") {
+    return `${operation} failed: ${reason.description ?? "bad argument"}`
+  }
+  const code = Predicate.hasProperty(reason.cause, "code") &&
+      Predicate.isString(reason.cause.code)
+    ? ` (${reason.cause.code})`
+    : ""
+  const detail = reason.description ?? `${reason._tag}${code}`
+  return reason.pathOrDescriptor === undefined
+    ? `${operation} failed: ${detail}`
+    : `${operation} failed on ${String(reason.pathOrDescriptor)}: ${detail}`
+}
+
+export const describeArtifactWrite = (failure: ArtifactWriteError): string =>
+  `failed to write ${failure.path}: ${
+    PlatformError.isPlatformError(failure.cause)
+      ? describePlatformError(failure.cause)
+      : String(failure.cause)
+  }`
+
 // Exit codes are the CLI contract (ADR 0005): 0 = review produced (zero
 // findings included), 1 = could not review. Findings never affect the exit
 // code. Every "could not review" is rendered to stderr before the Promise
@@ -413,7 +444,7 @@ export const renderReviewFailures = <R>(
         TargetUnresolvable: (unresolvable) =>
           refuse(`could not review — ${unresolvable.reason}`),
         ArtifactWriteError: (failure) =>
-          refuse(`could not review — failed to write ${failure.path}`),
+          refuse(`could not review — ${describeArtifactWrite(failure)}`),
         ContentLoadError: (failure) =>
           refuse(`could not review — ${failure.reason} (${failure.path})`),
         ReviewCommandError: (failure) =>
@@ -451,6 +482,8 @@ export const renderReviewFailures = <R>(
           ),
         AdapterContractViolation: (failure) =>
           refuse(`could not review — ${failure.reason}`),
+        PlatformError: (failure) =>
+          refuse(`could not review — ${describePlatformError(failure)}`),
       }),
       Effect.catch((unreviewable) =>
         refuse(`could not review — ${String(unreviewable)}`),
