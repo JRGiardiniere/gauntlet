@@ -653,6 +653,52 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("keeps a failed Judgment's provider diagnostics in run.log", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const failedJudgment: ScriptedSession = {
+        forSession: "-judgment",
+        prompts: [
+          {
+            events: [
+              { afterMillis: 0, kind: "message_start" },
+              {
+                afterMillis: 0,
+                kind: "message_end",
+                stopReason: "error",
+                errorMessage: "529 overloaded: fixture provider body",
+                usage: usageRow(),
+              },
+            ],
+            settles: "after-events",
+          },
+        ],
+      }
+      const run = review(
+        fixture,
+        makeScripted({
+          sessions: [
+            successfulSession(),
+            successfulVerifierSession(),
+            failedJudgment,
+          ],
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const runLog = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "run.log"),
+      )
+      expect(runLog).toContain("529 overloaded: fixture provider body")
+      // The user-facing gap keeps its short reason.
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "gauntlet: coverage gap — judgment provider failed",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("resumes the latest incomplete run from its frozen artifacts", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo

@@ -12,7 +12,19 @@ export const runProgress = Effect.fn("Progress.report")(function* (text: string)
   yield* Effect.log(text)
 })
 
-export const counted = (count: number, singular: string): string =>
+// An invocation's diagnostics (a refusal, a provider's error body) go to the
+// Run's run.log only: the progress line and coverage gap keep their short
+// reason, and a Finder's diagnostics are already in finder-stage.json.
+export const logDiagnostics = Effect.fn("Progress.logDiagnostics")(function* (
+  invocation: string,
+  diagnostics: ReadonlyArray<string>,
+) {
+  for (const diagnostic of diagnostics) {
+    yield* Effect.logWarning(`${invocation} diagnostic: ${diagnostic}`)
+  }
+})
+
+export const counted =(count: number, singular: string): string =>
   `${String(count)} ${count === 1 ? singular : `${singular}s`}`
 
 // The share of prompt tokens read from the provider's cache, over one or

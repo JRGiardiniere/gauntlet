@@ -17,6 +17,7 @@ import {
   counted,
   coverageGapLine,
   invocationTrail,
+  logDiagnostics,
   runProgress,
   wallSeconds,
 } from "../../run/progress-text.ts"
@@ -113,6 +114,7 @@ export const executeJudgment = Effect.fn(
   yield* runProgress(
     `Judgment done — ${invocationTrail(outcome)}`,
   )
+  yield* logDiagnostics("Judgment", outcome.diagnostics)
 
   const repair = resolveJudgment(indexed, outcome.output)
   const reason = outcome.output === undefined
