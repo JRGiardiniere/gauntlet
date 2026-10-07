@@ -30,7 +30,8 @@ import type { RunView } from "./strip.ts"
 
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
-export { reviewArgv } from "./review-argv.ts"
+export { reviewArgv, reviewToolArgs } from "./review-argv.ts"
+export { digestDelivery } from "./digest-delivery.ts"
 export { inputsStamp } from "./stamp.ts"
 export type { ToolsEvent, PublishedAgent } from "./agents.ts"
 

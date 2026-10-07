@@ -1,3 +1,7 @@
+import { flow } from "effect/Function"
+import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
+
 // `/gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]` as `gauntlet
 // review` argv. The target is `gauntlet review`'s: nothing is the working
 // tree, a number a pull request, anything else `--commits` (`base..head`,
@@ -31,3 +35,11 @@ export const reviewArgv = (args: string): ReadonlyArray<string> => {
   else argv.push(`--commits=${target}`)
   return argv
 }
+
+// The review tool's `args`, decoded where the call arrives; undefined when
+// the call carries none.
+export const reviewToolArgs = flow(
+  Schema.decodeUnknownOption(Schema.Struct({ args: Schema.String })),
+  Option.map(({ args }) => args),
+  Option.getOrUndefined,
+)

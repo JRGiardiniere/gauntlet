@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { reviewArgv } from "./review-argv.ts"
+import { reviewArgv, reviewToolArgs } from "./review-argv.ts"
 
 describe("/gc-cli arguments as gauntlet review argv", () => {
   it("reviews the working tree, a pull request or a commit range, with related files", () => {
@@ -25,5 +25,10 @@ describe("/gc-cli arguments as gauntlet review argv", () => {
       "--commits=main",
     ])
     expect(reviewArgv("--recipe=fixture-recipe 641")).toEqual(["review", "fixture-recipe", "--related-files", "--pr=641"])
+  })
+
+  it("takes the review tool's args from its call, and nothing from a call without them", () => {
+    expect(reviewToolArgs({ tool: "mcp__gc-cli__review", args: "--recipe fixture-recipe 145" })).toBe("--recipe fixture-recipe 145")
+    expect(reviewToolArgs({ tool: "mcp__gc-cli__review" })).toBeUndefined()
   })
 })

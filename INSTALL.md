@@ -64,26 +64,28 @@ bun run build-mod
 Done when `build-mod` prints `gc-cli built at <clone>/mod/dist/gc-cli` and
 `gc-cli-tools built at <clone>/mod/dist/gc-cli-tools`.
 
-### 4. A Claude recipe
+### 4. Claude recipes
 
 A review runs on a recipe from `~/.gauntlet/recipes/`. `/gc-cli` runs its
-agents inside Claude Code, so its recipe names `claude-code/` seats.
+agents inside Claude Code, so its recipes name `claude-code/` seats.
 
 - `~/.gauntlet/settings.json` missing (no Gauntlet config yet): in `<clone>`,
-  run `bun bin/gauntlet.ts config init`, then write the recipe below and make
-  it the default with `bun bin/gauntlet.ts config set default-recipe claude-sonnet-low`.
+  run `bun bin/gauntlet.ts config init`, then write the recipes below and make
+  low the default with `bun bin/gauntlet.ts config set default-recipe claude-sonnet-low`.
 - `~/.gauntlet/settings.json` present (the person already uses Gauntlet):
-  leave their settings alone. Write the recipe below unless one of that name
-  exists, and remember to tell them to pass `--recipe=claude-sonnet-low`.
+  leave their settings alone. Write each recipe below unless one of that name
+  exists, and remember to tell them to name a recipe on each review.
 
-The recipe, `~/.gauntlet/recipes/claude-sonnet-low.json`:
+The recipes, one file each in `~/.gauntlet/recipes/`:
 
-```json
-{"default":"claude-code/sonnet:low"}
-```
+| File | Contents |
+| --- | --- |
+| `claude-sonnet-low.json` | `{"default":"claude-code/sonnet:low"}` |
+| `claude-sonnet-medium.json` | `{"default":"claude-code/sonnet:medium"}` |
+| `claude-sonnet-high.json` | `{"default":"claude-code/sonnet:high"}` |
 
-Done when `bun bin/gauntlet.ts config` (in `<clone>`) lists
-`claude-sonnet-low — default claude-code/sonnet:low`.
+Done when `bun bin/gauntlet.ts config` (in `<clone>`) lists all three, as
+`claude-sonnet-low — default claude-code/sonnet:low` and so on.
 
 ### 5. Load the mod in every session
 
@@ -117,11 +119,12 @@ Tell the person:
 
 - Restart Claude Code (every terminal session, and the desktop app): it reads
   `env` only at startup.
-- In a repository with a small uncommitted change, run `/gc-cli`, or
-  `/gc-cli --recipe=claude-sonnet-low` if step 4 left their default recipe
-  alone. The review uses their Claude plan.
-- `/gc-cli 42` reviews pull request 42; `/gc-cli main` reviews the commits
-  since `main`.
+- In a repository with a small uncommitted change, ask Claude to run a
+  Gauntlet review ("run gauntlet on my changes", "gauntlet medium on PR 42").
+  Claude starts it, carries on or waits, and gets the digest when it lands.
+  The review uses their Claude plan.
+- They can also type `/gc-cli` (`/gc-cli 42` for pull request 42, `/gc-cli main`
+  for the commits since `main`, `--recipe=claude-sonnet-medium` for more effort).
 
 ## Update
 
