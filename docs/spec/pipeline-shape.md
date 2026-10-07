@@ -18,8 +18,20 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    froze one); user message = lens tail (see the cache invariant below). Specific Finders never
    receive specification material. A plan frozen with `--related-files` also
    appends to every shared block the whole post-change text of each touched
-   file and the unchanged files a touched file imports or that import one,
-   tests included, read from the Run's snapshot. Each emits Candidates via
+   file and of related unchanged files, read from the Run's snapshot. A file
+   is related when either file references the other by a path-shaped
+   reference: a quoted `./`/`../` specifier, or a qualified name joined by
+   `\`, `/`, `::` or `.` whose trailing segments (at least 2, case- and
+   `_`/`-`-insensitive, after dropping up to 2 member segments) match the
+   file's extensionless path and name at most 3 files. Referrers are found
+   among the files `git grep` says mention the touched file's stem. A file in
+   the same directory also counts when it mentions the other's stem as a
+   word, for type-like stems (PascalCase or multi-word) only. Related files
+   that a touched file references rank above those that reference one and
+   siblings; within each tier, more distinct touched files linked ranks
+   higher, then the smaller file. They are kept in that order up to 240K
+   characters, skipping any file over a quarter of that; the kept set renders
+   in path order. Each emits Candidates via
    `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
    clusters for verifiers. May bundle, never delete. Text-only: no file reads,
