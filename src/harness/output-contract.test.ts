@@ -38,6 +38,14 @@ describe("output contracts", () => {
       }
     }))
 
+  it.effect("rejects blank model-authored text in the projected tool schema", () =>
+    Effect.gen(function* () {
+      const projected = yield* Schema.encodeEffect(
+        Schema.fromJsonString(Schema.Unknown),
+      )(projectOutputContract(EmitFindings).schema)
+      expect(projected).toContain(String.raw`"pattern":"\\S"`)
+    }))
+
   it.effect("accepts empty finder output and an arbitrary candidate path", () =>
     Effect.gen(function* () {
       expect(yield* decodeOutputContract(EmitFindings)({ findings: [] })).toEqual({
