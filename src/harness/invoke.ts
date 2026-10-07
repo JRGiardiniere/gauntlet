@@ -80,7 +80,7 @@ export interface RunningInvocation<O> {
 }
 
 interface TerminalEvidence {
-  readonly stopReason: StopReason
+  readonly stopReason: StopReason | "interrupted"
   readonly errorMessage: string | undefined
 }
 
@@ -212,6 +212,13 @@ const reduceCapture = (
           return withCommon(state, {
             ...common,
             violations: [...common.violations, event.reason],
+          })
+        }
+        case "interrupted": {
+          return withCommon(state, {
+            ...common,
+            acceptedActivity: true,
+            terminal: { stopReason: "interrupted", errorMessage: event.reason },
           })
         }
       }
@@ -616,6 +623,13 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
           message: `provider failed${terminal.errorMessage === undefined ? "" : `: ${terminal.errorMessage}`}`,
         })
         return Termination.cases.ProviderFailed.make({})
+      }
+      case "interrupted": {
+        capture.dispatch({
+          type: "diagnostic",
+          message: `interrupted: ${terminal.errorMessage ?? "stopped outside the run"}`,
+        })
+        return Termination.cases.Interrupted.make({})
       }
       case "pending":
       case "deferred":
