@@ -6,6 +6,7 @@ import {
   type EnginePorts,
   inputsStamp,
   renderRunPane,
+  reviewArgv,
   type RunResult,
 } from "../../engine.ts"
 
@@ -108,32 +109,6 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     pull: async (agentId) => (await $.state.get({ ...eventsRef, id: agentId })).value ?? [],
     log: (line) => log($, line),
   }
-}
-
-// `/gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]` as `gauntlet
-// review` argv. The target is `gauntlet review`'s: nothing is the working
-// tree, a number a pull request, anything else `--commits` (`base..head`,
-// or a base whose merge-base with HEAD starts the range). Other flags pass
-// through as written (`--resume`, `--github-spec`, `--related-files`).
-function reviewArgv(args: string): ReadonlyArray<string> {
-  const words = args.match(/"[^"]*"|'[^']*'|\S+/g)?.map((word) => word.replace(/^(["'])(.*)\1$/, "$2")) ?? []
-  const argv = ["review"]
-  let target: string | undefined
-  for (const word of words) {
-    if (word.startsWith("--recipe=")) argv.push(word.slice("--recipe=".length))
-    else if (word.startsWith("--")) argv.push(word)
-    else target ??= word
-  }
-  if (argv.some((word) => word.startsWith("--resume"))) return argv
-  // Related files are this host's default: they lifted seeded-bugs-2 from
-  // 3.7 to 5.5 of 7 on claude-code/ Seats, and the cost is plan usage (#135).
-  const optedOut = argv.indexOf("--no-related-files")
-  if (optedOut !== -1) argv.splice(optedOut, 1)
-  else if (!argv.includes("--related-files")) argv.push("--related-files")
-  if (target === undefined) argv.push("--working-tree")
-  else if (/^\d+$/.test(target)) argv.push(`--pr=${target}`)
-  else argv.push(`--commits=${target}`)
-  return argv
 }
 
 async function setStatus($: Engines, text: string | undefined) {

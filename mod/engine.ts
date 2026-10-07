@@ -28,6 +28,7 @@ import type { RunView } from "./run-pane.ts"
 
 export { renderRunPane } from "./run-pane.ts"
 export type { PaneElements, RunView } from "./run-pane.ts"
+export { reviewArgv } from "./review-argv.ts"
 export { inputsStamp } from "./stamp.ts"
 export type { ToolsEvent, PublishedAgent } from "./agents.ts"
 
