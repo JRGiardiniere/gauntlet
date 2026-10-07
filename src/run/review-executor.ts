@@ -9,6 +9,7 @@ import { routeFinderResults } from "../assembly/finders.ts"
 import { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { renderDigest } from "../render/digest.ts"
+import { viewDossier } from "../render/dossier-view.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
@@ -25,6 +26,7 @@ import {
 } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
+import { reportMilestone, RunMilestone } from "./run-milestones.ts"
 
 export interface ReviewExecution {
   readonly plan: ReviewPlan
@@ -36,6 +38,10 @@ export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
   yield* Console.error(`gauntlet: run ${plan.runId}`)
+  yield* reportMilestone(RunMilestone.Started({
+    runId: plan.runId,
+    lenses: plan.lenses.map((lens) => lens.name),
+  }))
   yield* Effect.scoped(
     Effect.gen(function* () {
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
@@ -62,6 +68,7 @@ export const executeReviewPlan = Effect.fn(
             )),
           ].join(" · "),
         )
+        yield* reportMilestone(RunMilestone.FindersFinished())
         const routed = routeFinderResults(results)
         for (const gap of routed.coverageGaps) {
           yield* runProgress(coverageGapLine(gap))
@@ -69,6 +76,10 @@ export const executeReviewPlan = Effect.fn(
         yield* runProgress(
           `${counted(routed.bugClaims.length, "BugClaim")} → Verification · ${counted(routed.observations.length, "Observation")} → Judgment`,
         )
+        yield* reportMilestone(RunMilestone.Routed({
+          bugClaims: routed.bugClaims.length,
+          observations: routed.observations.length,
+        }))
         // Judgment waits for Pool's clusters, so it can drop an Observation
         // that restates one, then runs beside Verification; neither sees the
         // other's decisions until Assembly joins them.
@@ -118,6 +129,13 @@ export const executeReviewPlan = Effect.fn(
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
 
         yield* Console.log(renderDigest(plan, dossier, accounting, paths))
+        const view = viewDossier(dossier)
+        yield* reportMilestone(RunMilestone.Reviewed({
+          entries: [...view.findings, ...view.unresolved].map(
+            ({ reviewPriority, tag }) => ({ tag, reviewPriority }),
+          ),
+          dossierMarkdown: paths.dossierMarkdown,
+        }))
       }).pipe(Effect.provide(Logger.layer([fileLogger])))
     }),
   )

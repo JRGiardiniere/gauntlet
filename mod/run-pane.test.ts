@@ -34,6 +34,9 @@ const view: RunView = {
   ],
   latest: "gauntlet: finder absence done — 5 candidates · 68s · $3.41 · cache 99%",
   exitCode: undefined,
+  routed: undefined,
+  result: undefined,
+  refusal: undefined,
 }
 
 // Draws the tree as indented text: Box children on their own lines, a row's

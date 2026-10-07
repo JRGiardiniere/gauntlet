@@ -44,6 +44,7 @@ import {
 } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import { viewDossier } from "../render/dossier-view.ts"
+import { type RunMilestone, RunMilestones } from "../run/run-milestones.ts"
 import { runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { commitAll } from "../test-support/git.fixture.ts"
@@ -919,6 +920,62 @@ describe("gauntlet review", () => {
       expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         `could not review — the frozen working-tree overlay ${overlay} is missing`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reports the Run's milestones as data beside its progress lines", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const reported: Array<RunMilestone> = []
+      const run = review(fixture)
+      expect(
+        yield* run.effect.pipe(
+          Effect.provideService(RunMilestones, (milestone) =>
+            Effect.sync(() => {
+              reported.push(milestone)
+            })),
+        ),
+      ).toBe(0)
+
+      expect(reported.map((milestone) => milestone._tag)).toEqual([
+        "Started",
+        "FindersFinished",
+        "Routed",
+        "Reviewed",
+      ])
+      const [started, , routed, reviewed] = reported
+      expect(started).toMatchObject({ lenses: ["fixture-review"] })
+      expect(routed).toMatchObject({ bugClaims: 1, observations: 1 })
+      expect(reviewed).toMatchObject({
+        entries: [
+          { tag: "confirmed", reviewPriority: "P2" },
+          { tag: "judgment", reviewPriority: "P2" },
+        ],
+      })
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("reports a refusal as the line it rendered, a settings failure included", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      yield* fs.writeFileString(fixture.settingsFile, "{ not json\n")
+      const reported: Array<RunMilestone> = []
+      const run = review(fixture)
+      expect(
+        yield* run.effect.pipe(
+          Effect.provideService(RunMilestones, (milestone) =>
+            Effect.sync(() => {
+              reported.push(milestone)
+            })),
+        ),
+      ).toBe(1)
+
+      const [refused] = reported
+      expect(refused?._tag).toBe("Refused")
+      if (refused?._tag !== "Refused") return
+      expect(refused.message).toContain(fixture.settingsFile)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `gauntlet: ${refused.message}`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

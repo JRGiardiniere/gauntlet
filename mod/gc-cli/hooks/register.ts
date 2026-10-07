@@ -188,10 +188,12 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   log($, `run ${verdict} exit ${String(result.exitCode)} after ${String(result.seconds)}s interrupted=${String(result.interrupted)}`)
   await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
   $.ui.toast(`gc-cli: ${verdict} after ${String(result.seconds)}s`)
-  // With no digest (a refusal, a completed run resumed), the CLI's own
-  // closing lines say what happened.
-  const said = result.stderr.trim().split("\n").filter((line) => /could not|already complete|posted|run ended/.test(line))
-  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...said.slice(-3)] : digest.split("\n")
+  // With no digest, the refusal says why; a completed run resumed or a
+  // cancelled one has the CLI's own closing lines.
+  const said = result.refusal === undefined
+    ? result.stderr.trim().split("\n").filter((line) => /already complete|posted|run ended/.test(line)).slice(-3)
+    : [result.refusal]
+  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...said] : digest.split("\n")
   const text = digest === "" ? `gc-cli: ${shown.join("\n")}` : `gc-cli ${verdict}:\n\n${digest}`
   // The appended row reaches the model; the person sees transcript rows, one
   // per line (a row draws no line breaks).

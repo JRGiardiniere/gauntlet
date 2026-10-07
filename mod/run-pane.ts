@@ -1,8 +1,9 @@
 // gc-cli's run pane: what a review in flight looks like, drawn by the
 // hooks module's `ui.render` hook for its Pane. The view is plain data the
-// engine assembles from its agent driver and the CLI's progress lines; the
+// engine assembles from its agent driver and the Run's milestones; the
 // tree is drawn with the elements every surface carries (Box, Text, Button),
 // so the terminal, desktop, VS Code and mobile all draw the same pane.
+import type { RunMilestone } from "../src/run/run-milestones.ts"
 import type { AgentActivity } from "./agents.ts"
 
 export interface RunView {
@@ -10,14 +11,21 @@ export interface RunView {
   readonly runId: string | undefined
   readonly startedAt: number
   readonly endedAt: number | undefined
-  // The Finders the run loads, from its "loading … Lenses" line; a Finder
-  // that never opens by the end of the Finder stage was not runnable.
+  // The Finders the run's plan froze; a Finder that never opens by the end
+  // of the Finder stage was not runnable.
   readonly lenses: ReadonlyArray<string>
   readonly findersFinished: boolean
+  // What the Finders' candidates became: BugClaims for Verification,
+  // Observations for Judgment.
+  readonly routed: { readonly bugClaims: number; readonly observations: number } | undefined
   readonly activity: ReadonlyArray<AgentActivity>
   // The latest progress line worth showing.
   readonly latest: string | undefined
   readonly exitCode: number | undefined
+  // The digest's surviving entries, once the dossier is written.
+  readonly result: Extract<RunMilestone, { readonly _tag: "Reviewed" }> | undefined
+  // Why the review could not run, as the CLI rendered it.
+  readonly refusal: string | undefined
 }
 
 type PaneChildren<N> = N | string | ReadonlyArray<N>

@@ -21,6 +21,7 @@ import {
 } from "../src/harness/claude-host.ts"
 import { HarnessSessionFactory } from "../src/harness/harness-session.ts"
 import { Linear } from "../src/linear/linear.ts"
+import { type RunMilestone, RunMilestones } from "../src/run/run-milestones.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
 import { type AgentPorts, makeAgentDriver, type TurnComplete } from "./agents.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
@@ -55,6 +56,8 @@ export interface EnginePorts extends PlatformPorts, AgentPorts, HttpPort {}
 
 export interface RunResult {
   readonly exitCode: number
+  // Why the review could not run, as the CLI rendered it.
+  readonly refusal: string | undefined
   readonly stdout: string
   readonly stderr: string
   readonly seconds: number
@@ -101,6 +104,22 @@ const fetchOver = (http: HttpPort) => {
   return fetch as unknown as typeof globalThis.fetch
 }
 
+// "2 confirmed · 1 kept · 3 plausible", the digest's tally without its
+// target and spend.
+const resultCounts = (result: Extract<RunMilestone, { readonly _tag: "Reviewed" }>) => {
+  const counted = (tag: string, label: string) => {
+    const count = result.entries.filter((entry) => entry.tag === tag).length
+    return count === 0 ? [] : [`${String(count)} ${label}`]
+  }
+  const counts = [
+    ...counted("confirmed", "confirmed"),
+    ...counted("judgment", "kept"),
+    ...counted("plausible", "plausible"),
+    ...counted("undecided", "undecided"),
+  ]
+  return counts.length === 0 ? "no findings" : counts.join(" · ")
+}
+
 // The run pane's view less the driver's activity.
 type Progress = {
   -readonly [K in Exclude<keyof RunView, "activity">]: RunView[K]
@@ -136,8 +155,11 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       endedAt: undefined,
       lenses: [],
       findersFinished: false,
+      routed: undefined,
       latest: undefined,
       exitCode: undefined,
+      result: undefined,
+      refusal: undefined,
     }
     progress = shown
     const onStderr = (text: string) => {
@@ -146,16 +168,36 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       const lines = pending.split("\n")
       pending = lines.pop() ?? ""
       for (const line of lines) {
-        const id = /^gauntlet: run (\S+)$/.exec(line)?.[1]
-        if (id !== undefined && current !== undefined) current.runId = id
-        if (id !== undefined) shown.runId = id
-        const lenses = /^gauntlet: loading (?:Default|exact caller) Lenses (.+)$/.exec(line)?.[1]
-        if (lenses !== undefined && lenses !== "(none)") shown.lenses = lenses.split(", ")
-        if (line.startsWith("gauntlet: Finders finished")) shown.findersFinished = true
         if (!/^gauntlet: (invoking|loading|run \S+$)/.test(line)) shown.latest = line
         onLine(line)
       }
     }
+    const onMilestone = (milestone: RunMilestone) =>
+      Effect.sync(() => {
+        switch (milestone._tag) {
+          case "Started": {
+            shown.runId = milestone.runId
+            shown.lenses = milestone.lenses
+            if (current !== undefined) current.runId = milestone.runId
+            return
+          }
+          case "FindersFinished": {
+            shown.findersFinished = true
+            return
+          }
+          case "Routed": {
+            shown.routed = { bugClaims: milestone.bugClaims, observations: milestone.observations }
+            return
+          }
+          case "Reviewed": {
+            shown.result = milestone
+            return
+          }
+          case "Refused": {
+            shown.refusal = milestone.message
+          }
+        }
+      })
     const host = makeClaudeHost(claudePrice((model) => build.prices[model]), driver.send)
     driver.attach(host)
     const layer = Layer.mergeAll(
@@ -174,6 +216,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       ),
     )
     const program = runReviewCli(request.argv).pipe(
+      Effect.provideService(RunMilestones, onMilestone),
       Effect.provideService(InvocationDirectory, request.cwd),
       Effect.provideService(FetchHttpClient.Fetch, fetchOver(ports)),
       Effect.provide(layer),
@@ -181,7 +224,9 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       // not run, rendered as the CLI renders its failures.
       Effect.catch((failure) =>
         Effect.sync(() => {
-          onStderr(`gauntlet: could not review — ${String(failure)}\n`)
+          const message = `could not review — ${String(failure)}`
+          onStderr(`gauntlet: ${message}\n`)
+          shown.refusal = message
           return 1
         })
       ),
@@ -192,16 +237,15 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       fiber.addObserver((exit) => {
         current = undefined
         void driver.stopAll("run ended")
-        // The digest's first line leads with the counts: "0 confirmed · 2 kept · … — target — …".
-        const counts = stdout.trim().split("\n")[0]?.split(" — ")[0]
         progress = {
           ...shown,
           endedAt: Date.now(),
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
-          latest: counts === undefined || counts === "" ? shown.latest : `Result: ${counts}`,
+          latest: shown.result === undefined ? shown.latest : `Result: ${resultCounts(shown.result)}`,
         }
         resolve({
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
+          refusal: shown.refusal,
           stdout,
           stderr: `${stderr}${Exit.isSuccess(exit) ? "" : `gauntlet: run ended: ${String(exit.cause)}\n`}`,
           seconds: Math.round((Date.now() - startedAt) / 1000),
