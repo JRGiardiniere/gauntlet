@@ -79,15 +79,12 @@ export const reviewSpecificationFromGitHubIssues = (
       })
 }
 
-// GitHub unavailability is the quiet no-spec path (issue #74): the ordinary
-// review proceeds; nothing announces that specification context was missing.
+// A GitHubError is left to the caller: Submission decides whether GitHub
+// unavailability is quiet or a refusal.
 export const loadGitHubSpecification = Effect.fn(
   "gauntlet.specification.load_github",
 )(function* (cwd: string, number: number) {
   const github = yield* GitHub
-  const issues = yield* github.viewClosingIssues(cwd, number).pipe(
-    Effect.catchTag("GitHubError", () =>
-      Effect.succeed<ReadonlyArray<GitHubClosingIssue>>([])),
-  )
+  const issues = yield* github.viewClosingIssues(cwd, number)
   return reviewSpecificationFromGitHubIssues(issues)
 })
