@@ -26,10 +26,10 @@ import { type RunMilestone, RunMilestones } from "../src/run/run-milestones.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
 import { type AgentPorts, makeAgentDriver, type TurnComplete } from "./agents.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
-import type { RunView } from "./run-pane.ts"
+import type { RunView } from "./strip.ts"
 
-export { renderRunPane } from "./run-pane.ts"
-export type { PaneElements, RunView } from "./run-pane.ts"
+export { renderStrip } from "./strip.ts"
+export type { PaneElements, RunView } from "./strip.ts"
 export { reviewArgv } from "./review-argv.ts"
 export { inputsStamp } from "./stamp.ts"
 export type { ToolsEvent, PublishedAgent } from "./agents.ts"
@@ -126,23 +126,7 @@ const fetchOver = (http: HttpPort) => {
   return fetch as unknown as typeof globalThis.fetch
 }
 
-// "2 confirmed · 1 kept · 3 plausible", the digest's tally without its
-// target and spend.
-const resultCounts = (result: Extract<RunMilestone, { readonly _tag: "Reviewed" }>) => {
-  const counted = (tag: string, label: string) => {
-    const count = result.entries.filter((entry) => entry.tag === tag).length
-    return count === 0 ? [] : [`${String(count)} ${label}`]
-  }
-  const counts = [
-    ...counted("confirmed", "confirmed"),
-    ...counted("judgment", "kept"),
-    ...counted("plausible", "plausible"),
-    ...counted("undecided", "undecided"),
-  ]
-  return counts.length === 0 ? "no findings" : counts.join(" · ")
-}
-
-// The run pane's view less the driver's activity.
+// The strip's view less the driver's activity.
 type Progress = {
   -readonly [K in Exclude<keyof RunView, "activity">]: RunView[K]
 }
@@ -157,8 +141,8 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       runId: string | undefined
     }
     | undefined
-  // What the run pane draws: the run in flight, or the last one, kept
-  // until the next starts.
+  // What the strip draws: the run in flight, or the last one, kept until
+  // the next starts.
   let progress: Progress | undefined
 
   const start = (
@@ -170,15 +154,13 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     let stderr = ""
     let pending = ""
     const startedAt = Date.now()
+    let runId: string | undefined
     const shown: Progress = {
-      argv: request.argv,
-      runId: undefined,
       startedAt,
       endedAt: undefined,
       lenses: [],
       findersFinished: false,
       routed: undefined,
-      latest: undefined,
       exitCode: undefined,
       result: undefined,
       refusal: undefined,
@@ -189,16 +171,13 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       pending += text
       const lines = pending.split("\n")
       pending = lines.pop() ?? ""
-      for (const line of lines) {
-        if (!/^gauntlet: (invoking|loading|run \S+$)/.test(line)) shown.latest = line
-        onLine(line)
-      }
+      for (const line of lines) onLine(line)
     }
     const onMilestone = (milestone: RunMilestone) =>
       Effect.sync(() => {
         switch (milestone._tag) {
           case "Started": {
-            shown.runId = milestone.runId
+            runId = milestone.runId
             shown.lenses = milestone.lenses
             if (current !== undefined) current.runId = milestone.runId
             return
@@ -263,9 +242,8 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           ...shown,
           endedAt: Date.now(),
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
-          latest: shown.result === undefined ? shown.latest : `Result: ${resultCounts(shown.result)}`,
         }
-        const ending = Exit.isSuccess(exit) ? undefined : endingOf(exit.cause, shown.runId)
+        const ending = Exit.isSuccess(exit) ? undefined : endingOf(exit.cause, runId)
         resolve({
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
           refusal: shown.refusal,

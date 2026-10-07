@@ -72,20 +72,14 @@ export interface TurnComplete {
   readonly refusal?: { readonly explanation?: string | undefined } | undefined
 }
 
-// What the run pane shows of one invocation: kept after its agent is
-// disposed, for the run's life.
+// What the strip shows of one invocation: kept after its agent is disposed,
+// for the run's life.
 export interface AgentActivity {
   readonly id: string
   readonly invocationId: string
   state: "opening" | "waiting" | "running" | "answered" | "failed" | "stopped"
-  spawnedAt?: number
-  endedAt?: number
-  turns: number
-  toolCalls: number
-  lastTool?: string
   // The accepted emit's item count (findings, verdicts, decisions).
   items?: number
-  readonly tokens: { input: number; output: number; cacheRead: number; cacheWrite: number }
 }
 
 interface Agent {
@@ -108,13 +102,6 @@ interface TurnEnding {
   detail?: string
 }
 
-// The fields of a Read/Grep/Glob call the pane names it by.
-const ToolArgs = Schema.Struct({
-  file_path: Schema.optional(Schema.String),
-  pattern: Schema.optional(Schema.String),
-  path: Schema.optional(Schema.String),
-})
-
 // An accepted emit's items, under its contract's one list field.
 const EmitItems = Schema.Struct({
   findings: Schema.optional(Schema.Array(Schema.Unknown)),
@@ -122,17 +109,6 @@ const EmitItems = Schema.Struct({
   verdicts: Schema.optional(Schema.Array(Schema.Unknown)),
   decisions: Schema.optional(Schema.Array(Schema.Unknown)),
 })
-
-// "Read platform/operations/publish-app.ts", relative to the snapshot.
-const toolLabel = (toolName: string, args: GcCliToolsJson, root: string) => {
-  const fields = Option.getOrElse(Schema.decodeUnknownOption(ToolArgs)(args), (): typeof ToolArgs.Type => ({}))
-  const shown = (value: string | undefined) => value?.replace(`${root}/`, "")
-  if (toolName === "Read") return `Read ${shown(fields.file_path) ?? "?"}`
-  if (toolName === "Grep") {
-    return `Grep "${fields.pattern ?? "?"}"${fields.path === undefined ? "" : ` in ${shown(fields.path) ?? ""}`}`
-  }
-  return `${toolName} ${fields.pattern ?? ""}`.trim()
-}
 
 const itemCount = (args: GcCliToolsJson) =>
   Option.getOrUndefined(
@@ -219,9 +195,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         id: command.id,
         invocationId: command.invocationId,
         state: "opening",
-        turns: 0,
-        toolCalls: 0,
-        tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       })
       agents.set(command.id, {
         id: command.id,
@@ -243,7 +216,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     const activity = activities.get(id)
     if (activity !== undefined) {
       activity.state = ending.reason === "aborted" ? "stopped" : ending.reason === "error" || ending.reason === "refusal" ? "failed" : "answered"
-      activity.endedAt = Date.now()
     }
     host?.ended(id, ending)
   }
@@ -290,10 +262,7 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         return
       }
       const activity = activities.get(command.id)
-      if (activity !== undefined) {
-        activity.state = "running"
-        activity.spawnedAt = Date.now()
-      }
+      if (activity !== undefined) activity.state = "running"
       byAgentId.set(spawned.agentId, agent)
       live += 1
       peak = Math.max(peak, live)
@@ -318,10 +287,7 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     const agent = agents.get(command.id)
     if (agent?.agentId === undefined) return
     const activity = activities.get(command.id)
-    if (activity !== undefined) {
-      activity.state = "running"
-      delete activity.endedAt
-    }
+    if (activity !== undefined) activity.state = "running"
     // Resume is gated by agent.offer, which offers the hidden type only while
     // this send is in flight.
     offering += 1
@@ -386,10 +352,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     const activity = activities.get(agent.id)
     for (const event of events.slice(agent.consumed)) {
       agent.consumed += 1
-      if (event.type === "tool_start" && activity !== undefined) {
-        activity.toolCalls += 1
-        activity.lastTool = toolLabel(event.toolName, event.args, agent.cwd)
-      }
       if (event.type === "emit") {
         const answer = host?.emit(agent.id, event.args)
         if (answer?.ok === true) {
@@ -420,14 +382,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     let detail: string | undefined
     if (e.reason === "refusal") detail = e.refusal?.explanation ?? "refusal"
     if (e.reason === "error") detail = e.answer
-    const activity = activities.get(agent.id)
-    if (activity !== undefined) {
-      activity.turns += 1
-      activity.tokens.input += e.usage?.input_tokens ?? 0
-      activity.tokens.output += e.usage?.output_tokens ?? 0
-      activity.tokens.cacheRead += e.usage?.cache_read_input_tokens ?? 0
-      activity.tokens.cacheWrite += e.usage?.cache_creation_input_tokens ?? 0
-    }
     ports.log(`turn ${agent.id} ${e.reason} emit=${String(agent.emitAccepted)} usage=${e.usage === undefined ? "none" : JSON.stringify(e.usage)}`)
     if (e.reason === "answer") {
       host?.event(agent.id, {
@@ -460,9 +414,8 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     // The snapshot worktrees this run's agents were spawned in.
     snapshots: () => [...new Set([...agents.values()].map((agent) => agent.cwd))],
     stats: () => ({ live, peak, refusals, waiting: waiting.length }),
-    // This run's invocations in open order, copied for the pane.
-    activity: (): ReadonlyArray<AgentActivity> =>
-      [...activities.values()].map((activity) => ({ ...activity, tokens: { ...activity.tokens } })),
+    // This run's invocations in open order, copied for the strip.
+    activity: (): ReadonlyArray<AgentActivity> => [...activities.values()].map((activity) => ({ ...activity })),
   }
 }
 

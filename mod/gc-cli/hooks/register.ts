@@ -5,7 +5,7 @@ import {
   type Engine,
   type EnginePorts,
   inputsStamp,
-  renderRunPane,
+  renderStrip,
   reviewArgv,
   type RunResult,
 } from "../../engine.ts"
@@ -24,10 +24,6 @@ type Engines = EngineInterface
 
 const BUILD_FILE = "hooks/vendor/build.json"
 const STORE_INFLIGHT = "inflight"
-const PANE = "gc-cli-run"
-// Inline, a pane opens a third of the screen tall; the run pane wants room
-// for the Default Lenses, the later stages, the totals and its button.
-const PANE_ROWS = 28
 
 interface InFlight {
   readonly startedAt: number
@@ -53,9 +49,8 @@ let home = ""
 let tick: { readonly cancel: () => void } | undefined
 let markedAgents = ""
 let runCwd = ""
-// The `view` option: the live run pane, or progress on the status line.
-let progressView: "pane" | "status" = "pane"
-let paneShown = false
+// Dismiss clears the strip until the next review starts.
+let dismissed = false
 let drawn = ""
 let drawnAt = 0
 let pendingLog: Array<string> = []
@@ -151,12 +146,13 @@ async function reportLostRun($: Engines) {
   )
 }
 
-// Redraws the pane when what it shows changed, and each second for its clocks.
+// Redraws the strip when what it shows changed, and each half second for its
+// clock and the running agents' pulse.
 function redraw($: Engines) {
-  if (!paneShown) return
+  if (dismissed) return
   const view = engine?.view()
   const shown = JSON.stringify(view === undefined ? null : { ...view, startedAt: 0 })
-  if (shown === drawn && Date.now() - drawnAt < 1000) return
+  if (shown === drawn && Date.now() - drawnAt < 500) return
   drawn = shown
   drawnAt = Date.now()
   $.ui.invalidate("ui.render")
@@ -182,7 +178,6 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   tick = undefined
   drawnAt = 0
   redraw($)
-  await setStatus($, undefined)
   const digest = result.stdout.trim()
   const verdict = result.interrupted ? "cancelled" : result.exitCode === 0 ? "review finished" : "could not review"
   log($, `run ${verdict} exit ${String(result.exitCode)} after ${String(result.seconds)}s interrupted=${String(result.interrupted)}`)
@@ -211,6 +206,14 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
     .catch((error) => log($, `last-run.json failed: ${String(error)}`))
+}
+
+async function openDossier($: Engines, path: string) {
+  const opened = await $.process.run(["open", path]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
+  if (opened.exitCode !== 0) {
+    log($, `open ${path} failed: ${opened.stderr.trim()}`)
+    $.ui.toast(`gc-cli: could not open ${path}`)
+  }
 }
 
 // Starts a review in the background; answers the command's one line.
@@ -254,22 +257,14 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
   log($, `starting ${argv.join(" ")} in ${request.cwd}`)
   markedAgents = ""
   runCwd = request.cwd
-  paneShown = false
-  if (progressView === "pane") {
-    const opened = await $.ui.open({ id: PANE, title: "Gauntlet review", rows: PANE_ROWS, closeOnEscape: true }).catch((error) => ({ isPlaced: false, reason: String(error) }))
-    paneShown = opened.isPlaced
-    if (!opened.isPlaced) log($, `run pane not placed: ${"reason" in opened ? opened.reason : "no reason"}; progress goes to the status line`)
-  }
+  dismissed = false
   await markInFlight($, { startedAt: Date.now(), argv, cwd: request.cwd, agentIds: [], snapshots: [] })
   startTick($)
   void engine
-    .start({ argv, cwd: request.cwd }, (line) => {
-      log($, `cli: ${line}`)
-      if (line.trim() !== "" && !paneShown) void setStatus($, `gc-cli: ${line.replace(/^gauntlet: /, "").slice(0, 120)}`)
-    })
+    .start({ argv, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
     .then((result) => finishRun($, result, request))
     .catch((error) => log($, `run failed to start: ${String(error)}`))
-  return `gc-cli: review started (${argv.slice(1).join(" ")}); progress ${paneShown ? "in the Gauntlet pane" : "on the status line"}, the digest lands here when it finishes.`
+  return `gc-cli: review started (${argv.slice(1).join(" ")}); progress above the prompt, the digest lands here when it finishes.`
 }
 
 // Test runs and cancels arrive as files the mod polls (a command registered
@@ -290,9 +285,7 @@ async function checkTrigger($: Engines) {
   await $.fs.write(`${gcDir()}/trigger-answer.txt`, `${answer}\n`)
 }
 
-export const register: Register = (on, options) => {
-  progressView = options["view"] === "status" ? "status" : "pane"
-
+export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
     home = (await $.env.get("HOME")) ?? ""
@@ -321,16 +314,22 @@ export const register: Register = (on, options) => {
     return started
   })
 
-  on("ui.render", { component: "Pane", requestId: PANE }, ($, e) =>
-    renderRunPane(engine?.view(), $.ui.resolve(e), e.props.bodyColumns, Date.now(), {
+  on("ui.render", { component: "AbovePrompt" }, ($, e, next) => {
+    const view = engine?.view()
+    if (view === undefined || dismissed || e.props.hasSurvey) return next(e)
+    return renderStrip(view, $.ui.resolve(e), { surface: e.surface, columns: e.props.bodyColumns }, Date.now(), {
       stop: () => {
         void engine?.cancel().then((cancelled) => log($, `stop pressed: ${String(cancelled)}`))
       },
-      close: () => {
-        paneShown = false
-        void $.ui.close({ id: PANE })
+      openDossier: (path) => {
+        void openDossier($, path)
       },
-    }))
+      dismiss: () => {
+        dismissed = true
+        $.ui.invalidate("ui.render")
+      },
+    })
+  })
 
   // The host labels the answer with the plugin's name already.
   on("command.run", { command: "gc-cli" }, async ($, e) => ({
