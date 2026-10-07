@@ -78,4 +78,30 @@ describe("the agent driver", () => {
     expect(stopped).toEqual(["agent-1"])
     expect(driver.stats().live).toBe(0)
   })
+
+  it("ends a denied spawn at once when none of the run's agents is live", async () => {
+    const { ports } = makePorts(async () => ({ deny: "fixture denial" }))
+    const driver = makeAgentDriver(ports)
+    await started(driver)
+
+    expect(driver.activity().map((activity) => activity.state)).toEqual(["failed"])
+    expect(driver.stats().waiting).toBe(0)
+  })
+
+  it("queues a denied spawn while another of the run's agents is live", async () => {
+    let spawns = 0
+    const { ports } = makePorts(async () => {
+      spawns += 1
+      return spawns === 1 ? { agentId: "agent-1" } : { deny: "fixture denial" }
+    })
+    const driver = makeAgentDriver(ports)
+    await started(driver)
+    driver.send({ ...OPEN, id: "session-2" })
+    await settle()
+    driver.send({ kind: "prompt", id: "session-2", text: "review", turn: 0 })
+    await settle()
+
+    expect(driver.activity().map((activity) => activity.state)).toEqual(["running", "waiting"])
+    driver.send({ kind: "dispose", id: "session-2" })
+  })
 })

@@ -268,7 +268,15 @@ export const makeAgentDriver = (ports: AgentPorts) => {
       })
       if (spawned.agentId === undefined) {
         refusals += 1
-        ports.log(`spawn ${command.id} refused (live ${String(live)}): ${spawned.deny ?? "no agent id"}; queued`)
+        const deny = spawned.deny ?? "no agent id"
+        // With none of this run's agents live, the denial cannot be the
+        // at-once cap: no place will free up, so the invocation ends now.
+        if (live === 0) {
+          ports.log(`spawn ${command.id} refused with no agent live: ${deny}`)
+          end(command.id, { reason: "error", detail: `spawn refused: ${deny}` })
+          return
+        }
+        ports.log(`spawn ${command.id} refused (live ${String(live)}): ${deny}; queued`)
         waiting.push({ command, since: Date.now() })
         const activity = activities.get(command.id)
         if (activity !== undefined) activity.state = "waiting"
