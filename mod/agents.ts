@@ -275,12 +275,17 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         scheduleRetry()
         return
       }
+      agent.agentId = spawned.agentId
+      if (!agents.has(command.id)) {
+        // Disposed while the spawn was in flight.
+        await stop(agent, "disposed while spawning")
+        return
+      }
       const activity = activities.get(command.id)
       if (activity !== undefined) {
         activity.state = "running"
         activity.spawnedAt = Date.now()
       }
-      agent.agentId = spawned.agentId
       byAgentId.set(spawned.agentId, agent)
       live += 1
       peak = Math.max(peak, live)
@@ -354,6 +359,10 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         const agent = agents.get(command.id)
         if (agent === undefined) return
         agents.delete(command.id)
+        // A session disposed mid-turn is an interrupted run; nothing would
+        // stop its subagent once it leaves the registry.
+        const state = activities.get(command.id)?.state
+        if (state === "running" || state === "waiting") void stop(agent, "disposed")
         if (agent.agentId !== undefined) {
           live -= 1
           drain()
