@@ -31,7 +31,8 @@ import {
   settingsPath,
   writeSettings,
 } from "../config/settings.ts"
-import { writeArtifactJson } from "../run/artifact.ts"
+import { type ArtifactWriteError, writeArtifactJson } from "../run/artifact.ts"
+import { describeArtifactWrite } from "./review.ts"
 import { resolveInvocationProjectRoot } from "../target/invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
@@ -376,6 +377,11 @@ const asConfigError = (failure: RecipeSelectionError) =>
     reason: `${failure.reason}${renderAvailable(failure.available)}`,
   })
 
+// A config verb's failed write is a configuration failure, never "could not
+// review".
+const configWriteError = (failure: ArtifactWriteError) =>
+  new ConfigCommandError({ reason: describeArtifactWrite(failure) })
+
 const lensConfigError = (failure: {
   readonly path: string
   readonly reason: string
@@ -490,7 +496,11 @@ const runUnset = Effect.fn("gauntlet.cli.config_unset")(function* (
   }
 })
 
-const init = Command.make("init", {}, () => runInit()).pipe(
+const init = Command.make(
+  "init",
+  {},
+  () => runInit().pipe(Effect.catchTag("ArtifactWriteError", configWriteError)),
+).pipe(
   Command.withDescription(
     "Create the initial recipe catalog and settings (no-op when already valid)",
   ),
@@ -502,7 +512,10 @@ const set = Command.make(
     key: Argument.String("key"),
     values: Argument.String("value").pipe(Argument.variadic()),
   },
-  ({ key, values }) => runSet(key, values),
+  ({ key, values }) =>
+    runSet(key, values).pipe(
+      Effect.catchTag("ArtifactWriteError", configWriteError),
+    ),
 ).pipe(
   Command.withDescription(
     `Set a settings key (${SETTINGS_KEYS})`,
@@ -512,7 +525,10 @@ const set = Command.make(
 const unset = Command.make(
   "unset",
   { key: Argument.String("key") },
-  ({ key }) => runUnset(key),
+  ({ key }) =>
+    runUnset(key).pipe(
+      Effect.catchTag("ArtifactWriteError", configWriteError),
+    ),
 ).pipe(
   Command.withDescription(
     "Clear a settings key (favorites, runs-root; defaults are rejected)",

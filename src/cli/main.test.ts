@@ -653,6 +653,52 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("keeps a failed Judgment's provider diagnostics in run.log", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const failedJudgment: ScriptedSession = {
+        forSession: "-judgment",
+        prompts: [
+          {
+            events: [
+              { afterMillis: 0, kind: "message_start" },
+              {
+                afterMillis: 0,
+                kind: "message_end",
+                stopReason: "error",
+                errorMessage: "529 overloaded: fixture provider body",
+                usage: usageRow(),
+              },
+            ],
+            settles: "after-events",
+          },
+        ],
+      }
+      const run = review(
+        fixture,
+        makeScripted({
+          sessions: [
+            successfulSession(),
+            successfulVerifierSession(),
+            failedJudgment,
+          ],
+        }),
+      )
+      expect(yield* run.effect).toBe(0)
+
+      const [runId = ""] = yield* fs.readDirectory(fixture.runsRoot)
+      const runLog = yield* fs.readFileString(
+        path.join(fixture.runsRoot, runId, "run.log"),
+      )
+      expect(runLog).toContain("529 overloaded: fixture provider body")
+      // The user-facing gap keeps its short reason.
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "gauntlet: coverage gap — judgment provider failed",
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("resumes the latest incomplete run from its frozen artifacts", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
@@ -742,9 +788,12 @@ describe("gauntlet review", () => {
       expect(yield* fs.exists(path.join(runDir, "dossier.json"))).toBe(false)
       expect(yield* fs.exists(path.join(runDir, "dossier.md"))).toBe(false)
 
-      // Without a completed checkpoint the whole Finder stage reruns, inside
-      // the same Run: the rerun returns to its own run dir.
-      yield* fs.remove(path.join(runDir, "finder-stage.json"))
+      // Without a usable checkpoint the whole Finder stage reruns, inside
+      // the same Run, and says so: the rerun returns to its own run dir.
+      yield* fs.writeFileString(
+        path.join(runDir, "finder-stage.json"),
+        "{ truncated",
+      )
       const rerun = resume(
         fixture,
         runId,
@@ -754,6 +803,9 @@ describe("gauntlet review", () => {
       )
       expect(yield* runUntilFinderStage(rerun.effect)).toBe(runId)
       expect(rerun.scripted.configs).toHaveLength(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        "finder-stage.json is corrupt or not this run's — rerunning the Finders",
+      )
       expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
       expect(
         yield* fs.exists(path.join(runDir, "finder-stage.json")),
@@ -918,8 +970,33 @@ describe("gauntlet review", () => {
       expect(yield* resumed.effect).toBe(1)
       expect(resumed.scripted.configs).toHaveLength(0)
       expect(yield* fs.readDirectory(fixture.runsRoot)).toEqual([runId])
+      // The Run started before failing, so the refusal names how to resume.
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
-        `could not review — the frozen working-tree overlay ${overlay} is missing`,
+        `could not review — the frozen working-tree overlay ${overlay} is missing — resume with gauntlet review --resume ${runId}`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("resumes bare only the invoking repository's incomplete run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      yield* runUntilFinderStage(review(fixture).effect)
+      const elsewhere = yield* makeDirtyRepo
+
+      const resumed = resume(
+        { ...fixture, repo: elsewhere.repo },
+        undefined,
+        successfulScripted(),
+      )
+      expect(yield* resumed.effect).toBe(1)
+      expect(resumed.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `no incomplete run of ${elsewhere.repo} with a valid frozen plan was found`,
+      )
+
+      const mistyped = resume(fixture, "no-such-run", successfulScripted())
+      expect(yield* mistyped.effect).toBe(1)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `could not review — no such run no-such-run in ${fixture.runsRoot}`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -976,6 +1053,21 @@ describe("gauntlet review", () => {
       expect(refused.message).toContain(fixture.settingsFile)
       expect((yield* TestConsole.errorLines).join("\n")).toContain(
         `gauntlet: ${refused.message}`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("renders a filesystem failure as its operation, path and reason", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const fs = yield* FileSystem.FileSystem
+      // A file where the runs root belongs: the run directory cannot be made.
+      yield* fs.writeFileString(fixture.runsRoot, "not a directory\n")
+
+      const run = review(fixture)
+      expect(yield* run.effect).toBe(1)
+      expect(run.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `gauntlet: could not review — FileSystem.makeDirectory failed on ${fixture.runsRoot}: AlreadyExists (EEXIST)`,
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

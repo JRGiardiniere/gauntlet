@@ -1,17 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
-import * as Effect from "effect/Effect"
-import {
-  GitHubError,
-  gitHubLayer,
-  unusedGitHubContract,
-  type GitHubClosingIssue,
-  type GitHubIssueComment,
-  type GitHubIssueSnapshot,
+import type {
+  GitHubClosingIssue,
+  GitHubIssueComment,
+  GitHubIssueSnapshot,
 } from "../github/github.ts"
-import {
-  loadGitHubSpecification,
-  reviewSpecificationFromGitHubIssues,
-} from "./github-source.ts"
+import { reviewSpecificationFromGitHubIssues } from "./github-source.ts"
 
 const issueUrl = (number: number) =>
   `https://github.com/example/repo/issues/${String(number)}`
@@ -153,25 +146,4 @@ describe("reviewSpecificationFromGitHubIssues", () => {
   it("returns no specification when there are no closing issues", () => {
     expect(reviewSpecificationFromGitHubIssues([])).toBeUndefined()
   })
-})
-
-describe("loadGitHubSpecification", () => {
-  it.effect("degrades GitHub errors to the quiet no-spec path", () =>
-    Effect.gen(function* () {
-      const spec = yield* loadGitHubSpecification("/repo", 7).pipe(
-        Effect.provide(
-          gitHubLayer({
-            ...unusedGitHubContract,
-            viewClosingIssues: () =>
-              Effect.fail(
-                new GitHubError({
-                  operation: "specification",
-                  reason: "GitHub unavailable",
-                }),
-              ),
-          }),
-        ),
-      )
-      expect(spec).toBeUndefined()
-    }))
 })

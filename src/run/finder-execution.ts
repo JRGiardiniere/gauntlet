@@ -93,11 +93,17 @@ const readCompletedFinderStage = Effect.fn(
   "gauntlet.finder_execution.read_completed_stage",
 )(function* (plan: ReviewPlan, artifactPath: string) {
   const source = yield* readOptionalArtifactText(artifactPath)
-  const decoded = Option.flatMap(source, (text) =>
-    Schema.decodeOption(Schema.fromJsonString(FinderStageArtifact))(text)
-  )
+  if (Option.isNone(source)) return Option.none<FinderExecutionResult>()
+  // A present but unusable checkpoint is said out loud: the rerun it causes
+  // pays for every Finder again.
+  const unusable = runProgress(
+    `${artifactPath} is corrupt or not this run's — rerunning the Finders`,
+  ).pipe(Effect.as(Option.none<FinderExecutionResult>()))
+  const decoded = Schema.decodeOption(
+    Schema.fromJsonString(FinderStageArtifact),
+  )(source.value)
   if (Option.isNone(decoded) || decoded.value.runId !== plan.runId) {
-    return Option.none<FinderExecutionResult>()
+    return yield* unusable
   }
 
   const invocations = finderInvocationsInPlan(plan)
@@ -118,7 +124,7 @@ const readCompletedFinderStage = Effect.fn(
     decoded.value.finders.length !== invocations.length ||
     finders.length !== invocations.length
   ) {
-    return Option.none<FinderExecutionResult>()
+    return yield* unusable
   }
   return Option.some({ finders })
 })

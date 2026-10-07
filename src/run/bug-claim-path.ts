@@ -42,6 +42,7 @@ import {
   counted,
   coverageGapLine,
   invocationTrail,
+  logDiagnostics,
   runProgress,
   wallSeconds,
 } from "./progress-text.ts"
@@ -147,6 +148,7 @@ export const executePool = Effect.fn("BugClaimPath.pool")(function* ({
       yield* runProgress(
         `Pool done — ${invocationTrail(outcome)}`,
       )
+      yield* logDiagnostics("Pool", outcome.diagnostics)
       repair = repairPoolOutput(claims, outcome.output)
       poolCostUsd = outcome.usage.costUsd
       poolInvocationCount = 1
@@ -251,6 +253,10 @@ export const executeVerification = Effect.fn("BugClaimPath.verify")(function* ({
           })
           yield* runProgress(
             `Verification bundle ${String(bundleNumber)} done — ${invocationTrail(outcome)}`,
+          )
+          yield* logDiagnostics(
+            `Verification bundle ${String(bundleNumber)}`,
+            outcome.diagnostics,
           )
           return {
             bundleNumber,

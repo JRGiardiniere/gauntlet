@@ -138,7 +138,10 @@ const runGh = (
       Effect.fail(
         new GitHubError({
           operation,
-          reason: `gh could not run: ${String(cause)}`,
+          reason: cause.reason._tag === "NotFound" &&
+              cause.reason.module === "ChildProcess"
+            ? "gh is not installed — install the GitHub CLI (https://cli.github.com) and run `gh auth login`"
+            : `gh could not run: ${String(cause)}`,
           cause,
         }),
       )),

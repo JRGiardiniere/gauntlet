@@ -420,6 +420,29 @@ describe("digest rendering", () => {
     expect(cacheLines[0]).toContain("10% reuse")
   })
 
+  it("names coverage gaps on one bounded line, so a review missing work never reads as clean", () => {
+    expect(digest).not.toContain("coverage gaps:")
+    const gapped = renderDigest(
+      plan,
+      {
+        ...dossier,
+        coverageGaps: [
+          {
+            stage: "finders",
+            lens: "fixture-lens",
+            reason: "finder provider failed",
+          },
+          { stage: "pool", reason: "pool emitted nothing" },
+        ],
+      },
+      accounting,
+      paths,
+    )
+    expect(gapped.split("\n")[1]).toBe(
+      "coverage gaps: 2 — fixture-lens (finder provider failed); pool (pool emitted nothing)",
+    )
+  })
+
   it("adds a tool-health line only for an error cascade", () => {
     expect(digest).not.toContain("tool health:")
     expect(renderDigest(plan, dossier, quietToolAccounting, paths)).not.toContain(

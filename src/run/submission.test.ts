@@ -14,6 +14,7 @@ import { GOVERNING_STANDARDS_HEADING } from "../domain/finder-selection.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
+  GitHubError,
   gitHubLayer,
   unusedGitHubContract,
   unusedGitHubLayer,
@@ -568,6 +569,47 @@ describe("submission", () => {
       expect(refusal.reason).toContain("--github-spec")
       const fs = yield* FileSystem.FileSystem
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+
+      // An unreadable GitHub is quiet without the pin (issue #74) and named
+      // in the refusal with it, never mistaken for "no closing issues".
+      const unauthenticated = gitHubLayer({
+        ...unusedGitHubContract,
+        viewPullRequest: () =>
+          Effect.succeed(prView(7, headCommit, baseCommit)),
+        viewClosingIssues: () =>
+          Effect.fail(
+            new GitHubError({
+              operation: "specification",
+              reason: "gh auth login required",
+            }),
+          ),
+      })
+      const pinned = yield* Effect.flip(submitWith(
+        fixture,
+        exactLenses(
+          SubmissionTargetRequest.PullRequest({
+            number: 7,
+            githubSpecOnly: true,
+          }),
+        ),
+        unauthenticated,
+      ))
+      expect(pinned).toMatchObject({
+        _tag: "SubmissionError",
+        reason:
+          "--github-spec could not read GitHub closing issues — gh auth login required",
+      })
+      const unpinned = yield* submitWith(
+        fixture,
+        exactLenses(
+          SubmissionTargetRequest.PullRequest({
+            number: 7,
+            githubSpecOnly: false,
+          }),
+        ),
+        unauthenticated,
+      )
+      expect(unpinned.plan.specification).toBeUndefined()
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("bakes the Standards Manifest documents into the frozen standards prompt", () =>

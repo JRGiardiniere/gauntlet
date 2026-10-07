@@ -175,8 +175,23 @@ const acquireSpecification = Effect.fn(
       LinearSpecificationResolution.$is("Unreachable")(linear)
     ? linear.diagnostic
     : undefined
+  // Unpinned, GitHub unavailability is the quiet no-spec path (issue #74).
+  // Pinned, the refusal carries gh's own error: an unauthenticated gh must
+  // not read as "no closing issues".
   const fetched = ReviewTarget.guards.PullRequest(target)
-    ? yield* loadGitHubSpecification(target.repoRoot, target.number)
+    ? yield* loadGitHubSpecification(target.repoRoot, target.number).pipe(
+      Effect.map(Option.fromUndefinedOr),
+      Effect.catchTag("GitHubError", (failure) =>
+        githubOnly
+          ? Effect.fail(
+            new SubmissionError({
+              reason:
+                `--github-spec could not read GitHub closing issues — ${failure.reason}`,
+            }),
+          )
+          : Effect.succeedNone),
+      Effect.map(Option.getOrUndefined),
+    )
     : undefined
   if (githubOnly && fetched === undefined) {
     return yield* new SubmissionError({

@@ -134,6 +134,7 @@ export const executeReviewPlan = Effect.fn(
           entries: [...view.findings, ...view.unresolved].map(
             ({ reviewPriority, tag }) => ({ tag, reviewPriority }),
           ),
+          coverageGaps: dossier.coverageGaps,
           dossierMarkdown: paths.dossierMarkdown,
         }))
       }).pipe(Effect.provide(Logger.layer([fileLogger])))

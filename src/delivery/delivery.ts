@@ -70,7 +70,9 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
       Effect.mapError((cause) =>
         new DeliveryError({
           operation: "load",
-          reason: `delivery receipt for run ${runId} is corrupt`,
+          // Without a readable receipt, the comment may or may not be up.
+          reason:
+            `delivery receipt ${paths.receipt} is corrupt — check the PR for the comment, then delete the receipt to deliver again`,
           runId,
           cause,
         })),
@@ -144,7 +146,9 @@ export const deliverCompletedRun = Effect.fn(
     Effect.mapError((cause) =>
       new DeliveryError({
         operation: "post",
-        reason: `failed to write ${cause.path}`,
+        reason: DeliveryReceipt.guards.Posted(posted)
+          ? `posted ${posted.url}, but failed to write ${cause.path}`
+          : `failed to write ${cause.path}`,
         runId: plan.runId,
         cause,
       })),

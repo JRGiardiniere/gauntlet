@@ -32,8 +32,9 @@ issues to produce the automatic ReviewSpecification before Run creation.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
-  (continue-from-checkpoint per ADR 0003), defaulting to the latest incomplete
-  run. It continues that exact Run from its frozen inputs — never its own
+  (continue-from-checkpoint per ADR 0003), defaulting to the invoking
+  repository's latest incomplete run (amended per #137: the runs root is
+  shared across repositories). It continues that exact Run from its frozen inputs — never its own
   target re-resolved, never a replacement Run. It reuses only the completed
   Finder stage; a missing checkpoint reruns Finders in the same Run, and Pool,
   Verification, and Judgment always rerun as whole stages under the currently
@@ -227,6 +228,11 @@ stdout never carries the review, it lands it:
   Unresolved entry in their Dossier order, an optional single bounded
   cache-health line, then paths to `dossier.md` and `dossier.json`. Refuted,
   dropped, and evidence live only in the run dir.
+  Amended per #137: an optional single bounded coverage-gap line follows the
+  tally whenever the Dossier has coverage gaps. Agents relay the digest
+  verbatim, so with gaps left to `dossier.md` a run whose every Finder failed
+  read as a clean `0 confirmed` exit 0 and the person never heard. The exit
+  code is unchanged: a review with gaps is still a review produced.
 - **stderr**: progress narration only.
 - **exit code**: 0 = review produced (even with zero findings), 1 = could not
   review or delivery failed. Findings never affect the exit code.

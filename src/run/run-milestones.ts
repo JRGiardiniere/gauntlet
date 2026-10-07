@@ -1,6 +1,7 @@
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import type { CoverageGap } from "../domain/dossier.ts"
 import type { DossierEntryTag } from "../render/dossier-view.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
 
@@ -11,12 +12,14 @@ export type RunMilestone = Data.TaggedEnum<{
   Started: { readonly runId: string; readonly lenses: ReadonlyArray<string> }
   FindersFinished: {}
   Routed: { readonly bugClaims: number; readonly observations: number }
-  // The digest's surviving entries, and where the dossier is.
+  // The digest's surviving entries, the work missing from them, and where
+  // the dossier is.
   Reviewed: {
     readonly entries: ReadonlyArray<{
       readonly tag: DossierEntryTag
       readonly reviewPriority?: ReviewPriority | undefined
     }>
+    readonly coverageGaps: ReadonlyArray<CoverageGap>
     readonly dossierMarkdown: string
   }
   // The rendered reason a review could not run or could not be delivered.

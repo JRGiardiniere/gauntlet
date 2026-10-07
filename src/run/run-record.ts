@@ -133,7 +133,9 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
       Effect.mapError((cause) =>
         runError(
           "load-plan",
-          `could not read frozen plan for run ${runId}`,
+          Predicate.isTagged("NotFound")(cause.reason)
+            ? `no such run ${runId} in ${runsRoot}`
+            : `could not read frozen plan for run ${runId}`,
           runId,
           cause,
         )),
@@ -144,7 +146,9 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
       Effect.mapError((cause) =>
         runError(
           "load-plan",
-          `frozen plan for run ${runId} is corrupt`,
+          `frozen plan ${paths.plan} is corrupt: ${
+            cause.message.replace(/\s+/g, " ")
+          }`,
           runId,
           cause,
         )),
@@ -169,9 +173,11 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
   },
 )
 
-const loadLatestIncompleteRun = Effect.fn(
+// Bare --resume continues this repository's latest incomplete run: the runs
+// root is shared by every repository, and another one's run is never meant.
+export const loadLatestIncompleteRun = Effect.fn(
   "gauntlet.run_record.load_latest_incomplete_run",
-)(function* (runsRoot: string) {
+)(function* (runsRoot: string, repoRoot: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const entries = yield* fs.readDirectory(runsRoot).pipe(
@@ -205,7 +211,7 @@ const loadLatestIncompleteRun = Effect.fn(
           cause,
         )),
     )
-    if (Option.isNone(plan)) continue
+    if (Option.isNone(plan) || plan.value.target.repoRoot !== repoRoot) continue
     const complete = yield* runIsComplete(paths).pipe(
       Effect.mapError((cause) =>
         runError(
@@ -222,16 +228,7 @@ const loadLatestIncompleteRun = Effect.fn(
 
   return yield* runError(
     "find-latest",
-    "no incomplete run with a valid frozen plan was found",
+    `no incomplete run of ${repoRoot} with a valid frozen plan was found`,
     undefined,
   )
-})
-
-export const loadRunToResume = Effect.fn(
-  "gauntlet.run_record.load_run_to_resume",
-)(function* (runsRoot: string, requestedRunId: Option.Option<string>) {
-  return yield* Option.match(requestedRunId, {
-    onNone: () => loadLatestIncompleteRun(runsRoot),
-    onSome: (runId) => loadRun(runsRoot, runId),
-  })
 })
