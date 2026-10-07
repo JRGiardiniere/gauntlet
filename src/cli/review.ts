@@ -422,10 +422,13 @@ export const renderReviewFailures = <R>(
           refuse(`could not review — ${failure.reason}`),
         SpecificationLoadError: (failure) =>
           refuse(`could not review — ${failure.reason} (${failure.path})`),
+        // A failed post may still have landed (gh can fail after posting, and
+        // a posted comment's receipt can fail to save), so a blind retry
+        // could post twice.
         DeliveryError: (failure) =>
           refuse(
             failure.operation === "post" && failure.runId !== undefined
-              ? `could not deliver — ${failure.reason}; retry with gauntlet deliver ${failure.runId}`
+              ? `could not deliver — ${failure.reason}; check the PR for the comment before retrying with gauntlet deliver ${failure.runId}`
               : `could not deliver — ${failure.reason}`,
           ),
         // Configuration failures render standalone: their reasons already

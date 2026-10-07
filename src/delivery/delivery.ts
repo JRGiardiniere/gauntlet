@@ -144,7 +144,9 @@ export const deliverCompletedRun = Effect.fn(
     Effect.mapError((cause) =>
       new DeliveryError({
         operation: "post",
-        reason: `failed to write ${cause.path}`,
+        reason: DeliveryReceipt.guards.Posted(posted)
+          ? `posted ${posted.url}, but failed to write ${cause.path}`
+          : `failed to write ${cause.path}`,
         runId: plan.runId,
         cause,
       })),
