@@ -17,8 +17,8 @@ import {
 } from "../delivery/delivery.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
 import {
+  loadLatestIncompleteRun,
   loadRun,
-  loadRunToResume,
   type LoadedRun,
 } from "../run/run-record.ts"
 import {
@@ -28,7 +28,10 @@ import {
   type SubmissionRequest,
 } from "../run/submission.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
-import { InvocationDirectory } from "../target/invocation-directory.ts"
+import {
+  InvocationDirectory,
+  resolveInvocationProjectRoot,
+} from "../target/invocation-directory.ts"
 import { RunMilestone, RunMilestones } from "../run/run-milestones.ts"
 import { gauntletVersion } from "./version.ts"
 
@@ -73,7 +76,12 @@ const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
   destination: Destination,
 ) {
   const runsRoot = yield* resolveRunsRoot()
-  const resumable = yield* loadRunToResume(runsRoot, requestedRunId)
+  const resumable = Option.isSome(requestedRunId)
+    ? yield* loadRun(runsRoot, requestedRunId.value)
+    : yield* loadLatestIncompleteRun(
+      runsRoot,
+      yield* resolveInvocationProjectRoot(),
+    )
   // The destination guard runs before any paid work: a working-tree run has
   // no PR destination.
   if (destination === "pr") {
@@ -273,7 +281,7 @@ export const reviewCommand = Command.make(
       Flag.optional,
       Flag.withMetavar("[run-id]"),
       Flag.withDescription(
-        "Continue that run from its frozen inputs; omit run-id to select the latest incomplete run. A named complete run reports or delivers its existing artifacts.",
+        "Continue that run from its frozen inputs; omit run-id to select this repository's latest incomplete run. A named complete run reports or delivers its existing artifacts.",
       ),
     ),
     spec: Flag.String("spec").pipe(

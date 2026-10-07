@@ -924,6 +924,24 @@ describe("gauntlet review", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("resumes bare only the invoking repository's incomplete run", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      yield* runUntilFinderStage(review(fixture).effect)
+      const elsewhere = yield* makeDirtyRepo
+
+      const resumed = resume(
+        { ...fixture, repo: elsewhere.repo },
+        undefined,
+        successfulScripted(),
+      )
+      expect(yield* resumed.effect).toBe(1)
+      expect(resumed.scripted.configs).toHaveLength(0)
+      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+        `no incomplete run of ${elsewhere.repo} with a valid frozen plan was found`,
+      )
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("reports the Run's milestones as data beside its progress lines", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo

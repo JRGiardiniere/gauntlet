@@ -98,13 +98,14 @@ Dossier lives on disk.
    it could not review, or a PR comment failed after the review landed. When
    the reason says to run `gauntlet login <provider>`, hand that command to
    the user — it is an interactive browser sign-in only they can complete —
-   then launch the review again once they confirm.
+   then, once they confirm, run the `gauntlet review --resume <run-id>` the
+   reason names, or launch the review again when it names none.
 
    If a run was interrupted (killed shell, crash), do not start a replacement
-   review: `gauntlet review --resume` continues the latest incomplete run from
-   its frozen inputs — completed stages are reused, and the target, recipe,
-   and lenses cannot be re-specified because the plan is frozen. Pass the
-   run id (`--resume <run-id>`) to name a specific run.
+   review: `gauntlet review --resume` continues this repository's latest
+   incomplete run from its frozen inputs — completed stages are reused, and
+   the target, recipe, and lenses cannot be re-specified because the plan is
+   frozen. Pass the run id (`--resume <run-id>`) to name a specific run.
 7. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
    local delivery → link `dossier.md` from the digest paths. A PR destination
    that posted (stderr `posted <url>`) → say the review was delivered as a

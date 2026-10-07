@@ -32,8 +32,9 @@ issues to produce the automatic ReviewSpecification before Run creation.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
-  (continue-from-checkpoint per ADR 0003), defaulting to the latest incomplete
-  run. It continues that exact Run from its frozen inputs — never its own
+  (continue-from-checkpoint per ADR 0003), defaulting to the invoking
+  repository's latest incomplete run (amended per #137: the runs root is
+  shared across repositories). It continues that exact Run from its frozen inputs — never its own
   target re-resolved, never a replacement Run. It reuses only the completed
   Finder stage; a missing checkpoint reruns Finders in the same Run, and Pool,
   Verification, and Judgment always rerun as whole stages under the currently
