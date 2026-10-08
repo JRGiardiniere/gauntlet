@@ -8,8 +8,7 @@ import {
   type EnginePorts,
   inputsStamp,
   renderStrip,
-  reviewArgv,
-  reviewRepo,
+  reviewRequest,
   reviewToolArgs,
   reviewToolInputSchema,
   type RunResult,
@@ -199,30 +198,28 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
   const verdict = result.interrupted ? "cancelled" : result.exitCode === 0 ? "review finished" : "could not review"
   log($, `run ${verdict} exit ${String(result.exitCode)} after ${String(result.seconds)}s interrupted=${String(result.interrupted)}`)
   $.ui.toast(`gc-cli: ${verdict} after ${String(result.seconds)}s`)
+  // The run is over: a review started from here on owns the marker.
+  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   // Why it could not run or deliver, and how a run that reached no exit code
-  // ended, show beside a digest too.
-  // A PR delivery's `posted <url>` is a stderr line, so the agent learns the
-  // comment's address only here.
-  const posted = result.stderr.trim().split("\n").map((line) => line.replace(/^gauntlet: /, "")).filter((line) => line.startsWith("posted "))
-  const update = await notice
+  // ended, show beside a digest too. The CLI's own closing lines are stderr:
+  // a PR delivery's `posted <url>`, and a resumed complete run's location.
+  const closing = result.stderr.trim().split("\n").map((line) => line.replace(/^gauntlet: /, ""))
+    .filter((line) => line.startsWith("posted ") || (digest === "" && line.includes("already complete")))
+  // The update probe gets a second more, as the CLI's notice does; a slow one
+  // never holds back a finished review.
+  const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
   const said = [
     ...(result.refusal === undefined ? [] : [result.refusal]),
     ...(result.ending === undefined ? [] : [result.ending]),
-    ...(digest === "" ? [] : posted),
+    ...closing,
     ...(update === undefined ? [] : [update]),
   ]
-  // With no digest and nothing said, a completed run resumed has the CLI's
-  // own closing lines.
-  const closing = said.length > 0
-    ? said
-    : result.stderr.trim().split("\n").filter((line) => /already complete|posted/.test(line)).slice(-3)
-  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...closing] : [...digest.split("\n"), ...said]
+  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...said] : [...digest.split("\n"), ...said]
   const text = digest === ""
     ? `gc-cli: ${shown.join("\n")}`
     : `gc-cli ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
   await deliver($, text, shown, request.agentId)
   // Bookkeeping comes after the result is shown: a failed write only logs.
-  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
     .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
@@ -336,10 +333,9 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
   }
   // `--repo` runs the review in another checkout: `~/…`, absolute, or from
   // the session's folder.
-  const repo = reviewRepo(request.args)
+  const { argv, repo } = reviewRequest(request.args)
   const cwd = repo === undefined ? request.cwd : repo.startsWith("~") ? `${home}${repo.slice(1)}` : repo.startsWith("/") ? repo : `${request.cwd}/${repo}`
   if (!(await $.fs.exists(cwd))) return `gc-cli: --repo ${String(repo)} names no folder (${cwd}).`
-  const argv = reviewArgv(request.args)
   log($, `starting ${argv.join(" ")} in ${cwd}`)
   markedAgents = ""
   runCwd = cwd

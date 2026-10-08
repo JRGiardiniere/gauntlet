@@ -60,8 +60,9 @@ continues it.
 
 ## Update
 
-The beta is built from a git checkout, `<clone>`: the folder two levels above
-`mod/dist/gc-cli` in `env.CLAUDE_CODE_PLUGIN_DIRS` of `~/.claude/settings.json`.
+The beta is built from a git checkout, `<clone>`: in `env.CLAUDE_CODE_PLUGIN_DIRS`
+of `~/.claude/settings.json`, the path that ends in `/mod/dist/gc-cli`, minus
+that ending.
 It sits on a release tag, not a branch, so don't `git pull`. Follow the
 **Update** section of `<clone>/INSTALL.md`, then tell the person to restart
 Claude Code.

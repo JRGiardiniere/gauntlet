@@ -11,22 +11,18 @@ import * as Schema from "effect/Schema"
 // `--repo <path>` is the mod's own: where the review runs, not an argv word.
 const VALUE_FLAGS = new Set(["--recipe", "--lenses", "--spec", "--destination", "--pr", "--commits", "--resume", "--repo"])
 
+// Words as a shell splits them: a quoted part, even one inside a word
+// (`--repo="~/My Projects/x"`), keeps its spaces and loses its quotes.
 const wordsOf = (args: string): ReadonlyArray<string> =>
-  args.match(/"[^"]*"|'[^']*'|\S+/g)?.map((word) => word.replace(/^(["'])(.*)\1$/, "$2")) ?? []
+  args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((word) => word.replace(/(["'])(.*?)\1/g, "$2")) ?? []
 
-// The repository `--repo` names, as written; undefined for the session's own.
-export const reviewRepo = (args: string): string | undefined => {
-  const words = wordsOf(args)
-  const at = words.findIndex((word) => word === "--repo" || word.startsWith("--repo="))
-  if (at === -1) return undefined
-  const word = words[at] ?? ""
-  return word.startsWith("--repo=") ? word.slice("--repo=".length) : words[at + 1]
-}
-
-export const reviewArgv = (args: string): ReadonlyArray<string> => {
+// The review's argv, and the repository `--repo` names as written (undefined
+// for the session's own).
+export const reviewRequest = (args: string) => {
   const words = wordsOf(args)
   const flags: Array<string> = []
   let target: string | undefined
+  let repo: string | undefined
   for (let index = 0; index < words.length; index++) {
     const word = words[index] ?? ""
     const value = words[index + 1]
@@ -36,7 +32,16 @@ export const reviewArgv = (args: string): ReadonlyArray<string> => {
     } else if (word.startsWith("--")) flags.push(word)
     else target ??= word
   }
-  const argv = ["review", ...flags.filter((flag) => !flag.startsWith("--repo")).map((flag) => (flag.startsWith("--recipe=") ? flag.slice("--recipe=".length) : flag))]
+  const passed = flags.filter((flag) => {
+    if (!flag.startsWith("--repo=")) return true
+    repo = flag.slice("--repo=".length)
+    return false
+  })
+  return { argv: reviewArgv(passed, target), repo }
+}
+
+const reviewArgv = (flags: ReadonlyArray<string>, target: string | undefined): ReadonlyArray<string> => {
+  const argv = ["review", ...flags.map((flag) => (flag.startsWith("--recipe=") ? flag.slice("--recipe=".length) : flag))]
   if (argv.some((word) => word.startsWith("--resume"))) return argv
   // Related files are this host's default: they lifted seeded-bugs-2 from
   // 3.7 to 5.5 of 7 on claude-code/ Seats, and the cost is plan usage (#135).
