@@ -16,7 +16,9 @@ import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
+import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
+import * as GlobalFlag from "effect/cli/GlobalFlag"
 import { listRecipes } from "../src/config/recipe-catalog.ts"
 import { standardsManifestPath } from "../src/config/standards-manifest.ts"
 import { isClaudeCodeSeat } from "../src/domain/recipe.ts"
@@ -281,6 +283,9 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         ReviewCommandError: (failure) => refuse(`could not review — ${failure.reason}`),
         RunRefusal: (refusal) => refuse(refusalText(refusal)),
       }),
+      // The CLI's other global flags (--version, --wizard, --completions,
+      // --log-level) mean nothing in Claude Code: the Mod keeps only --help.
+      Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [GlobalFlag.Help] })),
       Effect.provideService(RunMilestones, onMilestone),
       Effect.provideService(InvocationDirectory, request.cwd),
       Effect.provideService(FetchHttpClient.Fetch, fetchOver(ports)),
