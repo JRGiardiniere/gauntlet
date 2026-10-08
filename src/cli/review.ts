@@ -1,10 +1,13 @@
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
-import * as Result from "effect/Result"
 import * as Command from "effect/cli/Command"
 import * as CliError from "effect/cli/CliError"
 import * as Run from "../run/run.ts"
-import { reviewSyntax, type ReviewCommandError } from "../syntax/syntax.ts"
+import {
+  type Destination,
+  reviewSyntax,
+  type ReviewCommandError,
+} from "../syntax/syntax.ts"
 
 // The CLI's review and deliver: the shared syntax's commands over the Run
 // module, worded as the CLI's output contract (ADR 0005) — the digest on
@@ -14,14 +17,18 @@ export const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
-const review = Effect.fn("Cli.review")(function* (request: Run.ReviewRequest) {
+// The digest is on stdout before the post starts, so a post that hangs or
+// fails never withholds it; a failed post still exits 1, as the post was asked
+// for and did not happen.
+const review = Effect.fn("Cli.review")(function* (
+  request: Run.ReviewRequest,
+  destination: Destination,
+) {
   const reviewed = yield* Run.review(request)
   yield* Console.log(reviewed.digest)
-  if (reviewed.delivery === undefined) return
-  if (Result.isFailure(reviewed.delivery)) {
-    return yield* reviewed.delivery.failure
-  }
-  yield* progress(`posted ${reviewed.delivery.success.url}`)
+  if (destination === "local") return
+  const receipt = yield* Run.deliver(reviewed.runId)
+  yield* progress(`posted ${receipt.url}`)
 })
 
 const deliver = Effect.fn("Cli.deliver")(function* (runId: string) {

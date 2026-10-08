@@ -9,17 +9,20 @@ import * as Command from "effect/cli/Command"
 import type { ReviewRequest } from "../run/run.ts"
 import { SubmissionTargetRequest } from "../run/submission.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
-import { reviewSyntax } from "./syntax.ts"
+import { type Destination, reviewSyntax } from "./syntax.ts"
 
 // The words both Hosts take, as the request or refusal each becomes.
 
+// A parsed review as the Host receives it: the request and its destination.
+type Parsed = ReviewRequest & { readonly destination: Destination }
+
 const parse = (words: ReadonlyArray<string>, relatedFiles: boolean) => {
-  let parsed: ReviewRequest | string | undefined
+  let parsed: Parsed | string | undefined
   const gauntlet = Command.make("gauntlet").pipe(
     Command.withSubcommands(reviewSyntax({ relatedFiles }, {
-      review: (request) =>
+      review: (request, destination) =>
         Effect.sync(() => {
-          parsed = request
+          parsed = { ...request, destination }
         }),
       deliver: (runId) =>
         Effect.sync(() => {
@@ -54,9 +57,12 @@ const AIMED_HEAD =
 const table: ReadonlyArray<{
   readonly words: ReadonlyArray<string>
   readonly relatedFiles?: boolean
-  readonly becomes: Partial<ReviewRequest> | string
+  readonly becomes: Partial<Parsed> | string
 }> = [
-  { words: ["review"], becomes: { target: workingTree, directory: "/work/repo", relatedFiles: false } },
+  {
+    words: ["review"],
+    becomes: { target: workingTree, directory: "/work/repo", relatedFiles: false, destination: "local" },
+  },
   { words: ["review", "--working-tree"], becomes: { target: workingTree } },
   {
     words: ["review", "12", "--recipe", "high"],

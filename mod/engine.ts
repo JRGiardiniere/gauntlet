@@ -15,7 +15,6 @@ import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
-import * as Result from "effect/Result"
 import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
@@ -107,13 +106,6 @@ const refusalText = (refusal: Run.RunRefusal) =>
     : refusal.unconfigured === true
     ? `${refusal.reason}; set up Gauntlet's recipes and settings as its INSTALL.md says`
     : refusal.reason
-
-const deliveryNotes = (reviewed: Run.Reviewed): ReadonlyArray<string> => {
-  if (reviewed.delivery === undefined) return []
-  return Result.isSuccess(reviewed.delivery)
-    ? [`posted ${reviewed.delivery.success.url}`]
-    : [refusalText(reviewed.delivery.failure)]
-}
 
 // The mod has no global fetch; Linear's FetchHttpClient gets this one over
 // `$.http.fetch`. FetchHttpClient calls it with a URL, a method, a header
@@ -237,15 +229,30 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Command.withSubcommands(reviewSyntax({ relatedFiles: true }, {
         // Only words that became a review draw the strip: help, a delivery
         // and words that never parsed leave it to the last review.
-        review: (review) =>
+        // A pull-request destination delivers the Run once its digest is the
+        // answer: the post's receipt or refusal becomes a note under it, and
+        // a run cancelled while posting still shows the digest.
+        review: (review, destination) =>
           Effect.sync(() => {
             progress = shown
             parsed(review)
           }).pipe(
             Effect.andThen(Run.review(review)),
-            Effect.map((reviewed) => {
-              answer = { verdict: "review finished", digest: reviewed.digest, notes: deliveryNotes(reviewed) }
-            }),
+            Effect.tap((reviewed) =>
+              Effect.sync(() => {
+                answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
+              })
+            ),
+            Effect.flatMap((reviewed) =>
+              destination === "local"
+                ? Effect.void
+                : Run.deliver(reviewed.runId).pipe(
+                  Effect.match({ onSuccess: (receipt) => `posted ${receipt.url}`, onFailure: refusalText }),
+                  Effect.map((note) => {
+                    answer = { verdict: "review finished", digest: reviewed.digest, notes: [note] }
+                  }),
+                )
+            ),
           ),
         deliver: (runId) =>
           Run.deliver(runId).pipe(
@@ -308,7 +315,13 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         const seconds = Math.round((Date.now() - startedAt) / 1000)
         if (Exit.isFailure(exit)) {
           const cancelled = Cause.hasInterruptsOnly(exit.cause)
-          resolve({ verdict: cancelled ? "cancelled" : "run ended", digest: "", notes: cancelled ? [] : [defectText(exit.cause)], seconds })
+          // Only a review that finished and was posting has a digest here.
+          resolve({
+            verdict: cancelled ? "cancelled" : "run ended",
+            digest: answer?.digest ?? "",
+            notes: cancelled ? [] : [defectText(exit.cause)],
+            seconds,
+          })
         } else resolve({ ...(answer ?? { verdict: "help", digest: printed.trim(), notes: [] }), seconds })
       })
     })

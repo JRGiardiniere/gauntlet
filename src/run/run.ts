@@ -3,7 +3,6 @@ import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import type * as PlatformError from "effect/PlatformError"
-import type * as Result from "effect/Result"
 import {
   type RecipeCatalogError,
   type RecipeSelectionError,
@@ -12,7 +11,6 @@ import {
 import { resolveRunsRoot, type SettingsError } from "../config/settings.ts"
 import type { ContentLoadError } from "../content/lens.ts"
 import type { PromptAssemblyError } from "../content/prompt-template.ts"
-import type { DeliveryReceipt } from "../domain/delivery-receipt.ts"
 import type { CoverageGap } from "../domain/dossier.ts"
 import { deliverCompletedRun, DeliveryError } from "../delivery/delivery.ts"
 import type {
@@ -49,11 +47,7 @@ export interface ReviewRequest extends Omit<SubmissionRequest, "addendum"> {
   readonly directory: string
   // The Caller Addendum's Markdown file, already resolved.
   readonly specPath: string | undefined
-  // pr also posts the Dossier on the reviewed pull request.
-  readonly destination: "local" | "pr"
 }
-
-type Posted = Extract<DeliveryReceipt, { readonly _tag: "Posted" }>
 
 // A review that produced its Dossier: zero findings included, coverage gaps
 // included.
@@ -62,9 +56,6 @@ export interface Reviewed {
   readonly paths: RunPaths
   readonly digest: string
   readonly coverageGaps: ReadonlyArray<CoverageGap>
-  // With the pull-request destination, where the Dossier was posted or why it
-  // was not; the review stands either way.
-  readonly delivery: Result.Result<Posted, RunRefusal> | undefined
 }
 
 // Why a review could not run, or a Run could not be posted, as one line every
@@ -149,8 +140,9 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
   }
 }
 
-// Reviews the request to its Dossier: Submission, the Stages, the run record,
-// then the post when the request asks for one.
+// Reviews the request to its Dossier: Submission, the Stages and the run
+// record. Posting the Dossier is `deliver`'s alone, which a Host calls once it
+// has shown the digest.
 export const review = Effect.fn("Run.review")(
   function* (request: ReviewRequest) {
     const startedAt = yield* DateTime.now
@@ -165,18 +157,11 @@ export const review = Effect.fn("Run.review")(
       ...loaded,
       startedAt,
     })
-    const delivery = request.destination === "pr"
-      ? yield* deliverCompletedRun(loaded).pipe(
-        Effect.mapError(refusalOf),
-        Effect.result,
-      )
-      : undefined
     return {
       runId: loaded.plan.runId,
       paths: loaded.paths,
       digest,
       coverageGaps,
-      delivery,
     } satisfies Reviewed
   },
   (effect, request) =>

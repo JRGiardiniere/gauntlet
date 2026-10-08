@@ -250,10 +250,11 @@ describe("gauntlet review", () => {
 })
 
 describe("gauntlet deliver", () => {
-  it.effect("names the retry when a pull request's post may have landed, then posts the Run", () =>
+  it.effect("prints the digest before a pull request's post, names the retry when the post may have landed, then posts the Run", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       const url = "https://github.com/example/repo/pull/7#issuecomment-1"
+      let stdoutAtPost = ""
       const github = (posted: boolean) =>
         gitHubLayer({
           ...unusedGitHubContract,
@@ -262,8 +263,13 @@ describe("gauntlet deliver", () => {
           postComment: () =>
             posted
               ? Effect.succeed({ url })
-              : Effect.fail(
-                new GitHubError({ operation: "post", reason: "gh timed out" }),
+              : TestConsole.logLines.pipe(
+                Effect.flatMap((lines) => {
+                  stdoutAtPost = lines.join("\n")
+                  return Effect.fail(
+                    new GitHubError({ operation: "post", reason: "gh timed out" }),
+                  )
+                }),
               ),
         })
 
@@ -277,7 +283,7 @@ describe("gauntlet deliver", () => {
       const [runId = ""] = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readDirectory(fixture.runsRoot)),
       )
-      expect((yield* TestConsole.logLines).join("\n")).toContain("dossier.md: ")
+      expect(stdoutAtPost).toContain("dossier.md: ")
       expect((yield* TestConsole.errorLines).at(-1)).toBe(
         `gauntlet: could not deliver — gh timed out; check the PR for the comment before retrying with gauntlet deliver ${runId}`,
       )

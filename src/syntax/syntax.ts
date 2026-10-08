@@ -18,16 +18,25 @@ import { InvocationDirectory } from "../target/invocation-directory.ts"
 //          [--destination local|pr] [--repo <path>]
 //   deliver <run-id>
 //
-// A Host hands in what it does with a parsed review request and a run id:
-// the words become the Run module's typed request here and nowhere else.
+// A Host hands in what it does with a parsed review request and its
+// destination, and with a run id: the words become the Run module's typed
+// request here and nowhere else.
 
 // A review whose words parse but ask for something no review can be.
 export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
   readonly reason: string
 }> {}
 
+// Where a review's Dossier goes: local stays in the run directory, pr is also
+// posted on the reviewed pull request, by the Host delivering the Run once it
+// has shown the digest.
+export type Destination = "local" | "pr"
+
 export interface HostVerbs<E, R> {
-  readonly review: (request: ReviewRequest) => Effect.Effect<void, E, R>
+  readonly review: (
+    request: ReviewRequest,
+    destination: Destination,
+  ) => Effect.Effect<void, E, R>
   readonly deliver: (runId: string) => Effect.Effect<void, E, R>
 }
 
@@ -39,7 +48,7 @@ interface ReviewInput {
   readonly spec: Option.Option<string>
   readonly githubSpec: boolean
   readonly relatedFiles: boolean
-  readonly destination: "local" | "pr"
+  readonly destination: Destination
   readonly repo: Option.Option<string>
 }
 
@@ -110,7 +119,6 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
       ? yield* resolveWritten(input.spec.value)
       : undefined,
     relatedFiles: input.relatedFiles,
-    destination: input.destination,
   } satisfies ReviewRequest
 })
 
@@ -183,7 +191,10 @@ export const reviewSyntax = <E, R>(
           ),
         ),
       },
-      (input) => reviewRequestOf(input).pipe(Effect.flatMap(verbs.review)),
+      (input) =>
+        reviewRequestOf(input).pipe(
+          Effect.flatMap((request) => verbs.review(request, input.destination)),
+        ),
     ).pipe(
       Command.withDescription(
         "Review the uncommitted changes, a commit range, or a pull request",

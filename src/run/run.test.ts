@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
-import * as Result from "effect/Result"
 import * as TestConsole from "effect/testing/TestConsole"
 import {
   gitHubLayer,
@@ -47,7 +46,6 @@ const review = (
     selectedLensNames: ["fixture-review"],
     specPath: undefined,
     relatedFiles: false,
-    destination: "local",
     ...fields,
   }).pipe(
     // Run from outside the checkout: the request's directory is where the
@@ -73,7 +71,6 @@ describe("Run.review", () => {
       expect(reviewed.digest).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
       expect(reviewed.digest).toContain(`dossier.md: ${reviewed.paths.dossierMarkdown}`)
       expect(reviewed.coverageGaps).toEqual([])
-      expect(reviewed.delivery).toBeUndefined()
       // The answer is data: a review prints no digest itself.
       expect(yield* TestConsole.logLines).toEqual([])
 
@@ -193,8 +190,8 @@ describe("Run.review", () => {
 
 // A failed post's unconfirmed Run is the CLI suite's deliver journey
 // (src/cli/main.test.ts), which words exactly that field.
-describe("Run delivery", () => {
-  it.effect("posts a pull-request review with it, and answers that receipt when delivered again", () =>
+describe("Run.deliver", () => {
+  it.effect("posts a pull-request Run, and answers that receipt when delivered again", () =>
     Effect.gen(function* () {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       const url = "https://github.com/example/repo/pull/7#issuecomment-1"
@@ -215,18 +212,16 @@ describe("Run delivery", () => {
         successfulScripted(),
         {
           target: SubmissionTargetRequest.PullRequest({ number: 7, githubSpecOnly: false }),
-          destination: "pr",
         },
         github,
       )
-      expect(reviewed.delivery).toEqual(
-        Result.succeed(expect.objectContaining({ url })),
-      )
+      expect(posts).toEqual([])
 
-      const again = yield* Run.deliver(reviewed.runId).pipe(
+      const deliver = Run.deliver(reviewed.runId).pipe(
         provideReviewFixture(fixture, makeScripted({ sessions: [] }), github),
       )
-      expect(again.url).toBe(url)
+      expect((yield* deliver).url).toBe(url)
+      expect((yield* deliver).url).toBe(url)
       expect(posts).toEqual([7])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
