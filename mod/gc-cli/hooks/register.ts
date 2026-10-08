@@ -203,7 +203,7 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
   // ended, show beside a digest too.
   // A PR delivery's `posted <url>` is a stderr line, so the agent learns the
   // comment's address only here.
-  const posted = result.stderr.trim().split("\n").filter((line) => line.startsWith("posted "))
+  const posted = result.stderr.trim().split("\n").map((line) => line.replace(/^gauntlet: /, "")).filter((line) => line.startsWith("posted "))
   const update = await notice
   const said = [
     ...(result.refusal === undefined ? [] : [result.refusal]),
