@@ -37,8 +37,8 @@ curl -fsSL https://raw.githubusercontent.com/JRGiardiniere/gauntlet/main/install
 ```
 
 The installer puts the binary in `~/.local/bin`, installs the Gauntlet agent
-skill in `~/.agents/skills/gauntlet`, and links that skill into
-`~/.claude/skills/gauntlet`.
+skill in `~/.agents/skills/gauntlet-cli`, and links that skill into
+`~/.claude/skills/gauntlet-cli`.
 
 Then:
 
@@ -54,7 +54,7 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
 - **Lenses** — drop markdown files in `.gauntlet/lenses/` for project-local
   review standards; `--lenses a,b` selects exactly those for one run.
 - **Agent skill** — the installer keeps the shared skill in
-  `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
+  `~/.agents/skills/gauntlet-cli` so coding agents can run reviews from any repo.
 
 ### In Claude Code, on your Claude plan
 
@@ -64,7 +64,8 @@ agent that asked. It needs no CLI. Ask Claude Code:
 
 > Install Gauntlet for Claude Code by following https://github.com/JRGiardiniere/gauntlet/blob/main/INSTALL.md
 
-It installs the newest release; "update your gc-cli plugin" moves to the next.
+It installs the newest release; "update Gauntlet" moves to the next. Type `/gauntlet` to start a
+review yourself.
 
 ## Debugging a review
 

@@ -12,5 +12,5 @@ export const releaseNotice = (current: string, remote: string): string | undefin
     .reduce((best, version) => (isNewer(version, best) ? version : best), installed)
   return newest === installed || !isNewer(newest, installed)
     ? undefined
-    : `Gauntlet v${newest} is available (this is v${installed}): ask Claude to update the gc-cli plugin, then restart Claude Code.`
+    : `Gauntlet v${newest} is available (this is v${installed}): ask Claude to update Gauntlet, then restart Claude Code.`
 }

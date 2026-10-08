@@ -2,7 +2,7 @@ import { flow } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
-// `/gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…]` as `gauntlet
+// `/gauntlet [target] [--recipe=…] [--lenses=…] [--spec=…]` as `gauntlet
 // review` argv. The target is `gauntlet review`'s: nothing is the working
 // tree, a number a pull request, anything else `--commits` (`base..head`,
 // or a base whose merge-base with HEAD starts the range). Other flags pass
@@ -59,7 +59,7 @@ const reviewArgv = (flags: ReadonlyArray<string>, target: string | undefined): R
 // The review tool's `args`, decoded where the call arrives; undefined when
 // the call carries none.
 const ReviewToolInput = Schema.Struct({
-  args: Schema.String.annotate({ description: "The review's target and flags, as /gc-cli takes them" }),
+  args: Schema.String.annotate({ description: "The review's target and flags, as /gauntlet takes them" }),
 })
 
 // The tool's input schema, projected from the decoder below.

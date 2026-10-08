@@ -1,14 +1,14 @@
-// The build-mod step's runMain boundary: builds the gc-cli Claude Code mod
+// The build-mod step's runMain boundary: builds the Mod
 // (#134 Idea 3) as two plugin folders under mod/dist, or under the folder
 // given as the first argument (the mod rebuilds itself into its own
 // plugin folder's parent).
 //
-// mod/gc-cli and mod/gc-cli-tools are the plugins minus their vendor
+// mod/gauntlet and mod/gauntlet-tools are the plugins minus their vendor
 // folders. Their hooks modules ship as source (the engine reads a hooks
 // module's source statically), with their imports of the bundled slices
 // respelled to hooks/vendor/*.js:
-//   gc-cli        vendor/engine.js  the review program (mod/engine.ts)
-//   gc-cli-tools  vendor/tools.js   emit contracts and fence (mod/tools-core.ts)
+//   gauntlet        vendor/engine.js  the review program (mod/engine.ts)
+//   gauntlet-tools  vendor/tools.js   emit contracts and fence (mod/tools-core.ts)
 // Each bundle carries exactly one Effect copy: Bun resolves `effect` from
 // this repository's node_modules (a second copy fails every Schema decode).
 // Pi stays out of the import graph: the lens loader's parseFrontmatter is
@@ -67,8 +67,8 @@ class ModBuildFailed extends Data.TaggedError("ModBuildFailed")<{
 const repoRoot = `${import.meta.dirname}/..`
 
 const plugins = [
-  { name: "gc-cli", entry: "engine.ts", vendor: "engine.js", respell: "../../engine.ts" },
-  { name: "gc-cli-tools", entry: "tools-core.ts", vendor: "tools.js", respell: "../../tools-core.ts" },
+  { name: "gauntlet", entry: "engine.ts", vendor: "engine.js", respell: "../../engine.ts" },
+  { name: "gauntlet-tools", entry: "tools-core.ts", vendor: "tools.js", respell: "../../tools-core.ts" },
 ] as const
 
 const frontmatterModule = `${repoRoot}/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js`
@@ -76,7 +76,7 @@ const frontmatterModule = `${repoRoot}/node_modules/@earendil-works/pi-coding-ag
 const refused: Array<string> = []
 
 const graphGuard = {
-  name: "gc-cli-graph",
+  name: "gauntlet-graph",
   setup: (build: BunPluginBuild) => {
     build.onResolve({ filter: /^@earendil-works\/pi-coding-agent$/ }, () => ({ path: "pi", namespace: "gc-pi" }))
     build.onLoad({ filter: /.*/, namespace: "gc-pi" }, () => ({
@@ -158,7 +158,7 @@ const program = Effect.gen(function* () {
     const source = `${root}/mod/${plugin.name}`
     // Staged outside the watched folder, then moved in by one rename, so the
     // watcher sees one whole plugin change.
-    const staging = `${yield* fs.makeTempDirectoryScoped({ prefix: "gc-cli-build-" })}/${plugin.name}`
+    const staging = `${yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-build-" })}/${plugin.name}`
     const dir = `${outDir}/${plugin.name}`
     yield* fs.makeDirectory(`${staging}/hooks/vendor`, { recursive: true })
     const built = yield* Effect.tryPromise({
@@ -195,7 +195,7 @@ const program = Effect.gen(function* () {
       `${staging}/hooks/register.ts`,
       hooks.replaceAll(`"${plugin.respell}"`, `"./vendor/${plugin.vendor}"`),
     )
-    if (plugin.name === "gc-cli") {
+    if (plugin.name === "gauntlet") {
       yield* fs.writeFileString(`${staging}/hooks/vendor/build.json`, `${yield* encodeJson(info)}\n`)
     }
     yield* fs.makeDirectory(outDir, { recursive: true })

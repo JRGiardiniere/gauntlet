@@ -1,0 +1,6 @@
+{
+  "name": "gauntlet-tools",
+  "version": "0.1.0",
+  "description": "Emit tools, tool events and the ReviewWorkspace fence for the gauntlet plugin's agents",
+  "types": "./types/index.d.ts"
+}

@@ -1,4 +1,4 @@
-// gc-cli's strip: a review in flight, drawn above the prompt by the hooks
+// The Mod's strip: a review in flight, drawn above the prompt by the hooks
 // module's `ui.render` hook on `AbovePrompt`. Line 1 is each stage with one
 // mark per agent; line 2, always there, is the elapsed time and what the run
 // is doing in plain words. Once the dossier is written, line 1 is its Review

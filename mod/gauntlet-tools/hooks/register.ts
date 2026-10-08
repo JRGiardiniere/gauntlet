@@ -1,12 +1,12 @@
 import type { EngineInterface, Register, ToolCallResult, ToolCheckResult } from "claude-code"
-import type { GcCliToolsEvent, GcCliToolsJson } from "../types/index.d.ts"
+import type { GauntletToolsEvent, GauntletToolsJson } from "../types/index.d.ts"
 import { checkEmit, emitTools, FENCED_TOOLS, fencedInputOf, fencedPathOf, isInsideRoot } from "../../tools-core.ts"
 
-// gc-cli-tools (#134 Idea 3): what must see gc-cli's agents. Agents skip
-// the hooks of the plugin that spawned them, so gc-cli cannot answer its
+// gauntlet-tools (#134 Idea 3): what must see the gauntlet plugin's agents. Agents skip
+// the hooks of the plugin that spawned them, so the gauntlet plugin cannot answer its
 // own agents' emit tools or watch their reads. This plugin serves the emit
 // tools with the review program's strict decoders, records each agent's tool
-// calls and emits in its own state (gc-cli's engine reads them in order),
+// calls and emits in its own state (the Mod's engine reads them in order),
 // and fences Read/Grep/Glob to the agent's review snapshot.
 //
 // Every hook names its tool: matcher-less tool.call/tool.check hooks break
@@ -14,7 +14,7 @@ import { checkEmit, emitTools, FENCED_TOOLS, fencedInputOf, fencedPathOf, isInsi
 
 type Engines = EngineInterface
 
-// What gc-cli publishes per agent (its contract, gc-cli/types, is the
+// What the gauntlet plugin publishes per agent (its contract, gauntlet/types, is the
 // definition; a plugin may import only its own files).
 interface PublishedAgent {
   readonly invocation: string
@@ -22,10 +22,10 @@ interface PublishedAgent {
   readonly root: string
 }
 
-const agentsRef = { plugin: "gc-cli", key: "agents" } as const
-const eventsRef = { plugin: "gc-cli-tools", key: "events" } as const
+const agentsRef = { plugin: "gauntlet", key: "agents" } as const
+const eventsRef = { plugin: "gauntlet-tools", key: "events" } as const
 
-const logs = new Map<string, Array<GcCliToolsEvent>>()
+const logs = new Map<string, Array<GauntletToolsEvent>>()
 const writing = new Map<string, Promise<unknown>>()
 const byToolUse = new Map<string, PublishedAgent>()
 
@@ -37,7 +37,7 @@ async function agentOf($: Engines, agentId: string | undefined): Promise<Publish
 // Appends to one agent's log, in call order. The log is the host's: a
 // reload of this plugin picks it up where it stood. A write that fails
 // rejects and leaves the log as it was; later writes carry on.
-function record($: Engines, agentId: string, event: GcCliToolsEvent) {
+function record($: Engines, agentId: string, event: GauntletToolsEvent) {
   const previous = writing.get(agentId) ?? Promise.resolve()
   const next = previous.then(async () => {
     let log = logs.get(agentId)
@@ -53,7 +53,7 @@ function record($: Engines, agentId: string, event: GcCliToolsEvent) {
 }
 
 // A tool event only feeds the run view, which does without a lost one.
-function recordQuietly($: Engines, agentId: string, event: GcCliToolsEvent) {
+function recordQuietly($: Engines, agentId: string, event: GauntletToolsEvent) {
   record($, agentId, event).catch(() => undefined)
 }
 
@@ -64,10 +64,10 @@ interface ToolEnvelope {
 }
 
 // A tool call's arguments, the envelope fields taken off.
-function argsOf(e: ToolEnvelope): GcCliToolsJson {
+function argsOf(e: ToolEnvelope): GauntletToolsJson {
   // SAFETY: a tool call's input is the JSON the model sent, parsed by the
   // engine from the tool_use block; only the envelope fields are not JSON input.
-  const { agentId: _agent, tool: _tool, tool_use_id: _use, ...args } = e as ToolEnvelope & Record<string, GcCliToolsJson>
+  const { agentId: _agent, tool: _tool, tool_use_id: _use, ...args } = e as ToolEnvelope & Record<string, GauntletToolsJson>
   return args
 }
 
@@ -136,10 +136,10 @@ export const register: Register = (on) => {
     return started
   })
 
-  on("tool.call", { tool: "mcp__gc-cli-tools__emit_findings" }, ($, e) => serveEmit($, e, "emit_findings"))
-  on("tool.call", { tool: "mcp__gc-cli-tools__emit_pool" }, ($, e) => serveEmit($, e, "emit_pool"))
-  on("tool.call", { tool: "mcp__gc-cli-tools__emit_verdicts" }, ($, e) => serveEmit($, e, "emit_verdicts"))
-  on("tool.call", { tool: "mcp__gc-cli-tools__emit_judgments" }, ($, e) => serveEmit($, e, "emit_judgments"))
+  on("tool.call", { tool: "mcp__gauntlet-tools__emit_findings" }, ($, e) => serveEmit($, e, "emit_findings"))
+  on("tool.call", { tool: "mcp__gauntlet-tools__emit_pool" }, ($, e) => serveEmit($, e, "emit_pool"))
+  on("tool.call", { tool: "mcp__gauntlet-tools__emit_verdicts" }, ($, e) => serveEmit($, e, "emit_verdicts"))
+  on("tool.call", { tool: "mcp__gauntlet-tools__emit_judgments" }, ($, e) => serveEmit($, e, "emit_judgments"))
 
   on("tool.call", { tool: "Read" }, ($, e, next) => trackTool($, e, next))
   on("tool.call", { tool: "Grep" }, ($, e, next) => trackTool($, e, next))

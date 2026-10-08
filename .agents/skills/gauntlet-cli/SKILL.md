@@ -1,18 +1,18 @@
 ---
-name: gauntlet
+name: gauntlet-cli
 description: >-
-  Runs `gauntlet review` through an agent host's managed long-running execution
-  and relays the stdout digest verbatim. Use when asked to review uncommitted
-  changes, a branch's commits, or a pull request, to configure a Recipe, or to
-  deliver a completed Dossier.
+  Runs the Gauntlet CLI's `gauntlet review` as your own managed long-running
+  command and relays the stdout digest verbatim. Use when asked to review
+  uncommitted changes, a branch's commits, or a pull request, to configure a
+  Recipe, or to deliver a completed Dossier.
 ---
 
 # Gauntlet
 
-One host-managed command. Stdout is a bounded digest to relay verbatim. The
-Dossier lives on disk.
+One long-running command that you manage. Stdout is a bounded digest to relay
+verbatim. The Dossier lives on disk.
 
-**In Claude Code with the gc-cli mod loaded** (an `mcp__gc-cli__review` tool
+**In Claude Code with Gauntlet's mod loaded** (an `mcp__gauntlet__review` tool
 exists), start a review with that tool instead: it runs the same review on
 `claude-code/` Seats, which the CLI cannot run, and its digest reaches you as
 a message. Everything below is the CLI.
@@ -70,7 +70,7 @@ a message. Everything below is the CLI.
    is read once and frozen into the plan; a missing, unreadable, or empty file
    fails before any run is created, and `--spec` cannot be combined with
    `--resume`.
-6. **Launch** through the agent host's managed long-running execution
+6. **Launch** through your own managed long-running execution
    mechanism:
 
    ```
@@ -78,8 +78,8 @@ a message. Everything below is the CLI.
    ```
 
    Keep `gauntlet review ...` in the foreground inside that facility. Retain
-   the process or task handle and any output path returned by the host, then use
-   the host's wait or output operation until the command exits. Do not wrap the
+   the process or task handle and any output path it returns, then use its
+   wait or output operation until the command exits. Do not wrap the
    command in `nohup` or append `&`; shell detachment can end the managed shell
    invocation before Gauntlet finishes and lose lifecycle or output tracking.
 
@@ -94,7 +94,7 @@ a message. Everything below is the CLI.
 
    A review takes minutes because it fans out real model invocations and
    streams progress to stderr. Do not kill a run for being slow while progress
-   lines still arrive. If a launch exits immediately with no host handle, no
+   lines still arrive. If a launch exits immediately with no process handle, no
    Gauntlet run ID, and no output, it did not start a review. Launch it once
    more through managed execution. Once Gauntlet prints a run ID, handle any
    interruption with `--resume` as described below.
