@@ -376,7 +376,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           agentIds: driver.agentIds(),
           snapshots: driver.snapshots(),
         },
-    stats: driver.stats,
     view: (): RunView | undefined =>
       progress === undefined
         ? undefined

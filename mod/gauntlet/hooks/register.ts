@@ -213,9 +213,6 @@ async function finishRun($: Engines, result: RunResult, request: StartRequest, n
     ? `gauntlet: ${shown.join("\n")}`
     : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
   await deliver($, text, shown, request.agentId)
-  // Bookkeeping comes after the result is shown: a failed write only logs.
-  await $.fs.write(`${modDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
-    .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
 
 // A subagent that started the review gets its digest as a message, which
