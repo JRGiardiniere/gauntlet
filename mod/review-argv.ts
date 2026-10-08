@@ -4,9 +4,10 @@ import * as Schema from "effect/Schema"
 
 // The words typed after /gauntlet (or passed as the review tool's `args`), as
 // the shared syntax (src/syntax/syntax.ts) parses them: `deliver <run-id>`,
-// or a review, whose `review` may be left out. Words split as a shell splits
-// them: a quoted part, even one inside a word (`--repo="~/My Projects/x"`),
-// keeps its spaces and loses its quotes.
+// or a review, whose `review` may be left out. Words split at whitespace
+// outside quotes: a quoted part, even one inside a word
+// (`--repo="~/My Projects/x"`), keeps its spaces and loses its quotes. A
+// backslash escapes nothing, so a path with spaces is quoted.
 export const commandWords = (args: string): ReadonlyArray<string> => {
   const words = args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((word) => word.replace(/(["'])(.*?)\1/g, "$2")) ?? []
   return words[0] === "review" || words[0] === "deliver" ? words : ["review", ...words]
