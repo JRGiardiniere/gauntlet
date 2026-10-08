@@ -21,6 +21,17 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
 
 ## Decisions
 
+- **The Mod takes the plain name; the CLI carries the qualifier.** The Mod's
+  command, plugins and review tool become `/gauntlet`, `gauntlet` and
+  `gauntlet-tools`, and `mcp__gauntlet__review`; the CLI's agent skill becomes
+  `gauntlet-cli`, since Claude Code lists skills as slash commands and the two
+  cannot share `gauntlet` there. Someone using only the Mod sees Gauntlet;
+  with both installed, the `-cli` one is the one that is a CLI. Rejected:
+  `gc-cli` (says "cli" on the version that isn't), `/gauntlet-review` (one
+  character from the CLI's `gauntlet review`), and `/gauntlet-claude` or
+  `/gauntlet-mod` (a qualifier on the name Mod-only users see). Until the
+  rename (#155) lands, the code and the rest of this record still say
+  `gc-cli`.
 - **A Host runs only its own Seats.** `claude-code/` Seats run only on the
   Claude Code Host, which runs no other provider; Submission refuses a Recipe
   whose Seats its Host cannot run, before a Run exists.

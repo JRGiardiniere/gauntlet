@@ -52,11 +52,36 @@ _Avoid_: agent run, agent call, session (a session is the harness resource an
 invocation uses, not the invocation itself)
 
 **Host**:
-The agent platform a Run's AgentInvocations execute on: Pi, under `gauntlet
-review`, or Claude Code, under `/gc-cli`. Each Host runs only its own Seats;
-the review program is the same on both.
+The agent platform a Run's AgentInvocations execute on: Pi or Claude Code.
+Each Host runs only its own Seats, and each way of starting a Run is bound to
+one Host; the review program is the same on both.
 _Avoid_: harness, backend, runtime, provider (a provider serves models; a Host
-runs invocations)
+runs invocations), agent host (that's the Caller)
+
+**Caller**:
+The person or agent that starts a Run and receives its result: a person at a
+shell, or a coding agent such as Codex or Claude Code. The Caller is
+independent of the Host — Claude Code can call the CLI, whose Run executes on
+Pi.
+_Avoid_: agent host, client, user
+
+**CLI**:
+Gauntlet's standalone command-line program, `gauntlet`, whose Runs execute on
+the Pi Host.
+_Avoid_: `gauntlet review` as the program's name (it is one of its commands),
+the Pi version
+
+**Mod**:
+Gauntlet inside Claude Code, started with `/gauntlet` or its review tool,
+whose Runs execute on the Claude Code Host. Someone using only the Mod knows
+it as Gauntlet; beside it, the CLI's agent skill carries the qualifier.
+_Avoid_: gc-cli (its former name), beta (a release status, not a name), the
+Claude version, Claude Code Host (that's where its Runs execute)
+
+**Machine**:
+The computer a Run executes on, outside any ReviewWorkspace — its real files,
+processes, and credentials.
+_Avoid_: host (that's the agent platform), host path, host file
 
 **ReviewWorkspace**:
 The confined repository view exposed to filesystem-capable AgentInvocations,
@@ -64,7 +89,7 @@ over the Run's frozen snapshot. On Pi it is, per invocation, a copy-on-write
 overlay behind a stable virtual root, with invocation-local disposable
 scratch writes; on Claude Code it is read-only tools fenced to the snapshot
 itself. Either way the snapshot stays unmodified, and the machine is out of
-reach by capability reduction — no guest git, host processes, or network —
+reach by capability reduction — no guest git, machine processes, or network —
 not by hardened isolation against a hostile repository.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
