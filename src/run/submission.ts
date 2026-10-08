@@ -2,7 +2,7 @@ import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import { resolveReviewRecipe } from "../config/recipe-catalog.ts"
+import { listRecipes, resolveReviewRecipe } from "../config/recipe-catalog.ts"
 import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
@@ -103,6 +103,29 @@ export interface SubmissionRequest {
   readonly relatedFiles?: boolean
 }
 
+// A commit target that does not resolve but names a Recipe is most likely a
+// recipe written where the target goes. The catalog is read only then, and a
+// catalog that cannot be read leaves the failure as it was.
+const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
+  listRecipes().pipe(
+    Effect.map((entries) =>
+      entries.some((entry) =>
+        entry._tag === "ValidRecipe" && entry.name === written
+      )
+    ),
+    Effect.orElseSucceed(() => false),
+    Effect.flatMap((named) =>
+      Effect.fail(
+        named
+          ? new TargetUnresolvable({
+            reason: `${failure.reason}; did you mean --recipe ${written}?`,
+            cause: failure.cause,
+          })
+          : failure,
+      )
+    ),
+  )
+
 const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
   function* (request: SubmissionTargetRequest) {
     const directory = yield* InvocationDirectory
@@ -112,13 +135,17 @@ const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
     }
     if (SubmissionTargetRequest.$is("Commits")(request)) {
       yield* progress(`resolving ${request.range} review target`)
-      return yield* resolveCommitsTarget(directory, request.range)
+      return yield* resolveCommitsTarget(directory, request.range).pipe(
+        Effect.catchTag("TargetUnresolvable", hintRecipe(request.range)),
+      )
     }
     if (request.base !== undefined) {
       yield* progress(
         `resolving ${request.base} plus working-tree review target`,
       )
-      return yield* resolveWorkingTreeTarget(directory, request.base)
+      return yield* resolveWorkingTreeTarget(directory, request.base).pipe(
+        Effect.catchTag("TargetUnresolvable", hintRecipe(request.base)),
+      )
     }
     yield* progress("resolving working-tree review target")
     return yield* resolveWorkingTreeTarget(directory, undefined)
