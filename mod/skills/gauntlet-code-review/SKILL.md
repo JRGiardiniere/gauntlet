@@ -23,7 +23,10 @@ agents run on the person's Claude plan.
 | their uncommitted changes | nothing |
 | pull request 42 | `42` |
 | this branch's commits | `main` (the commits since its merge-base with `main`) |
-| a commit range | `abc123..def456` |
+| this branch's work including uncommitted edits | `main --working-tree` |
+| a commit range | `abc123..def456` (`abc~1..abc` is one commit) |
+
+It's the CLI's `gauntlet review` syntax, the same words.
 
 When you cannot tell which they mean, ask before starting.
 
@@ -41,6 +44,11 @@ that isn't cloned on this machine can't be reviewed.
 - `--destination pr` only when they ask to post the review on the pull request:
   a pull-request review also posts `dossier.md` as a PR comment, and the digest
   ends with `posted <url>`.
+
+To post a finished pull-request review the person asks to post afterwards,
+`args` is `deliver <run id>` (the run id is the run directory's name in the
+digest's `dossier.md` path). When a post fails, the message says to check the
+pull request for the comment before delivering again; do that check first.
 
 ## Standards
 
@@ -77,8 +85,8 @@ prompt.
 It lists the findings by priority (P1 first) and the path of `dossier.md`,
 which holds each finding in full. Relay the findings to the person, then go on
 with what they asked the review for. A digest that says the review could not
-run says why; an interrupted run can't be continued, so run the review again
-if the person still wants it.
+run says why. If a review was interrupted, run it again if the person still
+wants it.
 
 ## Update
 

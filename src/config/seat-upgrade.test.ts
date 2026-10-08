@@ -7,7 +7,8 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { Recipe } from "../domain/recipe.ts"
-import { newerSeat, renderSeatUpgrade, upgradeRecipeSeats } from "./seat-upgrade.ts"
+import { renderSeatUpgrade } from "../cli/upgrade.ts"
+import { newerSeat, upgradeRecipeSeats } from "./seat-upgrade.ts"
 
 const catalog = new Map<string, ReadonlyArray<string>>([
   ["acme", [
@@ -71,10 +72,11 @@ describe("upgradeRecipeSeats", () => {
       })
       expect(yield* fs.readFileString(path.join(recipes, "slow.json"))).toBe(untouched)
       expect(yield* fs.readFileString(path.join(recipes, "broken.json"))).toBe(invalid)
-      expect(renderSeatUpgrade(upgrade)).toEqual([
+      expect(upgrade.skipped).toEqual(["broken"])
+      // The CLI's rendering: one line per destination model.
+      expect(renderSeatUpgrade(upgrade).slice(0, 2)).toEqual([
         "recipes fast, quick → acme/gpt-6-luna (was acme/gpt-5.6-luna)",
         "recipes quick → acme/gpt-10-sol (was acme/gpt-6-sol)",
-        "skipped invalid recipes broken — run `gauntlet config`",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

@@ -4,7 +4,10 @@ The Mod, `/gauntlet`, runs Gauntlet inside Claude Code (#134, #135). We bundle t
 own review program into a Claude Code mod and run it in process: Submission,
 the snapshot, `invoke.ts`, the Stages, the Run record and the digest are the
 ones `gauntlet review` runs. Only the platform services and the
-HarnessSession adapter differ. Each AgentInvocation is a hidden Claude Code
+HarnessSession adapter differ. Amended per #159: both Hosts parse the one
+review syntax (`src/syntax/`) into a request for the Run module
+(`src/run/run.ts`), which answers data each Host words itself; the Mod reads
+no CLI output. Each AgentInvocation is a hidden Claude Code
 subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
 
 ## Considered Options
@@ -56,6 +59,6 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
 
 - A mod reload (any change to its files) wipes a run in flight. The next
   load reports it, stops its orphaned agents and removes its snapshot, and
-  says to run `/gauntlet` again: a Run is not resumable (ADR 0003).
+  says to run `/gauntlet` again.
 - The mod's FileSystem answers only the methods the review path calls. A CLI
   change that calls another one fails on the next `/gauntlet` run.

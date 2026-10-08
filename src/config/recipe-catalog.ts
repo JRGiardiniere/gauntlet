@@ -175,7 +175,7 @@ export const selectRecipe = Effect.fn("gauntlet.recipe_catalog.select")(
   },
 )
 
-// Review-side selection: positional recipe, otherwise the configured Default
+// Review-side selection: the named recipe, otherwise the configured Default
 // Recipe — nothing else selects one, and failing lists what exists (ADR 0005).
 export const resolveReviewRecipe = Effect.fn(
   "gauntlet.recipe_catalog.resolve_review",
@@ -187,10 +187,7 @@ export const resolveReviewRecipe = Effect.fn(
   if (Option.isNone(settings)) {
     const entries = yield* listRecipes()
     return yield* new RecipeSelectionError({
-      reason:
-        // An empty catalog's rendering adds `gauntlet config init`; with
-        // recipes present, init would refuse the partial configuration.
-        "no default recipe is configured — pass a recipe (`gauntlet review <recipe>`)",
+      reason: "no default recipe is configured and the review names none",
       available: availableRecipeNames(entries),
     })
   }
@@ -209,5 +206,5 @@ export const renderAvailable = (
   available: ReadonlyArray<string>,
 ): string =>
   available.length === 0
-    ? "; the recipe catalog is empty — run `gauntlet config init`"
+    ? "; the recipe catalog is empty"
     : `; available recipes: ${available.join(", ")}`

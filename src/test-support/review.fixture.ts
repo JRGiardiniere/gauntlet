@@ -1,26 +1,47 @@
+import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
+import { ContentDirectory } from "../content/lens.ts"
 import {
   gitHubLayer,
   unusedGitHubContract,
+  unusedGitHubLayer,
   type GitHubClosingIssue,
   type GitHubIssueComment,
   type PullRequestView,
 } from "../github/github.ts"
 import type {
-  LinearBranchIssue,
-  LinearCommentSnapshot,
-  LinearIssueSnapshot,
+  FindingsOutput,
+  VerdictsOutput,
+} from "../harness/output-contract.ts"
+import {
+  makeScripted,
+  scriptedLayer,
+  type Scripted,
+  type ScriptedPrompt,
+  type ScriptedSession,
+  usageRow,
+} from "../harness/scripted.ts"
+import {
+  unusedLinearLayer,
+  type LinearBranchIssue,
+  type LinearCommentSnapshot,
+  type LinearIssueSnapshot,
 } from "../linear/linear.ts"
+import { FinderCacheSettle } from "../run/finder-execution.ts"
+import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import { chompLine, runGit } from "../target/git.ts"
+import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { commitAll, makeGitFixture } from "./git.fixture.ts"
 
 // The shared review fixture: a real temp git repository, a temp HOME with
 // settings and a recipe catalog, and a fixture content directory standing in
-// for the shipped Lens catalog and prompt templates. Used by both the CLI
-// journey suite and the Submission suite.
+// for the shipped Lens catalog and prompt templates, plus scripted Stage
+// sessions. Used by the CLI suite, the Run suite and the Submission suite.
 
 export interface Fixture {
   readonly repo: string
@@ -281,3 +302,147 @@ export const linearBranchIssue = (): LinearBranchIssue => ({
     linearIssue("ENG-74", "GitHub source", "NOT-FETCHED", "Canceled"),
   ],
 })
+
+// Everything a review needs around the fixture: its HOME, content and
+// repository, the scripted Host, a GitHub fake and an unused Linear, with no
+// cache settle to wait out.
+export const provideReviewFixture = (
+  fixture: Fixture,
+  scripted: Scripted,
+  github = unusedGitHubLayer,
+) =>
+<A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.provideService(InvocationDirectory, fixture.repo),
+    Effect.provideService(ContentDirectory, fixture.content),
+    Effect.provideService(FinderCacheSettle, Effect.void),
+    Effect.provide(
+      Layer.mergeAll(
+        NodeServices.layer,
+        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+        scriptedLayer(scripted),
+        github,
+        unusedLinearLayer,
+      ),
+    ),
+  )
+
+export const FINDER_OUTPUT = {
+  findings: [
+    {
+      file: "alpha.txt",
+      line: 2,
+      summary: "the added line breaks empty inputs",
+      failure_scenario: "an empty input reaches the new line and throws",
+    },
+    {
+      file: "alpha.txt",
+      summary: "the name hides the value's role",
+    },
+  ],
+} satisfies FindingsOutput
+
+// The stage outputs a scripted session can emit. The harness keeps emit args
+// `unknown` because it is a generic adapter seam; naming the admissible
+// domain outputs means a script can only emit decodable model output.
+type EmittedOutput = FindingsOutput | VerdictsOutput | JudgmentsOutput
+
+// A session that makes the given tool calls, then emits its output. The
+// BugClaim and Judgment paths execute concurrently, so a session named for an
+// invocation's cache-group suffix is claimed by it; an unnamed one is claimed
+// in open order.
+export const emittingSession = (
+  output: EmittedOutput,
+  forSession?: string,
+  inspect: {
+    readonly bash?: ReadonlyArray<string>
+    readonly read?: ReadonlyArray<string>
+  } = {},
+): ScriptedSession => {
+  const prompts: Array<ScriptedPrompt> = [
+    {
+      events: [
+        { afterMillis: 0, kind: "message_start" },
+        ...(inspect.bash ?? []).map((command) => ({
+          afterMillis: 0,
+          kind: "tool" as const,
+          toolName: "bash" as const,
+          args: { command },
+        })),
+        ...(inspect.read ?? []).map((path) => ({
+          afterMillis: 0,
+          kind: "tool" as const,
+          toolName: "read" as const,
+          args: { path },
+        })),
+        { afterMillis: 0, kind: "emit", args: output, valid: true },
+        {
+          afterMillis: 0,
+          kind: "message_end",
+          stopReason: "toolUse",
+          usage: usageRow(),
+        },
+      ],
+      settles: "after-events",
+    },
+  ]
+  return forSession === undefined ? { prompts } : { prompts, forSession }
+}
+
+export const VERIFIER_OUTPUT = {
+  verdicts: [
+    {
+      cluster: 1,
+      verdict: "CONFIRMED",
+      review_priority: "P2",
+      evidence: "empty input reaches the added line and throws",
+      test_suggestion: {
+        tests: ["the alpha input suite"],
+        reason: "it exercises empty inputs against the added line",
+      },
+    },
+  ],
+} satisfies VerdictsOutput
+
+export const JUDGMENT_OUTPUT = {
+  decisions: [
+    {
+      index: 1,
+      decision: "keep",
+      review_priority: "P2",
+      reason: "the call site confirms the name obscures the value's role",
+      goodFind: true,
+      cleanlyExplained: true,
+    },
+  ],
+} satisfies JudgmentsOutput
+
+// Concurrent sessions interleave their prompt calls, so prompts are asserted
+// by invocation identity, never by global order.
+export const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
+  scripted.prompts
+    .filter(({ invocationId }) => invocationId.includes(suffix))
+    .map(({ text }) => text)
+
+// The finder shared block rides in the system prompt; the user message is
+// only the lens tail.
+export const systemPromptsFor = (scripted: Scripted, suffix: string): Array<string> =>
+  scripted.prompts
+    .filter(({ invocationId }) => invocationId.includes(suffix))
+    .map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt ?? "")
+
+export const inspectionsFor = (scripted: Scripted, suffix: string) =>
+  scripted.inspections.filter(
+    ({ invocationId }) => invocationId.includes(suffix),
+  )
+
+// A Finder, a verifier and a judge that each emit their stage's fixture
+// output.
+export const successfulScripted = (): Scripted =>
+  makeScripted({
+    sessions: [
+      emittingSession(FINDER_OUTPUT),
+      emittingSession(VERIFIER_OUTPUT, "-verification"),
+      emittingSession(JUDGMENT_OUTPUT, "-judgment"),
+    ],
+  })

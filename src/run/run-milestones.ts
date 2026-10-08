@@ -5,9 +5,9 @@ import type { CoverageGap } from "../domain/dossier.ts"
 import type { DossierEntryTag } from "../render/dossier-view.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
 
-// What a Run reports beside its progress lines, as data, for a host that
-// draws the Run instead of printing it (the Claude Code mod's run view).
-// The CLI prints its lines and ignores these.
+// What a Run reports while it runs, as data, for a Host that draws the Run
+// instead of printing it (the Mod's strip). How it ended is the Run module's
+// answer; the CLI prints its lines and ignores these.
 export type RunMilestone = Data.TaggedEnum<{
   Started: { readonly runId: string; readonly lenses: ReadonlyArray<string> }
   FindersFinished: {}
@@ -22,8 +22,6 @@ export type RunMilestone = Data.TaggedEnum<{
     readonly coverageGaps: ReadonlyArray<CoverageGap>
     readonly dossierMarkdown: string
   }
-  // The rendered reason a review could not run or could not be delivered.
-  Refused: { readonly message: string }
 }>
 export const RunMilestone = Data.taggedEnum<RunMilestone>()
 

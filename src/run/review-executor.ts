@@ -33,6 +33,8 @@ export interface ReviewExecution {
   readonly startedAt: DateTime.Utc
 }
 
+// Runs a submitted Run to its Dossier, answering the digest and the coverage
+// gaps for the Host to show.
 export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
@@ -41,7 +43,7 @@ export const executeReviewPlan = Effect.fn(
     runId: plan.runId,
     lenses: plan.lenses.map((lens) => lens.name),
   }))
-  yield* Effect.scoped(
+  return yield* Effect.scoped(
     Effect.gen(function* () {
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
       const reviewWorkingDirectory = yield* acquireReviewWorkingDirectory(
@@ -49,7 +51,7 @@ export const executeReviewPlan = Effect.fn(
         plan.runId,
         paths.workspaceOverlay,
       )
-      yield* Effect.gen(function* () {
+      return yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
         const findersStartedAt = yield* DateTime.now
         const finderStage = yield* executeFinders({
@@ -123,7 +125,6 @@ export const executeReviewPlan = Effect.fn(
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
 
-        yield* Console.log(renderDigest(plan, dossier, accounting, paths))
         const view = viewDossier(dossier)
         yield* reportMilestone(RunMilestone.Reviewed({
           entries: [...view.findings, ...view.unresolved].map(
@@ -132,6 +133,10 @@ export const executeReviewPlan = Effect.fn(
           coverageGaps: dossier.coverageGaps,
           dossierMarkdown: paths.dossierMarkdown,
         }))
+        return {
+          digest: renderDigest(plan, dossier, accounting, paths),
+          coverageGaps: dossier.coverageGaps,
+        }
       }).pipe(Effect.provide(Logger.layer([fileLogger])))
     }),
   )

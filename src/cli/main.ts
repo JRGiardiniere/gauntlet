@@ -14,8 +14,6 @@ import { availableUpdateNotice } from "./update-check.ts"
 import { upgradeCommand } from "./upgrade.ts"
 import { gauntletVersion } from "./version.ts"
 
-export { ReviewCommandError } from "./review.ts"
-
 const gauntlet = Command.make("gauntlet").pipe(
   Command.withSubcommands([
     reviewCommand,
@@ -47,8 +45,8 @@ const reportUpdateNotice = Effect.fn("gauntlet.cli.report_update_notice")(
   },
 )
 
-// The review program's verbs and failure rendering live in review.ts; the
-// config, login and upgrade verbs add only their own failures.
+// The review and deliver verbs and their failure rendering live in
+// review.ts; the config, login and upgrade verbs add only their own failures.
 const runCli = (argv: ReadonlyArray<string>) =>
   Command.runWith(gauntlet, { version: gauntletVersion })(argv).pipe(
     Effect.as(0),

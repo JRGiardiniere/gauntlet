@@ -1,7 +1,6 @@
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import { ReviewSpecification } from "../domain/review-specification.ts"
 
@@ -17,15 +16,13 @@ export class SpecificationLoadError extends Data.TaggedError(
 // read the explicitly named Markdown file once, before any Run exists, and
 // return it as the complete ReviewSpecification. The caller selected this
 // exact file, so a missing, unreadable, or empty file is a hard failure —
-// never a quiet no-specification review.
+// never a quiet no-specification review. The path arrives resolved: a
+// relative one names a file from where the command ran, not the reviewed
+// checkout.
 export const loadCallerAddendum = Effect.fn(
   "gauntlet.specification.load_caller_addendum",
-)(function* (invocationDirectory: string, specPath: string) {
+)(function* (resolved: string) {
   const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
-  const resolved = path.isAbsolute(specPath)
-    ? specPath
-    : path.resolve(invocationDirectory, specPath)
   const text = yield* fs.readFileString(resolved).pipe(
     Effect.mapError((failure) =>
       new SpecificationLoadError({

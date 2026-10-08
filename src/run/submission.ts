@@ -2,7 +2,7 @@ import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import { resolveReviewRecipe } from "../config/recipe-catalog.ts"
+import { listRecipes, resolveReviewRecipe } from "../config/recipe-catalog.ts"
 import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
@@ -52,6 +52,8 @@ import {
 // Assembly refusals — the request parsed but no Run can be assembled from it.
 export class SubmissionError extends Data.TaggedError("SubmissionError")<{
   readonly reason: string
+  // No settings exist to take Default Lenses from.
+  readonly unconfigured?: boolean
 }> {}
 
 // Each host runs only its own providers' Seats (#134).
@@ -73,9 +75,9 @@ const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
-// The caller aims explicitly (ADR 0005), and the tagged request makes only
-// the valid aims representable: a GitHub-pinned Specification Source belongs
-// to a pull-request aim, and a base range extends only a working-tree aim.
+// The tagged request makes only the valid aims representable (ADR 0005): a
+// GitHub-pinned Specification Source belongs to a pull-request aim, and a
+// base range extends only a working-tree aim.
 export type SubmissionTargetRequest = Data.TaggedEnum<{
   PullRequest: {
     readonly number: number
@@ -101,6 +103,29 @@ export interface SubmissionRequest {
   readonly relatedFiles?: boolean
 }
 
+// A commit target that does not resolve but names a Recipe is most likely a
+// recipe written where the target goes. The catalog is read only then, and a
+// catalog that cannot be read leaves the failure as it was.
+const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
+  listRecipes().pipe(
+    Effect.map((entries) =>
+      entries.some((entry) =>
+        entry._tag === "ValidRecipe" && entry.name === written
+      )
+    ),
+    Effect.orElseSucceed(() => false),
+    Effect.flatMap((named) =>
+      Effect.fail(
+        named
+          ? new TargetUnresolvable({
+            reason: `${failure.reason}; did you mean --recipe ${written}?`,
+            cause: failure.cause,
+          })
+          : failure,
+      )
+    ),
+  )
+
 const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
   function* (request: SubmissionTargetRequest) {
     const directory = yield* InvocationDirectory
@@ -110,13 +135,17 @@ const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
     }
     if (SubmissionTargetRequest.$is("Commits")(request)) {
       yield* progress(`resolving ${request.range} review target`)
-      return yield* resolveCommitsTarget(directory, request.range)
+      return yield* resolveCommitsTarget(directory, request.range).pipe(
+        Effect.catchTag("TargetUnresolvable", hintRecipe(request.range)),
+      )
     }
     if (request.base !== undefined) {
       yield* progress(
         `resolving ${request.base} plus working-tree review target`,
       )
-      return yield* resolveWorkingTreeTarget(directory, request.base)
+      return yield* resolveWorkingTreeTarget(directory, request.base).pipe(
+        Effect.catchTag("TargetUnresolvable", hintRecipe(request.base)),
+      )
     }
     yield* progress("resolving working-tree review target")
     return yield* resolveWorkingTreeTarget(directory, undefined)
@@ -207,7 +236,7 @@ const acquireSpecification = Effect.fn(
 export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   request: SubmissionRequest,
 ) {
-  // Recipe selection fails before any Run exists (issue #24): positional
+  // Recipe selection fails before any Run exists (issue #24): the named
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(request.recipeName)
   yield* progress(`using recipe ${selected.name}`)
@@ -217,7 +246,8 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
         if (Option.isNone(settings)) {
           return yield* new SubmissionError({
             reason:
-              "no Default Lenses are configured — pass --lenses or run `gauntlet config init`",
+              "no Default Lenses are configured and the review names no Lenses",
+            unconfigured: true,
           })
         }
         return settings.value["default-lenses"]
@@ -335,7 +365,6 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     ? ReviewPlan.make({ ...specified, relatedFiles: true })
     : specified
   yield* progress("freezing review plan")
-  // Overlay first: a persisted plan implies its overlay exists.
   if (overlay !== undefined) {
     yield* writeArtifactBytes(paths.workspaceOverlay, overlay)
   }

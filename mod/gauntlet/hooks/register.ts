@@ -8,7 +8,8 @@ import {
   inputsStamp,
   releaseNotice,
   renderStrip,
-  reviewRequest,
+  commandWords,
+  type ReviewRequest,
   reviewToolArgs,
   reviewToolInputSchema,
   type RunResult,
@@ -31,6 +32,8 @@ type Engines = EngineInterface
 
 const BUILD_FILE = "hooks/vendor/build.json"
 
+// The store outlives a mod update, so its fields keep their names: `argv` is
+// the words the review was started with.
 interface InFlight {
   readonly startedAt: number
   readonly argv: ReadonlyArray<string>
@@ -152,8 +155,8 @@ async function reportLostRun($: Engines) {
   }
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded; ` +
-    `its in-process state is gone. ${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
+  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
+    `${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
     "Run /gauntlet again."
   log($, `${note} ${stopped.join("; ")}`)
   $.ui.toast(note, { timeoutMs: 15_000 })
@@ -194,27 +197,18 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
   tick = undefined
   drawnAt = 0
   redraw($)
-  const digest = result.stdout.trim()
-  const verdict = result.interrupted ? "cancelled" : result.exitCode === 0 ? "review finished" : "could not review"
-  log($, `run ${verdict} exit ${String(result.exitCode)} after ${String(result.seconds)}s interrupted=${String(result.interrupted)}`)
+  const { digest, verdict } = result
+  log($, `run ${verdict} after ${String(result.seconds)}s`)
   $.ui.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)
   // The run is over: a review started from here on owns the marker.
   await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
-  // Why it could not run or deliver, and how a run that reached no exit code
-  // ended, show beside a digest too. The CLI's own closing line is stderr: a
-  // PR delivery's `posted <url>`.
-  const closing = result.stderr.trim().split("\n").map((line) => line.replace(/^gauntlet: /, ""))
-    .filter((line) => line.startsWith("posted "))
   // The update probe gets a second more, as the CLI's notice does; a slow one
   // never holds back a finished review.
   const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
-  const said = [
-    ...(result.refusal === undefined ? [] : [result.refusal]),
-    ...(result.ending === undefined ? [] : [result.ending]),
-    ...closing,
-    ...(update === undefined ? [] : [update]),
-  ]
-  const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...said] : [...digest.split("\n"), ...said]
+  const said = [...result.notes, ...(update === undefined ? [] : [update])]
+  // Without a digest, the notes say what happened; the verdict stands in
+  // only when there are none (a cancelled run).
+  const shown = digest !== "" ? [...digest.split("\n"), ...said] : result.notes.length === 0 ? [verdict, ...said] : said
   const text = digest === ""
     ? `gauntlet: ${shown.join("\n")}`
     : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
@@ -266,8 +260,9 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
   description: "Runs a Gauntlet code review in the background, here in Claude Code: finder agents, verification and judgment over a diff, ending in a Dossier and a short digest. " +
     "Use it when asked to run Gauntlet or a Gauntlet review; it replaces running the `gauntlet` CLI from a shell. " +
     "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
-    "`args` is the /gauntlet syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
+    "`args` is the /gauntlet syntax, the same as the CLI's `gauntlet review`: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range as git takes it (`main` for the commits since its merge-base, `abc123..def456`, `abc~1..abc` for one commit; add `--working-tree` to `main` to include uncommitted edits); " +
     "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks). " +
+    "`deliver <run-id>` posts a finished pull-request review's report on its pull request instead (only when the person asks). " +
     (recipes.length === 0
       ? "No Claude Code recipes are installed."
       : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
@@ -282,16 +277,17 @@ async function openDossier($: Engines, path: string) {
   }
 }
 
-// Starts a review in the background; answers the command's one line.
+// Starts a review or a delivery in the background; answers the command's one
+// line.
 async function startReview($: Engines, request: TriggerRequest): Promise<string> {
-  if (engine === undefined || build === undefined) return "gauntlet: the engine did not load; see ~/.gauntlet/mod/mod.log"
+  if (engine === undefined || build === undefined) return "the engine did not load; see ~/.gauntlet/mod/mod.log"
   const running = engine.running()
   if (running !== undefined) {
-    return `gauntlet: a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
+    return `a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
   }
   // Two calls can overlap while the first checks the checkout; the engine is
   // running once the first returns.
-  if (starting) return "gauntlet: a review is already starting; one per session."
+  if (starting) return "a review is already starting; one per session."
   starting = true
   try {
     return await prepareAndStart($, engine, build, request)
@@ -307,7 +303,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
   } catch (error) {
     log($, `stamp failed: ${String(error)}`)
-    return `gauntlet: could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
+    return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
   }
   const hashMs = Date.now() - hashStart
   // The stamp on disk, not the one loaded: a rebuild whose code came out
@@ -326,40 +322,54 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     const rebuildMs = Date.now() - rebuildStart
     log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
     await setStatus($, undefined)
-    if (built.exitCode !== 0) return `gauntlet: the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
+    if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
     if (request.afterRebuild !== "run") {
-      return `gauntlet: rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
+      return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
     }
   }
-  // `--repo` runs the review in another checkout: `~/…`, absolute, or from
-  // the session's folder.
-  const { argv, repo } = reviewRequest(request.args)
-  const cwd = repo === undefined ? request.cwd : repo.startsWith("~") ? `${home}${repo.slice(1)}` : repo.startsWith("/") ? repo : `${request.cwd}/${repo}`
-  if (!(await $.fs.exists(cwd))) return `gauntlet: --repo ${String(repo)} names no folder (${cwd}).`
-  log($, `starting ${argv.join(" ")} in ${cwd}`)
+  const words = commandWords(request.args)
+  log($, `starting ${words.join(" ")} in ${request.cwd}`)
+  const run = engine.start({ words, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
+  if (words[0] === "deliver") {
+    void run.ended.then((result) => finishRun($, result, request, Promise.resolve(undefined)))
+      .catch((error) => log($, `delivery failed to finish: ${String(error)}`))
+    return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
+  }
   markedAgents = ""
-  runCwd = cwd
-  dismissed = false
-  await markInFlight($, { startedAt: Date.now(), argv, cwd, agentIds: [], snapshots: [] })
-  startTick($)
   const notice = checkForUpdate($, build.repoRoot).catch((error) => {
     log($, `update check failed: ${String(error)}`)
     return undefined
   })
-  void engine
-    .start({ argv, cwd }, (line) => log($, `cli: ${line}`))
-    .then((result) => finishRun($, result, request, notice))
-    .catch((error) => log($, `run failed to start: ${String(error)}`))
-  return `gauntlet: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
-    (await standardsNote($, engine, cwd, argv))
+  // The review runs where its words say (`--repo`), and its marker is down
+  // before its ending clears it; a failed marker write only logs.
+  const marked = run.request.then(async (review) => {
+    if (review === undefined) return
+    // A review brings back a dismissed strip; help leaves it dismissed.
+    dismissed = false
+    runCwd = review.directory
+    await markInFlight($, { startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
+      .catch((error) => log($, `in-flight marker failed: ${String(error)}`))
+    startTick($)
+  })
+  void run.ended.then(async (result) => {
+    await marked
+    await finishRun($, result, request, notice)
+  }).catch((error) => log($, `run failed to finish: ${String(error)}`))
+  // The answer waits for the marker and the ticker, which keeps `starting`
+  // set until they are this review's: a quickly refused review's ending can
+  // then never cancel the next review's ticker or clear its marker.
+  await marked
+  const review = await run.request
+  if (review === undefined) return "the review did not start; why arrives as a message."
+  return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
+    (await standardsNote($, engine, review))
 }
 
 // A repository with no Standards Manifest, on a review that would run the
 // standards lens, gets the offer the gauntlet-code-review skill describes.
-async function standardsNote($: Engines, engine: Engine, cwd: string, argv: ReadonlyArray<string>): Promise<string> {
-  const lenses = argv.find((word) => word.startsWith("--lenses="))
-  if (lenses !== undefined && !lenses.split(/[=,]/).includes("standards")) return ""
-  const manifest = await engine.standardsManifest(cwd).catch((error) => {
+async function standardsNote($: Engines, engine: Engine, review: ReviewRequest): Promise<string> {
+  if (review.selectedLensNames !== undefined && !review.selectedLensNames.includes("standards")) return ""
+  const manifest = await engine.standardsManifest(review.directory).catch((error) => {
     log($, `standards manifest check failed: ${String(error)}`)
     return undefined
   })
@@ -427,7 +437,7 @@ export const register: Register = (on) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: "Gauntlet review, run in process: /gauntlet [target] [--repo=<path>] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
+      description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], or /gauntlet deliver <run-id>; --help for the rest",
     })
     inflightKey = `inflight:${await $.session.id()}`
     await reportLostRun($)
@@ -454,14 +464,13 @@ export const register: Register = (on) => {
 
   // The host labels the answer with the plugin's name already.
   on("command.run", { command: "gauntlet" }, async ($, e) => ({
-    text: (await startReview($, { cwd: await $.session.root(), args: e.args })).replace(/^gauntlet: /, ""),
+    text: await startReview($, { cwd: await $.session.root(), args: e.args }),
   }))
 
   on("tool.call", { tool: "mcp__gauntlet__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
     if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gauntlet takes them." }
-    const answer = await startReview($, { cwd: await $.session.root(), args, agentId: e.agentId })
-    return { result: answer.replace(/^gauntlet: /, "") }
+    return { result: await startReview($, { cwd: await $.session.root(), args, agentId: e.agentId }) }
   })
 
   // The main agent's turns (no agentId), so a digest knows whether it would

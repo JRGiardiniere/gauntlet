@@ -67,7 +67,7 @@ export const newerSeat = (
   return next === seat ? Option.none() : Option.some(next)
 }
 
-interface SeatChange {
+export interface SeatChange {
   readonly recipe: RecipeName
   readonly from: string
   readonly to: string
@@ -113,24 +113,3 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
     return { changes, skipped }
   },
 )
-
-// One line per destination model, naming every recipe that moved to it and
-// the models it replaced, plus one line for any invalid recipe left unchecked.
-export const renderSeatUpgrade = (
-  upgrade: { readonly changes: ReadonlyArray<SeatChange>; readonly skipped: ReadonlyArray<string> },
-): ReadonlyArray<string> => {
-  const grouped = new Map<string, { recipes: Set<string>; from: Set<string> }>()
-  for (const change of upgrade.changes) {
-    const group = grouped.get(change.to) ?? { recipes: new Set(), from: new Set() }
-    group.recipes.add(change.recipe)
-    group.from.add(change.from)
-    grouped.set(change.to, group)
-  }
-  const lines = [...grouped].map(([to, group]) =>
-    `recipes ${[...group.recipes].join(", ")} → ${to} (was ${[...group.from].join(", ")})`
-  )
-  if (upgrade.skipped.length > 0) {
-    lines.push(`skipped invalid recipes ${upgrade.skipped.join(", ")} — run \`gauntlet config\``)
-  }
-  return lines.length === 0 ? ["recipe seats are current"] : lines
-}

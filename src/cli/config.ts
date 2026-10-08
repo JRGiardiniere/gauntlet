@@ -31,8 +31,11 @@ import {
   settingsPath,
   writeSettings,
 } from "../config/settings.ts"
-import { type ArtifactWriteError, writeArtifactJson } from "../run/artifact.ts"
-import { describeArtifactWrite } from "./review.ts"
+import {
+  type ArtifactWriteError,
+  describeArtifactWrite,
+  writeArtifactJson,
+} from "../run/artifact.ts"
 import { resolveInvocationProjectRoot } from "../target/invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
@@ -371,10 +374,12 @@ const noSuchKey = (verb: string, key: string) =>
   })
 
 // Selection failures inside config verbs render as configuration failures —
-// the shared RecipeSelectionError handler says "could not review".
+// the Run module's wording says "could not review".
 const asConfigError = (failure: RecipeSelectionError) =>
   new ConfigCommandError({
-    reason: `${failure.reason}${renderAvailable(failure.available)}`,
+    reason: `${failure.reason}${renderAvailable(failure.available)}${
+      failure.available.length === 0 ? " — run `gauntlet config init`" : ""
+    }`,
   })
 
 // A config verb's failed write is a configuration failure, never "could not

@@ -6,7 +6,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 ## Read first
 
 - `CONTEXT.md` — the domain terms and their avoid-lists are **binding on naming**
-- Spec: issue #15. Rationale: `docs/adr/` (0001–0009, binding)
+- Spec: issue #15. Rationale: `docs/adr/` (binding)
 - `docs/spec/pipeline-shape.md`, `docs/spec/emit-tools.md` — normative specs
 - The `effect` skill for Effect code, with the House rules below
 

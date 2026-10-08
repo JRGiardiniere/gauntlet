@@ -2,11 +2,12 @@
 // in process inside Claude Code. `bun run build-mod` bundles this entry,
 // Effect included, into the plugin's hooks/vendor/engine.js; the hooks
 // module (mod/gauntlet/hooks/register.ts) hands it ports over `$` and relays
-// the hooks' observations. There is no second pipeline: argv goes to the CLI's
-// own review command (src/cli/review.ts), which runs Submission, the
-// snapshot worktree, invoke.ts deadlines and corrective turns, the Stages,
-// the run record and the digest exactly as `gauntlet review` does. Only the
-// platform services and the HarnessSession adapter differ.
+// the hooks' observations. There is no second pipeline: the typed words go to
+// the syntax the CLI parses too (src/syntax/syntax.ts), and the request to
+// the Run module (src/run/run.ts), which runs Submission, the snapshot
+// worktree, invoke.ts deadlines and corrective turns, the Stages and the run
+// record exactly as the CLI's review does. Only the platform services, the
+// HarnessSession adapter and the wording of what comes back differ.
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -14,7 +15,9 @@ import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
-import { runReviewCli } from "../src/cli/review.ts"
+import * as CliConfig from "effect/cli/CliConfig"
+import * as Command from "effect/cli/Command"
+import * as GlobalFlag from "effect/cli/GlobalFlag"
 import { listRecipes } from "../src/config/recipe-catalog.ts"
 import { standardsManifestPath } from "../src/config/standards-manifest.ts"
 import { isClaudeCodeSeat } from "../src/domain/recipe.ts"
@@ -26,7 +29,9 @@ import {
 } from "../src/harness/claude-host.ts"
 import { HarnessSessionFactory } from "../src/harness/harness-session.ts"
 import { Linear } from "../src/linear/linear.ts"
+import * as Run from "../src/run/run.ts"
 import { type RunMilestone, RunMilestones } from "../src/run/run-milestones.ts"
+import { reviewSyntax } from "../src/syntax/syntax.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
 import { type AgentPorts, makeAgentDriver, type TurnComplete } from "./agents.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
@@ -34,7 +39,8 @@ import type { RunView } from "./strip.ts"
 
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
-export { reviewRequest, reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
+export { commandWords, reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
+export type { ReviewRequest } from "../src/run/run.ts"
 export { releaseNotice } from "./release-update.ts"
 export { digestDelivery } from "./digest-delivery.ts"
 export { inputsStamp } from "./stamp.ts"
@@ -61,18 +67,23 @@ export interface HttpPort {
 
 export interface EnginePorts extends PlatformPorts, AgentPorts, HttpPort {}
 
+// How a run ended, in the Mod's words.
 export interface RunResult {
-  readonly exitCode: number
-  // Why the review could not run, as the CLI rendered it.
-  readonly refusal: string | undefined
-  readonly stdout: string
-  readonly stderr: string
+  // A few words for the toast and the message's heading.
+  readonly verdict: string
+  // The digest, or the help the words asked for; empty when there is neither.
+  readonly digest: string
+  // Where the Dossier was posted, why the review or the post could not
+  // happen, or what ended a run that reached no answer.
+  readonly notes: ReadonlyArray<string>
   readonly seconds: number
-  // Cancelled: the run was interrupted, and nothing else ended it.
-  readonly interrupted: boolean
-  // How a run that reached no exit code ended: cancelled, or the defect's
-  // own message.
-  readonly ending: string | undefined
+}
+
+export interface StartedRun {
+  // The review the words asked for, once they parse; undefined for a
+  // delivery, or for words that never became a review.
+  readonly request: Promise<Run.ReviewRequest | undefined>
+  readonly ended: Promise<RunResult>
 }
 
 // An error's own words: its message, or a tagged error's fields (git's
@@ -82,11 +93,19 @@ const errorText = (error: Error) =>
     ? `${error.name} ${JSON.stringify(Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause" && key !== "_tag")))}`
     : `${error.name}: ${error.message}`
 
-const endingOf = (cause: Cause.Cause<unknown>) => {
-  if (Cause.hasInterruptsOnly(cause)) return "cancelled"
+const defectText = (cause: Cause.Cause<unknown>) => {
   const defect = Cause.squash(cause)
   return `run ended: ${defect instanceof Error ? errorText(defect) : String(defect)}`
 }
+
+// A refusal as the Mod words it: a post that may have landed names the
+// command that delivers the Run again.
+const refusalText = (refusal: Run.RunRefusal) =>
+  refusal.unconfirmedPost !== undefined
+    ? `${refusal.reason}; check the pull request for the comment before /gauntlet deliver ${refusal.unconfirmedPost}`
+    : refusal.unconfigured === true
+    ? `${refusal.reason}; set up Gauntlet's recipes and settings as its INSTALL.md says`
+    : refusal.reason
 
 // The mod has no global fetch; Linear's FetchHttpClient gets this one over
 // `$.http.fetch`. FetchHttpClient calls it with a URL, a method, a header
@@ -139,24 +158,25 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
   const driver = makeAgentDriver(ports)
   let current:
     | {
-      readonly fiber: Fiber.Fiber<number>
+      readonly fiber: Fiber.Fiber<void>
       readonly startedAt: number
       readonly argv: ReadonlyArray<string>
       runId: string | undefined
     }
     | undefined
-  // What the strip draws: the run in flight, or the last one, kept until
+  // What the strip draws: the review in flight, or the last one, kept until
   // the next starts.
   let progress: Progress | undefined
 
   const start = (
-    request: { readonly argv: ReadonlyArray<string>; readonly cwd: string },
+    request: { readonly words: ReadonlyArray<string>; readonly cwd: string },
     onLine: (line: string) => void,
-  ): Promise<RunResult> => {
-    if (current !== undefined) return Promise.reject(new Error("a review is already running in this session"))
-    let stdout = ""
-    let stderr = ""
+  ): StartedRun => {
+    if (current !== undefined) throw new Error("a review is already running in this session")
+    const delivering = request.words[0] === "deliver"
+    let printed = ""
     let pending = ""
+    let answer: Omit<RunResult, "seconds"> | undefined
     const startedAt = Date.now()
     const shown: Progress = {
       startedAt,
@@ -168,9 +188,12 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       result: undefined,
       refusal: undefined,
     }
-    progress = shown
+    let parsed: (review: Run.ReviewRequest | undefined) => void = () => undefined
+    const reviewRequest = new Promise<Run.ReviewRequest | undefined>((resolve) => {
+      parsed = resolve
+    })
+    // Progress lines go to the mod's log only; nothing reads meaning in them.
     const onStderr = (text: string) => {
-      stderr += text
       pending += text
       const lines = pending.split("\n")
       pending = lines.pop() ?? ""
@@ -194,13 +217,51 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           }
           case "Reviewed": {
             shown.result = milestone
-            return
-          }
-          case "Refused": {
-            shown.refusal = milestone.message
           }
         }
       })
+    const refuse = (reason: string) =>
+      Effect.sync(() => {
+        shown.refusal = reason
+        answer = { verdict: delivering ? "could not deliver" : "could not review", digest: "", notes: [reason] }
+      })
+    const gauntlet = Command.make("gauntlet").pipe(
+      Command.withSubcommands(reviewSyntax({ relatedFiles: true }, {
+        // Only words that became a review draw the strip: help, a delivery
+        // and words that never parsed leave it to the last review.
+        // A pull-request destination delivers the Run once its digest is the
+        // answer: the post's receipt or refusal becomes a note under it, and
+        // a run cancelled while posting still shows the digest.
+        review: (review, destination) =>
+          Effect.sync(() => {
+            progress = shown
+            parsed(review)
+          }).pipe(
+            Effect.andThen(Run.review(review)),
+            Effect.tap((reviewed) =>
+              Effect.sync(() => {
+                answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
+              })
+            ),
+            Effect.flatMap((reviewed) =>
+              destination === "local"
+                ? Effect.void
+                : Run.deliver(reviewed.runId).pipe(
+                  Effect.match({ onSuccess: (receipt) => `posted ${receipt.url}`, onFailure: refusalText }),
+                  Effect.map((note) => {
+                    answer = { verdict: "review finished", digest: reviewed.digest, notes: [note] }
+                  }),
+                )
+            ),
+          ),
+        deliver: (runId) =>
+          Run.deliver(runId).pipe(
+            Effect.map((receipt) => {
+              answer = { verdict: "delivered", digest: "", notes: [`posted ${receipt.url}`] }
+            }),
+          ),
+      })),
+    )
     const host = makeClaudeHost(claudePrice((model) => build.prices[model]), driver.send)
     driver.attach(host)
     const layer = Layer.mergeAll(
@@ -212,51 +273,59 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         platformLayer({
           ...ports,
           stdout: (text) => {
-            stdout += text
+            printed += text
           },
           stderr: onStderr,
         }),
       ),
     )
-    const program = runReviewCli(request.argv).pipe(
+    const program = Command.runWith(gauntlet, { version: build.stamp.slice(0, 12) })(request.words).pipe(
+      Effect.catchTags({
+        // Help asked for is printed; help shown for words that did not parse
+        // carries why.
+        ShowHelp: (help) =>
+          help.errors.length === 0
+            ? Effect.void
+            : refuse(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet --help shows the syntax`),
+        ReviewCommandError: (failure) => refuse(`could not review — ${failure.reason}`),
+        RunRefusal: (refusal) => refuse(refusalText(refusal)),
+      }),
+      // The CLI's other global flags (--version, --wizard, --completions,
+      // --log-level) mean nothing in Claude Code: the Mod keeps only --help.
+      Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [GlobalFlag.Help] })),
       Effect.provideService(RunMilestones, onMilestone),
       Effect.provideService(InvocationDirectory, request.cwd),
       Effect.provideService(FetchHttpClient.Fetch, fetchOver(ports)),
       Effect.provide(layer),
       // A Layer that cannot be built (a Config read) is a review that could
-      // not run, rendered as the CLI renders its failures.
-      Effect.catch((failure) =>
-        Effect.sync(() => {
-          const message = `could not review — ${String(failure)}`
-          onStderr(`gauntlet: ${message}\n`)
-          shown.refusal = message
-          return 1
-        })
-      ),
+      // not run.
+      Effect.catch((failure) => refuse(`could not review — ${String(failure)}`)),
     )
     const fiber = Effect.runFork(program)
-    current = { fiber, startedAt, argv: request.argv, runId: undefined }
-    return new Promise((resolve) => {
+    current = { fiber, startedAt, argv: request.words, runId: undefined }
+    const ended = new Promise<RunResult>((resolve) => {
       fiber.addObserver((exit) => {
         current = undefined
+        parsed(undefined)
         void driver.stopAll("run ended")
-        progress = {
-          ...shown,
-          endedAt: Date.now(),
-          exitCode: Exit.isSuccess(exit) ? exit.value : 1,
+        const failed = Exit.isFailure(exit)
+        if (progress === shown) {
+          progress = { ...shown, endedAt: Date.now(), exitCode: failed || shown.refusal !== undefined ? 1 : 0 }
         }
-        const ending = Exit.isSuccess(exit) ? undefined : endingOf(exit.cause)
-        resolve({
-          exitCode: Exit.isSuccess(exit) ? exit.value : 1,
-          refusal: shown.refusal,
-          stdout,
-          stderr: `${stderr}${ending === undefined ? "" : `gauntlet: ${ending}\n`}`,
-          seconds: Math.round((Date.now() - startedAt) / 1000),
-          interrupted: Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause),
-          ending,
-        })
+        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        if (Exit.isFailure(exit)) {
+          const cancelled = Cause.hasInterruptsOnly(exit.cause)
+          // Only a review that finished and was posting has a digest here.
+          resolve({
+            verdict: cancelled ? "cancelled" : "run ended",
+            digest: answer?.digest ?? "",
+            notes: cancelled ? [] : [defectText(exit.cause)],
+            seconds,
+          })
+        } else resolve({ ...(answer ?? { verdict: "help", digest: printed.trim(), notes: [] }), seconds })
       })
     })
+    return { request: reviewRequest, ended }
   }
 
   // Interrupting the fiber runs the program's finalizers: the snapshot

@@ -27,7 +27,7 @@ export interface LoadedRun {
 export class RunError extends Data.TaggedError("RunError")<{
   readonly operation: "load-plan" | "execute-plan"
   readonly reason: string
-  readonly runId?: string
+  readonly runId: string
   readonly cause?: unknown
 }> {}
 
@@ -76,14 +76,14 @@ export const createRunDirectory = Effect.fn("gauntlet.run_record.create_run_dire
 const runError = (
   operation: RunError["operation"],
   reason: string,
-  runId: string | undefined,
+  runId: string,
   cause?: unknown,
-) => {
-  const core = runId === undefined
-    ? { operation, reason }
-    : { operation, reason, runId }
-  return new RunError(cause === undefined ? core : { ...core, cause })
-}
+) =>
+  new RunError(
+    cause === undefined
+      ? { operation, reason, runId }
+      : { operation, reason, runId, cause },
+  )
 
 export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
   function* (runsRoot: string, requestedRunId: string) {
