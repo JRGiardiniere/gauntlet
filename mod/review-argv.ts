@@ -8,10 +8,23 @@ import * as Schema from "effect/Schema"
 // or a base whose merge-base with HEAD starts the range). Other flags pass
 // through as written (`--resume`, `--github-spec`, `--related-files`), and a
 // flag that takes a value takes the next word too (`--resume <run-id>`).
-const VALUE_FLAGS = new Set(["--recipe", "--lenses", "--spec", "--destination", "--pr", "--commits", "--resume"])
+// `--repo <path>` is the mod's own: where the review runs, not an argv word.
+const VALUE_FLAGS = new Set(["--recipe", "--lenses", "--spec", "--destination", "--pr", "--commits", "--resume", "--repo"])
+
+const wordsOf = (args: string): ReadonlyArray<string> =>
+  args.match(/"[^"]*"|'[^']*'|\S+/g)?.map((word) => word.replace(/^(["'])(.*)\1$/, "$2")) ?? []
+
+// The repository `--repo` names, as written; undefined for the session's own.
+export const reviewRepo = (args: string): string | undefined => {
+  const words = wordsOf(args)
+  const at = words.findIndex((word) => word === "--repo" || word.startsWith("--repo="))
+  if (at === -1) return undefined
+  const word = words[at] ?? ""
+  return word.startsWith("--repo=") ? word.slice("--repo=".length) : words[at + 1]
+}
 
 export const reviewArgv = (args: string): ReadonlyArray<string> => {
-  const words = args.match(/"[^"]*"|'[^']*'|\S+/g)?.map((word) => word.replace(/^(["'])(.*)\1$/, "$2")) ?? []
+  const words = wordsOf(args)
   const flags: Array<string> = []
   let target: string | undefined
   for (let index = 0; index < words.length; index++) {
@@ -23,7 +36,7 @@ export const reviewArgv = (args: string): ReadonlyArray<string> => {
     } else if (word.startsWith("--")) flags.push(word)
     else target ??= word
   }
-  const argv = ["review", ...flags.map((flag) => (flag.startsWith("--recipe=") ? flag.slice("--recipe=".length) : flag))]
+  const argv = ["review", ...flags.filter((flag) => !flag.startsWith("--repo")).map((flag) => (flag.startsWith("--recipe=") ? flag.slice("--recipe=".length) : flag))]
   if (argv.some((word) => word.startsWith("--resume"))) return argv
   // Related files are this host's default: they lifted seeded-bugs-2 from
   // 3.7 to 5.5 of 7 on claude-code/ Seats, and the cost is plan usage (#135).

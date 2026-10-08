@@ -27,6 +27,11 @@ agents run on the person's Claude plan.
 
 When you cannot tell which they mean, ask before starting.
 
+The review runs in the session's repository. For another local checkout, add
+`--repo <path>` (absolute, `~/…`, or from the session's folder): "PR 42 in
+creativemarket.com" is `42 --repo ~/projects/creativemarket.com`. A repository
+that isn't cloned on this machine can't be reviewed.
+
 - `--recipe claude-sonnet-low|medium|high` when they name an effort or model
   ("gauntlet medium"); left out, their default recipe.
 - `--spec <file>`: requirements context you hold (acceptance criteria, notes),

@@ -8,6 +8,7 @@ import {
   inputsStamp,
   renderStrip,
   reviewArgv,
+  reviewRepo,
   reviewToolArgs,
   reviewToolInputSchema,
   type RunResult,
@@ -29,7 +30,6 @@ import {
 type Engines = EngineInterface
 
 const BUILD_FILE = "hooks/vendor/build.json"
-const STORE_INFLIGHT = "inflight"
 
 interface InFlight {
   readonly startedAt: number
@@ -58,6 +58,9 @@ let home = ""
 let tick: { readonly cancel: () => void } | undefined
 let markedAgents = ""
 let runCwd = ""
+// This session's in-flight marker: the store is one file for every session on
+// the machine, and another session's live run is not lost.
+let inflightKey = "inflight"
 // Dismiss clears the strip until the next review starts.
 let dismissed = false
 let drawn = ""
@@ -125,13 +128,13 @@ async function setStatus($: Engines, text: string | undefined) {
 // The in-flight marker outlives this module: a reload (or a crashed
 // session) that loses the run leaves it behind for the next load to report.
 async function markInFlight($: Engines, marker: InFlight | undefined) {
-  if (marker === undefined) await $.store.delete(STORE_INFLIGHT)
-  else await $.store.set(STORE_INFLIGHT, marker)
+  if (marker === undefined) await $.store.delete(inflightKey)
+  else await $.store.set(inflightKey, marker)
 }
 
 async function reportLostRun($: Engines) {
   // SAFETY: only markInFlight writes this key, always an InFlight.
-  const lost = (await $.store.get(STORE_INFLIGHT)) as InFlight | undefined
+  const lost = (await $.store.get(inflightKey)) as InFlight | undefined
   if (lost === undefined) return
   await markInFlight($, undefined)
   const stopped: Array<string> = []
@@ -255,7 +258,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "Use it when asked to run Gauntlet or a Gauntlet review; it replaces running the `gauntlet` CLI from a shell. " +
     "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
     "`args` is the /gc-cli syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
-    "then `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`. " +
+    "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`. " +
     (recipes.length === 0
       ? "No Claude Code recipes are installed."
       : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
@@ -319,18 +322,23 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
       return `gc-cli: rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
     }
   }
+  // `--repo` runs the review in another checkout: `~/…`, absolute, or from
+  // the session's folder.
+  const repo = reviewRepo(request.args)
+  const cwd = repo === undefined ? request.cwd : repo.startsWith("~") ? `${home}${repo.slice(1)}` : repo.startsWith("/") ? repo : `${request.cwd}/${repo}`
+  if (!(await $.fs.exists(cwd))) return `gc-cli: --repo ${String(repo)} names no folder (${cwd}).`
   const argv = reviewArgv(request.args)
-  log($, `starting ${argv.join(" ")} in ${request.cwd}`)
+  log($, `starting ${argv.join(" ")} in ${cwd}`)
   markedAgents = ""
-  runCwd = request.cwd
+  runCwd = cwd
   dismissed = false
-  await markInFlight($, { startedAt: Date.now(), argv, cwd: request.cwd, agentIds: [], snapshots: [] })
+  await markInFlight($, { startedAt: Date.now(), argv, cwd, agentIds: [], snapshots: [] })
   startTick($)
   void engine
-    .start({ argv, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
+    .start({ argv, cwd }, (line) => log($, `cli: ${line}`))
     .then((result) => finishRun($, result, request))
     .catch((error) => log($, `run failed to start: ${String(error)}`))
-  return `gc-cli: review started (${argv.slice(1).join(" ")}); progress shows above the prompt, and the digest arrives as a message when it finishes.`
+  return `gc-cli: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.`
 }
 
 // Test runs and cancels arrive as files the mod polls (a command registered
@@ -378,8 +386,9 @@ export const register: Register = (on) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gc-cli",
-      description: "Gauntlet review, run in process: /gc-cli [target] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
+      description: "Gauntlet review, run in process: /gc-cli [target] [--repo=<path>] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
     })
+    inflightKey = `inflight:${await $.session.id()}`
     await reportLostRun($)
     $.clock.every(2000, () => checkTrigger($).catch((error) => log($, `trigger failed: ${String(error)}`)))
     return started
