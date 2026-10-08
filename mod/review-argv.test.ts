@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { reviewArgv, reviewRepo, reviewToolArgs } from "./review-argv.ts"
+import { reviewRequest, reviewToolArgs } from "./review-argv.ts"
+
+const reviewArgv = (args: string) => reviewRequest(args).argv
 
 describe("/gc-cli arguments as gauntlet review argv", () => {
   it("reviews the working tree, a pull request or a commit range, with related files", () => {
@@ -29,9 +31,10 @@ describe("/gc-cli arguments as gauntlet review argv", () => {
 
   it("takes --repo as where the review runs, out of the argv", () => {
     expect(reviewArgv("641 --repo ~/projects/other")).toEqual(["review", "--related-files", "--pr=641"])
-    expect(reviewRepo("641 --repo ~/projects/other")).toBe("~/projects/other")
-    expect(reviewRepo("--repo=../other main")).toBe("../other")
-    expect(reviewRepo("641")).toBeUndefined()
+    expect(reviewRequest("641 --repo ~/projects/other").repo).toBe("~/projects/other")
+    expect(reviewRequest("--repo=../other main").repo).toBe("../other")
+    expect(reviewRequest('--repo="~/My Projects/x" 641')).toEqual({ argv: ["review", "--related-files", "--pr=641"], repo: "~/My Projects/x" })
+    expect(reviewRequest("641").repo).toBeUndefined()
   })
 
   it("lets an explicit target flag name the target", () => {

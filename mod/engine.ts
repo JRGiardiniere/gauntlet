@@ -32,7 +32,7 @@ import type { RunView } from "./strip.ts"
 
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
-export { reviewArgv, reviewRepo, reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
+export { reviewRequest, reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
 export { betaNotice } from "./beta-update.ts"
 export { digestDelivery } from "./digest-delivery.ts"
 export { inputsStamp } from "./stamp.ts"
