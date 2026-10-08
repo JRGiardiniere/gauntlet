@@ -1,5 +1,6 @@
 import type { EngineInterface, Register } from "claude-code"
 import {
+  betaNotice,
   type BuildInfo,
   createEngine,
   digestDelivery,
@@ -68,6 +69,8 @@ let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
 const delivery = digestDelivery()
+const STORE_UPDATE_CHECK = "update-checked-at"
+const DAY_MS = 86_400_000
 let starting = false
 const loadedAt = Date.now()
 
@@ -187,7 +190,7 @@ function startTick($: Engines) {
   })
 }
 
-async function finishRun($: Engines, result: RunResult, request: TriggerRequest) {
+async function finishRun($: Engines, result: RunResult, request: TriggerRequest, notice: Promise<string | undefined>) {
   tick?.cancel()
   tick = undefined
   drawnAt = 0
@@ -198,7 +201,16 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest)
   $.ui.toast(`gc-cli: ${verdict} after ${String(result.seconds)}s`)
   // Why it could not run or deliver, and how a run that reached no exit code
   // ended, show beside a digest too.
-  const said = [...(result.refusal === undefined ? [] : [result.refusal]), ...(result.ending === undefined ? [] : [result.ending])]
+  // A PR delivery's `posted <url>` is a stderr line, so the agent learns the
+  // comment's address only here.
+  const posted = result.stderr.trim().split("\n").map((line) => line.replace(/^gauntlet: /, "")).filter((line) => line.startsWith("posted "))
+  const update = await notice
+  const said = [
+    ...(result.refusal === undefined ? [] : [result.refusal]),
+    ...(result.ending === undefined ? [] : [result.ending]),
+    ...(digest === "" ? [] : posted),
+    ...(update === undefined ? [] : [update]),
+  ]
   // With no digest and nothing said, a completed run resumed has the CLI's
   // own closing lines.
   const closing = said.length > 0
@@ -258,7 +270,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "Use it when asked to run Gauntlet or a Gauntlet review; it replaces running the `gauntlet` CLI from a shell. " +
     "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
     "`args` is the /gc-cli syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
-    "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`. " +
+    "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks; `--resume <run id> --destination pr` posts a finished run's). " +
     (recipes.length === 0
       ? "No Claude Code recipes are installed."
       : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
@@ -334,11 +346,29 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
   dismissed = false
   await markInFlight($, { startedAt: Date.now(), argv, cwd, agentIds: [], snapshots: [] })
   startTick($)
+  const notice = checkForUpdate($, build.repoRoot).catch((error) => {
+    log($, `update check failed: ${String(error)}`)
+    return undefined
+  })
   void engine
     .start({ argv, cwd }, (line) => log($, `cli: ${line}`))
-    .then((result) => finishRun($, result, request))
+    .then((result) => finishRun($, result, request, notice))
     .catch((error) => log($, `run failed to start: ${String(error)}`))
   return `gc-cli: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.`
+}
+
+// At most one probe a day, as the CLI's: a newer beta tag on origin rides on
+// the digest of the review that probed.
+async function checkForUpdate($: Engines, repoRoot: string): Promise<string | undefined> {
+  const checkedAt = Number((await $.store.get(STORE_UPDATE_CHECK)) ?? 0)
+  if (Date.now() - checkedAt < DAY_MS) return undefined
+  await $.store.set(STORE_UPDATE_CHECK, Date.now())
+  const [current, remote] = await Promise.all([
+    $.process.run(["git", "-C", repoRoot, "describe", "--tags", "--exact-match", "--match", "gc-cli-beta.*"]),
+    $.process.run(["git", "-C", repoRoot, "ls-remote", "--tags", "--refs", "origin", "gc-cli-beta.*"], { timeoutMs: 15_000 }),
+  ])
+  if (current.exitCode !== 0 || remote.exitCode !== 0) return undefined
+  return betaNotice(current.stdout, remote.stdout)
 }
 
 // Test runs and cancels arrive as files the mod polls (a command registered
