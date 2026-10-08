@@ -17,7 +17,7 @@ import { makeScripted, type Scripted } from "../harness/scripted.ts"
 import { FinderStageArtifact } from "../run/finder-execution.ts"
 import { viewDossier } from "../render/dossier-view.ts"
 import {
-  confinedSession,
+  emittingSession,
   FINDER_OUTPUT,
   inspectionsFor,
   JUDGMENT_OUTPUT,
@@ -68,12 +68,12 @@ describe("gauntlet review", () => {
         fixture,
         makeScripted({
           sessions: [
-            confinedSession(FINDER_OUTPUT, "-finders", {
+            emittingSession(FINDER_OUTPUT, "-finders", {
               bash: ["pwd"],
               read: ["alpha.txt"],
             }),
-            confinedSession(VERIFIER_OUTPUT, "-verification"),
-            confinedSession(JUDGMENT_OUTPUT, "-judgment"),
+            emittingSession(VERIFIER_OUTPUT, "-verification", { bash: ["pwd"] }),
+            emittingSession(JUDGMENT_OUTPUT, "-judgment", { bash: ["pwd"] }),
           ],
         }),
       )

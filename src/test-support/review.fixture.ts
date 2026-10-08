@@ -16,7 +16,6 @@ import {
 } from "../github/github.ts"
 import type {
   FindingsOutput,
-  PoolOutput,
   VerdictsOutput,
 } from "../harness/output-contract.ts"
 import {
@@ -305,26 +304,25 @@ export const linearBranchIssue = (): LinearBranchIssue => ({
 })
 
 // Everything a review needs around the fixture: its HOME, content and
-// repository, the scripted Host, and GitHub and Linear fakes.
+// repository, the scripted Host, a GitHub fake and an unused Linear, with no
+// cache settle to wait out.
 export const provideReviewFixture = (
   fixture: Fixture,
   scripted: Scripted,
   github = unusedGitHubLayer,
-  linear = unusedLinearLayer,
-  finderCacheSettle: Effect.Effect<void> = Effect.void,
 ) =>
 <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
     Effect.provideService(ContentDirectory, fixture.content),
-    Effect.provideService(FinderCacheSettle, finderCacheSettle),
+    Effect.provideService(FinderCacheSettle, Effect.void),
     Effect.provide(
       Layer.mergeAll(
         NodeServices.layer,
         ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
         scriptedLayer(scripted),
         github,
-        linear,
+        unusedLinearLayer,
       ),
     ),
   )
@@ -344,48 +342,51 @@ export const FINDER_OUTPUT = {
   ],
 } satisfies FindingsOutput
 
-// The four stage outputs a scripted session can emit. The harness keeps emit
-// args `unknown` because it is a generic adapter seam; these helpers name the
-// admissible domain outputs so a script can only emit decodable model output.
-export type EmittedOutput =
-  | FindingsOutput
-  | PoolOutput
-  | VerdictsOutput
-  | JudgmentsOutput
+// The stage outputs a scripted session can emit. The harness keeps emit args
+// `unknown` because it is a generic adapter seam; naming the admissible
+// domain outputs means a script can only emit decodable model output.
+type EmittedOutput = FindingsOutput | VerdictsOutput | JudgmentsOutput
 
-// The BugClaim and Judgment paths execute concurrently, so their sessions
-// are keyed by cache-group suffix instead of relying on open order.
+// A session that makes the given tool calls, then emits its output. The
+// BugClaim and Judgment paths execute concurrently, so a session named for an
+// invocation's cache-group suffix is claimed by it; an unnamed one is claimed
+// in open order.
 export const emittingSession = (
   output: EmittedOutput,
   forSession?: string,
-  usage = usageRow(),
+  inspect: {
+    readonly bash?: ReadonlyArray<string>
+    readonly read?: ReadonlyArray<string>
+  } = {},
 ): ScriptedSession => {
   const prompts: Array<ScriptedPrompt> = [
     {
       events: [
         { afterMillis: 0, kind: "message_start" },
-        {
+        ...(inspect.bash ?? []).map((command) => ({
           afterMillis: 0,
-          kind: "emit",
-          args: output,
-          valid: true,
-        },
+          kind: "tool" as const,
+          toolName: "bash" as const,
+          args: { command },
+        })),
+        ...(inspect.read ?? []).map((path) => ({
+          afterMillis: 0,
+          kind: "tool" as const,
+          toolName: "read" as const,
+          args: { path },
+        })),
+        { afterMillis: 0, kind: "emit", args: output, valid: true },
         {
           afterMillis: 0,
           kind: "message_end",
           stopReason: "toolUse",
-          usage,
+          usage: usageRow(),
         },
       ],
       settles: "after-events",
     },
   ]
-  // An unkeyed session is claimed in open order; a keyed one is claimed by
-  // matching the invocation's cache-group suffix, so `forSession` is added to
-  // the session object only when present.
-  return forSession === undefined
-    ? { prompts }
-    : { prompts, forSession }
+  return forSession === undefined ? { prompts } : { prompts, forSession }
 }
 
 export const VERIFIER_OUTPUT = {
@@ -416,18 +417,6 @@ export const JUDGMENT_OUTPUT = {
   ],
 } satisfies JudgmentsOutput
 
-export const successfulSession = (
-  output: FindingsOutput = FINDER_OUTPUT,
-  forSession?: string,
-  usage = usageRow(),
-): ScriptedSession => emittingSession(output, forSession, usage)
-
-export const successfulVerifierSession = (): ScriptedSession =>
-  emittingSession(VERIFIER_OUTPUT, "-verification")
-
-export const successfulJudgmentSession = (): ScriptedSession =>
-  emittingSession(JUDGMENT_OUTPUT, "-judgment")
-
 // Concurrent sessions interleave their prompt calls, so prompts are asserted
 // by invocation identity, never by global order.
 export const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
@@ -447,54 +436,13 @@ export const inspectionsFor = (scripted: Scripted, suffix: string) =>
     ({ invocationId }) => invocationId.includes(suffix),
   )
 
-export const confinedSession = (
-  output: EmittedOutput,
-  forSession: string,
-  inspect: {
-    readonly bash?: ReadonlyArray<string>
-    readonly read?: ReadonlyArray<string>
-  } = {},
-): ScriptedSession => ({
-  forSession,
-  prompts: [
-    {
-      events: [
-        { afterMillis: 0, kind: "message_start" as const },
-        ...(inspect.bash ?? ["pwd"]).map((command) => ({
-          afterMillis: 0,
-          kind: "tool" as const,
-          toolName: "bash" as const,
-          args: { command },
-        })),
-        ...(inspect.read ?? []).map((path) => ({
-          afterMillis: 0,
-          kind: "tool" as const,
-          toolName: "read" as const,
-          args: { path },
-        })),
-        {
-          afterMillis: 0,
-          kind: "emit" as const,
-          args: output,
-          valid: true,
-        },
-        {
-          afterMillis: 0,
-          kind: "message_end" as const,
-          stopReason: "toolUse" as const,
-          usage: usageRow(),
-        },
-      ],
-      settles: "after-events" as const,
-    },
-  ],
-})
-
+// A Finder, a verifier and a judge that each emit their stage's fixture
+// output.
 export const successfulScripted = (): Scripted =>
   makeScripted({
     sessions: [
-      successfulSession(),
-      successfulVerifierSession(),
-      successfulJudgmentSession(),
+      emittingSession(FINDER_OUTPUT),
+      emittingSession(VERIFIER_OUTPUT, "-verification"),
+      emittingSession(JUDGMENT_OUTPUT, "-judgment"),
     ],
   })

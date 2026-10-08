@@ -154,7 +154,7 @@ describe("submission", () => {
       ).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("freezes a commit range from its resolved SHA pair with no overlay", () =>
+  it.effect("freezes a commit range from its resolved SHA pair with no overlay, related files when asked", () =>
     Effect.gen(function* () {
       const { fixture, headCommit, mergeBase, trunk } =
         yield* makeCommitRangeFixture
@@ -165,11 +165,12 @@ describe("submission", () => {
         "first line\nneedle-added-line\nuncommitted-line\n",
       )
 
-      const loaded = yield* submitWith(
-        fixture,
-        exactLenses(SubmissionTargetRequest.Commits({ range: trunk })),
-      )
+      const loaded = yield* submitWith(fixture, {
+        ...exactLenses(SubmissionTargetRequest.Commits({ range: trunk })),
+        relatedFiles: true,
+      })
 
+      expect(loaded.plan.relatedFiles).toBe(true)
       expect(ReviewTarget.guards.Commits(loaded.plan.target)).toBe(true)
       if (!ReviewTarget.guards.Commits(loaded.plan.target)) return
       expect(loaded.plan.target.baseCommit).toBe(mergeBase)
