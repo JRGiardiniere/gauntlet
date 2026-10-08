@@ -184,10 +184,13 @@ function redraw($: Engines) {
 }
 
 function startTick($: Engines) {
-  tick = $.clock.every(250, async () => {
+  const ticker = $.clock.every(250, async () => {
     const running = engine?.running()
     if (running === undefined) return
     await engine?.poll().catch((error) => log($, `poll failed: ${String(error)}`))
+    // Cancelling stops the next tick, not this one: a run that ended during
+    // the poll has had its marker cleared.
+    if (tick !== ticker) return
     redraw($)
     const work = JSON.stringify([running.agentIds, running.snapshots])
     if (work !== markedRun) {
@@ -195,6 +198,7 @@ function startTick($: Engines) {
       await markInFlight($, { ...running, cwd: runCwd }).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
     }
   })
+  tick = ticker
 }
 
 async function finishRun($: Engines, result: RunResult, request: StartRequest, notice: Promise<string | undefined>) {
