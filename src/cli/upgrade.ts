@@ -2,8 +2,7 @@
 // move recipe seats off legacy providers and onto the newest Luna/Sol (#121).
 // Settings, runs (~/.gauntlet) and project lenses (.gauntlet/lenses) survive
 // by construction — the shipped lens catalog is embedded in the binary, so
-// swapping the file swaps the catalog atomically, and a resumed run replays
-// its frozen plan.json regardless (ADR 0004).
+// swapping the file swaps the catalog atomically (ADR 0004).
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"

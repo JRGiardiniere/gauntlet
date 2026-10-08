@@ -70,8 +70,8 @@ export interface RunResult {
   readonly seconds: number
   // Cancelled: the run was interrupted, and nothing else ended it.
   readonly interrupted: boolean
-  // How a run that reached no exit code ended: cancelled (with the run to
-  // resume), or the defect's own message.
+  // How a run that reached no exit code ended: cancelled, or the defect's
+  // own message.
   readonly ending: string | undefined
 }
 
@@ -82,10 +82,8 @@ const errorText = (error: Error) =>
     ? `${error.name} ${JSON.stringify(Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause" && key !== "_tag")))}`
     : `${error.name}: ${error.message}`
 
-const endingOf = (cause: Cause.Cause<unknown>, runId: string | undefined) => {
-  if (Cause.hasInterruptsOnly(cause)) {
-    return runId === undefined ? "cancelled" : `cancelled; resume it with /gauntlet --resume=${runId}`
-  }
+const endingOf = (cause: Cause.Cause<unknown>) => {
+  if (Cause.hasInterruptsOnly(cause)) return "cancelled"
   const defect = Cause.squash(cause)
   return `run ended: ${defect instanceof Error ? errorText(defect) : String(defect)}`
 }
@@ -160,7 +158,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     let stderr = ""
     let pending = ""
     const startedAt = Date.now()
-    let runId: string | undefined
     const shown: Progress = {
       startedAt,
       endedAt: undefined,
@@ -183,7 +180,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Effect.sync(() => {
         switch (milestone._tag) {
           case "Started": {
-            runId = milestone.runId
             shown.lenses = milestone.lenses
             if (current !== undefined) current.runId = milestone.runId
             return
@@ -249,7 +245,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           endedAt: Date.now(),
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
         }
-        const ending = Exit.isSuccess(exit) ? undefined : endingOf(exit.cause, runId)
+        const ending = Exit.isSuccess(exit) ? undefined : endingOf(exit.cause)
         resolve({
           exitCode: Exit.isSuccess(exit) ? exit.value : 1,
           refusal: shown.refusal,

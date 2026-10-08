@@ -154,7 +154,7 @@ async function reportLostRun($: Engines) {
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
   const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded; ` +
     `its in-process state is gone. ${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
-    (lost.runId === undefined ? "Run /gauntlet again." : `Its run directory is kept; resume it with /gauntlet --resume=${lost.runId}.`)
+    "Run /gauntlet again."
   log($, `${note} ${stopped.join("; ")}`)
   $.ui.toast(note, { timeoutMs: 15_000 })
   await $.session.append({ message: { type: "user", content: [{ type: "text", text: note }] } }).catch((error) =>
@@ -201,10 +201,10 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
   // The run is over: a review started from here on owns the marker.
   await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   // Why it could not run or deliver, and how a run that reached no exit code
-  // ended, show beside a digest too. The CLI's own closing lines are stderr:
-  // a PR delivery's `posted <url>`, and a resumed complete run's location.
+  // ended, show beside a digest too. The CLI's own closing line is stderr: a
+  // PR delivery's `posted <url>`.
   const closing = result.stderr.trim().split("\n").map((line) => line.replace(/^gauntlet: /, ""))
-    .filter((line) => line.startsWith("posted ") || (digest === "" && line.includes("already complete")))
+    .filter((line) => line.startsWith("posted "))
   // The update probe gets a second more, as the CLI's notice does; a slow one
   // never holds back a finished review.
   const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
@@ -267,7 +267,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "Use it when asked to run Gauntlet or a Gauntlet review; it replaces running the `gauntlet` CLI from a shell. " +
     "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
     "`args` is the /gauntlet syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
-    "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks; `--resume <run id> --destination pr` posts a finished run's). " +
+    "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks). " +
     (recipes.length === 0
       ? "No Claude Code recipes are installed."
       : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
@@ -358,7 +358,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
 // standards lens, gets the offer the gauntlet-code-review skill describes.
 async function standardsNote($: Engines, engine: Engine, cwd: string, argv: ReadonlyArray<string>): Promise<string> {
   const lenses = argv.find((word) => word.startsWith("--lenses="))
-  if (argv.some((word) => word.startsWith("--resume")) || (lenses !== undefined && !lenses.split(/[=,]/).includes("standards"))) return ""
+  if (lenses !== undefined && !lenses.split(/[=,]/).includes("standards")) return ""
   const manifest = await engine.standardsManifest(cwd).catch((error) => {
     log($, `standards manifest check failed: ${String(error)}`)
     return undefined
