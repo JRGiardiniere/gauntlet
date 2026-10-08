@@ -7,6 +7,7 @@ import {
   type Engine,
   type EnginePorts,
   type Json,
+  recoverLostRun,
   renderStrip,
   reviewToolArgs,
   reviewToolInputSchema,
@@ -166,13 +167,14 @@ export const register: Register = (on) => {
         ["LINEAR_API_KEY", await $.env.get("LINEAR_API_KEY")],
       ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
     )
+    const ports = portsOf($, env)
+    const sessionId = await $.session.id()
     try {
       const loadStart = Date.now()
       // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
       const build = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
-      const ports = portsOf($, env)
       engine = createEngine(ports, build)
-      session = createSession(ports, engine, { build, pluginRoot: $.plugin.root, sessionId: await $.session.id() })
+      session = createSession(ports, engine, { build, pluginRoot: $.plugin.root, sessionId })
       log($, `loaded engine ${build.stamp.slice(0, 12)} built ${build.builtAt} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
     } catch (error) {
       log($, `engine failed to load: ${String(error)}`)
@@ -186,7 +188,7 @@ export const register: Register = (on) => {
       name: "gauntlet",
       description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], or /gauntlet deliver <run-id>; --help for the rest",
     })
-    await session?.recoverLostRun()
+    await recoverLostRun(ports, sessionId)
     startClock($)
     return started
   })

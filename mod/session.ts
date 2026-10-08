@@ -39,18 +39,58 @@ const InFlight = Schema.Struct({
 })
 type InFlight = typeof InFlight.Type
 
+// This session's in-flight marker: the store is one file for every session on
+// the machine, and another session's live run is not lost.
+const inflightKey = (sessionId: string) => `inflight:${sessionId}`
+
+// A marker found as the session loads is a run an earlier load lost: it is
+// reported loudly, and what the run left behind is stopped and removed. This
+// needs no engine, so a load whose engine failed still does it.
+export const recoverLostRun = async (
+  ports: Pick<EnginePorts, "run" | "stop" | "log" | "store" | "toast" | "append">,
+  sessionId: string,
+) => {
+  const key = inflightKey(sessionId)
+  const stored = await ports.store.get(key)
+  if (stored === undefined) return
+  await ports.store.delete(key).catch((error) => ports.log(`in-flight marker failed: ${String(error)}`))
+  const lost = Option.getOrUndefined(Schema.decodeUnknownOption(InFlight)(stored))
+  if (lost === undefined) {
+    ports.log(`in-flight marker unreadable, dropped: ${JSON.stringify(stored)}`)
+    return
+  }
+  const outcomes: Array<string> = []
+  for (const agentId of lost.agentIds) {
+    const refused = await ports.stop(agentId).catch((error) => String(error))
+    outcomes.push(`${agentId}: ${refused === undefined ? "stopped" : `not stopped (${refused})`}`)
+  }
+  // The lost run's snapshots: its finalizers never ran. Once a snapshot's
+  // directory is gone, a prune drops git's record of the worktree in it.
+  for (const snapshot of lost.snapshots) {
+    const removed = await ports.run(["rm", "-rf", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
+    outcomes.push(`${snapshot}: ${removed.exitCode === 0 ? "removed" : `not removed (${removed.stderr.trim()})`}`)
+  }
+  if (lost.snapshots.length > 0) await ports.run(["git", "-C", lost.cwd, "worktree", "prune"]).catch(() => undefined)
+  const age = Math.round((Date.now() - lost.startedAt) / 1000)
+  const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
+  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
+    `${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
+    "Run /gauntlet again."
+  ports.log(`${note} ${outcomes.join("; ")}`)
+  ports.toast(note, { timeoutMs: 15_000 })
+  await ports.append(note).catch((error) => ports.log(`append failed: ${String(error)}`))
+}
+
 export const createSession = (
   ports: Pick<
     EnginePorts,
-    "run" | "read" | "stop" | "log" | "store" | "toast" | "status" | "send" | "submit" | "append" | "row"
+    "run" | "read" | "log" | "store" | "toast" | "status" | "send" | "submit" | "append" | "row"
   >,
   engine: Pick<Engine, "start" | "running" | "poll" | "standardsManifest">,
   options: { readonly build: BuildInfo; readonly pluginRoot: string; readonly sessionId: string },
 ) => {
   const { build, pluginRoot } = options
-  // This session's in-flight marker: the store is one file for every session
-  // on the machine, and another session's live run is not lost.
-  const inflightKey = `inflight:${options.sessionId}`
+  const key = inflightKey(options.sessionId)
   // When this session's one review was claimed. The claim is taken before
   // anything is awaited and given back once the review's ending has stopped
   // its ticks and cleared its marker: a second review is refused until then,
@@ -69,41 +109,8 @@ export const createSession = (
   // The marker outlives this module: a reload (or a crashed session) that
   // loses the run leaves it behind for the next load to report.
   const mark = (marker: InFlight | undefined) =>
-    (marker === undefined ? ports.store.delete(inflightKey) : ports.store.set(inflightKey, marker))
+    (marker === undefined ? ports.store.delete(key) : ports.store.set(key, marker))
       .catch((error) => ports.log(`in-flight marker failed: ${String(error)}`))
-
-  // A marker found as the session loads is a run an earlier load lost: it is
-  // reported loudly, and what the run left behind is stopped and removed.
-  const recoverLostRun = async () => {
-    const stored = await ports.store.get(inflightKey)
-    if (stored === undefined) return
-    await mark(undefined)
-    const lost = Option.getOrUndefined(Schema.decodeUnknownOption(InFlight)(stored))
-    if (lost === undefined) {
-      ports.log(`in-flight marker unreadable, dropped: ${JSON.stringify(stored)}`)
-      return
-    }
-    const outcomes: Array<string> = []
-    for (const agentId of lost.agentIds) {
-      const refused = await ports.stop(agentId).catch((error) => String(error))
-      outcomes.push(`${agentId}: ${refused === undefined ? "stopped" : `not stopped (${refused})`}`)
-    }
-    // The lost run's snapshots: its finalizers never ran. Once a snapshot's
-    // directory is gone, a prune drops git's record of the worktree in it.
-    for (const snapshot of lost.snapshots) {
-      const removed = await ports.run(["rm", "-rf", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
-      outcomes.push(`${snapshot}: ${removed.exitCode === 0 ? "removed" : `not removed (${removed.stderr.trim()})`}`)
-    }
-    if (lost.snapshots.length > 0) await ports.run(["git", "-C", lost.cwd, "worktree", "prune"]).catch(() => undefined)
-    const age = Math.round((Date.now() - lost.startedAt) / 1000)
-    const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-    const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
-      `${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
-      "Run /gauntlet again."
-    ports.log(`${note} ${outcomes.join("; ")}`)
-    ports.toast(note, { timeoutMs: 15_000 })
-    await append(note)
-  }
 
   // Polls the review's agents and re-marks the review when its agents or
   // snapshot changed; answers whether a review is running, for the strip's
@@ -259,10 +266,12 @@ export const createSession = (
       }
       ports.log(`digest not sent to ${agentId}: ${refused}`)
     }
+    if (!busy && (await submit(text))) return
+    // Busy now (or since a dropped submit), the main agent reads the append at
+    // its next step, or its turn's end submits it.
     if (busy) unread = text
-    else if (await submit(text)) return
     showRows(shown)
-    await append(text)
+    await ports.append(text).catch((error) => ports.log(`append failed: ${String(error)}`))
   }
 
   const showRows = (shown: ReadonlyArray<string>) => {
@@ -270,8 +279,6 @@ export const createSession = (
       if (line.trim() !== "") ports.row(line)
     }
   }
-
-  const append = (text: string) => ports.append(text).catch((error) => ports.log(`append failed: ${String(error)}`))
 
   // Whether the prompt entered; a dropped one leaves the digest to the rows and
   // an appended message.
@@ -285,7 +292,6 @@ export const createSession = (
   return {
     start,
     tick,
-    recoverLostRun,
     // The main agent's turns: started, each model call, and the end.
     turnStarted: () => {
       busy = true

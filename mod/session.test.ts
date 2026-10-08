@@ -1,15 +1,17 @@
 import * as Option from "effect/Option"
-import { describe, expect, it } from "vitest"
 import type { Json } from "effect/Schema"
+import { describe, expect, it } from "vitest"
 import type { ReviewRequest } from "../src/run/run.ts"
 import { SubmissionTargetRequest } from "../src/run/submission.ts"
 import type { BuildInfo, RunResult } from "./engine.ts"
-import { createSession, type StartRequest } from "./session.ts"
+import { createSession, recoverLostRun, type StartRequest } from "./session.ts"
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+// Lets the session's promises settle until `ready`, for a bounded while: a
+// condition that never holds fails the assertions after it.
 const until = async (ready: () => boolean) => {
-  while (!ready()) await settle()
+  for (let turns = 0; turns < 1000 && !ready(); turns += 1) await settle()
 }
 
 // A port call the test lets go of.
@@ -77,7 +79,7 @@ const makeSession = (options: {
   const rows: Array<string> = []
   let deletes = 0
   const build: BuildInfo = { stamp: "", files: 0, repoRoot: "/gauntlet", builtAt: "", bun: "bun", prices: {} }
-  const ports: Parameters<typeof createSession>[0] = {
+  const ports: Parameters<typeof createSession>[0] & Parameters<typeof recoverLostRun>[0] = {
     // Git lists no inputs, so the stamp is the same on every check.
     run: async (argv) => {
       ran.push(argv)
@@ -132,6 +134,7 @@ const makeSession = (options: {
     return Promise.race([session.start(request), until(() => runs.length > count).then(() => "admitted")])
   }
   return {
+    ports,
     session,
     review,
     attempt,
@@ -216,7 +219,7 @@ describe("the Mod's session", () => {
       snapshots: ["/tmp/gauntlet-review-1"],
     })
 
-    await mod.session.recoverLostRun()
+    await recoverLostRun(mod.ports, "session-1")
 
     expect(mod.stopped).toEqual(["agent-1"])
     expect(mod.ran).toEqual([["rm", "-rf", "/tmp/gauntlet-review-1"], ["git", "-C", "/repo", "worktree", "prune"]])
@@ -258,6 +261,19 @@ describe("the digest's way to its Caller", () => {
     await mod.session.turnEnded()
 
     expect(mod.submitted).toEqual([DIGEST])
+  })
+
+  it("leaves to the turn a digest that a later step read", async () => {
+    const mod = makeSession()
+    mod.session.turnStarted()
+    const run = await mod.review({ cwd: "/repo", args: "" })
+    run.end(FINISHED)
+    await until(() => mod.appended.length === 1)
+
+    mod.session.stepped()
+    await mod.session.turnEnded()
+
+    expect(mod.submitted).toEqual([])
   })
 
   it("leaves the digest appended when its submit is dropped", async () => {
