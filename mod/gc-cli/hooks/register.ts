@@ -350,7 +350,22 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     .start({ argv, cwd }, (line) => log($, `cli: ${line}`))
     .then((result) => finishRun($, result, request, notice))
     .catch((error) => log($, `run failed to start: ${String(error)}`))
-  return `gc-cli: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.`
+  return `gc-cli: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
+    (await standardsNote($, engine, cwd, argv))
+}
+
+// A repository with no Standards Manifest, on a review that would run the
+// standards lens, gets the offer the gauntlet-code-review skill describes.
+async function standardsNote($: Engines, engine: Engine, cwd: string, argv: ReadonlyArray<string>): Promise<string> {
+  const lenses = argv.find((word) => word.startsWith("--lenses="))
+  if (argv.some((word) => word.startsWith("--resume")) || (lenses !== undefined && !lenses.split(/[=,]/).includes("standards"))) return ""
+  const manifest = await engine.standardsManifest(cwd).catch((error) => {
+    log($, `standards manifest check failed: ${String(error)}`)
+    return undefined
+  })
+  return manifest === undefined || manifest.exists
+    ? ""
+    : ` This repository has no Standards Manifest, so the standards lens is skipped this time; it goes at ${manifest.path}. Offer to set it up, as the gauntlet-code-review skill says.`
 }
 
 // At most one probe a day, as the CLI's: a newer beta tag on origin rides on
