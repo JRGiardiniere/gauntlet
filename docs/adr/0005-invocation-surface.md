@@ -123,6 +123,11 @@ destination because local artifacts are always produced. The old repo's ~250-lin
 autodetect (gh PR discovery plus a degradation-warning ladder) existed only to
 guess what the caller already knows; the invoking agent states it in one flag,
 and the future PR watcher arrives with the number in hand.
+Amended per #159: `pr` is a review followed by a `deliver` of its Run, so
+`deliver` is the one way a Dossier gets posted. The Host shows the digest
+before the post starts, so a post that hangs or fails never withholds it. On
+a failed post the CLI still exits 1, with the retry hint, because the post was
+asked for and did not happen.
 
 ## Recipes
 
