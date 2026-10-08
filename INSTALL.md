@@ -1,11 +1,11 @@
-# Install the Gauntlet beta (`/gc-cli`)
+# Install Gauntlet for Claude Code (`/gc-cli`)
 
-You are a coding agent installing the `/gc-cli` beta for the person you work
-with. `/gc-cli` runs a Gauntlet review inside Claude Code: progress shows in a
+You are a coding agent installing Gauntlet's Claude Code mod, `/gc-cli`, for
+the person you work with. `/gc-cli` runs a Gauntlet review inside Claude Code: progress shows in a
 strip above the prompt, the digest lands in the transcript, and **Open
 dossier** opens the full report.
 
-The beta is two Claude Code plugin folders, `gc-cli` and `gc-cli-tools`, built
+The mod is two Claude Code plugin folders, `gc-cli` and `gc-cli-tools`, built
 from a git checkout. They stay bound to that checkout: they read lenses and
 prompts from it, and rebuild themselves from it with the `bun` that built them.
 So the clone stays where you put it, and `bun` must be a real command.
@@ -14,9 +14,9 @@ Work through **Install** in order. Each step ends on its done-when check; reach
 it before moving on. Every change outside the clone (installing `bun`, editing
 `~/.claude/settings.json`) waits for the person's approval.
 
-## What the beta needs
+## What it needs
 
-- **Claude Code that loads mods.** The beta was built and checked against
+- **Claude Code that loads mods.** The mod was built and checked against
   Claude Code 2.1.291 (`claude --version`). Install step 7 is the real test:
   `claude plugin validate` reads the mod the way this Claude Code will.
 - **git**, and **bun 1.4.0 or newer** (step 1 installs it).
@@ -47,10 +47,10 @@ instead; everything below calls the clone's absolute path `<clone>`.
 ```sh
 git clone https://github.com/JRGiardiniere/gauntlet.git ~/gauntlet
 cd ~/gauntlet
-git checkout gc-cli-beta.1
+git checkout "$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)"   # the newest release
 ```
 
-Done when `git -C <clone> describe --tags` prints `gc-cli-beta.1`.
+Done when `git -C <clone> describe --tags` prints that release's tag (`vX.Y.Z`).
 
 ### 3. Build
 
@@ -108,7 +108,7 @@ The skill tells Claude when and how to start a review with the mod's tool.
 
 - `gauntlet` on the PATH (`command -v gauntlet`): the person uses the Gauntlet
   CLI, whose own `gauntlet` skill covers both. Leave their skills alone.
-- Otherwise: link the beta's skill, so it follows the checkout:
+- Otherwise: link the mod's skill, so it follows the checkout:
   `mkdir -p ~/.claude/skills && ln -s <clone>/mod/skills/gauntlet-code-review ~/.claude/skills/gauntlet-code-review`.
   A `~/.claude/skills/gauntlet` without the CLI is left from an earlier CLI
   install and sends Claude to a command that isn't there: show the person its
@@ -146,9 +146,8 @@ Tell the person:
 In `<clone>`:
 
 ```sh
-git fetch --tags --force
-git tag --list 'gc-cli-beta.*' --sort=-v:refname   # newest first
-git checkout <newest tag>
+git fetch --tags
+git checkout "$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)"   # the newest release
 bun install
 bun run build-mod
 ```
