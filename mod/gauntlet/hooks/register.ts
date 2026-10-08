@@ -336,7 +336,6 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
   }
   markedAgents = ""
-  dismissed = false
   const notice = checkForUpdate($, build.repoRoot).catch((error) => {
     log($, `update check failed: ${String(error)}`)
     return undefined
@@ -345,6 +344,8 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
   // before its ending clears it; a failed marker write only logs.
   const marked = run.request.then(async (review) => {
     if (review === undefined) return
+    // A review brings back a dismissed strip; help leaves it dismissed.
+    dismissed = false
     runCwd = review.directory
     await markInFlight($, { startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
       .catch((error) => log($, `in-flight marker failed: ${String(error)}`))

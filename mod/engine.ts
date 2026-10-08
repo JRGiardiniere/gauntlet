@@ -179,7 +179,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     onLine: (line: string) => void,
   ): StartedRun => {
     if (current !== undefined) throw new Error("a review is already running in this session")
-    // A delivery leaves the strip to the last review.
     const delivering = request.words[0] === "deliver"
     let printed = ""
     let pending = ""
@@ -195,7 +194,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       result: undefined,
       refusal: undefined,
     }
-    if (!delivering) progress = shown
     let parsed: (review: Run.ReviewRequest | undefined) => void = () => undefined
     const reviewRequest = new Promise<Run.ReviewRequest | undefined>((resolve) => {
       parsed = resolve
@@ -235,8 +233,13 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       })
     const gauntlet = Command.make("gauntlet").pipe(
       Command.withSubcommands(reviewSyntax({ relatedFiles: true }, {
+        // Only words that became a review draw the strip: help, a delivery
+        // and words that never parsed leave it to the last review.
         review: (review) =>
-          Effect.sync(() => parsed(review)).pipe(
+          Effect.sync(() => {
+            progress = shown
+            parsed(review)
+          }).pipe(
             Effect.andThen(Run.review(review)),
             Effect.map((reviewed) => {
               answer = { verdict: "review finished", digest: reviewed.digest, notes: deliveryNotes(reviewed) }
@@ -294,7 +297,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         parsed(undefined)
         void driver.stopAll("run ended")
         const failed = Exit.isFailure(exit)
-        if (!delivering) {
+        if (progress === shown) {
           progress = { ...shown, endedAt: Date.now(), exitCode: failed || shown.refusal !== undefined ? 1 : 0 }
         }
         const seconds = Math.round((Date.now() - startedAt) / 1000)
