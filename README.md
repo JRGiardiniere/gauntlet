@@ -44,7 +44,8 @@ Then:
 
 ```sh
 gauntlet config init     # seeds ~/.gauntlet with recipes + the 13 shipped lenses
-gauntlet review --pr 42  # or --commits main, or --working-tree
+gauntlet review          # your uncommitted changes; or 42 for a PR, main for your branch
+gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post it there
 ```
 
 `gauntlet --help` is the full flag reference. To customize:

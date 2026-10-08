@@ -139,7 +139,8 @@ Tell the person:
   Claude starts it, carries on or waits, and gets the digest when it lands.
   The review uses their Claude plan.
 - They can also type `/gauntlet` (`/gauntlet 42` for pull request 42, `/gauntlet main`
-  for the commits since `main`, `--recipe=claude-sonnet-medium` for more effort).
+  for the commits since `main`, `--recipe claude-sonnet-medium` for more effort,
+  `/gauntlet deliver <run-id>` to post a finished pull-request review).
 
 ## Update
 

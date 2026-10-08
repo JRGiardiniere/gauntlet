@@ -73,9 +73,9 @@ const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
 )
 
-// The caller aims explicitly (ADR 0005), and the tagged request makes only
-// the valid aims representable: a GitHub-pinned Specification Source belongs
-// to a pull-request aim, and a base range extends only a working-tree aim.
+// The tagged request makes only the valid aims representable (ADR 0005): a
+// GitHub-pinned Specification Source belongs to a pull-request aim, and a
+// base range extends only a working-tree aim.
 export type SubmissionTargetRequest = Data.TaggedEnum<{
   PullRequest: {
     readonly number: number

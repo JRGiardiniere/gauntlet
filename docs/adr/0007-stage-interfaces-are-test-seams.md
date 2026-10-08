@@ -10,7 +10,10 @@ one level: **a Stage module's public interface is a sanctioned test surface.**
 Stage tests drive the real interface callers use — scripted HarnessSession
 adapter, real temp filesystem, real shipped prompt text — and the CLI suite
 shrinks to contracts that are genuinely CLI-shaped: exit codes, stdout,
-run-directory layout, plus a small number of end-to-end journeys.
+run-directory layout, plus a small number of end-to-end journeys. Amended per
+#159: a Run's lifecycle — a fresh review, delivery, refusals, coverage gaps —
+is tested at the Run module's interface, on the data it answers, and the
+words both Hosts take at the shared syntax's one table.
 
 The second half of the decision is proportionality. Gauntlet is a personal
 tool that emits a complete reportable chain on every run — frozen ReviewPlan,

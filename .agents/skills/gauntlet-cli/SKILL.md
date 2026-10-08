@@ -19,25 +19,27 @@ a message. Everything below is the CLI.
 
 ## Review
 
-1. **Aim.** Every review names its target — point the tool at what you mean;
-   there is no default and no autodetect.
+1. **Aim.** Point the review at what you mean; there is no autodetect.
 
-   | What you mean | Flag |
+   | What you mean | Target |
    | --- | --- |
-   | this PR | `--pr N` |
-   | these commits | `--commits <base>[..<head>]` |
-   | everything uncommitted | `--working-tree` |
-   | this branch's work including uncommitted edits | `--commits <base> --working-tree` |
+   | everything uncommitted | nothing (`gauntlet review`) |
+   | this PR | its number: `gauntlet review 42` |
+   | this branch's commits | its base: `gauntlet review main` |
+   | a commit range | `gauntlet review <base>..<head>` (`abc~1..abc` is one commit) |
+   | this branch's work including uncommitted edits | `gauntlet review main --working-tree` |
 
-   `--commits` defaults its head end to `HEAD` and accepts any branch, tag, or
-   SHA on either end; it reviews `merge-base(base, head)..head`, so
-   `--commits main` is the usual "review my branch". Uncommitted edits are not
-   part of a plain `--commits` review — they are reported as a warning; add
-   `--working-tree` to include them. `--pr` cannot be combined with the other
-   target flags. When you cannot tell which the user means, ask before
-   launching.
-2. **Recipe.** Omit the positional name so the configured Default Recipe is
-   used, unless the user named a Recipe.
+   A target of all digits is a pull request; anything else is a commit range
+   that accepts any branch, tag, or SHA on either end. `<base>` alone reviews
+   `merge-base(base, HEAD)..HEAD`, so `gauntlet review main` is the usual
+   "review my branch". Uncommitted edits are not part of a commit-range
+   review — they are reported as a warning; add `--working-tree` to a
+   `<base>` target to include them. `--working-tree` cannot extend a pull
+   request or a `<base>..<head>` range. When you cannot tell which the user
+   means, ask before launching. `--repo <path>` reviews another local
+   checkout instead of the current directory.
+2. **Recipe.** Omit `--recipe` so the configured Default Recipe is used,
+   unless the user named a Recipe (`--recipe high`).
 3. **Lenses.** Omit `--lenses` to use the configured Default Lenses. When the
    user names perspectives for this run, pass one exact comma-separated
    `--lenses a,b` list; it replaces Default Lenses without changing Recipe
@@ -45,18 +47,19 @@ a message. Everything below is the CLI.
    discover available and Default names.
 4. **Destination.** Local artifacts always land. Default is `--destination
    local`. `--destination pr` only when the user asked to post a PR comment; it
-   requires `--pr`. `review --pr`, `--destination pr`, and `deliver` need the
-   GitHub CLI (`gh`) installed and authenticated.
+   requires a pull request target. Pull request reviews, `--destination pr`,
+   and `deliver` need the GitHub CLI (`gh`) installed and authenticated.
 5. **Specification.** Any target whose current branch contains one Linear
    issue ID tries to resolve it as the current Slice, plus one native parent,
    sibling titles/states, and human comments. This needs `LINEAR_API_KEY`. A
    resolved Linear issue wins over GitHub. When Linear is absent or unreachable, a
-   `--pr` review falls back to GitHub closing issues as the current Slices
+   pull request review falls back to GitHub closing issues as the current Slices
    (native parent one level;
    owner/member/collaborator comments under a 20,000-character earliest-first
    budget). An unreachable Linear issue still prints and reports its actionable
    diagnostic beside any GitHub material. When the user explicitly chooses
-   GitHub for this Run, pass `--github-spec`; it requires `--pr`, skips Linear,
+   GitHub for this Run, pass `--github-spec`; it requires a pull request
+   target, skips Linear,
    and fails unless GitHub closing issues produce a specification. Otherwise
    GitHub unavailability or a PR with no closing issues stays quietly
    specification-less. When you hold
@@ -73,7 +76,7 @@ a message. Everything below is the CLI.
    mechanism:
 
    ```
-   gauntlet review [recipe] <target> [--github-spec] [--spec <markdown-file>] [--destination local|pr] [--lenses a,b]
+   gauntlet review [target] [--working-tree] [--recipe <name>] [--lenses a,b] [--spec <markdown-file>] [--github-spec] [--destination local|pr] [--repo <path>]
    ```
 
    Keep `gauntlet review ...` in the foreground inside that facility. Retain
@@ -99,7 +102,8 @@ a message. Everything below is the CLI.
    has started; do not launch another beside it.
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
-   it could not review, or a PR comment failed after the review landed. When
+   it could not review, or a PR comment failed after the review landed; then
+   stderr says to check the PR before retrying with `gauntlet deliver <id>`. When
    the reason says to run `gauntlet login <provider>`, hand that command to
    the user — it is an interactive browser sign-in only they can complete —
    then, once they confirm, launch the review again.

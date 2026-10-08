@@ -72,10 +72,11 @@ describe("upgradeRecipeSeats", () => {
       })
       expect(yield* fs.readFileString(path.join(recipes, "slow.json"))).toBe(untouched)
       expect(yield* fs.readFileString(path.join(recipes, "broken.json"))).toBe(invalid)
-      expect(renderSeatUpgrade(upgrade)).toEqual([
+      expect(upgrade.skipped).toEqual(["broken"])
+      // The CLI's rendering: one line per destination model.
+      expect(renderSeatUpgrade(upgrade).slice(0, 2)).toEqual([
         "recipes fast, quick → acme/gpt-6-luna (was acme/gpt-5.6-luna)",
         "recipes quick → acme/gpt-10-sol (was acme/gpt-6-sol)",
-        "skipped invalid recipes broken — run `gauntlet config`",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

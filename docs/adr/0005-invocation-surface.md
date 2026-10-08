@@ -1,4 +1,4 @@
-# Invocation surface: three verbs, explicit aiming, recipes as content
+# Invocation surface: three verbs, one syntax for both Hosts, recipes as content
 
 The old reviewer's five-verb grammar (`start|status|wait|execute|deliver`)
 existed only because launchd detached execution; #8 gave the Run back to the
@@ -10,9 +10,11 @@ flags documented-but-unexercised.
 ## Verbs
 
 ```
-gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination local|pr] [--lenses a,b]
-  <target> = --pr <number> | --commits <base>[..<head>] | --working-tree
-           | --commits <base> --working-tree
+gauntlet review [target] [--working-tree] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--github-spec]
+                [--related-files | --no-related-files] [--destination local|pr] [--repo <path>]
+  [target] = <number>                 a pull request
+           | <base>[..<head>]         a commit range, any committish on either end
+           | (omitted)                the uncommitted changes against HEAD
 gauntlet deliver <run-id>
 gauntlet config
 gauntlet config init
@@ -20,22 +22,34 @@ gauntlet config set <key> <value...>
 gauntlet config unset <key>
 ```
 
-`<target>` is required. `--pr <number>` is exclusive with the other target
-flags; `--commits <base>[..<head>]` and `--working-tree` (uncommitted changes
-vs HEAD) each stand alone, and `--commits <base> --working-tree` is the one
-combined form — a branch's committed work plus its current uncommitted state.
-The combined form takes no explicit `..<head>`, because the working tree is
-the head. `--spec <file>` supplies a Caller Addendum per the
-specification-ingress spec (#70). `--github-spec` is an exact per-Run source
-override admitted only with `--pr`: it skips Linear and requires GitHub closing
-issues to produce the automatic ReviewSpecification before Run creation.
+Amended per #159: one syntax for both Hosts. `review` and `deliver` are the
+same words in the Mod (`/gauntlet [target] …`, `/gauntlet deliver <run-id>`),
+parsed by one grammar into the Run module's typed request; `config`, `login`
+and `upgrade` stay the CLI's own. The target became a positional word and
+the Recipe a `--recipe` flag, replacing `--pr`, `--commits` and the
+positional recipe, so the Mod's shorter syntax and the CLI's are one.
+
+A target of all digits is a pull request; anything else is a commit range as
+`--commits` took it: `<base>` reviews merge-base(base, HEAD)..HEAD,
+`<base>..<head>` that range, so `abc~1..abc` is one commit. `--working-tree`
+with a `<base>` target is the one combined form — a branch's committed work
+plus its current uncommitted state; with no target it is redundant and
+accepted, and with a pull request or a `<base>..<head>` range it is refused,
+because those have their own head. `--spec <file>` supplies a Caller Addendum
+per the specification-ingress spec (#70). `--github-spec` is an exact per-Run
+source override admitted only with a pull request target: it skips Linear and
+requires GitHub closing issues to produce the automatic ReviewSpecification
+before Run creation. `--repo <path>` reviews another local checkout (absolute,
+`~/…`, or from where the command runs). Related files are each Host's default
+(the CLI's off, the Mod's on), which the flags override.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. A Run that does not
   reach its Dossier is not resumed; the review is run again (amended per
   #158, ADR 0003).
-- `deliver` posts an already-completed run's Dossier to the PR — #8's
-  "run directory is the backstop" made actionable, never re-paying a review.
+- `deliver` posts an already-completed pull-request run's Dossier to the PR —
+  #8's "run directory is the backstop" made actionable, never re-paying a
+  review.
 - `config set` and `config unset` explicitly manage the standing choices in
   `~/.gauntlet/settings.json`:
   `default-recipe`, `default-lenses`, `favorites`, `runs-root`. Bare `gauntlet
@@ -47,13 +61,22 @@ issues to produce the automatic ReviewSpecification before Run creation.
   is idempotent when they are already valid, never overwrites or replenishes a
   partial catalog, and ordinary review commands never mutate configuration.
 
-## Targets: explicit aiming, no autodetect
+## Targets: no autodetect
 
-The caller aims the tool, and (amended 2026-08-14) aims it *explicitly*: every
-review names its target — `--working-tree` (uncommitted changes vs HEAD — the
+Amended per #159: a review may omit its target, and an omitted target is the
+working tree. This reverses "explicit aiming, no default" below. That rule
+was written for an agent that writes a flag either way; with one syntax for
+both Hosts, a person types `/gauntlet` or `gauntlet review` and means the
+change in front of them, and the person typing the command is explicit
+enough. What stays is the rest of it: no autodetect, no clean-tree fallback,
+no guessing between a pull request and a branch. An omitted target never
+becomes anything but the uncommitted changes.
+
+The caller aims the tool, and (amended 2026-08-14) aimed it *explicitly*:
+every review named its target — `--working-tree` (uncommitted changes vs HEAD — the
 mid-flight agent case), `--pr <number>` for that PR's range, `--commits
 <base>[..<head>]` for committed work with no PR (#82), or the two together for
-a branch's work including its uncommitted edits. There is no default
+a branch's work including its uncommitted edits. There was no default
 target and no clean-tree fallback: with three target kinds an implicit default
 invites exactly the guessing this ADR bans, an omitted target is a usage error
 naming all options instead of a post-invocation `TargetUnresolvable`, and the
@@ -79,7 +102,7 @@ the head commit's; uncommitted working-tree edits are ignored with one
 scope-degradation warning (the mirror of the working tree's untracked-files
 warning), never inferred into the review.
 
-`--commits <base> --working-tree` is that range extended to the working tree
+`<base> --working-tree` is that range extended to the working tree
 as submitted: the review diff supplied to agents runs from the merge-base to
 the final checkout, while the `workspace-overlay.patch` persisted per ADR 0003
 stays a saved-HEAD-to-working-tree patch, so `/repo` reconstruction remains a
@@ -90,11 +113,11 @@ An unresolvable ref fails before a Run is created; a range whose merge-base
 equals its head — and, for the combined form, over a clean working tree — is
 "nothing to review", the clean-working-tree treatment.
 Commit-range and working-tree runs are local-destination; `pr` still requires
-`--pr`.
+a pull request target.
 
 Destination defaults to `local`, which means the Run lands on disk
 and its bounded digest is printed. `pr` keeps those local outputs and also
-posts the human-readable Dossier; it requires `--pr`. There is no `both`
+posts the human-readable Dossier; it requires a pull request target. There is no `both`
 destination because local artifacts are always produced. The old repo's ~250-line
 autodetect (gh PR discovery plus a degradation-warning ladder) existed only to
 guess what the caller already knows; the invoking agent states it in one flag,
@@ -168,8 +191,8 @@ fails with the first invalid file's path and reason rather than maintaining a
 second error-tolerant Lens-entry model. Help text explains selection semantics;
 it does not embed a mutable catalog listing.
 
-Selection precedence is exactly: a Recipe named positionally, otherwise the
-configured Default Recipe. If neither resolves, review fails and lists the
+Selection precedence is exactly: a Recipe named with `--recipe`, otherwise
+the configured Default Recipe. If neither resolves, review fails and lists the
 available Recipes. Environment variables, flags, and a hidden built-in
 fallback do not select a Recipe. The ReviewPlan freezes the resolved seats at
 submission (#6), so editing a Recipe never changes an in-flight run.
@@ -231,6 +254,13 @@ stdout never carries the review, it lands it:
 - **exit code**: 0 = review produced (even with zero findings), 1 = could not
   review or delivery failed. Findings never affect the exit code.
 
+Amended per #159: this contract is the CLI's rendering of the Run module's
+answer, not the Run's own output. Reviewing a request and delivering a Run
+answer data — the run id, the Dossier paths, the digest, coverage gaps, the
+delivery receipt, or a refusal with its reason — and each Host words it: the
+CLI as above, including its retry hint `gauntlet deliver <id>`; the Mod in
+its own words (`/gauntlet deliver <id>`), with no reading of stderr.
+
 Agents triage from the digest — small enough to relay verbatim — and read
 `dossier.md` only for what they act on.
 
@@ -245,8 +275,8 @@ Dossier in the Run directory.
 One universal markdown skill, copyable across agent hosts: run `gauntlet
 review` through the host's managed long-running command facility, keep the
 command itself in the foreground, and use short host-specific launch notes.
-Aim it at what the caller means (`--pr`, `--commits`, `--working-tree`, or the
-combined form), choose the destination (#8's judgment text), relay the digest.
+Aim it at what the caller means (a pull request number, a commit range, no
+target for the working tree, or the combined form), choose the destination (#8's judgment text), relay the digest.
 
 ## Consequences
 
