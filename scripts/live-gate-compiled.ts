@@ -103,7 +103,7 @@ const program = Effect.gen(function* () {
     Effect.gen(function* () {
       const handle = yield* ChildProcess.make(
         binary,
-        ["review", "quick", "--working-tree", "--lenses", "diff-scan"],
+        ["review", "--recipe", "quick", "--lenses", "diff-scan"],
         { cwd: repo, env, extendEnv: true },
       )
       const [stdout, stderr, exitCode] = yield* Effect.all(

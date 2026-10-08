@@ -7,7 +7,8 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { Recipe } from "../domain/recipe.ts"
-import { newerSeat, renderSeatUpgrade, upgradeRecipeSeats } from "./seat-upgrade.ts"
+import { renderSeatUpgrade } from "../cli/upgrade.ts"
+import { newerSeat, upgradeRecipeSeats } from "./seat-upgrade.ts"
 
 const catalog = new Map<string, ReadonlyArray<string>>([
   ["acme", [

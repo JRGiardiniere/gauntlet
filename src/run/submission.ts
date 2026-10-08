@@ -207,7 +207,7 @@ const acquireSpecification = Effect.fn(
 export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   request: SubmissionRequest,
 ) {
-  // Recipe selection fails before any Run exists (issue #24): positional
+  // Recipe selection fails before any Run exists (issue #24): the named
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(request.recipeName)
   yield* progress(`using recipe ${selected.name}`)
@@ -217,7 +217,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
         if (Option.isNone(settings)) {
           return yield* new SubmissionError({
             reason:
-              "no Default Lenses are configured — pass --lenses or run `gauntlet config init`",
+              "no Default Lenses are configured and the review names no Lenses",
           })
         }
         return settings.value["default-lenses"]

@@ -126,7 +126,7 @@ describe("strip", () => {
       ...running,
       endedAt: 2_000,
       exitCode: 1,
-      refusal: "gauntlet: could not review — nothing to review: the working tree is clean",
+      refusal: "could not review — nothing to review: the working tree is clean",
     }
     expect(draw(refused)).toBe(
       "◆ Gauntlet  could not review [ Dismiss ]\n0:02 · could not review — nothing to review: the working tree is clean",

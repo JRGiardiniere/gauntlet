@@ -21,7 +21,7 @@ export interface RunView {
   readonly exitCode: number | undefined
   // The digest's surviving entries, the coverage gaps and the dossier's path.
   readonly result: Extract<RunMilestone, { readonly _tag: "Reviewed" }> | undefined
-  // Why the review could not run, as the CLI rendered it.
+  // Why the review could not run, in the Mod's words.
   readonly refusal: string | undefined
 }
 
@@ -210,7 +210,7 @@ export const renderStrip = <N>(
   } else if (ended) {
     cells.push(view.refusal === undefined ? Text({ color: "yellow", children: "ended" }) : Text({ color: "red", children: "could not review" }))
     buttons.push(Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }))
-    status = view.refusal?.split("\n")[0]?.replace(/^gauntlet: /, "") ?? "no dossier from this run"
+    status = view.refusal?.split("\n")[0] ?? "no dossier from this run"
   } else {
     const pulse = Math.floor(now / 500) % 2 === 0 ? "●" : "◉"
     STAGES.forEach((stage, at) => {

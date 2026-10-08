@@ -9,7 +9,7 @@ import * as Effect from "effect/Effect"
 import * as Command from "effect/cli/Command"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
-import { renderSeatUpgrade, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
+import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
 import { refreshedModelCatalog } from "../harness/pi-catalog.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
@@ -30,6 +30,27 @@ const releaseAsset = () =>
     (process.arch === "arm64" || process.arch === "x64")
     ? `gauntlet-${process.platform}-${process.arch}`
     : undefined
+
+// One line per destination model, naming every recipe that moved to it and
+// the models it replaced, plus one line for any invalid recipe left unchecked.
+export const renderSeatUpgrade = (
+  upgrade: { readonly changes: ReadonlyArray<SeatChange>; readonly skipped: ReadonlyArray<string> },
+): ReadonlyArray<string> => {
+  const grouped = new Map<string, { recipes: Set<string>; from: Set<string> }>()
+  for (const change of upgrade.changes) {
+    const group = grouped.get(change.to) ?? { recipes: new Set(), from: new Set() }
+    group.recipes.add(change.recipe)
+    group.from.add(change.from)
+    grouped.set(change.to, group)
+  }
+  const lines = [...grouped].map(([to, group]) =>
+    `recipes ${[...group.recipes].join(", ")} → ${to} (was ${[...group.from].join(", ")})`
+  )
+  if (upgrade.skipped.length > 0) {
+    lines.push(`skipped invalid recipes ${upgrade.skipped.join(", ")} — run \`gauntlet config\``)
+  }
+  return lines.length === 0 ? ["recipe seats are current"] : lines
+}
 
 // Runs after the binary step in this (pre-upgrade) process. A seat upgrade
 // failure is reported and never fails the command: the binary step already
