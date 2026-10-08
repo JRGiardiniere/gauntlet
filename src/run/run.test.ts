@@ -43,6 +43,7 @@ import {
   writeSettings,
   type Fixture,
 } from "../test-support/review.fixture.ts"
+import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { FinderStageArtifact } from "./finder-execution.ts"
 import * as Run from "./run.ts"
 import { type RunMilestone, RunMilestones } from "./run-milestones.ts"
@@ -73,6 +74,9 @@ const review = (
   github = unusedGitHubLayer,
 ) =>
   Run.review(requestFor(fixture, fields)).pipe(
+    // Run from outside the checkout: the request's directory is where the
+    // review runs.
+    Effect.provideService(InvocationDirectory, fixture.home),
     provideReviewFixture(fixture, scripted, github),
   )
 

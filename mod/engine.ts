@@ -270,7 +270,9 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         // Help asked for is printed; help shown for words that did not parse
         // carries why.
         ShowHelp: (help) =>
-          help.errors.length === 0 ? Effect.void : refuse(help.errors.map((error) => error.message).join("; ")),
+          help.errors.length === 0
+            ? Effect.void
+            : refuse(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet --help shows the syntax`),
         ReviewCommandError: (failure) => refuse(`could not review — ${failure.reason}`),
         RunRefusal: (refusal) => refuse(refusalText(refusal)),
       }),
