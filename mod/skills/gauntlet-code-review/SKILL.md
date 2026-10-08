@@ -38,6 +38,10 @@ that isn't cloned on this machine can't be reviewed.
   written as Markdown to a temporary file outside the repository.
 - `--lenses a,b` only when they name perspectives; `--no-related-files` only
   when they ask.
+- `--destination pr` only when they ask to post the review on the pull request:
+  a pull-request review also posts `dossier.md` as a PR comment, and the digest
+  ends with `posted <url>`. To post a finished run, `--resume <run id>
+  --destination pr`.
 
 ## While it runs
 
