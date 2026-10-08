@@ -11,10 +11,12 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import { runReviewCli } from "../src/cli/review.ts"
 import { listRecipes } from "../src/config/recipe-catalog.ts"
+import { standardsManifestPath } from "../src/config/standards-manifest.ts"
 import { isClaudeCodeSeat } from "../src/domain/recipe.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
 import {
@@ -282,10 +284,20 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Effect.runPromise,
     )
 
+  // Where this repository's Standards Manifest goes, and whether it is there:
+  // an empty one is the person's "no standards here", and the lens skips it.
+  const standardsManifest = (repoRoot: string) =>
+    Effect.gen(function* () {
+      const path = yield* standardsManifestPath(repoRoot)
+      const exists = yield* (yield* FileSystem.FileSystem).exists(path)
+      return { path, exists }
+    }).pipe(Effect.withSpan("Standards.manifestStatus"), Effect.provide(platformLayer(ports)), Effect.runPromise)
+
   return {
     start,
     cancel,
     claudeRecipes,
+    standardsManifest,
     turnComplete,
     poll: driver.poll,
     isOffering: driver.isOffering,

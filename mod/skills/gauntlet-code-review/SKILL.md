@@ -43,6 +43,29 @@ that isn't cloned on this machine can't be reviewed.
   ends with `posted <url>`. To post a finished run, `--resume <run id>
   --destination pr`.
 
+## Standards
+
+The `standards` lens checks the diff against the repository's own rules: the
+documents listed in its Standards Manifest, one path per line, kept outside the
+repository (repo-relative paths resolve against the repo root; `~/` and
+absolute paths are allowed). With no manifest the lens is skipped.
+
+When the review tool's answer says the repository has no Standards Manifest,
+offer to set it up while the review runs; the next review includes it:
+
+- Propose a list from the repository: the repo-root `CLAUDE.md` **or**
+  `AGENTS.md` (whichever exists, not both), plus documented style guides or
+  contribution standards. Or ask whether they want you to dig further first.
+- The list is theirs: write what they agree to, at the path the answer names.
+- If they don't want standards for this repository, write an empty file there
+  so they aren't asked again.
+
+## Settings
+
+`~/.gauntlet/settings.json` holds `"default-recipe"`, the recipe a review uses
+when it names none. To change it ("make medium my default"), set that key to one
+of the recipes the review tool lists, keeping the file's other keys.
+
 ## While it runs
 
 Carry on with other work, or end your turn. The digest arrives as a message:
