@@ -31,9 +31,9 @@ a message naming it, before any paid work.
 schema-validated entry per Finder, each the full AgentOutcome (ADR 0001),
 written once the whole fan-out returns. The run directory is the debugger
 (ADR 0006, 0007), and a Finder's diagnostics live there rather than in
-progress lines. Nothing reads it back. Every Run artifact is written to a
-sibling temporary file and renamed, never through a system temp directory,
-because a cross-device rename fails.
+progress lines. Nothing reads it back. Every Run artifact but the in-flight
+`run.log` is written to a sibling temporary file and renamed, never through a
+system temp directory, because a cross-device rename fails.
 
 Effect's durable-execution stack (`effect/unstable/workflow` + `cluster` +
 SQLite) was researched (#3) and rejected for the old checkpoint: an open
