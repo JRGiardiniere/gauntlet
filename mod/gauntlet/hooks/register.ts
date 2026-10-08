@@ -43,13 +43,13 @@ interface InFlight {
   readonly snapshots: ReadonlyArray<string>
 }
 
-interface TriggerRequest {
+// What /gauntlet or the review tool asked to start.
+interface StartRequest {
   readonly cwd: string
   readonly args: string
   // The subagent whose review tool call started the run; absent for the main
   // agent and /gauntlet.
   readonly agentId?: string | undefined
-  readonly afterRebuild?: "stop" | "run"
 }
 
 const agentsRef = { plugin: "gauntlet", key: "agents" } as const
@@ -192,7 +192,7 @@ function startTick($: Engines) {
   })
 }
 
-async function finishRun($: Engines, result: RunResult, request: TriggerRequest, notice: Promise<string | undefined>) {
+async function finishRun($: Engines, result: RunResult, request: StartRequest, notice: Promise<string | undefined>) {
   tick?.cancel()
   tick = undefined
   drawnAt = 0
@@ -279,7 +279,7 @@ async function openDossier($: Engines, path: string) {
 
 // Starts a review or a delivery in the background; answers the command's one
 // line.
-async function startReview($: Engines, request: TriggerRequest): Promise<string> {
+async function startReview($: Engines, request: StartRequest): Promise<string> {
   if (engine === undefined || build === undefined) return "the engine did not load; see ~/.gauntlet/mod/mod.log"
   const running = engine.running()
   if (running !== undefined) {
@@ -296,7 +296,7 @@ async function startReview($: Engines, request: TriggerRequest): Promise<string>
   }
 }
 
-async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, request: TriggerRequest): Promise<string> {
+async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, request: StartRequest): Promise<string> {
   const hashStart = Date.now()
   let fresh: Awaited<ReturnType<typeof inputsStamp>>
   try {
@@ -323,9 +323,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
     await setStatus($, undefined)
     if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
-    if (request.afterRebuild !== "run") {
-      return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
-    }
+    return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
   }
   const words = commandWords(request.args)
   log($, `starting ${words.join(" ")} in ${request.cwd}`)
@@ -392,24 +390,6 @@ async function checkForUpdate($: Engines, repoRoot: string): Promise<string | un
   return releaseNotice(current.stdout, remote.stdout)
 }
 
-// Test runs and cancels arrive as files the mod polls (a command registered
-// after an agent spawned is invisible to it).
-async function checkTrigger($: Engines) {
-  const path = `${modDir()}/trigger.json`
-  if (!(await $.fs.exists(path))) return
-  const text = await $.fs.read(path)
-  await $.process.run(["rm", "-f", path])
-  // SAFETY: the trigger file is the test harness's, written as a TriggerRequest.
-  const request = JSON.parse(text) as TriggerRequest & { readonly kind?: "cancel" }
-  if (request.kind === "cancel") {
-    log($, `cancel requested: ${String(await engine?.cancel())}`)
-    return
-  }
-  const answer = await startReview($, request)
-  log($, `trigger answered: ${answer}`)
-  await $.fs.write(`${modDir()}/trigger-answer.txt`, `${answer}\n`)
-}
-
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
@@ -441,7 +421,6 @@ export const register: Register = (on) => {
     })
     inflightKey = `inflight:${await $.session.id()}`
     await reportLostRun($)
-    $.clock.every(2000, () => checkTrigger($).catch((error) => log($, `trigger failed: ${String(error)}`)))
     return started
   })
 
