@@ -33,7 +33,8 @@ type Engines = EngineInterface
 const BUILD_FILE = "hooks/vendor/build.json"
 
 // The store outlives a mod update, so its fields keep their names: `argv` is
-// the words the review was started with.
+// the words the review was started with, and `snapshots` the directories the
+// run's snapshot was made in, each removed whole when the run is lost.
 interface InFlight {
   readonly startedAt: number
   readonly argv: ReadonlyArray<string>
@@ -59,7 +60,7 @@ let engine: Engine | undefined
 let build: BuildInfo | undefined
 let home = ""
 let tick: { readonly cancel: () => void } | undefined
-let markedAgents = ""
+let markedRun = ""
 let runCwd = ""
 // This session's in-flight marker: the store is one file for every session on
 // the machine, and another session's live run is not lost.
@@ -151,12 +152,13 @@ async function reportLostRun($: Engines) {
     const result = await $.tool.call({ tool: "TaskStop", task_id: agentId }).catch((error) => ({ deny: String(error) }))
     stopped.push(`${agentId}: ${"deny" in result && result.deny !== undefined ? `not stopped (${result.deny})` : "stopped"}`)
   }
-  // The lost run's snapshot worktrees: its finalizers never ran.
+  // The lost run's snapshots: its finalizers never ran. Once a snapshot's
+  // directory is gone, a prune drops git's record of the worktree in it.
   for (const snapshot of lost.snapshots) {
-    const removed = await $.process.run(["git", "-C", lost.cwd, "worktree", "remove", "--force", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
-    await $.process.run(["rm", "-rf", snapshot.replace(/\/worktree$/, "")]).catch(() => undefined)
+    const removed = await $.process.run(["rm", "-rf", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
     stopped.push(`${snapshot}: ${removed.exitCode === 0 ? "removed" : `not removed (${removed.stderr.trim()})`}`)
   }
+  if (lost.snapshots.length > 0) await $.process.run(["git", "-C", lost.cwd, "worktree", "prune"]).catch(() => undefined)
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
   const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
@@ -187,9 +189,9 @@ function startTick($: Engines) {
     if (running === undefined) return
     await engine?.poll().catch((error) => log($, `poll failed: ${String(error)}`))
     redraw($)
-    const agents = running.agentIds.join(",")
-    if (agents !== markedAgents) {
-      markedAgents = agents
+    const work = JSON.stringify([running.agentIds, running.snapshots])
+    if (work !== markedRun) {
+      markedRun = work
       await markInFlight($, { ...running, cwd: runCwd }).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
     }
   })
@@ -331,7 +333,7 @@ async function startRun($: Engines, engine: Engine, build: BuildInfo, request: S
       .catch((error) => log($, `delivery failed to finish: ${String(error)}`))
     return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
   }
-  markedAgents = ""
+  markedRun = ""
   const notice = checkForUpdate($, build.repoRoot).catch((error) => {
     log($, `update check failed: ${String(error)}`)
     return undefined

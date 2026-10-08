@@ -10,6 +10,7 @@ import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
+import { type RunMilestone, RunMilestones } from "./run-milestones.ts"
 import {
   acquireReviewWorkingDirectory,
   captureWorkspaceOverlay,
@@ -83,10 +84,16 @@ describe("PR review working directory", () => {
       const path = yield* Path.Path
       const { repo, target } = yield* makeMismatchedPullRequestTarget
       let reviewDirectory = ""
+      const reported: Array<RunMilestone> = []
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY).pipe(
+            Effect.provideService(RunMilestones, (milestone) =>
+              Effect.sync(() => {
+                reported.push(milestone)
+              })),
+          )
           expect(reviewDirectory).not.toBe(repo)
           expect(
             chompLine(yield* runGit(reviewDirectory, ["rev-parse", "HEAD"])),
@@ -103,6 +110,14 @@ describe("PR review working directory", () => {
 
       expect(yield* fs.exists(reviewDirectory)).toBe(false)
       expect(yield* countWorktrees(repo)).toBe(1)
+      // A Host that loses the Run removes the one directory reported, which
+      // holds the snapshot; the Run removed it as it ended.
+      const [made, ...others] = reported.flatMap((milestone) =>
+        milestone._tag === "SnapshotMade" ? [milestone.directory] : []
+      )
+      expect(others).toEqual([])
+      expect(reviewDirectory.startsWith(`${made}${path.sep}`)).toBe(true)
+      expect(yield* fs.exists(made)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("cleans up after a typed failure", () =>

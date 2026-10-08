@@ -407,8 +407,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     stopAll,
     isOffering: () => offering > 0,
     agentIds: () => [...agents.values()].flatMap((agent) => (agent.agentId === undefined ? [] : [agent.agentId])),
-    // The snapshot worktrees this run's agents were spawned in.
-    snapshots: () => [...new Set([...agents.values()].map((agent) => agent.cwd))],
     stats: () => ({ live, waiting: waiting.length }),
     // This run's invocations in open order, copied for the strip.
     activity: (): ReadonlyArray<AgentActivity> => [...activities.values()].map((activity) => ({ ...activity })),

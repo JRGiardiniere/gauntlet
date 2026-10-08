@@ -162,6 +162,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       readonly startedAt: number
       readonly argv: ReadonlyArray<string>
       runId: string | undefined
+      snapshot: string | undefined
     }
     | undefined
   // What the strip draws: the review in flight, or the last one, kept until
@@ -206,6 +207,10 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           case "Started": {
             shown.lenses = milestone.lenses
             if (current !== undefined) current.runId = milestone.runId
+            return
+          }
+          case "SnapshotMade": {
+            if (current !== undefined) current.snapshot = milestone.directory
             return
           }
           case "FindersFinished": {
@@ -303,7 +308,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Effect.catch((failure) => refuse(`could not review — ${String(failure)}`)),
     )
     const fiber = Effect.runFork(program)
-    current = { fiber, startedAt, argv: request.words, runId: undefined }
+    current = { fiber, startedAt, argv: request.words, runId: undefined, snapshot: undefined }
     const ended = new Promise<RunResult>((resolve) => {
       fiber.addObserver((exit) => {
         current = undefined
@@ -375,7 +380,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           startedAt: current.startedAt,
           argv: current.argv,
           agentIds: driver.agentIds(),
-          snapshots: driver.snapshots(),
+          snapshots: current.snapshot === undefined ? [] : [current.snapshot],
         },
     view: (): RunView | undefined =>
       progress === undefined
