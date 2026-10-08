@@ -355,6 +355,10 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     await marked
     await finishRun($, result, request, notice)
   }).catch((error) => log($, `run failed to finish: ${String(error)}`))
+  // The answer waits for the marker and the ticker, which keeps `starting`
+  // set until they are this review's: a quickly refused review's ending can
+  // then never cancel the next review's ticker or clear its marker.
+  await marked
   const review = await run.request
   if (review === undefined) return "the review did not start; why arrives as a message."
   return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
