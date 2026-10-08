@@ -11,22 +11,34 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
 
 ```
 ~/.gauntlet/runs/<run-id>/
-  plan.json          # frozen ReviewPlan: recipe seats, lens texts, target diff
-  finder-stage.json  # every Finder outcome, write-only (ADR 0003)
-  dossier.json       # machine-readable Dossier side artifact
-  dossier.md         # human-readable Dossier
-  receipt.json       # DeliveryReceipt, when delivery was attempted
-  run.log            # in-flight Effect log; full transcripts at debug level
+  plan.json                # frozen ReviewPlan: recipe seats, lens texts, target diff
+  workspace-overlay.patch  # WorkingTree targets: uncommitted state at submission
+  finder-stage.json        # every Finder outcome, in plan order
+  dossier.json             # machine-readable Dossier side artifact
+  dossier.md               # human-readable Dossier
+  receipt.json             # DeliveryReceipt, when delivery was attempted
+  run.log                  # in-flight Effect log; full transcripts at debug level
 ```
 
 The old repo's 14-file zoo (`job/status/frozen-preset/request/scope/
 candidates/result/handoff/presentation` + per-stage logs) dissolves into
 plan + Finder-stage artifact + Dossier: most of it was inter-stage plumbing,
 and `status.json` existed only for launchd-era polling. Plain JSON files, one
-per thing — **no JSONL anywhere**, each written by sibling-temp-and-rename.
-`finder-stage.json` records the completed Finder stage for whoever reads the
-directory; nothing reads it back. Pool, Verification, and Judgment have no
-intermediate files.
+per thing — **no JSONL anywhere**. Every artifact but the in-flight `run.log`
+is written to a sibling temporary file and renamed, never through a system
+temp directory, because a cross-device rename fails.
+`finder-stage.json` records the completed Finder stage: each Finder's full
+AgentOutcome (ADR 0001), written once the whole fan-out returns, so a
+Finder's diagnostics live in the directory rather than in progress lines.
+Pool, Verification, and Judgment have no intermediate files.
+
+`workspace-overlay.patch` holds a WorkingTree target's tracked edits and
+included untracked files as submitted; Git already retains every committed
+byte under the saved head commit. The Run's `/repo` is a detached worktree at
+that commit plus this one patch. It is a distinct artifact from
+`plan.target.diff`, the single stored copy of the review diff supplied to
+agents, and it keeps the uncommitted bytes for as long as the directory is
+retained.
 
 `dossier.md` is written last: a run directory without it is a Run that never
 finished. `dossier.json` is an additive machine-readable artifact.
@@ -53,7 +65,7 @@ output-volume and runaway protections and stay where #7 put them.
 Accounting is modular by construction: persisted Finder outcomes carry raw
 usage exactly as the harness reports it — input/output tokens, cache
 read/write, cost, duration — unaggregated. Accounting describes the Run's own
-invocations, not an earlier Run that never finished. Derived totals live
+invocations. Derived totals live
 durably in the Dossier header
 (`cost $0.84 · 12 invocations · 6m 10s`). The run's stdout digest
 repeats the wall time but not the cost (#146: the digest reaches agents and

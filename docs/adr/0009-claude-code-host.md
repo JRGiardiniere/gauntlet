@@ -59,6 +59,6 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
 
 - A mod reload (any change to its files) wipes a run in flight. The next
   load reports it, stops its orphaned agents and removes its snapshot, and
-  says to run `/gauntlet` again: a Run is not resumable (ADR 0003).
+  says to run `/gauntlet` again.
 - The mod's FileSystem answers only the methods the review path calls. A CLI
   change that calls another one fails on the next `/gauntlet` run.

@@ -105,9 +105,8 @@ _Avoid_: configuration snapshot, settings, options
 **Submission**:
 The act that turns a caller's review request into a persisted Run: resolving
 the ReviewTarget, freezing Lenses and Seats, acquiring the ReviewSpecification,
-and writing the Run record with its frozen ReviewPlan (overlay before plan —
-a persisted plan implies its overlay exists). Submission happens once per Run;
-execution and delivery are not part of Submission.
+and writing the Run record with its frozen ReviewPlan. Submission happens
+once per Run; execution and delivery are not part of Submission.
 _Avoid_: intake, plan builder, run factory, review setup
 
 **Recipe**:
@@ -202,7 +201,7 @@ _Avoid_: standards config, conventions file, rules file
 The execution of one review, from Submission to its Dossier, recorded in its
 run directory. The only thing that "runs" — agents are invoked, stages
 execute.
-_Avoid_: DurableRun, agent run, pipeline run, job
+_Avoid_: agent run, pipeline run, job
 
 **AgentOutcome**:
 Everything one invocation yielded: optional output, a termination mode, usage,

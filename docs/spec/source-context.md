@@ -19,7 +19,7 @@ without requiring Finders to select line ranges. The primary `file` and `line`
 still locate the Candidate.
 
 The optional field maps to `Candidate.sourceReferences`. Shared Candidate schemas
-preserve it in `finder-stage.json` and Dossiers; older outputs without references remain
+preserve it in `finder-stage.json` and Dossiers; an output without references is
 valid. Pool need not interpret citations.
 
 `assembleSourceContext(snapshotRoot, candidates, maxCharacters)` returns:

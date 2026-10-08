@@ -169,8 +169,7 @@ invocation retry, termination, output, and coverage behavior.
 If the adapter cannot decode enough evidence to construct an honest typed
 outcome, the review fails.
 Only after every Finder completes does Gauntlet atomically write the ordered
-Finder outcomes to `finder-stage.json`, a record nothing reads back: a Run is
-not resumable (ADR 0003). Pool, Verification, and Judgment have no
+Finder outcomes to `finder-stage.json`, the run directory's record of the
+Finder stage (ADR 0006). Pool, Verification, and Judgment have no
 intermediate files.
-Dossier accounting covers the Run's own invocations, not the spend of an
-earlier Run that never finished.
+Dossier accounting covers the Run's own invocations.

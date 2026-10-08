@@ -85,8 +85,8 @@ prompt.
 It lists the findings by priority (P1 first) and the path of `dossier.md`,
 which holds each finding in full. Relay the findings to the person, then go on
 with what they asked the review for. A digest that says the review could not
-run says why; an interrupted run can't be continued, so run the review again
-if the person still wants it.
+run says why. If a review was interrupted, run it again if the person still
+wants it.
 
 ## Update
 

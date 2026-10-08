@@ -44,9 +44,10 @@ before Run creation. `--repo <path>` reviews another local checkout (absolute,
 (the CLI's off, the Mod's on), which the flags override.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
-  `--wait`, `start`, `execute`, `status`, or bare `wait`. A Run that does not
-  reach its Dossier is not resumed; the review is run again (amended per
-  #158, ADR 0003).
+  `--wait`, `start`, `execute`, `status`, or bare `wait`. The CLI process (or
+  the Mod's session) owns the Run from start to finish: no launchd, OS
+  supervisor or self-detached child. A caller that wants it in the
+  background uses its own shell or harness.
 - `deliver` posts an already-completed pull-request run's Dossier to the PR —
   #8's "run directory is the backstop" made actionable, never re-paying a
   review.
@@ -104,9 +105,9 @@ warning), never inferred into the review.
 
 `<base> --working-tree` is that range extended to the working tree
 as submitted: the review diff supplied to agents runs from the merge-base to
-the final checkout, while the `workspace-overlay.patch` persisted per ADR 0003
-stays a saved-HEAD-to-working-tree patch, so `/repo` reconstruction remains a
-detached worktree at the saved head commit plus that overlay. Its frozen
+the final checkout, while the run directory's `workspace-overlay.patch` stays
+a saved-HEAD-to-working-tree patch, so `/repo` remains a detached worktree at
+the saved head commit plus that overlay. Its frozen
 identity is therefore the merge-base and the saved head commit.
 
 An unresolvable ref fails before a Run is created; a range whose merge-base

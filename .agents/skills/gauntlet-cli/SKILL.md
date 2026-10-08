@@ -109,7 +109,7 @@ a message. Everything below is the CLI.
    then, once they confirm, launch the review again.
 
    If a run was interrupted (killed shell, crash), launch the same review
-   again: a run cannot be resumed, so the new one starts from the beginning.
+   again.
 7. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
    local delivery → link `dossier.md` from the digest paths. A PR destination
    that posted (stderr `posted <url>`) → say the review was delivered as a
