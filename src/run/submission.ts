@@ -46,17 +46,16 @@ import {
 
 // Submission turns a caller's review request into a persisted Run
 // (CONTEXT.md): one entry point, a parsed SubmissionRequest in, the loaded
-// Run out. Submission ends when the Run is persisted — execution, resume,
-// and delivery stay with the caller.
+// Run out. Submission ends when the Run is persisted — execution and
+// delivery stay with the caller.
 
 // Assembly refusals — the request parsed but no Run can be assembled from it.
 export class SubmissionError extends Data.TaggedError("SubmissionError")<{
   readonly reason: string
 }> {}
 
-// Each host runs only its own providers' Seats (#134): a new plan's Seats
-// and a resumed plan's frozen ones alike.
-export const refuseForeignSeats = Effect.fn("Submission.refuseForeignSeats")(
+// Each host runs only its own providers' Seats (#134).
+const refuseForeignSeats = Effect.fn("Submission.refuseForeignSeats")(
   function* (owner: string, seats: ReadonlyArray<Seat>) {
     const host = yield* HarnessSessionFactory
     for (const seat of seats) {
@@ -253,8 +252,8 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
 
   // The standards lens reads its Standards Manifest here so the assembled
   // Governing standards block lands in the already-frozen prompt text — the
-  // freeze point is the assembly point, and resume replays it for free
-  // (#110). No manifest means no block; selection then skips the lens.
+  // freeze point is the assembly point (#110). No manifest means no block;
+  // selection then skips the lens.
   const standardsBlock = lenses.some((lens) => lens.name === STANDARDS_LENS_NAME)
     ? yield* loadGoverningStandardsBlock(target.repoRoot).pipe(
         Effect.mapError((failure) =>
@@ -265,8 +264,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     : undefined
 
   // Each lens freezes its final recipe-resolved seat: the recipe maps the
-  // lens's finder class to a seat, and later recipe edits never change a
-  // resumed run (ADR 0004/0005).
+  // lens's finder class to a seat.
   // optionalKey admits an absent key, never a present undefined one, so the
   // specific-by-omission convention holds in the persisted plan too.
   const frozenLenses = lenses.map((lens) => {

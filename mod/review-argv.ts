@@ -6,10 +6,10 @@ import * as Schema from "effect/Schema"
 // review` argv. The target is `gauntlet review`'s: nothing is the working
 // tree, a number a pull request, anything else `--commits` (`base..head`,
 // or a base whose merge-base with HEAD starts the range). Other flags pass
-// through as written (`--resume`, `--github-spec`, `--related-files`), and a
-// flag that takes a value takes the next word too (`--resume <run-id>`).
+// through as written (`--github-spec`, `--related-files`), and a flag that
+// takes a value takes the next word too (`--lenses <names>`).
 // `--repo <path>` is the mod's own: where the review runs, not an argv word.
-const VALUE_FLAGS = new Set(["--recipe", "--lenses", "--spec", "--destination", "--pr", "--commits", "--resume", "--repo"])
+const VALUE_FLAGS = new Set(["--recipe", "--lenses", "--spec", "--destination", "--pr", "--commits", "--repo"])
 
 // Words as a shell splits them: a quoted part, even one inside a word
 // (`--repo="~/My Projects/x"`), keeps its spaces and loses its quotes.
@@ -42,7 +42,6 @@ export const reviewRequest = (args: string) => {
 
 const reviewArgv = (flags: ReadonlyArray<string>, target: string | undefined): ReadonlyArray<string> => {
   const argv = ["review", ...flags.map((flag) => (flag.startsWith("--recipe=") ? flag.slice("--recipe=".length) : flag))]
-  if (argv.some((word) => word.startsWith("--resume"))) return argv
   // Related files are this host's default: they lifted seeded-bugs-2 from
   // 3.7 to 5.5 of 7 on claude-code/ Seats, and the cost is plan usage (#135).
   const optedOut = argv.indexOf("--no-related-files")

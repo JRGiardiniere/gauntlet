@@ -12,7 +12,7 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
 ```
 ~/.gauntlet/runs/<run-id>/
   plan.json          # frozen ReviewPlan: recipe seats, lens texts, target diff
-  finder-stage.json  # atomic completed Finder stage (ADR 0003)
+  finder-stage.json  # every Finder outcome, write-only (ADR 0003)
   dossier.json       # machine-readable Dossier side artifact
   dossier.md         # human-readable Dossier
   receipt.json       # DeliveryReceipt, when delivery was attempted
@@ -23,14 +23,13 @@ The old repo's 14-file zoo (`job/status/frozen-preset/request/scope/
 candidates/result/handoff/presentation` + per-stage logs) dissolves into
 plan + Finder-stage artifact + Dossier: most of it was inter-stage plumbing,
 and `status.json` existed only for launchd-era polling. Plain JSON files, one
-per thing — **no JSONL anywhere**. The Finder-stage checkpoint uses atomic
-sibling-temp-and-rename writes, so resume can distinguish a complete stage
-from an interrupted attempt. Pool, Verification, and Judgment are recomputed
-as whole stages and have no persisted intermediate files.
+per thing — **no JSONL anywhere**, each written by sibling-temp-and-rename.
+`finder-stage.json` records the completed Finder stage for whoever reads the
+directory; nothing reads it back. Pool, Verification, and Judgment have no
+intermediate files.
 
-`dossier.md` is written last and is the Run's completion signal. Resume does
-not decode `dossier.json`; that file is an additive machine-readable artifact,
-not pipeline control state.
+`dossier.md` is written last: a run directory without it is a Run that never
+finished. `dossier.json` is an additive machine-readable artifact.
 
 ## No aggregate store
 
@@ -53,10 +52,10 @@ output-volume and runaway protections and stay where #7 put them.
 
 Accounting is modular by construction: persisted Finder outcomes carry raw
 usage exactly as the harness reports it — input/output tokens, cache
-read/write, cost, duration — unaggregated. Finder accounting describes the
-completed stage attempt whose outputs feed the Dossier, not abandoned process
-attempts. Derived totals live durably in the Dossier header
-(`cost $0.84 · 12 invocations · 6m 10s`). The initial run's stdout digest
+read/write, cost, duration — unaggregated. Accounting describes the Run's own
+invocations, not an earlier Run that never finished. Derived totals live
+durably in the Dossier header
+(`cost $0.84 · 12 invocations · 6m 10s`). The run's stdout digest
 repeats the wall time but not the cost (#146: the digest reaches agents and
 people, and cost is a debugging figure), and is not another accounting store.
 Live stderr may echo the duration already present on an AgentOutcome, plus

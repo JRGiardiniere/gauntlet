@@ -149,10 +149,8 @@ ones). Warmup/fan-out sequencing, session-key sharing,
 and cache diagnostics are operational mechanics (ADR 0002), not review
 semantics.
 
-The scheduler first loads one atomic completed-Finder-stage checkpoint. When
-it is absent or invalid, every runnable planned Finder starts a fresh stage
-attempt and is partitioned by the complete resolved Seat and shared context
-shape: ordinary context, or ordinary context plus the frozen
+Every runnable planned Finder is partitioned by the complete resolved Seat and
+shared context shape: ordinary context, or ordinary context plus the frozen
 ReviewSpecification. A singleton runs directly. A larger partition starts one
 ordinary Finder first. Its first
 successfully decoded usage-bearing assistant `message_end` produces the total
@@ -169,12 +167,10 @@ only the user message, the Lens tail, differs.
 A missing or failed cache changes cost only: all Finders retain the ordinary
 invocation retry, termination, output, and coverage behavior.
 If the adapter cannot decode enough evidence to construct an honest typed
-outcome, the review fails before a completed Finder checkpoint exists.
-Only after every Finder completes does Gauntlet atomically persist the ordered
-Finder outcomes. Resume reuses the whole completed stage or reruns the whole
-stage; it never combines partial Finder work across process attempts. Pool,
-Verification, and Judgment have no intermediate checkpoints: after a completed
-Finder checkpoint they rerun as whole stages, so there is no downstream state
-to invalidate.
-Dossier accounting includes the completed Finder attempt that supplied its
-results, not abandoned-attempt provider spend.
+outcome, the review fails.
+Only after every Finder completes does Gauntlet atomically write the ordered
+Finder outcomes to `finder-stage.json`, a record nothing reads back: a Run is
+not resumable (ADR 0003). Pool, Verification, and Judgment have no
+intermediate files.
+Dossier accounting covers the Run's own invocations, not the spend of an
+earlier Run that never finished.

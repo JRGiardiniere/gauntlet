@@ -6,35 +6,22 @@ import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
-import * as Ref from "effect/Ref"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
 import { renderAvailable } from "../config/recipe-catalog.ts"
 import { resolveRunsRoot } from "../config/settings.ts"
-import {
-  deliverCompletedRun,
-  DeliveryError,
-  requirePullRequestTarget,
-} from "../delivery/delivery.ts"
+import { deliverCompletedRun, DeliveryError } from "../delivery/delivery.ts"
 import type { ArtifactWriteError } from "../run/artifact.ts"
 import { executeReviewPlan } from "../run/review-executor.ts"
+import { loadRun, type LoadedRun } from "../run/run-record.ts"
 import {
-  loadLatestIncompleteRun,
-  loadRun,
-  type LoadedRun,
-} from "../run/run-record.ts"
-import {
-  refuseForeignSeats,
   submit,
   SubmissionTargetRequest,
   type SubmissionRequest,
 } from "../run/submission.ts"
 import { loadCallerAddendum } from "../specification/caller-addendum.ts"
-import {
-  InvocationDirectory,
-  resolveInvocationProjectRoot,
-} from "../target/invocation-directory.ts"
+import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { RunMilestone, RunMilestones } from "../run/run-milestones.ts"
 import { gauntletVersion } from "./version.ts"
 
@@ -74,49 +61,9 @@ const startReview = Effect.fn("gauntlet.cli.start_review")(function* (
   yield* maybeDeliver(destination, loaded)
 })
 
-const resumeReview = Effect.fn("gauntlet.cli.resume_review")(function* (
-  requestedRunId: Option.Option<string>,
-  destination: Destination,
-) {
-  const runsRoot = yield* resolveRunsRoot()
-  const resumable = Option.isSome(requestedRunId)
-    ? yield* loadRun(runsRoot, requestedRunId.value)
-    : yield* loadLatestIncompleteRun(
-      runsRoot,
-      yield* resolveInvocationProjectRoot(),
-    )
-  // The destination guard runs before any paid work: a working-tree run has
-  // no PR destination.
-  if (destination === "pr") {
-    yield* requirePullRequestTarget(resumable.plan)
-  }
-  if (resumable.complete) {
-    yield* progress(
-      `run ${resumable.plan.runId} is already complete — ${resumable.paths.dossier} · ${resumable.paths.dossierMarkdown}`,
-    )
-    yield* maybeDeliver(destination, resumable)
-    return
-  }
-  const { plan } = resumable
-  yield* refuseForeignSeats(`run ${plan.runId}`, [
-    ...plan.lenses.map((lens) => lens.seat),
-    ...Object.values(plan.seats),
-  ])
-  yield* progress(`resuming run ${plan.runId}`)
-  const startedAt = yield* DateTime.now
-  yield* executeReviewPlan({
-    ...resumable,
-    startedAt,
-  })
-  yield* maybeDeliver(destination, resumable)
-})
-
-const LATEST_RESUME_SENTINEL = "@latest"
-
 interface ReviewCommandInput {
   readonly recipe: Option.Option<string>
   readonly lenses: Option.Option<string>
-  readonly resume: Option.Option<string>
   readonly pr: Option.Option<number>
   readonly commits: Option.Option<string>
   readonly workingTree: boolean
@@ -136,52 +83,9 @@ const executeReviewCommand = Effect.fn(
   pr,
   recipe,
   relatedFiles,
-  resume,
   spec,
   workingTree,
 }: ReviewCommandInput) {
-  if (Option.isSome(resume)) {
-    if (Option.isSome(lenses)) {
-      return yield* new ReviewCommandError({
-        reason: "--lenses cannot be combined with --resume; the plan is frozen",
-      })
-    }
-    if (Option.isSome(recipe)) {
-      return yield* new ReviewCommandError({
-        reason: "a recipe cannot be combined with --resume; the plan is frozen",
-      })
-    }
-    if (Option.isSome(pr) || Option.isSome(commits) || workingTree) {
-      return yield* new ReviewCommandError({
-        reason:
-          "a target flag cannot be combined with --resume; the plan is frozen",
-      })
-    }
-    if (Option.isSome(spec)) {
-      return yield* new ReviewCommandError({
-        reason: "--spec cannot be combined with --resume; the plan is frozen",
-      })
-    }
-    if (githubSpec) {
-      return yield* new ReviewCommandError({
-        reason:
-          "--github-spec cannot be combined with --resume; the plan is frozen",
-      })
-    }
-    if (relatedFiles) {
-      return yield* new ReviewCommandError({
-        reason:
-          "--related-files cannot be combined with --resume; the plan is frozen",
-      })
-    }
-    yield* resumeReview(
-      resume.value === LATEST_RESUME_SENTINEL
-        ? Option.none()
-        : Option.some(resume.value),
-      destination,
-    )
-    return
-  }
   // Every review names its target: with three target kinds an implicit
   // default is exactly the guessing ADR 0005 bans.
   if (Option.isSome(pr)) {
@@ -280,13 +184,6 @@ export const reviewCommand = Command.make(
         "Use exactly these comma-separated Lenses instead of Default Lenses",
       ),
     ),
-    resume: Flag.String("resume").pipe(
-      Flag.optional,
-      Flag.withMetavar("[run-id]"),
-      Flag.withDescription(
-        "Continue that run from its frozen inputs; omit run-id to select this repository's latest incomplete run. A named complete run reports or delivers its existing artifacts.",
-      ),
-    ),
     spec: Flag.String("spec").pipe(
       Flag.optional,
       Flag.withMetavar("<markdown-file>"),
@@ -345,16 +242,6 @@ export const deliverCommand = Command.make(
   ),
 )
 
-// Effect CLI models optional flags and valued flags, but not a flag with
-// an optional value. Normalize only the documented bare --resume form;
-// --resume <run-id> and --resume=<run-id> remain native parser input.
-export const normalizeResumeFlag = (argv: ReadonlyArray<string>) =>
-  argv.map((argument, index) =>
-    argument === "--resume" &&
-        (argv[index + 1] === undefined || argv[index + 1]?.startsWith("-"))
-      ? `--resume=${LATEST_RESUME_SENTINEL}`
-      : argument)
-
 const reviewProgram = Command.make("gauntlet").pipe(
   Command.withSubcommands([reviewCommand, deliverCommand]),
   Command.withDescription("Effect-native, Pi-harnessed code-review agent"),
@@ -405,32 +292,15 @@ export const renderReviewFailures = <R>(
   self: Effect.Effect<number, ReviewProgramFailure, R>,
 ) =>
   Effect.gen(function* () {
-    // A Run that started and never reached its Dossier is resumable, so a
-    // refusal in between names it. Started is reported once the run
-    // directory and frozen plan exist, Reviewed once the Dossier does.
-    const unfinishedRun = yield* Ref.make<string | undefined>(undefined)
     const report = yield* RunMilestones
-    const tracked = (milestone: RunMilestone) =>
-      (RunMilestone.$is("Started")(milestone)
-        ? Ref.set(unfinishedRun, milestone.runId)
-        : RunMilestone.$is("Reviewed")(milestone)
-        ? Ref.set(unfinishedRun, undefined)
-        : Effect.void).pipe(Effect.andThen(report(milestone)))
     // Renders a review that could not run (or could not be delivered) as its
     // one stderr line, and reports the same text as data for the mod.
-    const refuse = (reason: string) =>
-      Ref.get(unfinishedRun).pipe(
-        Effect.map((runId) =>
-          runId === undefined
-            ? reason
-            : `${reason} — resume with gauntlet review --resume ${runId}`
-        ),
-        Effect.tap(progress),
-        Effect.tap((message) => report(RunMilestone.Refused({ message }))),
+    const refuse = (message: string) =>
+      progress(message).pipe(
+        Effect.andThen(report(RunMilestone.Refused({ message }))),
         Effect.as(1),
       )
     return yield* self.pipe(
-      Effect.provideService(RunMilestones, tracked),
       Effect.catchTags({
         // ShowHelp is help control flow, not a failed review: the CLI has
         // already rendered help (and any parse errors). Plain help exits 0;
@@ -494,7 +364,7 @@ export const renderReviewFailures = <R>(
 // The review program alone, as the mod runs it: argv as `gauntlet` takes it,
 // resolving to the exit code.
 export const runReviewCli = (argv: ReadonlyArray<string>) =>
-  runReviewProgram(normalizeResumeFlag(argv)).pipe(
+  runReviewProgram(argv).pipe(
     Effect.as(0),
     renderReviewFailures,
   )

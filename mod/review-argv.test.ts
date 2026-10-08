@@ -10,14 +10,6 @@ describe("/gauntlet arguments as gauntlet review argv", () => {
     expect(reviewArgv("main --no-related-files")).toEqual(["review", "--commits=main"])
   })
 
-  it("resumes the named run, not the latest, when the run id follows --resume", () => {
-    expect(reviewArgv("--resume 2026-10-07T14-20-10-432Z-3406")).toEqual([
-      "review",
-      "--resume=2026-10-07T14-20-10-432Z-3406",
-    ])
-    expect(reviewArgv("--resume")).toEqual(["review", "--resume"])
-  })
-
   it("gives a flag's value to the flag, written either way, and keeps the target", () => {
     expect(reviewArgv("main --lenses fixture-a,fixture-b --recipe fixture-recipe")).toEqual([
       "review",

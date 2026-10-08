@@ -10,15 +10,15 @@ one level: **a Stage module's public interface is a sanctioned test surface.**
 Stage tests drive the real interface callers use — scripted HarnessSession
 adapter, real temp filesystem, real shipped prompt text — and the CLI suite
 shrinks to contracts that are genuinely CLI-shaped: exit codes, stdout,
-run-directory layout, resume, plus a small number of end-to-end journeys.
+run-directory layout, plus a small number of end-to-end journeys.
 
 The second half of the decision is proportionality. Gauntlet is a personal
 tool that emits a complete reportable chain on every run — frozen ReviewPlan,
-completed-stage and downstream invocation artifacts (ADR 0003), run log, and
+the Finder-stage record (ADR 0003), run log, and
 Dossier. Rare failure modes are diagnosable from those artifacts after the
 fact, which is cheaper than maintaining pre-emptive edge-case tests for them.
 Tests cover the happy path, load-bearing invariants (candidate accounting,
-checkpoint reuse, degraded seats), and pure decision logic where cases are
+degraded seats), and pure decision logic where cases are
 cheap; they do not chase exhaustiveness. This is the testing corollary of the
 no-speculative-safeguards directive (#8).
 

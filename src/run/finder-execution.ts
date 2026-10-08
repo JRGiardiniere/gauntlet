@@ -3,7 +3,6 @@ import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as HashMap from "effect/HashMap"
-import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import {
@@ -36,7 +35,7 @@ import {
   EmitFindings,
   type FindingsOutput,
 } from "../harness/output-contract.ts"
-import { readOptionalArtifactText, writeArtifactJson } from "./artifact.ts"
+import { writeArtifactJson } from "./artifact.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
 import {
   finderInvocationsInPlan,
@@ -79,84 +78,24 @@ export interface FinderStageArtifact extends Schema.Schema.Type<
   typeof FinderStageArtifact
 > {}
 
-interface FinderExecutionResult {
-  readonly finders: ReadonlyArray<FinderResult>
-}
-
-export const FinderStageCheckpoint = Context.Reference<
-  (runId: string) => Effect.Effect<void>
->("gauntlet/FinderStageCheckpoint", {
-  defaultValue: () => () => Effect.void,
-})
-
-const readCompletedFinderStage = Effect.fn(
-  "gauntlet.finder_execution.read_completed_stage",
-)(function* (plan: ReviewPlan, artifactPath: string) {
-  const source = yield* readOptionalArtifactText(artifactPath)
-  if (Option.isNone(source)) return Option.none<FinderExecutionResult>()
-  // A present but unusable checkpoint is said out loud: the rerun it causes
-  // pays for every Finder again.
-  const unusable = runProgress(
-    `${artifactPath} is corrupt or not this run's — rerunning the Finders`,
-  ).pipe(Effect.as(Option.none<FinderExecutionResult>()))
-  const decoded = Schema.decodeOption(
-    Schema.fromJsonString(FinderStageArtifact),
-  )(source.value)
-  if (Option.isNone(decoded) || decoded.value.runId !== plan.runId) {
-    return yield* unusable
-  }
-
-  const invocations = finderInvocationsInPlan(plan)
-  const storedByKey = HashMap.fromIterable(
-    decoded.value.finders.map((entry) =>
-      [entry.invocationKey, entry.outcome] as const
-    ),
-  )
-  const finders = Array.filterMap(invocations, (invocation) =>
-    HashMap.get(storedByKey, invocation.invocationKey).pipe(
-      Result.fromOption(() => undefined),
-      Result.map((outcome): FinderResult => ({
-        lens: invocation.lens,
-        outcome: enforceCandidateCap(invocation.lens, outcome),
-      })),
-    ))
-  if (
-    decoded.value.finders.length !== invocations.length ||
-    finders.length !== invocations.length
-  ) {
-    return yield* unusable
-  }
-  return Option.some({ finders })
-})
-
 const reportFinderDone = (result: FinderResult) =>
   runProgress(
     `finder ${result.lens.name} done — ${counted(result.outcome.output?.findings.length ?? 0, "candidate")} · ${invocationTrail(result.outcome)}`,
     cacheShare([result.outcome.usage]),
   )
 
-// A completed Finder fan-out is the first resumable semantic checkpoint.
-// Partial outcomes never participate in control flow: absent or invalid stage
-// state reruns the whole fan-out from scratch.
+// The completed fan-out is recorded in finder-stage.json for whoever reads
+// the run directory; nothing reads it back (ADR 0003). An invocation failure
+// in any Finder fails the whole stage.
 export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
-  const completed = yield* readCompletedFinderStage(plan, paths.finderStage)
-  if (Option.isSome(completed)) {
-    yield* runProgress("reusing completed Finder stage")
-    yield* Effect.forEach(completed.value.finders, reportFinderDone, {
-      discard: true,
-    })
-    return completed.value
-  }
-
   const invocations = finderInvocationsInPlan(plan)
   const host = yield* HarnessSessionFactory
   const templates = yield* Effect.cached(
     loadFinderPromptTemplates(host.workspacePrompt),
   )
-  // Gathered once, by the first partition that needs it. The snapshot is
-  // frozen, so a resumed Run gathers the same files again.
+  // Gathered once, by the first partition that needs it.
   const relatedFilesSection = yield* Effect.cached(
     Effect.gen(function* () {
       if (plan.relatedFiles !== true) return undefined
@@ -323,7 +262,6 @@ export const executeFinders = Effect.fn(
       outcome,
     })),
   })
-  yield* (yield* FinderStageCheckpoint)(plan.runId)
-  yield* Effect.log("Finder stage checkpointed", { path: paths.finderStage })
+  yield* Effect.log("Finder stage recorded", { path: paths.finderStage })
   return { finders }
 })

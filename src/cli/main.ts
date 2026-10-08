@@ -6,7 +6,6 @@ import { configCommand } from "./config.ts"
 import { loginCommand } from "./login.ts"
 import {
   deliverCommand,
-  normalizeResumeFlag,
   progress,
   renderReviewFailures,
   reviewCommand,
@@ -51,9 +50,7 @@ const reportUpdateNotice = Effect.fn("gauntlet.cli.report_update_notice")(
 // The review program's verbs and failure rendering live in review.ts; the
 // config, login and upgrade verbs add only their own failures.
 const runCli = (argv: ReadonlyArray<string>) =>
-  Command.runWith(gauntlet, { version: gauntletVersion })(
-    normalizeResumeFlag(argv),
-  ).pipe(
+  Command.runWith(gauntlet, { version: gauntletVersion })(argv).pipe(
     Effect.as(0),
     Effect.catchTags({
       UpgradeError: (failure) =>

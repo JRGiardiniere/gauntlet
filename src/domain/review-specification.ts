@@ -42,8 +42,9 @@ export const CommentOmission = Schema.Struct({
 export type CommentOmission = typeof CommentOmission.Type
 
 // The source-neutral requirement material used to judge one ReviewTarget,
-// frozen in the ReviewPlan exactly once at submission (CONTEXT.md). Resume
-// consumes the frozen value and never re-reads issues, comments, or files.
+// frozen in the ReviewPlan exactly once at submission (CONTEXT.md). Later
+// stages consume the frozen value and never re-read issues, comments, or
+// files.
 export const ReviewSpecification = Schema.Struct({
   documents: Schema.NonEmptyArray(SpecificationDocument),
   comments: Schema.Array(SpecificationComment).pipe(

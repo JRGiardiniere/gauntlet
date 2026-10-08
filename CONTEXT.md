@@ -97,9 +97,9 @@ different trust and capability boundary), jail, container
 **ReviewPlan**:
 The fully resolved instructions governing one review — semantics-and-spend
 fields only (lenses, models/recipes, caps, tool capabilities) —
-persisted once at submission. A Run owns these frozen inputs: resume continues
-that exact Run from them, reusing completed paid work, under the currently
-installed code. Delivery destination is not part of the plan.
+persisted once at submission. A Run owns these frozen inputs: its stages and
+its delivery read them from the plan. Delivery destination is not part of the
+plan.
 _Avoid_: configuration snapshot, settings, options
 
 **Submission**:
@@ -107,7 +107,7 @@ The act that turns a caller's review request into a persisted Run: resolving
 the ReviewTarget, freezing Lenses and Seats, acquiring the ReviewSpecification,
 and writing the Run record with its frozen ReviewPlan (overlay before plan —
 a persisted plan implies its overlay exists). Submission happens once per Run;
-resume, execution, and delivery are not part of Submission.
+execution and delivery are not part of Submission.
 _Avoid_: intake, plan builder, run factory, review setup
 
 **Recipe**:
@@ -199,8 +199,9 @@ no manifest the standards Lens is skipped, not invoked.
 _Avoid_: standards config, conventions file, rules file
 
 **Run**:
-The durable, resumable execution of one review. The only thing that "runs" —
-agents are invoked, stages execute.
+The execution of one review, from Submission to its Dossier, recorded in its
+run directory. The only thing that "runs" — agents are invoked, stages
+execute.
 _Avoid_: DurableRun, agent run, pipeline run, job
 
 **AgentOutcome**:

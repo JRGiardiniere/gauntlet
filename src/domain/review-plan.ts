@@ -20,13 +20,13 @@ export const candidateCapForLens = (lensName: LensName): number =>
     : DEFAULT_CANDIDATE_CAP
 
 // A lens frozen into the plan at submission: prompt text travels with the
-// run so resume replays the exact tail (ADR 0004). Version identity is the
-// stored text itself, never a separately maintained hash.
+// run, so its directory records the exact tail each Finder saw (ADR 0004).
+// Version identity is the stored text itself, never a separately maintained
+// hash.
 export const FrozenLens = Schema.Struct({
   name: LensName,
   promptText: Schema.NonEmptyString,
-  // The resolved finder seat belongs to this frozen invocation. A lens
-  // override therefore survives resume without ambient adapter configuration.
+  // The resolved finder seat belongs to this frozen invocation.
   seat: Seat,
   // Per-lens candidate cap, stated in the prompt and enforced by truncation
   // (docs/spec/pipeline-shape.md). The shared default is applied at freeze.
@@ -40,9 +40,9 @@ export type FrozenLens = typeof FrozenLens.Type
 
 // The fully resolved instructions governing one review — semantics-and-spend
 // fields only — persisted once at submission. A Run owns these frozen inputs:
-// resume continues that exact Run from them, under the currently installed
-// code (CONTEXT.md). Delivery destination is not part of the plan, and
-// neither is any budget or cost field (ADR 0006).
+// every stage reads them from the plan, and delivery reads the target from
+// it (CONTEXT.md). Delivery destination is not part of the plan, and neither
+// is any budget or cost field (ADR 0006).
 export const ReviewPlan = Schema.Struct({
   runId: Schema.NonEmptyString,
   // The diff is stored exactly once, inside the target (ADR 0006).
@@ -62,7 +62,7 @@ export const ReviewPlan = Schema.Struct({
   // Finders also see the touched files whole and their related unchanged
   // files (`--related-files`); omission means they see the diff alone.
   relatedFiles: Schema.optionalKey(Schema.Literal(true)),
-  // Frozen exactly once at submission (issues #73, #74): resume never
+  // Frozen exactly once at submission (issues #73, #74): no later stage
   // re-fetches issues or re-reads the addendum file, and a run without a
   // specification carries no specification field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),

@@ -10,7 +10,7 @@ flags documented-but-unexercised.
 ## Verbs
 
 ```
-gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination local|pr] [--resume [run-id]] [--lenses a,b]
+gauntlet review [recipe] <target> [--github-spec] [--spec <file>] [--destination local|pr] [--lenses a,b]
   <target> = --pr <number> | --commits <base>[..<head>] | --working-tree
            | --commits <base> --working-tree
 gauntlet deliver <run-id>
@@ -31,17 +31,9 @@ override admitted only with `--pr`: it skips Linear and requires GitHub closing
 issues to produce the automatic ReviewSpecification before Run creation.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
-  `--wait`, `start`, `execute`, `status`, or bare `wait`. Resume is a flag
-  (continue-from-checkpoint per ADR 0003), defaulting to the invoking
-  repository's latest incomplete run (amended per #137: the runs root is
-  shared across repositories). It continues that exact Run from its frozen inputs — never its own
-  target re-resolved, never a replacement Run. It reuses only the completed
-  Finder stage; a missing checkpoint reruns Finders in the same Run, and Pool,
-  Verification, and Judgment always rerun as whole stages under the currently
-  installed shared prompts, schemas, tools, and pipeline code (amended per
-  #52). A complete Dossier is terminal and takes the fast path: existing
-  artifacts are delivered without re-entering the pipeline. Active model
-  conversations and partial Finder fan-outs are never resumed.
+  `--wait`, `start`, `execute`, `status`, or bare `wait`. A Run that does not
+  reach its Dossier is not resumed; the review is run again (amended per
+  #158, ADR 0003).
 - `deliver` posts an already-completed run's Dossier to the PR — #8's
   "run directory is the backstop" made actionable, never re-paying a review.
 - `config set` and `config unset` explicitly manage the standing choices in
@@ -180,8 +172,7 @@ Selection precedence is exactly: a Recipe named positionally, otherwise the
 configured Default Recipe. If neither resolves, review fails and lists the
 available Recipes. Environment variables, flags, and a hidden built-in
 fallback do not select a Recipe. The ReviewPlan freezes the resolved seats at
-submission (#6), so editing a Recipe never changes an in-flight or resumed run
-(amended per #52).
+submission (#6), so editing a Recipe never changes an in-flight run.
 
 `config set default-recipe` accepts only an available valid Recipe and
 `config unset default-recipe` is rejected. `config set default-lenses` replaces
