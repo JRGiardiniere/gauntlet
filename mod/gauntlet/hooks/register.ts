@@ -131,10 +131,6 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
   }
 }
 
-async function setStatus($: Engines, text: string | undefined) {
-  $.ui.status(text)
-}
-
 // The in-flight marker outlives this module: a reload (or a crashed
 // session) that loses the run leaves it behind for the next load to report.
 async function markInFlight($: Engines, marker: InFlight | undefined) {
@@ -316,14 +312,14 @@ async function checkFreshness($: Engines, build: BuildInfo): Promise<string | un
   log($, `stamp ${fresh.stamp} over ${String(fresh.files)} files in ${String(hashMs)}ms (built ${onDisk.stamp}, loaded ${build.stamp})`)
   if (fresh.stamp === onDisk.stamp) return undefined
   const rebuildStart = Date.now()
-  await setStatus($, "gauntlet: the checkout changed; rebuilding the mod")
+  $.ui.status("gauntlet: the checkout changed; rebuilding the mod")
   const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
     cwd: build.repoRoot,
     timeoutMs: 300_000,
   }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
   const rebuildMs = Date.now() - rebuildStart
   log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
-  await setStatus($, undefined)
+  $.ui.status(undefined)
   if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
   return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
 }
