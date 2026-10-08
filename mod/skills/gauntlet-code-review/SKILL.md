@@ -40,8 +40,7 @@ that isn't cloned on this machine can't be reviewed.
   when they ask.
 - `--destination pr` only when they ask to post the review on the pull request:
   a pull-request review also posts `dossier.md` as a PR comment, and the digest
-  ends with `posted <url>`. To post a finished run, `--resume <run id>
-  --destination pr`.
+  ends with `posted <url>`.
 
 ## Standards
 
@@ -78,8 +77,8 @@ prompt.
 It lists the findings by priority (P1 first) and the path of `dossier.md`,
 which holds each finding in full. Relay the findings to the person, then go on
 with what they asked the review for. A digest that says the review could not
-run says why; an interrupted run's digest names the `--resume <run id>` that
-continues it.
+run says why; an interrupted run can't be continued, so run the review again
+if the person still wants it.
 
 ## Update
 

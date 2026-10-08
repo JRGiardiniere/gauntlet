@@ -22,7 +22,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
   subpaths fine; no new runtime dependencies without strong cause
 - Tests sit at the seam callers use: a Stage module's interface is a
   sanctioned test seam; the CLI suite covers CLI-shaped contracts (exit codes,
-  stdout, run-dir layout, resume) plus a few end-to-end journeys — not every
+  stdout, run-dir layout) plus a few end-to-end journeys — not every
   Stage behavior. Scripted HarnessSession adapter and a real temp filesystem.
   TestClock never auto-advances. Tests provide fixture lens content rather than
   loading the shipped catalog. A production Lens identity appears only when a

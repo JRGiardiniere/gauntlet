@@ -68,8 +68,7 @@ a message. Everything below is the CLI.
    review input by accident. The addendum is carried beside fetched material
    and labeled caller-provided; fetched text remains the authority. The file
    is read once and frozen into the plan; a missing, unreadable, or empty file
-   fails before any run is created, and `--spec` cannot be combined with
-   `--resume`.
+   fails before any run is created.
 6. **Launch** through your own managed long-running execution
    mechanism:
 
@@ -96,21 +95,17 @@ a message. Everything below is the CLI.
    streams progress to stderr. Do not kill a run for being slow while progress
    lines still arrive. If a launch exits immediately with no process handle, no
    Gauntlet run ID, and no output, it did not start a review. Launch it once
-   more through managed execution. Once Gauntlet prints a run ID, handle any
-   interruption with `--resume` as described below.
+   more through managed execution. Once Gauntlet prints a run ID, the review
+   has started; do not launch another beside it.
 
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed. When
    the reason says to run `gauntlet login <provider>`, hand that command to
    the user — it is an interactive browser sign-in only they can complete —
-   then, once they confirm, run the `gauntlet review --resume <run-id>` the
-   reason names, or launch the review again when it names none.
+   then, once they confirm, launch the review again.
 
-   If a run was interrupted (killed shell, crash), do not start a replacement
-   review: `gauntlet review --resume` continues this repository's latest
-   incomplete run from its frozen inputs — completed stages are reused, and
-   the target, recipe, and lenses cannot be re-specified because the plan is
-   frozen. Pass the run id (`--resume <run-id>`) to name a specific run.
+   If a run was interrupted (killed shell, crash), launch the same review
+   again: a run cannot be resumed, so the new one starts from the beginning.
 7. **Relay.** Paste the stdout digest verbatim whenever it printed. Then:
    local delivery → link `dossier.md` from the digest paths. A PR destination
    that posted (stderr `posted <url>`) → say the review was delivered as a

@@ -72,7 +72,7 @@ specific. Category does not imply Finder Class — future Lenses opt into
 Version identity is the frozen prompt text, never a separately stored digest
 (amended per #52): at submission the ReviewPlan freezes each lens's prompt
 text (`content-frozen per run`). Editing a prompt changes the next run's
-frozen tail; a resumed run replays the exact stored text. A display
+frozen tail; a run directory records the exact text its run used. A display
 fingerprint, if ever wanted, is computed at render time. Git history
 complements this for shipped lenses but cannot record what text an actual
 run used — the frozen text travels with the run.
