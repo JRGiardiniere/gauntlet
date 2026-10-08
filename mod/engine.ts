@@ -168,11 +168,12 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
   // the next starts.
   let progress: Progress | undefined
 
+  // One run at a time: the hooks module admits a session's one review before
+  // it starts.
   const start = (
     request: { readonly words: ReadonlyArray<string>; readonly cwd: string },
     onLine: (line: string) => void,
   ): StartedRun => {
-    if (current !== undefined) throw new Error("a review is already running in this session")
     const delivering = request.words[0] === "deliver"
     let printed = ""
     let pending = ""

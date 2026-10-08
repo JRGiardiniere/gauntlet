@@ -73,7 +73,11 @@ let logWriting: Promise<unknown> = Promise.resolve()
 const delivery = digestDelivery()
 const STORE_UPDATE_CHECK = "update-checked-at"
 const DAY_MS = 86_400_000
-let starting = false
+// When this session's one review was claimed. The claim is taken before
+// anything is awaited and given back once the review's ending has cancelled
+// its ticker and cleared its marker: a second review is refused until then,
+// and an ending never touches a newer review's ticker or marker.
+let claimedAt: number | undefined
 const loadedAt = Date.now()
 
 const modDir = () => `${home}/.gauntlet/mod`
@@ -178,7 +182,6 @@ function redraw($: Engines) {
 }
 
 function startTick($: Engines) {
-  tick?.cancel()
   tick = $.clock.every(250, async () => {
     const running = engine?.running()
     if (running === undefined) return
@@ -195,13 +198,13 @@ function startTick($: Engines) {
 async function finishRun($: Engines, result: RunResult, request: StartRequest, notice: Promise<string | undefined>) {
   tick?.cancel()
   tick = undefined
+  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
+  claimedAt = undefined
   drawnAt = 0
   redraw($)
   const { digest, verdict } = result
   log($, `run ${verdict} after ${String(result.seconds)}s`)
   $.ui.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)
-  // The run is over: a review started from here on owns the marker.
-  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   // The update probe gets a second more, as the CLI's notice does; a slow one
   // never holds back a finished review.
   const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
@@ -278,30 +281,26 @@ async function openDossier($: Engines, path: string) {
 // line.
 async function startReview($: Engines, request: StartRequest): Promise<string> {
   if (engine === undefined || build === undefined) return "the engine did not load; see ~/.gauntlet/mod/mod.log"
-  const running = engine.running()
-  if (running !== undefined) {
-    return `a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
+  if (claimedAt !== undefined) {
+    return `a review is already running (${engine.running()?.runId ?? "starting"}, ${String(Math.round((Date.now() - claimedAt) / 1000))}s); one per session.`
   }
-  // Two calls can overlap while the first checks the checkout; the engine is
-  // running once the first returns.
-  if (starting) return "a review is already starting; one per session."
-  starting = true
-  try {
-    return await prepareAndStart($, engine, build, request)
-  } finally {
-    starting = false
+  claimedAt = Date.now()
+  const unready = await checkFreshness($, build).catch((error) => {
+    log($, `freshness check failed: ${String(error)}`)
+    return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
+  })
+  if (unready !== undefined) {
+    claimedAt = undefined
+    return unready
   }
+  return startRun($, engine, build, request)
 }
 
-async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, request: StartRequest): Promise<string> {
+// Rebuilds the mod when the checkout changed since it was built; answers why
+// the review cannot start now, when it cannot.
+async function checkFreshness($: Engines, build: BuildInfo): Promise<string | undefined> {
   const hashStart = Date.now()
-  let fresh: Awaited<ReturnType<typeof inputsStamp>>
-  try {
-    fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
-  } catch (error) {
-    log($, `stamp failed: ${String(error)}`)
-    return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
-  }
+  const fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
   const hashMs = Date.now() - hashStart
   // The stamp on disk, not the one loaded: a rebuild whose code came out
   // byte-identical (a docs or build-script change) rewrites only build.json,
@@ -309,19 +308,21 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
   // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
   const onDisk = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
   log($, `stamp ${fresh.stamp} over ${String(fresh.files)} files in ${String(hashMs)}ms (built ${onDisk.stamp}, loaded ${build.stamp})`)
-  if (fresh.stamp !== onDisk.stamp) {
-    const rebuildStart = Date.now()
-    await setStatus($, "gauntlet: the checkout changed; rebuilding the mod")
-    const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
-      cwd: build.repoRoot,
-      timeoutMs: 300_000,
-    }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
-    const rebuildMs = Date.now() - rebuildStart
-    log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
-    await setStatus($, undefined)
-    if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
-    return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
-  }
+  if (fresh.stamp === onDisk.stamp) return undefined
+  const rebuildStart = Date.now()
+  await setStatus($, "gauntlet: the checkout changed; rebuilding the mod")
+  const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
+    cwd: build.repoRoot,
+    timeoutMs: 300_000,
+  }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
+  const rebuildMs = Date.now() - rebuildStart
+  log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
+  await setStatus($, undefined)
+  if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
+  return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
+}
+
+async function startRun($: Engines, engine: Engine, build: BuildInfo, request: StartRequest): Promise<string> {
   const words = commandWords(request.args)
   log($, `starting ${words.join(" ")} in ${request.cwd}`)
   const run = engine.start({ words, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
@@ -350,10 +351,6 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     await marked
     await finishRun($, result, request, notice)
   }).catch((error) => log($, `run failed to finish: ${String(error)}`))
-  // The answer waits for the marker and the ticker, which keeps `starting`
-  // set until they are this review's: a quickly refused review's ending can
-  // then never cancel the next review's ticker or clear its marker.
-  await marked
   const review = await run.request
   if (review === undefined) return "the review did not start; why arrives as a message."
   return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
