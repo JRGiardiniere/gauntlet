@@ -155,8 +155,8 @@ async function reportLostRun($: Engines) {
   }
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded; ` +
-    `its in-process state is gone. ${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
+  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
+    `${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
     "Run /gauntlet again."
   log($, `${note} ${stopped.join("; ")}`)
   $.ui.toast(note, { timeoutMs: 15_000 })

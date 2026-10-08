@@ -338,7 +338,6 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     ? ReviewPlan.make({ ...specified, relatedFiles: true })
     : specified
   yield* progress("freezing review plan")
-  // Overlay first: a persisted plan implies its overlay exists.
   if (overlay !== undefined) {
     yield* writeArtifactBytes(paths.workspaceOverlay, overlay)
   }

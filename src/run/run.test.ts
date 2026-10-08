@@ -87,7 +87,7 @@ const readPlan = (paths: Run.Reviewed["paths"]) =>
   )
 
 describe("Run.review", () => {
-  it.effect("answers a fresh review's run id, Dossier paths and digest, reporting its milestones on the way", () =>
+  it.effect("answers a review's run id, Dossier paths and digest, reporting its milestones on the way", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const reported: Array<RunMilestone> = []

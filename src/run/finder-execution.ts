@@ -84,8 +84,8 @@ const reportFinderDone = (result: FinderResult) =>
     cacheShare([result.outcome.usage]),
   )
 
-// The completed fan-out is recorded in finder-stage.json for whoever reads
-// the run directory; nothing reads it back (ADR 0003). An invocation failure
+// The completed fan-out is recorded in finder-stage.json, in plan order, so
+// the run directory holds every Finder's full outcome. An invocation failure
 // in any Finder fails the whole stage.
 export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
@@ -244,13 +244,6 @@ export const executeFinders = Effect.fn(
       Result.fromOption(() => undefined),
       Result.map((result) => ({ invocation, outcome: result.outcome })),
     ))
-  if (ordered.length !== invocations.length) {
-    return yield* new RunError({
-      operation: "execute-plan",
-      runId: plan.runId,
-      reason: "Finder stage completed without every planned invocation",
-    })
-  }
   const finders = ordered.map(({ invocation, outcome }): FinderResult => ({
     lens: invocation.lens,
     outcome,

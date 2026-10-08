@@ -39,9 +39,9 @@ const readDeliveryArtifact = (
       })),
   )
 
-// Destination is not in the frozen plan (ADR 0005). Callers that would
-// otherwise pay remaining invocations must refuse a working-tree run first.
-export const requirePullRequestTarget = (
+// Destination is not in the frozen plan (ADR 0005): only a pull-request
+// target has somewhere to post.
+const requirePullRequestTarget = (
   plan: ReviewPlan,
 ): Effect.Effect<
   Extract<ReviewTarget, { readonly _tag: "PullRequest" }>,

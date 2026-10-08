@@ -57,9 +57,9 @@ export const readOptionalArtifactText = Effect.fn(
 })
 
 // Atomic artifact write: temp file + rename in the artifact's own directory,
-// never a system temp dir — cross-device rename fails (ADR 0003). A write
-// can therefore never half-happen; a crash leaves at worst a stray temp file
-// that validity checks ignore.
+// never a system temp dir, because a cross-device rename fails. A write can
+// therefore never half-happen; a crash leaves at worst a stray temp file
+// beside the artifact.
 export const writeArtifactAtomically = Effect.fn("gauntlet.artifact.write")(
   function* (
     path: string,

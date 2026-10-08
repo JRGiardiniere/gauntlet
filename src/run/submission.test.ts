@@ -92,7 +92,7 @@ const persistedPlan = (fixture: Fixture, runId: string) =>
   })
 
 describe("submission", () => {
-  it.effect("persists a working-tree Run: plan behind its overlay, absent keys omitted", () =>
+  it.effect("persists a working-tree Run's plan and overlay, absent keys omitted", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem

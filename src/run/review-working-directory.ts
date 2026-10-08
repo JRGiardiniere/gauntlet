@@ -147,16 +147,6 @@ export const acquireReviewWorkingDirectory = Effect.fn(
       ),
   )
   if (target._tag !== "WorkingTree") return directory
-  const present = yield* fs.exists(overlayPath).pipe(
-    Effect.mapError((cause) =>
-      runFailure(`could not inspect ${overlayPath}`, cause)
-    ),
-  )
-  if (!present) {
-    return yield* runFailure(
-      `the frozen working-tree overlay ${overlayPath} is missing`,
-    )
-  }
   yield* runGit(directory, [
     "apply",
     "--binary",
