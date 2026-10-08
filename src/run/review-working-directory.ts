@@ -108,7 +108,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
   const scratchDirectory = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-review-",
   })
-  yield* reportMilestone(RunMilestone.SnapshotMade({ directory: scratchDirectory }))
+  yield* reportMilestone(RunMilestone.SnapshotDirectoryMade({ directory: scratchDirectory }))
   const directory = path.join(scratchDirectory, "worktree")
   yield* Effect.acquireRelease(
     runGit(target.repoRoot, [

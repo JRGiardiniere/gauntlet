@@ -10,10 +10,10 @@ import type { ReviewPriority } from "../domain/verdict.ts"
 // ended is the Run module's answer; the CLI prints its lines and ignores these.
 export type RunMilestone = Data.TaggedEnum<{
   Started: { readonly runId: string; readonly lenses: ReadonlyArray<string> }
-  // The directory holding the Run's frozen snapshot, made before any agent
-  // works in it. The Run removes it as it ends; a Host that loses the Run
-  // first removes it whole.
-  SnapshotMade: { readonly directory: string }
+  // The directory the Run's frozen snapshot is made in, reported once it
+  // exists and before the snapshot does. The Run removes it as it ends; a
+  // Host that loses the Run before then removes it whole.
+  SnapshotDirectoryMade: { readonly directory: string }
   FindersFinished: {}
   Routed: { readonly bugClaims: number; readonly observations: number }
   // The digest's surviving entries, the work missing from them, and where

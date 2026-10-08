@@ -209,7 +209,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
             if (current !== undefined) current.runId = milestone.runId
             return
           }
-          case "SnapshotMade": {
+          case "SnapshotDirectoryMade": {
             if (current !== undefined) current.snapshot = milestone.directory
             return
           }

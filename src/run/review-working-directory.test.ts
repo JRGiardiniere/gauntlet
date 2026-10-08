@@ -113,7 +113,7 @@ describe("PR review working directory", () => {
       // A Host that loses the Run removes the one directory reported, which
       // holds the snapshot; the Run removed it as it ended.
       const [made, ...others] = reported.flatMap((milestone) =>
-        milestone._tag === "SnapshotMade" ? [milestone.directory] : []
+        milestone._tag === "SnapshotDirectoryMade" ? [milestone.directory] : []
       )
       expect(others).toEqual([])
       expect(reviewDirectory.startsWith(`${made}${path.sep}`)).toBe(true)

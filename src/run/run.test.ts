@@ -76,7 +76,7 @@ describe("Run.review", () => {
 
       expect(reported.map((milestone) => milestone._tag)).toEqual([
         "Started",
-        "SnapshotMade",
+        "SnapshotDirectoryMade",
         "FindersFinished",
         "Routed",
         "Reviewed",
