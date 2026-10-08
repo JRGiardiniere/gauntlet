@@ -412,5 +412,3 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     activity: (): ReadonlyArray<AgentActivity> => [...activities.values()].map((activity) => ({ ...activity })),
   }
 }
-
-export type AgentDriver = ReturnType<typeof makeAgentDriver>
