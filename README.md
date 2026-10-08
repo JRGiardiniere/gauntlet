@@ -56,6 +56,16 @@ gauntlet review --pr 42  # or --commits main, or --working-tree
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet` so coding agents can run reviews from any repo.
 
+### In Claude Code, on your Claude plan
+
+Gauntlet also runs inside Claude Code as a mod: the reviewers are Claude Code
+subagents, progress shows above the prompt, and the digest comes back to the
+agent that asked. It needs no CLI. Ask Claude Code:
+
+> Install Gauntlet for Claude Code by following https://github.com/JRGiardiniere/gauntlet/blob/main/INSTALL.md
+
+It installs the newest release; "update your gc-cli plugin" moves to the next.
+
 ## Debugging a review
 
 Run a review with `gauntlet --log-level debug review ...` to include each

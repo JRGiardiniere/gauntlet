@@ -1,12 +1,12 @@
 import type { EngineInterface, Register } from "claude-code"
 import {
-  betaNotice,
   type BuildInfo,
   createEngine,
   digestDelivery,
   type Engine,
   type EnginePorts,
   inputsStamp,
+  releaseNotice,
   renderStrip,
   reviewRequest,
   reviewToolArgs,
@@ -368,18 +368,18 @@ async function standardsNote($: Engines, engine: Engine, cwd: string, argv: Read
     : ` This repository has no Standards Manifest, so the standards lens is skipped this time; it goes at ${manifest.path}. Offer to set it up, as the gauntlet-code-review skill says.`
 }
 
-// At most one probe a day, as the CLI's: a newer beta tag on origin rides on
+// At most one probe a day, as the CLI's: a newer release tag on origin rides on
 // the digest of the review that probed.
 async function checkForUpdate($: Engines, repoRoot: string): Promise<string | undefined> {
   const checkedAt = Number((await $.store.get(STORE_UPDATE_CHECK)) ?? 0)
   if (Date.now() - checkedAt < DAY_MS) return undefined
   await $.store.set(STORE_UPDATE_CHECK, Date.now())
   const [current, remote] = await Promise.all([
-    $.process.run(["git", "-C", repoRoot, "describe", "--tags", "--exact-match", "--match", "gc-cli-beta.*"]),
-    $.process.run(["git", "-C", repoRoot, "ls-remote", "--tags", "--refs", "origin", "gc-cli-beta.*"], { timeoutMs: 15_000 }),
+    $.process.run(["git", "-C", repoRoot, "describe", "--tags", "--exact-match", "--match", "v[0-9]*"]),
+    $.process.run(["git", "-C", repoRoot, "ls-remote", "--tags", "--refs", "origin", "v[0-9]*"], { timeoutMs: 15_000 }),
   ])
   if (current.exitCode !== 0 || remote.exitCode !== 0) return undefined
-  return betaNotice(current.stdout, remote.stdout)
+  return releaseNotice(current.stdout, remote.stdout)
 }
 
 // Test runs and cancels arrive as files the mod polls (a command registered

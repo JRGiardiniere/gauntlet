@@ -5,7 +5,7 @@ description: >-
   tool and carries on with the findings when its digest arrives. Use when asked
   to run Gauntlet, or a Gauntlet review of uncommitted changes, a branch's
   commits, or a pull request, and when asked to update Gauntlet, the gc-cli
-  plugin or the beta.
+  plugin or the mod.
 ---
 
 # Gauntlet
@@ -83,7 +83,7 @@ continues it.
 
 ## Update
 
-The beta is built from a git checkout, `<clone>`: in `env.CLAUDE_CODE_PLUGIN_DIRS`
+The mod is built from a git checkout, `<clone>`: in `env.CLAUDE_CODE_PLUGIN_DIRS`
 of `~/.claude/settings.json`, the path that ends in `/mod/dist/gc-cli`, minus
 that ending.
 It sits on a release tag, not a branch, so don't `git pull`. Follow the
