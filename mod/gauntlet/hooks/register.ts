@@ -14,12 +14,12 @@ import {
   type RunResult,
 } from "../../engine.ts"
 
-// gc-cli (#134 Idea 3): the Gauntlet review program, bundled into this mod
+// The gauntlet plugin (#134 Idea 3): the Gauntlet review program, bundled into this mod
 // as hooks/vendor/engine.js and run in process. This module is the glue the
 // engine cannot be: it is the only code that may spell `$`, so it hands the
-// engine closures over `$` (ports), registers /gc-cli and the agent's review
+// engine closures over `$` (ports), registers /gauntlet and the agent's review
 // tool, hands each digest to the main agent, relays turn endings
-// and gc-cli-tools' observations, keeps the bundle fresh, and makes a
+// and gauntlet-tools' observations, keeps the bundle fresh, and makes a
 // reload that loses a run loud.
 //
 // Every tool and agent hook names its tool or agent: matcher-less
@@ -44,13 +44,13 @@ interface TriggerRequest {
   readonly cwd: string
   readonly args: string
   // The subagent whose review tool call started the run; absent for the main
-  // agent and /gc-cli.
+  // agent and /gauntlet.
   readonly agentId?: string | undefined
   readonly afterRebuild?: "stop" | "run"
 }
 
-const agentsRef = { plugin: "gc-cli", key: "agents" } as const
-const eventsRef = { plugin: "gc-cli-tools", key: "events" } as const
+const agentsRef = { plugin: "gauntlet", key: "agents" } as const
+const eventsRef = { plugin: "gauntlet-tools", key: "events" } as const
 
 let engine: Engine | undefined
 let build: BuildInfo | undefined
@@ -73,7 +73,7 @@ const DAY_MS = 86_400_000
 let starting = false
 const loadedAt = Date.now()
 
-const gcDir = () => `${home}/.gauntlet/gc-cli`
+const modDir = () => `${home}/.gauntlet/mod`
 
 // Appends in batches: every session running the mod, and every reload of
 // it, shares the one log, so none may rewrite it.
@@ -83,7 +83,7 @@ function log($: Engines, line: string) {
     if (pendingLog.length === 0 || home === "") return
     const text = `${pendingLog.join("\n")}\n`
     pendingLog = []
-    await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${gcDir()}/mod.log`], { stdin: text })
+    await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${modDir()}/mod.log`], { stdin: text })
   }).catch(() => undefined)
 }
 
@@ -152,9 +152,9 @@ async function reportLostRun($: Engines) {
   }
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-  const note = `gc-cli: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded; ` +
+  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded; ` +
     `its in-process state is gone. ${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
-    (lost.runId === undefined ? "Run /gc-cli again." : `Its run directory is kept; resume it with /gc-cli --resume=${lost.runId}.`)
+    (lost.runId === undefined ? "Run /gauntlet again." : `Its run directory is kept; resume it with /gauntlet --resume=${lost.runId}.`)
   log($, `${note} ${stopped.join("; ")}`)
   $.ui.toast(note, { timeoutMs: 15_000 })
   await $.session.append({ message: { type: "user", content: [{ type: "text", text: note }] } }).catch((error) =>
@@ -197,7 +197,7 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
   const digest = result.stdout.trim()
   const verdict = result.interrupted ? "cancelled" : result.exitCode === 0 ? "review finished" : "could not review"
   log($, `run ${verdict} exit ${String(result.exitCode)} after ${String(result.seconds)}s interrupted=${String(result.interrupted)}`)
-  $.ui.toast(`gc-cli: ${verdict} after ${String(result.seconds)}s`)
+  $.ui.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)
   // The run is over: a review started from here on owns the marker.
   await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   // Why it could not run or deliver, and how a run that reached no exit code
@@ -216,11 +216,11 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
   ]
   const shown = digest === "" ? [`${verdict} (exit ${String(result.exitCode)})`, ...said] : [...digest.split("\n"), ...said]
   const text = digest === ""
-    ? `gc-cli: ${shown.join("\n")}`
-    : `gc-cli ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
+    ? `gauntlet: ${shown.join("\n")}`
+    : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
   await deliver($, text, shown, request.agentId)
   // Bookkeeping comes after the result is shown: a failed write only logs.
-  await $.fs.write(`${gcDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
+  await $.fs.write(`${modDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
     .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
 
@@ -266,7 +266,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
   description: "Runs a Gauntlet code review in the background, here in Claude Code: finder agents, verification and judgment over a diff, ending in a Dossier and a short digest. " +
     "Use it when asked to run Gauntlet or a Gauntlet review; it replaces running the `gauntlet` CLI from a shell. " +
     "It returns at once. The digest arrives as a message when the review finishes (minutes, not seconds): between your tool calls while you work, or as a new turn once you stop, so carry on or end your turn. One review at a time per session. " +
-    "`args` is the /gc-cli syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
+    "`args` is the /gauntlet syntax: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range or base (`main`, `abc123..def456`); " +
     "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--resume <run id>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks; `--resume <run id> --destination pr` posts a finished run's). " +
     (recipes.length === 0
       ? "No Claude Code recipes are installed."
@@ -278,20 +278,20 @@ async function openDossier($: Engines, path: string) {
   const opened = await $.process.run(["open", path]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
   if (opened.exitCode !== 0) {
     log($, `open ${path} failed: ${opened.stderr.trim()}`)
-    $.ui.toast(`gc-cli: could not open ${path}`)
+    $.ui.toast(`gauntlet: could not open ${path}`)
   }
 }
 
 // Starts a review in the background; answers the command's one line.
 async function startReview($: Engines, request: TriggerRequest): Promise<string> {
-  if (engine === undefined || build === undefined) return "gc-cli: the engine did not load; see ~/.gauntlet/gc-cli/mod.log"
+  if (engine === undefined || build === undefined) return "gauntlet: the engine did not load; see ~/.gauntlet/mod/mod.log"
   const running = engine.running()
   if (running !== undefined) {
-    return `gc-cli: a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
+    return `gauntlet: a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
   }
   // Two calls can overlap while the first checks the checkout; the engine is
   // running once the first returns.
-  if (starting) return "gc-cli: a review is already starting; one per session."
+  if (starting) return "gauntlet: a review is already starting; one per session."
   starting = true
   try {
     return await prepareAndStart($, engine, build, request)
@@ -307,7 +307,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
   } catch (error) {
     log($, `stamp failed: ${String(error)}`)
-    return `gc-cli: could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
+    return `gauntlet: could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
   }
   const hashMs = Date.now() - hashStart
   // The stamp on disk, not the one loaded: a rebuild whose code came out
@@ -318,7 +318,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
   log($, `stamp ${fresh.stamp} over ${String(fresh.files)} files in ${String(hashMs)}ms (built ${onDisk.stamp}, loaded ${build.stamp})`)
   if (fresh.stamp !== onDisk.stamp) {
     const rebuildStart = Date.now()
-    await setStatus($, "gc-cli: the checkout changed; rebuilding the mod")
+    await setStatus($, "gauntlet: the checkout changed; rebuilding the mod")
     const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
       cwd: build.repoRoot,
       timeoutMs: 300_000,
@@ -326,16 +326,16 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     const rebuildMs = Date.now() - rebuildStart
     log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
     await setStatus($, undefined)
-    if (built.exitCode !== 0) return `gc-cli: the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
+    if (built.exitCode !== 0) return `gauntlet: the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
     if (request.afterRebuild !== "run") {
-      return `gc-cli: rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
+      return `gauntlet: rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
     }
   }
   // `--repo` runs the review in another checkout: `~/…`, absolute, or from
   // the session's folder.
   const { argv, repo } = reviewRequest(request.args)
   const cwd = repo === undefined ? request.cwd : repo.startsWith("~") ? `${home}${repo.slice(1)}` : repo.startsWith("/") ? repo : `${request.cwd}/${repo}`
-  if (!(await $.fs.exists(cwd))) return `gc-cli: --repo ${String(repo)} names no folder (${cwd}).`
+  if (!(await $.fs.exists(cwd))) return `gauntlet: --repo ${String(repo)} names no folder (${cwd}).`
   log($, `starting ${argv.join(" ")} in ${cwd}`)
   markedAgents = ""
   runCwd = cwd
@@ -350,7 +350,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     .start({ argv, cwd }, (line) => log($, `cli: ${line}`))
     .then((result) => finishRun($, result, request, notice))
     .catch((error) => log($, `run failed to start: ${String(error)}`))
-  return `gc-cli: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
+  return `gauntlet: review started (${argv.slice(1).join(" ")}${repo === undefined ? "" : ` in ${cwd}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
     (await standardsNote($, engine, cwd, argv))
 }
 
@@ -385,7 +385,7 @@ async function checkForUpdate($: Engines, repoRoot: string): Promise<string | un
 // Test runs and cancels arrive as files the mod polls (a command registered
 // after an agent spawned is invisible to it).
 async function checkTrigger($: Engines) {
-  const path = `${gcDir()}/trigger.json`
+  const path = `${modDir()}/trigger.json`
   if (!(await $.fs.exists(path))) return
   const text = await $.fs.read(path)
   await $.process.run(["rm", "-f", path])
@@ -397,7 +397,7 @@ async function checkTrigger($: Engines) {
   }
   const answer = await startReview($, request)
   log($, `trigger answered: ${answer}`)
-  await $.fs.write(`${gcDir()}/trigger-answer.txt`, `${answer}\n`)
+  await $.fs.write(`${modDir()}/trigger-answer.txt`, `${answer}\n`)
 }
 
 export const register: Register = (on) => {
@@ -426,8 +426,8 @@ export const register: Register = (on) => {
     })
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
-      name: "gc-cli",
-      description: "Gauntlet review, run in process: /gc-cli [target] [--repo=<path>] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
+      name: "gauntlet",
+      description: "Gauntlet review, run in process: /gauntlet [target] [--repo=<path>] [--recipe=…] [--lenses=…] [--spec=…] [--no-related-files]",
     })
     inflightKey = `inflight:${await $.session.id()}`
     await reportLostRun($)
@@ -453,15 +453,15 @@ export const register: Register = (on) => {
   })
 
   // The host labels the answer with the plugin's name already.
-  on("command.run", { command: "gc-cli" }, async ($, e) => ({
-    text: (await startReview($, { cwd: await $.session.root(), args: e.args })).replace(/^gc-cli: /, ""),
+  on("command.run", { command: "gauntlet" }, async ($, e) => ({
+    text: (await startReview($, { cwd: await $.session.root(), args: e.args })).replace(/^gauntlet: /, ""),
   }))
 
-  on("tool.call", { tool: "mcp__gc-cli__review" }, async ($, e) => {
+  on("tool.call", { tool: "mcp__gauntlet__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
-    if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gc-cli takes them." }
+    if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gauntlet takes them." }
     const answer = await startReview($, { cwd: await $.session.root(), args, agentId: e.agentId })
-    return { result: answer.replace(/^gc-cli: /, "") }
+    return { result: answer.replace(/^gauntlet: /, "") }
   })
 
   // The main agent's turns (no agentId), so a digest knows whether it would
@@ -494,16 +494,16 @@ export const register: Register = (on) => {
   })
 
   // This mod's own resume and stop calls need no prompt.
-  on("tool.check", { tool: "SendMessage" }, ($, e, next) => (next.origin?.plugin === "gc-cli" ? { decision: "allow" } : next(e)))
-  on("tool.check", { tool: "TaskStop" }, ($, e, next) => (next.origin?.plugin === "gc-cli" ? { decision: "allow" } : next(e)))
+  on("tool.check", { tool: "SendMessage" }, ($, e, next) => (next.origin?.plugin === "gauntlet" ? { decision: "allow" } : next(e)))
+  on("tool.check", { tool: "TaskStop" }, ($, e, next) => (next.origin?.plugin === "gauntlet" ? { decision: "allow" } : next(e)))
 
   // Hidden from the model except while the engine's SendMessage resumes one.
-  on("agent.offer", { agent: "gc-cli:gc-slot-1" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-2" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-3" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-4" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-5" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-6" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-7" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gc-cli:gc-slot-8" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-1" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-2" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-3" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-4" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-5" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-6" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-7" }, () => ({ isOffered: engine?.isOffering() === true }))
+  on("agent.offer", { agent: "gauntlet:slot-8" }, () => ({ isOffered: engine?.isOffering() === true }))
 }

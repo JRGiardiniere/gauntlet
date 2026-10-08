@@ -1,4 +1,4 @@
-// The slice of the review program gc-cli-tools bundles: the four emit
+// The slice of the review program gauntlet-tools bundles: the four emit
 // tools' OutputContracts (their JSON Schema to register, their strict
 // decoder to answer each call with) and the ReviewWorkspace fence. The
 // engine re-runs the same decoder on the same arguments before it executes

@@ -65,7 +65,7 @@ jobs:
           path: assets
           merge-multiple: true
       - name: Package agent skill
-        run: cp .agents/skills/gauntlet/SKILL.md assets/gauntlet-skill.md
+        run: cp .agents/skills/gauntlet-cli/SKILL.md assets/gauntlet-skill.md
       - run: >
           gh release create "$GITHUB_REF_NAME" assets/*
           --generate-notes --repo "$GITHUB_REPOSITORY"

@@ -4,8 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/JRGiardiniere/gauntlet/main/install.sh | sh
 #
 # Installs the binary to ~/.local/bin (override with GAUNTLET_INSTALL_DIR),
-# installs the shared agent skill to ~/.agents/skills/gauntlet, and links that
-# skill into ~/.claude/skills. Re-running installs the latest release.
+# installs the shared agent skill to ~/.agents/skills/gauntlet-cli, and links
+# that skill into ~/.claude/skills. Re-running installs the latest release and
+# removes the skill's earlier `gauntlet` name.
 set -eu
 
 repo="JRGiardiniere/gauntlet"
@@ -30,10 +31,13 @@ esac
 
 install_dir="${GAUNTLET_INSTALL_DIR:-$HOME/.local/bin}"
 skills_root="$HOME/.agents/skills"
-skill_dir="$skills_root/gauntlet"
+skill_dir="$skills_root/gauntlet-cli"
 claude_skills_dir="$HOME/.claude/skills"
-claude_skill="$claude_skills_dir/gauntlet"
-claude_target="../../.agents/skills/gauntlet"
+claude_skill="$claude_skills_dir/gauntlet-cli"
+claude_target="../../.agents/skills/gauntlet-cli"
+# The skill was named `gauntlet` before the Claude Code mod took that name.
+old_skill_dir="$skills_root/gauntlet"
+old_claude_skill="$claude_skills_dir/gauntlet"
 
 # Refuse unrelated Claude content before changing anything. A correct relative
 # link and an equivalent absolute link are both valid rerun states.
@@ -73,11 +77,6 @@ curl -fL --progress-bar "$skill_url" -o "$skill_download"
 
 chmod +x "$binary_download"
 
-# Older source-checkout setups linked this path back into the repository.
-# Replace only the link; its target remains untouched.
-if [ -L "$skill_dir" ]; then
-  rm "$skill_dir"
-fi
 mkdir -p "$skill_dir"
 mv "$skill_download" "$skill_dir/SKILL.md"
 mv "$binary_download" "$install_dir/gauntlet"
@@ -85,6 +84,23 @@ mv "$binary_download" "$install_dir/gauntlet"
 mkdir -p "$claude_skills_dir"
 if [ ! -L "$claude_skill" ]; then
   ln -s "$claude_target" "$claude_skill"
+fi
+
+# Remove the old name: the Claude link only when it is this installer's, and
+# the skill folder only as far as this installer wrote it. Older
+# source-checkout setups linked that folder into the repository; only the
+# link goes, never its target.
+if [ -L "$old_claude_skill" ]; then
+  old_target="$(readlink "$old_claude_skill")"
+  if [ "$old_target" = "../../.agents/skills/gauntlet" ] || [ "$old_target" = "$old_skill_dir" ]; then
+    rm "$old_claude_skill"
+  fi
+fi
+if [ -L "$old_skill_dir" ]; then
+  rm "$old_skill_dir"
+elif [ -d "$old_skill_dir" ]; then
+  rm -f "$old_skill_dir/SKILL.md"
+  rmdir "$old_skill_dir" 2>/dev/null || true
 fi
 
 trap - 0 1 2 15

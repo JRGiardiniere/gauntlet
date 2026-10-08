@@ -41,7 +41,7 @@
   },
   "overrides": [
     {
-      "files": ["mod/gc-cli/hooks/*.ts", "mod/gc-cli-tools/hooks/*.ts", "mod/*/tests/*.ts", "mod/agents.ts", "mod/agents.test.ts", "mod/platform.test.ts", "mod/stamp.ts", "mod/engine.ts"],
+      "files": ["mod/gauntlet/hooks/*.ts", "mod/gauntlet-tools/hooks/*.ts", "mod/*/tests/*.ts", "mod/agents.ts", "mod/agents.test.ts", "mod/platform.test.ts", "mod/stamp.ts", "mod/engine.ts"],
       "rules": {
         "effecttsgo/async-function": "off",
         "effecttsgo/global-date": "off",

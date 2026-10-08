@@ -6,7 +6,7 @@
 // abort is TaskStop. Spawns refused at Claude Code's at-once cap (20
 // subagents per session, other agents included) wait for a free place.
 //
-// Agents skip the hooks of the plugin that spawned them, so gc-cli-tools
+// Agents skip the hooks of the plugin that spawned them, so gauntlet-tools
 // serves their emit tools, watches their reads and fences them. The agent
 // registry it reads is published through `publish`; what it saw comes back
 // through `pull`, an append-only log per agent.
@@ -18,11 +18,11 @@ import type {
   ClaudeTurnEnding,
   ClaudeUsage,
 } from "../src/harness/claude-host.ts"
-import type { GcCliAgent } from "./gc-cli/types/index.d.ts"
-import type { GcCliToolsEvent, GcCliToolsJson } from "./gc-cli-tools/types/index.d.ts"
+import type { GauntletAgent } from "./gauntlet/types/index.d.ts"
+import type { GauntletToolsEvent, GauntletToolsJson } from "./gauntlet-tools/types/index.d.ts"
 
-export const SPAWNER_PLUGIN = "gc-cli"
-export const TOOLS_PLUGIN = "gc-cli-tools"
+export const SPAWNER_PLUGIN = "gauntlet"
+export const TOOLS_PLUGIN = "gauntlet-tools"
 export const AGENT_SLOTS = 8
 const READ_TOOLS = ["Read", "Grep", "Glob"]
 
@@ -43,10 +43,10 @@ export interface SpawnAnswer {
   readonly deny?: string | undefined
 }
 
-// What gc-cli-tools needs to serve one agent, and what it saw of one; the
+// What gauntlet-tools needs to serve one agent, and what it saw of one; the
 // plugin state contracts are their one definition.
-export type PublishedAgent = GcCliAgent
-export type ToolsEvent = GcCliToolsEvent
+export type PublishedAgent = GauntletAgent
+export type ToolsEvent = GauntletToolsEvent
 
 export interface AgentPorts {
   readonly register: (spec: AgentTypeSpec) => Promise<void>
@@ -110,7 +110,7 @@ const EmitItems = Schema.Struct({
   decisions: Schema.optional(Schema.Array(Schema.Unknown)),
 })
 
-const itemCount = (args: GcCliToolsJson) =>
+const itemCount = (args: GauntletToolsJson) =>
   Option.getOrUndefined(
     Option.map(
       Schema.decodeUnknownOption(EmitItems)(args),
@@ -168,8 +168,8 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         }
         slotOf.set(key, slot)
         const spec: AgentTypeSpec = {
-          name: `gc-slot-${String(slot)}`,
-          description: "Gauntlet invocation agent; only the gc-cli mod spawns it.",
+          name: `slot-${String(slot)}`,
+          description: "Gauntlet invocation agent; only the Mod spawns it.",
           prompt: command.systemPrompt,
           tools,
           model,
@@ -199,7 +199,7 @@ export const makeAgentDriver = (ports: AgentPorts) => {
       agents.set(command.id, {
         id: command.id,
         invocationId: command.invocationId,
-        type: `${SPAWNER_PLUGIN}:gc-slot-${String(slot)}`,
+        type: `${SPAWNER_PLUGIN}:slot-${String(slot)}`,
         emitTool,
         cwd: command.cwd,
         consumed: 0,
@@ -345,7 +345,7 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     }
   }
 
-  // Applies gc-cli-tools' new log entries for one agent, in order.
+  // Applies gauntlet-tools' new log entries for one agent, in order.
   const absorb = async (agent: Agent) => {
     if (agent.agentId === undefined) return
     const events = await ports.pull(agent.agentId)

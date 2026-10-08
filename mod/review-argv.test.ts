@@ -3,7 +3,7 @@ import { reviewRequest, reviewToolArgs } from "./review-argv.ts"
 
 const reviewArgv = (args: string) => reviewRequest(args).argv
 
-describe("/gc-cli arguments as gauntlet review argv", () => {
+describe("/gauntlet arguments as gauntlet review argv", () => {
   it("reviews the working tree, a pull request or a commit range, with related files", () => {
     expect(reviewArgv("")).toEqual(["review", "--related-files", "--working-tree"])
     expect(reviewArgv("641")).toEqual(["review", "--related-files", "--pr=641"])
@@ -43,7 +43,7 @@ describe("/gc-cli arguments as gauntlet review argv", () => {
   })
 
   it("takes the review tool's args from its call, and nothing from a call without them", () => {
-    expect(reviewToolArgs({ tool: "mcp__gc-cli__review", args: "--recipe fixture-recipe 145" })).toBe("--recipe fixture-recipe 145")
-    expect(reviewToolArgs({ tool: "mcp__gc-cli__review" })).toBeUndefined()
+    expect(reviewToolArgs({ tool: "mcp__gauntlet__review", args: "--recipe fixture-recipe 145" })).toBe("--recipe fixture-recipe 145")
+    expect(reviewToolArgs({ tool: "mcp__gauntlet__review" })).toBeUndefined()
   })
 })

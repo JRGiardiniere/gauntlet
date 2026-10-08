@@ -1,37 +1,37 @@
-// `claude plugin test` smoke test of the built gc-cli-tools plugin: its
+// `claude plugin test` smoke test of the built gauntlet-tools plugin: its
 // bundle loads in the hooks environment, and its emit tools answer with the
-// review program's strict decoders, only for an agent gc-cli published.
+// review program's strict decoders, only for an agent the gauntlet plugin published.
 // `bun run build-mod` copies it into the built plugin; it runs only there.
 import type { On, Register } from "claude-code"
 import { describe, type Engine, expect, test } from "claude-code/testing"
 
 const AGENT = "agent-smoke"
-const EMIT = "mcp__gc-cli-tools__emit_judgments"
+const EMIT = "mcp__gauntlet-tools__emit_judgments"
 
-// Stands in for gc-cli, which publishes each agent it spawns. An inline
+// Stands in for the gauntlet plugin, which publishes each agent it spawns. An inline
 // plugin loads on its own, so it spells AGENT and EMIT out.
 const publishing: Register = (on) => {
   on("session.start", async ($, e, next) => {
     await $.state.set(
-      { plugin: "gc-cli", key: "agents", id: "agent-smoke" },
-      { invocation: "smoke-judgment#1", emitTool: "mcp__gc-cli-tools__emit_judgments", root: "/smoke" },
+      { plugin: "gauntlet", key: "agents", id: "agent-smoke" },
+      { invocation: "smoke-judgment#1", emitTool: "mcp__gauntlet-tools__emit_judgments", root: "/smoke" },
     )
     return next(e)
   })
 }
 
-const options = { plugins: [{ name: "gc-cli", register: publishing }] }
+const options = { plugins: [{ name: "gauntlet", register: publishing }] }
 
 // What a session answers beneath the plugins: the start, and the emit tools
-// gc-cli-tools registers there.
+// gauntlet-tools registers there.
 const start = async ($: Engine, on: On) => {
   on("session.start", async (_, e) => ({ cwd: e.cwd }))
   on("tool.register", async (_, e) => ({ value: { tool: e.name } }))
   await $.session.start({ cwd: "/smoke", surface: null, isInteractive: false })
 }
 
-describe("gc-cli-tools", () => {
-  test("refuses an emit from an agent gc-cli did not publish", options, async ($, on) => {
+describe("gauntlet-tools", () => {
+  test("refuses an emit from an agent the gauntlet plugin did not publish", options, async ($, on) => {
     await start($, on)
     const answer = await $.tool.call({ tool: EMIT, agentId: "agent-stranger", decisions: [] })
     expect(answer.deny).toContain("serves only Gauntlet invocation agents")

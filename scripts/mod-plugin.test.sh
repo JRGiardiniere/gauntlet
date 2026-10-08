@@ -1,5 +1,5 @@
 #!/bin/sh
-# The gc-cli mod's plugin tests (#135): builds both plugins into a scratch
+# The Mod's plugin tests (#135): builds both plugins into a scratch
 # folder and runs each plugin's tests/ under `claude plugin test`, in the
 # environment its hooks run in.
 set -eu

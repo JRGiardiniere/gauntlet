@@ -1,7 +1,7 @@
-// gc-cli's engine (#134 Idea 3): the Gauntlet review program itself, run
+// The Mod's engine (#134 Idea 3): the Gauntlet review program itself, run
 // in process inside Claude Code. `bun run build-mod` bundles this entry,
 // Effect included, into the plugin's hooks/vendor/engine.js; the hooks
-// module (mod/gc-cli/hooks/register.ts) hands it ports over `$` and relays
+// module (mod/gauntlet/hooks/register.ts) hands it ports over `$` and relays
 // the hooks' observations. There is no second pipeline: argv goes to the CLI's
 // own review command (src/cli/review.ts), which runs Submission, the
 // snapshot worktree, invoke.ts deadlines and corrective turns, the Stages,
@@ -84,7 +84,7 @@ const errorText = (error: Error) =>
 
 const endingOf = (cause: Cause.Cause<unknown>, runId: string | undefined) => {
   if (Cause.hasInterruptsOnly(cause)) {
-    return runId === undefined ? "cancelled" : `cancelled; resume it with /gc-cli --resume=${runId}`
+    return runId === undefined ? "cancelled" : `cancelled; resume it with /gauntlet --resume=${runId}`
   }
   const defect = Cause.squash(cause)
   return `run ended: ${defect instanceof Error ? errorText(defect) : String(defect)}`

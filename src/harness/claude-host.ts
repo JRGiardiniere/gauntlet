@@ -13,7 +13,7 @@ import {
 import { isClaudeCodeSeat } from "../domain/recipe.ts"
 
 // The Claude Code host's core (#134): runs each AgentInvocation as a hidden
-// Claude Code subagent that the gc-cli mod spawns, as a mapping with no
+// Claude Code subagent that the Mod spawns, as a mapping with no
 // invocation logic (deadlines, corrective turns, capture and accounting stay
 // in invoke.ts). The review program runs inside the mod (mod/engine.ts): the
 // core sends Commands out, and the mod's hooks report back what they saw —

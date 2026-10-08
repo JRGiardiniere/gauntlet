@@ -1,11 +1,11 @@
-# Install Gauntlet for Claude Code (`/gc-cli`)
+# Install Gauntlet for Claude Code (`/gauntlet`)
 
-You are a coding agent installing Gauntlet's Claude Code mod, `/gc-cli`, for
-the person you work with. `/gc-cli` runs a Gauntlet review inside Claude Code: progress shows in a
+You are a coding agent installing Gauntlet's Claude Code mod, `/gauntlet`, for
+the person you work with. `/gauntlet` runs a Gauntlet review inside Claude Code: progress shows in a
 strip above the prompt, the digest lands in the transcript, and **Open
 dossier** opens the full report.
 
-The mod is two Claude Code plugin folders, `gc-cli` and `gc-cli-tools`, built
+The mod is two Claude Code plugin folders, `gauntlet` and `gauntlet-tools`, built
 from a git checkout. They stay bound to that checkout: they read lenses and
 prompts from it, and rebuild themselves from it with the `bun` that built them.
 So the clone stays where you put it, and `bun` must be a real command.
@@ -61,12 +61,12 @@ bun install
 bun run build-mod
 ```
 
-Done when `build-mod` prints `gc-cli built at <clone>/mod/dist/gc-cli` and
-`gc-cli-tools built at <clone>/mod/dist/gc-cli-tools`.
+Done when `build-mod` prints `gauntlet built at <clone>/mod/dist/gauntlet` and
+`gauntlet-tools built at <clone>/mod/dist/gauntlet-tools`.
 
 ### 4. Claude recipes
 
-A review runs on a recipe from `~/.gauntlet/recipes/`. `/gc-cli` runs its
+A review runs on a recipe from `~/.gauntlet/recipes/`. `/gauntlet` runs its
 agents inside Claude Code, so its recipes name `claude-code/` seats.
 
 - `~/.gauntlet/settings.json` missing (no Gauntlet config yet): in `<clone>`,
@@ -93,7 +93,7 @@ Claude Code loads plugin folders named in `env.CLAUDE_CODE_PLUGIN_DIRS` of
 `~/.claude/settings.json`: absolute paths joined by `:`.
 
 1. Read `~/.claude/settings.json` (treat a missing file as `{}`).
-2. Add `<clone>/mod/dist/gc-cli` and `<clone>/mod/dist/gc-cli-tools` to
+2. Add `<clone>/mod/dist/gauntlet` and `<clone>/mod/dist/gauntlet-tools` to
    `env.CLAUDE_CODE_PLUGIN_DIRS`, after any paths already there, skipping one
    already listed. Every other key and value stays as it was.
 3. Show the person the diff and wait for their approval.
@@ -107,12 +107,12 @@ earlier paths plus both new ones.
 The skill tells Claude when and how to start a review with the mod's tool.
 
 - `gauntlet` on the PATH (`command -v gauntlet`): the person uses the Gauntlet
-  CLI, whose own `gauntlet` skill covers both. Leave their skills alone.
+  CLI, whose own `gauntlet-cli` skill covers both. Leave their skills alone.
 - Otherwise: link the mod's skill, so it follows the checkout:
   `mkdir -p ~/.claude/skills && ln -s <clone>/mod/skills/gauntlet-code-review ~/.claude/skills/gauntlet-code-review`.
-  A `~/.claude/skills/gauntlet` without the CLI is left from an earlier CLI
-  install and sends Claude to a command that isn't there: show the person its
-  path and ask before removing it.
+  A `~/.claude/skills/gauntlet` or `~/.claude/skills/gauntlet-cli` without the
+  CLI is left from an earlier CLI install and sends Claude to a command that
+  isn't there: show the person its path and ask before removing it.
 
 Done when `~/.claude/skills/gauntlet-code-review/SKILL.md` exists, or the CLI
 is installed.
@@ -120,8 +120,8 @@ is installed.
 ### 7. Validate
 
 ```sh
-claude plugin validate <clone>/mod/dist/gc-cli
-claude plugin validate <clone>/mod/dist/gc-cli-tools
+claude plugin validate <clone>/mod/dist/gauntlet
+claude plugin validate <clone>/mod/dist/gauntlet-tools
 ```
 
 Done when both end `Validation passed`; warnings about gating hooks and missing
@@ -138,7 +138,7 @@ Tell the person:
   Gauntlet review ("run gauntlet on my changes", "gauntlet medium on PR 42").
   Claude starts it, carries on or waits, and gets the digest when it lands.
   The review uses their Claude plan.
-- They can also type `/gc-cli` (`/gc-cli 42` for pull request 42, `/gc-cli main`
+- They can also type `/gauntlet` (`/gauntlet 42` for pull request 42, `/gauntlet main`
   for the commits since `main`, `--recipe=claude-sonnet-medium` for more effort).
 
 ## Update
@@ -165,5 +165,5 @@ move it.
 2. Remove the `~/.claude/skills/gauntlet-code-review` link step 6 made.
 3. Tell the person to restart Claude Code.
 4. Ask before deleting `<clone>`. `~/.gauntlet` holds their settings, recipes,
-   review runs and the mod's log (`~/.gauntlet/gc-cli`), and the Gauntlet CLI
+   review runs and the mod's log (`~/.gauntlet/mod`), and the Gauntlet CLI
    shares it: delete it only if they ask.

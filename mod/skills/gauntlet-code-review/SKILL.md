@@ -1,16 +1,16 @@
 ---
 name: gauntlet-code-review
 description: >-
-  Runs a Gauntlet code review inside Claude Code with the gc-cli mod's review
-  tool and carries on with the findings when its digest arrives. Use when asked
-  to run Gauntlet, or a Gauntlet review of uncommitted changes, a branch's
-  commits, or a pull request, and when asked to update Gauntlet, the gc-cli
-  plugin or the mod.
+  Runs a Gauntlet code review inside Claude Code with Gauntlet's review tool
+  and carries on with the findings when its digest arrives. Use when asked to
+  run Gauntlet, or a Gauntlet review of uncommitted changes, a branch's
+  commits, or a pull request, and when asked to update Gauntlet.
+user-invocable: false
 ---
 
 # Gauntlet
 
-A review is one call to `mcp__gc-cli__review` (load it with ToolSearch when
+A review is one call to `mcp__gauntlet__review` (load it with ToolSearch when
 only its name is listed). It returns at once; the review takes minutes, and its
 agents run on the person's Claude plan.
 
@@ -84,7 +84,7 @@ continues it.
 ## Update
 
 The mod is built from a git checkout, `<clone>`: in `env.CLAUDE_CODE_PLUGIN_DIRS`
-of `~/.claude/settings.json`, the path that ends in `/mod/dist/gc-cli`, minus
+of `~/.claude/settings.json`, the path that ends in `/mod/dist/gauntlet`, minus
 that ending.
 It sits on a release tag, not a branch, so don't `git pull`. Follow the
 **Update** section of `<clone>/INSTALL.md`, then tell the person to restart
