@@ -52,6 +52,8 @@ import {
 // Assembly refusals — the request parsed but no Run can be assembled from it.
 export class SubmissionError extends Data.TaggedError("SubmissionError")<{
   readonly reason: string
+  // No settings exist to take Default Lenses from.
+  readonly unconfigured?: boolean
 }> {}
 
 // Each host runs only its own providers' Seats (#134).
@@ -218,6 +220,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
           return yield* new SubmissionError({
             reason:
               "no Default Lenses are configured and the review names no Lenses",
+            unconfigured: true,
           })
         }
         return settings.value["default-lenses"]

@@ -31,8 +31,11 @@ import {
   settingsPath,
   writeSettings,
 } from "../config/settings.ts"
-import { type ArtifactWriteError, writeArtifactJson } from "../run/artifact.ts"
-import { describeArtifactWrite } from "../run/run.ts"
+import {
+  type ArtifactWriteError,
+  describeArtifactWrite,
+  writeArtifactJson,
+} from "../run/artifact.ts"
 import { resolveInvocationProjectRoot } from "../target/invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{

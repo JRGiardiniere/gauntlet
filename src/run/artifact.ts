@@ -2,6 +2,7 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
+import * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Random from "effect/Random"
 import * as Schema from "effect/Schema"
@@ -10,6 +11,34 @@ export class ArtifactWriteError extends Data.TaggedError("ArtifactWriteError")<{
   readonly path: string
   readonly cause: unknown
 }> {}
+
+// The one rendering of a filesystem or process failure:
+// `<operation> failed on <path>: <reason>`. Node's errno failures carry no
+// description, so their code stands in for one.
+export const describePlatformError = (
+  failure: PlatformError.PlatformError,
+): string => {
+  const { reason } = failure
+  const operation = `${reason.module}.${reason.method}`
+  if (reason._tag === "BadArgument") {
+    return `${operation} failed: ${reason.description ?? "bad argument"}`
+  }
+  const code = Predicate.hasProperty(reason.cause, "code") &&
+      Predicate.isString(reason.cause.code)
+    ? ` (${reason.cause.code})`
+    : ""
+  const detail = reason.description ?? `${reason._tag}${code}`
+  return reason.pathOrDescriptor === undefined
+    ? `${operation} failed: ${detail}`
+    : `${operation} failed on ${String(reason.pathOrDescriptor)}: ${detail}`
+}
+
+export const describeArtifactWrite = (failure: ArtifactWriteError): string =>
+  `failed to write ${failure.path}: ${
+    PlatformError.isPlatformError(failure.cause)
+      ? describePlatformError(failure.cause)
+      : String(failure.cause)
+  }`
 
 const artifactWriteError = (path: string) => (cause: unknown) =>
   new ArtifactWriteError({ path, cause })

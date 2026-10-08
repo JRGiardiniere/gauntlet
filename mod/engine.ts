@@ -100,9 +100,11 @@ const defectText = (cause: Cause.Cause<unknown>) => {
 // A refusal as the Mod words it: a post that may have landed names the
 // command that delivers the Run again.
 const refusalText = (refusal: Run.RunRefusal) =>
-  refusal.unconfirmedPost === undefined
-    ? refusal.reason
-    : `${refusal.reason}; check the pull request for the comment before /gauntlet deliver ${refusal.unconfirmedPost}`
+  refusal.unconfirmedPost !== undefined
+    ? `${refusal.reason}; check the pull request for the comment before /gauntlet deliver ${refusal.unconfirmedPost}`
+    : refusal.unconfigured === true
+    ? `${refusal.reason}; set up Gauntlet's recipes and settings as its INSTALL.md says`
+    : refusal.reason
 
 const deliveryNotes = (reviewed: Run.Reviewed): ReadonlyArray<string> => {
   if (reviewed.delivery === undefined) return []
@@ -164,7 +166,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     | {
       readonly fiber: Fiber.Fiber<void>
       readonly startedAt: number
-      readonly words: ReadonlyArray<string>
+      readonly argv: ReadonlyArray<string>
       runId: string | undefined
     }
     | undefined
@@ -285,7 +287,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Effect.catch((failure) => refuse(`could not review — ${String(failure)}`)),
     )
     const fiber = Effect.runFork(program)
-    current = { fiber, startedAt, words: request.words, runId: undefined }
+    current = { fiber, startedAt, argv: request.words, runId: undefined }
     const ended = new Promise<RunResult>((resolve) => {
       fiber.addObserver((exit) => {
         current = undefined
@@ -349,7 +351,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         : {
           runId: current.runId,
           startedAt: current.startedAt,
-          words: current.words,
+          argv: current.argv,
           agentIds: driver.agentIds(),
           snapshots: driver.snapshots(),
         },

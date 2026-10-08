@@ -193,8 +193,8 @@ it does not embed a mutable catalog listing.
 
 Selection precedence is exactly: a Recipe named with `--recipe`, otherwise
 the configured Default Recipe. If neither resolves, review fails and lists the
-available Recipes. Environment variables, flags, and a hidden built-in
-fallback do not select a Recipe. The ReviewPlan freezes the resolved seats at
+available Recipes. Environment variables, other flags, and a hidden
+built-in fallback do not select a Recipe. The ReviewPlan freezes the resolved seats at
 submission (#6), so editing a Recipe never changes an in-flight run.
 
 `config set default-recipe` accepts only an available valid Recipe and

@@ -2,8 +2,7 @@ import type * as Config from "effect/Config"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import * as PlatformError from "effect/PlatformError"
-import * as Predicate from "effect/Predicate"
+import type * as PlatformError from "effect/PlatformError"
 import type * as Result from "effect/Result"
 import {
   type RecipeCatalogError,
@@ -26,7 +25,11 @@ import {
 } from "../specification/caller-addendum.ts"
 import type { TargetUnresolvable } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
-import type { ArtifactWriteError } from "./artifact.ts"
+import {
+  type ArtifactWriteError,
+  describeArtifactWrite,
+  describePlatformError,
+} from "./artifact.ts"
 import { executeReviewPlan } from "./review-executor.ts"
 import { loadRun, type RunError, type RunPaths } from "./run-record.ts"
 import {
@@ -72,6 +75,9 @@ export class RunRefusal extends Data.TaggedError("RunRefusal")<{
   // posted comment's receipt can fail to save), so a blind retry could post
   // twice: the Run whose pull request to check before delivering it again.
   readonly unconfirmedPost?: string
+  // Gauntlet has no configuration to choose a Recipe or Lenses from: the Host
+  // says how its person sets it up.
+  readonly unconfigured?: boolean
 }> {}
 
 // Everything that stops a review or a delivery before it can answer.
@@ -92,34 +98,6 @@ export type RunFailure =
   | SubmissionError
   | TargetUnresolvable
 
-// The one rendering of a filesystem or process failure:
-// `<operation> failed on <path>: <reason>`. Node's errno failures carry no
-// description, so their code stands in for one.
-export const describePlatformError = (
-  failure: PlatformError.PlatformError,
-): string => {
-  const { reason } = failure
-  const operation = `${reason.module}.${reason.method}`
-  if (reason._tag === "BadArgument") {
-    return `${operation} failed: ${reason.description ?? "bad argument"}`
-  }
-  const code = Predicate.hasProperty(reason.cause, "code") &&
-      Predicate.isString(reason.cause.code)
-    ? ` (${reason.cause.code})`
-    : ""
-  const detail = reason.description ?? `${reason._tag}${code}`
-  return reason.pathOrDescriptor === undefined
-    ? `${operation} failed: ${detail}`
-    : `${operation} failed on ${String(reason.pathOrDescriptor)}: ${detail}`
-}
-
-export const describeArtifactWrite = (failure: ArtifactWriteError): string =>
-  `failed to write ${failure.path}: ${
-    PlatformError.isPlatformError(failure.cause)
-      ? describePlatformError(failure.cause)
-      : String(failure.cause)
-  }`
-
 export const refusalOf = (failure: RunFailure): RunRefusal => {
   switch (failure._tag) {
     // Configuration failures stand alone: their reasons already name the
@@ -132,6 +110,7 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
         reason: `could not review — ${failure.reason}${
           renderAvailable(failure.available)
         }`,
+        unconfigured: failure.available.length === 0,
       })
     case "DeliveryError":
       return failure.operation === "post" && failure.runId !== undefined
@@ -160,6 +139,11 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
       })
     case "ConfigError":
       return new RunRefusal({ reason: `could not review — ${failure.message}` })
+    case "SubmissionError":
+      return new RunRefusal({
+        reason: `could not review — ${failure.reason}`,
+        unconfigured: failure.unconfigured === true,
+      })
     default:
       return new RunRefusal({ reason: `could not review — ${failure.reason}` })
   }

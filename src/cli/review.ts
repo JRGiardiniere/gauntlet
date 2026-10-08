@@ -43,12 +43,15 @@ export const reviewCommand = reviewVerb.pipe(
 export const deliverCommand = deliverVerb
 
 // The CLI's words for a refusal: a post that may have landed names the
-// command that retries it.
+// command that retries it, and a missing configuration the one that sets it
+// up.
 const refuse = (refusal: Run.RunRefusal) =>
   progress(
-    refusal.unconfirmedPost === undefined
-      ? refusal.reason
-      : `${refusal.reason}; check the PR for the comment before retrying with gauntlet deliver ${refusal.unconfirmedPost}`,
+    refusal.unconfirmedPost !== undefined
+      ? `${refusal.reason}; check the PR for the comment before retrying with gauntlet deliver ${refusal.unconfirmedPost}`
+      : refusal.unconfigured === true
+      ? `${refusal.reason} — run \`gauntlet config init\``
+      : refusal.reason,
   ).pipe(Effect.as(1))
 
 // Exit codes are the CLI contract (ADR 0005): 0 = review produced (zero

@@ -32,9 +32,11 @@ type Engines = EngineInterface
 
 const BUILD_FILE = "hooks/vendor/build.json"
 
+// The store outlives a mod update, so its fields keep their names: `argv` is
+// the words the review was started with.
 interface InFlight {
   readonly startedAt: number
-  readonly words: ReadonlyArray<string>
+  readonly argv: ReadonlyArray<string>
   readonly cwd: string
   readonly runId?: string | undefined
   readonly agentIds: ReadonlyArray<string>
@@ -153,7 +155,7 @@ async function reportLostRun($: Engines) {
   }
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-  const note = `gauntlet: ${what} (${lost.words.join(" ")}) was lost when the mod reloaded; ` +
+  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded; ` +
     `its in-process state is gone. ${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
     "Run /gauntlet again."
   log($, `${note} ${stopped.join("; ")}`)
@@ -340,15 +342,19 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     return undefined
   })
   // The review runs where its words say (`--repo`), and its marker is down
-  // before its ending clears it.
-  const review = await run.request
-  if (review !== undefined) {
+  // before its ending clears it; a failed marker write only logs.
+  const marked = run.request.then(async (review) => {
+    if (review === undefined) return
     runCwd = review.directory
-    await markInFlight($, { startedAt: Date.now(), words, cwd: review.directory, agentIds: [], snapshots: [] })
+    await markInFlight($, { startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
+      .catch((error) => log($, `in-flight marker failed: ${String(error)}`))
     startTick($)
-  }
-  void run.ended.then((result) => finishRun($, result, request, notice))
-    .catch((error) => log($, `run failed to finish: ${String(error)}`))
+  })
+  void run.ended.then(async (result) => {
+    await marked
+    await finishRun($, result, request, notice)
+  }).catch((error) => log($, `run failed to finish: ${String(error)}`))
+  const review = await run.request
   if (review === undefined) return "the review did not start; why arrives as a message."
   return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
     (await standardsNote($, engine, review))

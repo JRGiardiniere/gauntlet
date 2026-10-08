@@ -470,6 +470,17 @@ describe("Run refusals", () => {
       expect((yield* refusalOf(fixture, { specPath: empty })).reason).toBe(
         `could not review — caller addendum is empty (${empty})`,
       )
+      yield* fs.remove(fixture.settingsFile)
+      expect(yield* refusalOf(fixture, { selectedLensNames: undefined })).toMatchObject({
+        reason: "could not review — no default recipe is configured and the review names none; available recipes: fixture-recipe",
+        unconfigured: false,
+      })
+      expect(
+        yield* refusalOf(fixture, { selectedLensNames: undefined, recipeName: Option.some("fixture-recipe") }),
+      ).toMatchObject({
+        reason: "could not review — no Default Lenses are configured and the review names no Lenses",
+        unconfigured: true,
+      })
       yield* writeSettings(fixture, { "default-recipe": "fixture-recipe", favorites: [] })
       expect((yield* refusalOf(fixture, { selectedLensNames: undefined })).reason)
         .toContain(fixture.settingsFile)
