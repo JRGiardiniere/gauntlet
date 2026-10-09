@@ -16,13 +16,13 @@ and lens files, no plumbing. The companion specifications live in
   metadata; never frozen into the plan, never read by routing — a candidate
   routes by its own type).
   Project-local lenses in `.gauntlet/lenses/` use the identical format.
-- `prompts/` — finder system prompt, and templates for the shared finder
-  block, the stage scope block, and the Pool / verifier prompts.
+- `prompts/` — the finder system prompt, the templates for the shared finder
+  block and its related-files section, and each Host's workspace prompt.
   `{{PLACEHOLDER}}` slots are filled at prompt-assembly time. Template files
   are pure prompt text — usage notes live here and in the specs, never inline.
-  A Stage module may instead own its main template next to the code that
-  assembles it (the judge prompt lives at `src/stages/judgment/judge.md`);
-  the slot format is identical.
+  The Pool, Verification and Judgment templates live with their Stage modules
+  under `src/stages/`, next to the code that assembles them; the slot format
+  is identical.
 
 ## Template slots
 
@@ -38,14 +38,15 @@ and lens files, no plumbing. The companion specifications live in
   multi-Finder partition, one ordinary Finder starts first and the rest follow
   shortly after its first metered response so their byte-identical prefix can
   reuse provider caching. See `docs/spec/pipeline-shape.md`.
-- `stage-scope-block.md`: shared by verifier and judge. `{{DIFF_SECTION}}` is
+- `src/stages/stage-scope-block.md`: shared by verifier and judge. `{{DIFF_SECTION}}` is
   either the inline fenced diff or a pointer to the diff file stored with the
   plan (ADR 0006 stores it exactly once). When the plan froze a
   ReviewSpecification, its section is appended after the rendered scope, so
   `{{SCOPE_BLOCK}}` carries it into both stage prompts before the assignment.
-- `pool.md` / the judge prompt: `{{CANDIDATES}}` in the candidate line format
-  (`docs/spec/pipeline-shape.md`). `verifier.md`: `{{SCOPE_BLOCK}}` and
-  `{{CLAIMS}}` ([cN]-labelled clusters with member lines).
+- `src/stages/pool/pool.md` / the judge prompt: `{{CANDIDATES}}` in the
+  candidate line format (`docs/spec/pipeline-shape.md`).
+  `src/stages/verification/verifier.md`: `{{SCOPE_BLOCK}}` and `{{CLAIMS}}`
+  ([cN]-labelled clusters with member lines).
 
 ## Provenance and staleness review
 

@@ -256,9 +256,14 @@ undecided. Undecided is first-class, never an absence.
 _Avoid_: verdict (that word belongs to BugClaims), decision
 
 **Pool**:
-The stage that bundles BugClaims for verification. Its output is an execution
-plan for verifier bundles, not a domain object; it may bundle but never delete.
+The stage that clusters BugClaims reporting the same defect, so Verification
+checks each defect once. Its clusters are an execution plan, not a domain
+object; it may cluster but never delete.
 _Avoid_: clusterer, deduper
+
+**Verifier bundle**:
+The Pool clusters one Verification invocation checks.
+_Avoid_: bundle for a single cluster, batch
 
 **Dossier**:
 The canonical, complete semantic result of one review: findings, refutations,
