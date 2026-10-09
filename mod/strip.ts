@@ -105,12 +105,15 @@ const stageRuns = (view: RunView, stage: Stage) =>
   view.activity.filter((each) => stageOf(each.invocationId)?.stage === stage)
 
 // A stage has started once one of its agents opened, and finished once every
-// one has ended (and, for the Finders, the stage itself has).
+// one has ended. The Finders finish with their stage, whether or not one
+// opened: every lens may have been skipped.
 const stageState = (view: RunView, stage: Stage) => {
   const ran = stageRuns(view, stage)
   const started = ran.length > 0
-  const finished = started && ran.every((each) => hasEnded(each.state)) &&
-    (stage !== "Finders" || view.findersFinished || view.exitCode !== undefined)
+  const ended = ran.every((each) => hasEnded(each.state))
+  const finished = stage === "Finders"
+    ? ended && (view.findersFinished || view.exitCode !== undefined)
+    : started && ended
   return { started, finished }
 }
 
@@ -127,8 +130,8 @@ const leads = (view: RunView) => stageRuns(view, "Finders").reduce((sum, each) =
 // What the run is doing, in plain words, from its state.
 export const doing = (view: RunView): string => {
   const finders = stageRuns(view, "Finders")
-  if (finders.length === 0) return "Building the first prompt"
   if (!stageState(view, "Finders").finished) {
+    if (finders.length === 0) return "Building the first prompt"
     if (finders.length === 1 && !hasEnded(finders[0]?.state ?? "opening")) return "Sending the first finder to set the cache"
     // A lens whose Finder has not opened yet is still to look; a retried
     // Finder counts by its latest attempt.
