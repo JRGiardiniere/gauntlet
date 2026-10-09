@@ -144,6 +144,8 @@ interface Invocation {
   readonly services: Context.Context<never>
   turns: number
   started: boolean
+  // How the prompt's last response stopped, in Pi's words.
+  lastStop: StopReason | undefined
   abortRequested: boolean
   opened: ((error: string | undefined) => void) | undefined
   settle: (() => void) | undefined
@@ -213,6 +215,7 @@ export const makeClaudeHost = (
       new Promise<void>((resolve) => {
         invocation.settle = resolve
         invocation.started = false
+        invocation.lastStop = undefined
         const turn = invocation.turns
         invocation.turns += 1
         send({ kind: "prompt", id: invocation.id, text, turn })
@@ -248,6 +251,7 @@ export const makeClaudeHost = (
         const row = reported.usage === null ? ZERO_USAGE : usageRowOf(invocation, reported.usage)
         invocation.usageRows.push(row)
         const stopReason = stopReasonOf(reported.stopReason)
+        invocation.lastStop = stopReason
         dispatch(
           invocation,
           stopReason === "error"
@@ -295,14 +299,17 @@ export const makeClaudeHost = (
     return { ok: true }
   }
 
-  // Each response reported its own usage, so an ending carries none. A
-  // refusal ended on its response's own `refusal` stop reason, so only an
-  // error, which ends with no response, adds the turn's terminal evidence.
+  // Each response reported its own usage, so an ending carries none. An
+  // error or refusal ending is terminal evidence only when the turn's last
+  // response did not already end it: Claude Code ends a turn as an error
+  // after max_tokens responses it gave up retrying (measured on 2.1.295), and
+  // a refusal after the response that stopped on `refusal`.
   const ended = (id: string, { detail, reason }: ClaudeTurnEnding) => {
     const invocation = invocations.get(id)
     if (invocation === undefined) return false
     markStarted(invocation)
-    if (reason === "error") {
+    const endedByResponse = invocation.lastStop === "length" || invocation.lastStop === "error"
+    if ((reason === "error" || reason === "refusal") && !endedByResponse) {
       invocation.usageRows.push(ZERO_USAGE)
       dispatch(invocation, {
         type: "message_end",
@@ -343,6 +350,7 @@ export const makeClaudeHost = (
         services,
         turns: 0,
         started: false,
+        lastStop: undefined,
         abortRequested: false,
         opened: undefined,
         settle: undefined,
