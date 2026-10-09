@@ -354,9 +354,10 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         posting(undefined)
         void driver.stopAll("run ended")
         const failed = Exit.isFailure(exit)
-        // A post cut short may still have landed.
-        if (failed && shown.post?.state === "posting") {
-          shown.post = { state: "failed", text: "post interrupted; check the pull request for the comment" }
+        // A post cut short, by a stop or a defect, may still have landed.
+        if (Exit.isFailure(exit) && shown.post?.state === "posting") {
+          const cut = Cause.hasInterruptsOnly(exit.cause) ? "post interrupted" : defectText(exit.cause)
+          shown.post = { state: "failed", text: `${cut}; check the pull request for the comment` }
         }
         if (progress === shown) {
           progress = { ...shown, endedAt: Date.now(), exitCode: failed || shown.refusal !== undefined ? 1 : 0 }

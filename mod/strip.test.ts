@@ -145,7 +145,11 @@ describe("strip", () => {
 
   it("says where a pull-request review's post landed, or why it did not", () => {
     const posted = { ...finished({}), post: { state: "posted" as const, text: "posted https://github.com/o/r/pull/7#c" } }
-    expect(draw(posted).split("\n")[1]).toBe("12:34 · 0 findings from 23 leads · posted https://github.com/o/r/pull/7#c")
+    const failed = { ...finished({}), post: { state: "failed" as const, text: `fixture refusal; check the pull request for the comment before /gauntlet deliver ${RUN}` } }
+    expect([posted, failed].map((view) => draw(view).split("\n").slice(1))).toEqual([
+      ["12:34 · 0 findings from 23 leads", "posted https://github.com/o/r/pull/7#c"],
+      ["12:34 · 0 findings from 23 leads", `fixture refusal; check the pull request for the comment before /gauntlet deliver ${RUN}`],
+    ])
   })
 
   it("says why a review could not run", () => {

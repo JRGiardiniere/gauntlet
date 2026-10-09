@@ -277,17 +277,13 @@ export const renderStrip = <N>(
         children: [
           Text({ dimColor: true, wrap: "truncate-end", children: `${elapsed} · ${status}` }),
           ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
-          ...(view.post === undefined || view.result === undefined
-            ? []
-            : [
-              Text({
-                ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }),
-                wrap: "truncate-end",
-                children: ` · ${view.post.text.split("\n")[0] ?? ""}`,
-              }),
-            ]),
         ],
       }),
+      // The post's outcome has a line of its own and wraps: a failure's tail
+      // names the run to deliver again, and the strip is where it is said.
+      ...(view.post === undefined || view.result === undefined
+        ? []
+        : [Text({ ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }), children: view.post.text.split("\n")[0] ?? "" })]),
     ],
   })
 }
