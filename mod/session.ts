@@ -194,9 +194,21 @@ export const createSession = (
       await mark({ startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
       ticking = { cwd: review.directory, marked: "" }
     })
+    // A review that posts hands off its digest, with the update notice, while
+    // it still holds the session; the post's outcome follows on its own.
+    const digestSent = run.reviewed.then(async (result) => {
+      if (result === undefined) return false
+      await marked
+      await answer(result, request, notice)
+      return true
+    }).catch((error) => {
+      ports.log(`digest failed to send: ${String(error)}`)
+      return false
+    })
     void run.ended.then(async (result) => {
       await marked
-      await finishRun(result, request, notice)
+      const sent = await digestSent
+      await finishRun(result, request, sent ? Promise.resolve(undefined) : notice)
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
@@ -236,6 +248,11 @@ export const createSession = (
     ticking = undefined
     await mark(undefined)
     claimedAt = undefined
+    await answer(result, request, notice)
+  }
+
+  // Says a digest, or what ended the run, to the Caller.
+  const answer = async (result: RunResult, request: StartRequest, notice: Promise<string | undefined>) => {
     const { digest, verdict } = result
     ports.log(`run ${verdict} after ${String(result.seconds)}s`)
     ports.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)

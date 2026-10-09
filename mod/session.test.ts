@@ -33,27 +33,36 @@ const FINISHED: RunResult = { verdict: "review finished", digest: "1 finding\nfi
 const DIGEST = "gauntlet review finished:\n\n1 finding\nfixture.ts:3"
 
 // The engine's slice the session drives, scripted: the test parses each
-// started run's words into a review and ends it.
+// started run's words into a review, hands off a posting review's digest and
+// ends it.
 const makeEngine = (polled: Promise<void>) => {
   type Running = { runId: string | undefined; startedAt: number; argv: ReadonlyArray<string>; agentIds: Array<string>; snapshots: Array<string> }
   let running: Running | undefined
-  const runs: Array<{ readonly parse: (review: ReviewRequest | undefined) => void; readonly end: (result: RunResult) => void }> = []
+  const runs: Array<{
+    readonly parse: (review: ReviewRequest | undefined) => void
+    readonly post: (result: RunResult) => void
+    readonly end: (result: RunResult) => void
+  }> = []
   const engine = {
     start: (request: { readonly words: ReadonlyArray<string> }) => {
       let parse: (review: ReviewRequest | undefined) => void = () => {}
+      let post: (result: RunResult | undefined) => void = () => {}
       let end: (result: RunResult) => void = () => {}
       const parsed = new Promise<ReviewRequest | undefined>((resolve) => (parse = resolve))
+      const reviewed = new Promise<RunResult | undefined>((resolve) => (post = resolve))
       const ended = new Promise<RunResult>((resolve) => (end = resolve))
       running = { runId: undefined, startedAt: Date.now(), argv: request.words, agentIds: [], snapshots: [] }
       runs.push({
         parse,
+        post,
         end: (result) => {
           running = undefined
           parse(undefined)
+          post(undefined)
           end(result)
         },
       })
-      return { request: parsed, ended }
+      return { request: parsed, reviewed, ended }
     },
     running: () => running,
     poll: () => polled,
@@ -126,7 +135,11 @@ const makeSession = (options: {
     const count = runs.length
     await until(() => runs.length > count)
     runs[count]?.parse(REVIEW)
-    return { answer: await answer, end: (result: RunResult) => runs[count]?.end(result) }
+    return {
+      answer: await answer,
+      post: (result: RunResult) => runs[count]?.post(result),
+      end: (result: RunResult) => runs[count]?.end(result),
+    }
   }
   // A start's refusal, or "admitted" once it starts a run.
   const attempt = (request: StartRequest) => {
@@ -206,6 +219,23 @@ describe("the Mod's session", () => {
     polling.release()
 
     expect(await ticked).toBe(false)
+    expect(mod.store.has(MARKER)).toBe(false)
+  })
+
+  it("hands off a posting review's digest before its post ends, holding the session until it does", async () => {
+    const mod = makeSession()
+    const run = await mod.review({ cwd: "/repo", args: "--pr 7 --destination pr" })
+    run.post(FINISHED)
+    await until(() => mod.submitted.length === 1)
+
+    expect(mod.submitted).toEqual([DIGEST])
+    expect(await mod.attempt({ cwd: "/repo", args: "" })).toMatch(/one per session/)
+    expect(mod.store.has(MARKER)).toBe(true)
+
+    run.end({ verdict: "delivered", digest: "", notes: ["posted https://github.com/o/r/pull/7#c"], seconds: 9 })
+    await until(() => mod.submitted.length === 2)
+
+    expect(mod.submitted[1]).toBe("gauntlet: posted https://github.com/o/r/pull/7#c")
     expect(mod.store.has(MARKER)).toBe(false)
   })
 
