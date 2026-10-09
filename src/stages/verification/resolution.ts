@@ -3,14 +3,16 @@ import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
-import type { AgentOutcome } from "../../domain/agent-outcome.ts"
+import {
+  type AgentOutcome,
+  describeMissingOutput,
+} from "../../domain/agent-outcome.ts"
 import type {
   CoverageGap,
   EvaluatedBugClaim,
   TestSuggestion,
 } from "../../domain/dossier.ts"
 import { Verdict } from "../../domain/verdict.ts"
-import { describeMissingOutput } from "../evaluation.ts"
 import type {
   NumberedPoolCluster,
   PooledBugClaims,

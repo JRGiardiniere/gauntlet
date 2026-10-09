@@ -1,10 +1,4 @@
-import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
-import * as Option from "effect/Option"
-import {
-  type AgentOutcome,
-  Termination,
-} from "../domain/agent-outcome.ts"
 import { invoke, type InvokeInput } from "../harness/invoke.ts"
 import { REVIEW_INVOCATION_DEADLINES } from "../run/invocation-policy.ts"
 import {
@@ -44,30 +38,3 @@ export const invokeStageAgent = Effect.fn("StageAgent.invoke")(function* <O>(
   yield* logDiagnostics(label, outcome.diagnostics)
   return outcome
 })
-
-// The coverage-gap reason for an invocation that ended without output.
-export const describeMissingOutput = (
-  stage: string,
-  outcome: AgentOutcome<unknown>,
-): string => {
-  const timeoutDiagnostic = Array.findLast(
-    outcome.diagnostics,
-    (diagnostic) =>
-      diagnostic.startsWith("session construction exceeded ") ||
-      diagnostic.startsWith("first response exceeded "),
-  )
-  return Termination.match(outcome.termination, {
-    Completed: () => `${stage} completed without a decodable emit`,
-    MissingEmit: ({ correctiveTurns }) =>
-      `${stage} emitted nothing after ${String(correctiveTurns)} corrective turns`,
-    FirstResponseTimeout: () =>
-      Option.getOrElse(
-        timeoutDiagnostic,
-        () => `${stage} produced no first response`,
-      ),
-    BudgetExhausted: () => `${stage} exhausted its invocation deadline`,
-    ContextLimit: () => `${stage} reached its context limit`,
-    ProviderFailed: () => `${stage} provider failed`,
-    Interrupted: () => `${stage} was interrupted`,
-  })
-}

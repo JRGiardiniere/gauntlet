@@ -10,6 +10,7 @@ import {
   readPromptTemplate,
   renderPromptTemplate,
 } from "../../content/prompt-template.ts"
+import { describeMissingOutput } from "../../domain/agent-outcome.ts"
 import type { BugClaim } from "../../domain/candidate.ts"
 import type { CoverageGap } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
@@ -19,7 +20,7 @@ import {
   runProgress,
   wallSeconds,
 } from "../../run/progress-text.ts"
-import { describeMissingOutput, invokeStageAgent } from "../evaluation.ts"
+import { invokeStageAgent } from "../evaluation.ts"
 import { EmitPool, type PoolOutput } from "./output-contract.ts"
 
 // Under this many BugClaims, Pool is skipped and each claim is its own

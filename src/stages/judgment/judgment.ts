@@ -1,5 +1,6 @@
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import { describeMissingOutput } from "../../domain/agent-outcome.ts"
 import type { Observation } from "../../domain/candidate.ts"
 import type {
   CoverageGap,
@@ -14,7 +15,7 @@ import {
   runProgress,
   wallSeconds,
 } from "../../run/progress-text.ts"
-import { describeMissingOutput, invokeStageAgent } from "../evaluation.ts"
+import { invokeStageAgent } from "../evaluation.ts"
 import type { PooledBugClaims } from "../pool/pool.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
