@@ -179,7 +179,10 @@ export const createSession = (
     ports.log(`starting ${words.join(" ")} in ${request.cwd}`)
     const run = engine.start({ words, cwd: request.cwd }, (line) => ports.log(`cli: ${line}`))
     if (words[0] === "deliver") {
-      void run.ended.then((result) => finishRun(result, request, Promise.resolve(undefined)))
+      void run.ended.then(async (result) => {
+        await release()
+        await answer(result, request, Promise.resolve(undefined))
+      })
         .catch((error) => ports.log(`delivery failed to finish: ${String(error)}`))
       return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
     }
@@ -195,7 +198,7 @@ export const createSession = (
       ticking = { cwd: review.directory, marked: "" }
     })
     // A review that posts hands off its digest, with the update notice, while
-    // it still holds the session; the post's outcome follows on its own.
+    // it still holds the session; the post's outcome follows it on its own.
     const digestSent = run.reviewed.then(async (result) => {
       if (result === undefined) return false
       await marked
@@ -207,8 +210,9 @@ export const createSession = (
     })
     void run.ended.then(async (result) => {
       await marked
+      await release()
       const sent = await digestSent
-      await finishRun(result, request, sent ? Promise.resolve(undefined) : notice)
+      await answer(result, request, sent ? Promise.resolve(undefined) : notice)
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
@@ -244,11 +248,12 @@ export const createSession = (
     return releaseNotice(current.stdout, remote.stdout)
   }
 
-  const finishRun = async (result: RunResult, request: StartRequest, notice: Promise<string | undefined>) => {
+  // A run's ending stops its ticks, clears its marker and gives the session
+  // back before its answer is on its way.
+  const release = async () => {
     ticking = undefined
     await mark(undefined)
     claimedAt = undefined
-    await answer(result, request, notice)
   }
 
   // Says a digest, or what ended the run, to the Caller.
@@ -286,8 +291,9 @@ export const createSession = (
     }
     if (!busy && (await submit(text))) return
     // Busy now (or since a dropped submit), the main agent reads the append at
-    // its next step, or its turn's end submits it.
-    if (busy) unread = text
+    // its next step, or its turn's end submits it, after any message still
+    // unread before it (a posting review's digest).
+    if (busy) unread = unread === undefined ? text : `${unread}\n\n${text}`
     showRows(shown)
     await ports.append(text).catch((error) => ports.log(`append failed: ${String(error)}`))
   }
