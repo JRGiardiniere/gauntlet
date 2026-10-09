@@ -132,8 +132,9 @@ async function fence<E extends { readonly tool: string; readonly tool_use_id?: s
 // Each response of an agent the gauntlet plugin published goes to the engine
 // as it arrives, with Claude's own stop reason and its request's usage; the
 // last one before the turn ends is the invocation's terminal evidence. It is
-// recorded before the step returns, so the engine has it once the turn ends.
-// A step with no response (a null stop reason) reports nothing.
+// recorded before the step returns, so the engine has it once the turn ends;
+// a write that fails loses it, as it would a tool event, and the step still
+// passes. A step with no response (a null stop reason) reports nothing.
 async function recordStep($: Engines, agentId: string | undefined, step: TurnStepResult) {
   if (step.stopReason === null || agentId === undefined || (await agentOf($, agentId)) === undefined) return
   await record($, agentId, { type: "message_end", stopReason: step.stopReason, usage: step.usage }).catch(() => undefined)
