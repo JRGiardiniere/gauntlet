@@ -82,25 +82,23 @@ export interface AgentActivity {
   items?: number
 }
 
-interface Agent {
-  readonly id: string
-  readonly invocationId: string
+// One invocation's life in the driver, from its open to the end of the run.
+// `state` is a plain field; each handler knows which state it moves from. A
+// disposed record stays for the strip, and nothing acts on it again.
+interface Invocation extends AgentActivity {
   readonly type: string
   readonly emitTool: string
   readonly cwd: string
+  // The turn-0 prompt, kept so that a refused spawn can be retried.
+  firstPrompt: string
   agentId?: string
   consumed: number
   emitAccepted: boolean
+  disposed: boolean
+  waitingSince?: number
 }
 
 type PromptCommand = Extract<ClaudeHostCommand, { readonly kind: "prompt" }>
-
-// A turn's ending as it is assembled from turn.complete.
-interface TurnEnding {
-  reason: ClaudeTurnEnding["reason"]
-  usage?: ClaudeUsage
-  detail?: string
-}
 
 // An accepted emit's items, under its contract's one list field.
 const EmitItems = Schema.Struct({
@@ -129,24 +127,46 @@ const seatParts = (seat: string) => {
 
 export const makeAgentDriver = (ports: AgentPorts) => {
   let host: ClaudeHost | undefined
-  const agents = new Map<string, Agent>()
-  const byAgentId = new Map<string, Agent>()
-  const slotOf = new Map<string, number>()
+  // This run's invocations, in open order.
+  const invocations = new Map<string, Invocation>()
+  // This run's slot for each agent type, and the slot's registration.
+  const slots = new Map<string, { readonly number: number; readonly ready: Promise<void> }>()
+  // The definition last registered under each slot name. It outlives a run,
+  // so a slot whose definition is unchanged is not registered again.
   const registered = new Map<string, string>()
-  const registering = new Map<number, Promise<void>>()
-  const waiting: Array<{ readonly command: PromptCommand; readonly since: number }> = []
-  const activities = new Map<string, AgentActivity>()
   let offering = 0
-  let live = 0
   let retry: ReturnType<typeof setTimeout> | undefined
 
-  // Each run starts its slot numbering over; a slot is re-registered only
-  // when its definition changed.
+  const current = () => [...invocations.values()].filter((invocation) => !invocation.disposed)
+  // This run's spawned agents hold places under the at-once cap until their
+  // sessions are disposed.
+  const live = () => current().filter((invocation) => invocation.agentId !== undefined).length
+
+  // A new run starts its slot numbering over, and nothing of the last run's
+  // invocations or queued spawns carries into it.
   const attach = (core: ClaudeHost) => {
     host = core
-    activities.clear()
-    slotOf.clear()
-    registering.clear()
+    invocations.clear()
+    slots.clear()
+    clearTimeout(retry)
+    retry = undefined
+  }
+
+  // Re-registering a live type is not atomic: a slot is registered only when
+  // its definition changed, and its first spawn waits for that.
+  const register = async (number: number, definition: Pick<AgentTypeSpec, "prompt" | "tools" | "model" | "effort">) => {
+    const spec: AgentTypeSpec = {
+      name: `slot-${String(number)}`,
+      description: "Gauntlet invocation agent; only the Mod spawns it.",
+      ...definition,
+      permissionMode: "default",
+      omitClaudeMd: true,
+    }
+    const text = JSON.stringify(spec)
+    if (registered.get(spec.name) === text) return
+    await ports.register(spec)
+    registered.set(spec.name, text)
+    ports.log(`registered ${spec.name} (${spec.model}:${spec.effort}, tools ${spec.tools.join(",")})`)
   }
 
   const open = async (command: Extract<ClaudeHostCommand, { readonly kind: "open" }>) => {
@@ -154,160 +174,136 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     const emitTool = `mcp__${TOOLS_PLUGIN}__${command.emitTool.name}`
     const tools = command.tools.length > 0 ? [...READ_TOOLS, emitTool] : [emitTool]
     const key = `${command.seat}\u0000${tools.join(",")}\u0000${command.systemPrompt}`
-    try {
-      // Reserve the slot before any await: Pool and Judgment open at once
-      // and must never share a slot number.
-      let slot = slotOf.get(key)
-      if (slot === undefined) {
-        slot = slotOf.size + 1
-        if (slot > AGENT_SLOTS) {
-          host?.opened(command.id, `more than ${String(AGENT_SLOTS)} agent types in one run`)
-          return
-        }
-        slotOf.set(key, slot)
-        const spec: AgentTypeSpec = {
-          name: `slot-${String(slot)}`,
-          description: "Gauntlet invocation agent; only the Mod spawns it.",
-          prompt: command.systemPrompt,
-          tools,
-          model,
-          effort,
-          permissionMode: "default",
-          omitClaudeMd: true,
-        }
-        const text = JSON.stringify(spec)
-        // Re-registering a live type is not atomic: register a slot only when
-        // its definition changed, and await it before the first spawn.
-        if (registered.get(spec.name) !== text) {
-          registering.set(
-            slot,
-            ports.register(spec).then(() => {
-              registered.set(spec.name, text)
-              ports.log(`registered ${spec.name} (${model}:${effort}, tools ${tools.join(",")})`)
-            }),
-          )
-        }
+    // The slot is reserved and the record inserted before any await: Pool and
+    // Judgment open at once and must never share a slot number, and the host
+    // disposes an open it stops waiting for, which must find the record.
+    let slot = slots.get(key)
+    if (slot === undefined) {
+      const number = slots.size + 1
+      if (number > AGENT_SLOTS) {
+        host?.opened(command.id, `more than ${String(AGENT_SLOTS)} agent types in one run`)
+        return
       }
-      await registering.get(slot)
-      activities.set(command.id, {
-        id: command.id,
-        invocationId: command.invocationId,
-        state: "opening",
-      })
-      agents.set(command.id, {
-        id: command.id,
-        invocationId: command.invocationId,
-        type: `${SPAWNER_PLUGIN}:slot-${String(slot)}`,
-        emitTool,
-        cwd: command.cwd,
-        consumed: 0,
-        emitAccepted: false,
-      })
-      host?.opened(command.id, undefined)
-    } catch (error) {
-      ports.log(`open ${command.id} failed: ${String(error)}`)
-      host?.opened(command.id, String(error))
+      slot = { number, ready: register(number, { prompt: command.systemPrompt, tools, model, effort }) }
+      slots.set(key, slot)
     }
+    const invocation: Invocation = {
+      id: command.id,
+      invocationId: command.invocationId,
+      state: "opening",
+      type: `${SPAWNER_PLUGIN}:slot-${String(slot.number)}`,
+      emitTool,
+      cwd: command.cwd,
+      firstPrompt: "",
+      consumed: 0,
+      emitAccepted: false,
+      disposed: false,
+    }
+    invocations.set(command.id, invocation)
+    const failure = await slot.ready.then(() => undefined, String)
+    if (invocation.disposed) return
+    if (failure !== undefined) {
+      ports.log(`open ${command.id} failed: ${failure}`)
+      invocation.state = "failed"
+    }
+    host?.opened(command.id, failure)
   }
 
-  const end = (id: string, ending: ClaudeTurnEnding) => {
-    const activity = activities.get(id)
-    if (activity !== undefined) {
-      activity.state = ending.reason === "aborted" ? "stopped" : ending.reason === "error" || ending.reason === "refusal" ? "failed" : "answered"
-    }
-    host?.ended(id, ending)
+  // Every turn's ending goes through here. A disposed record's session is
+  // gone, so an await that resumes after the dispose reports nothing.
+  const end = (invocation: Invocation, ending: ClaudeTurnEnding) => {
+    if (invocation.disposed) return
+    invocation.state = ending.reason === "aborted" ? "stopped" : ending.reason === "error" || ending.reason === "refusal" ? "failed" : "answered"
+    host?.ended(invocation.id, ending)
   }
 
+  // The spawn queue is the records waiting, retried in open order.
   const scheduleRetry = () => {
-    if (retry !== undefined || waiting.length === 0) return
+    if (retry !== undefined || !current().some((invocation) => invocation.state === "waiting")) return
     retry = setTimeout(() => {
       retry = undefined
       drain()
     }, 2000)
   }
 
-  const spawn = async (command: PromptCommand) => {
-    const agent = agents.get(command.id)
-    if (agent === undefined) return
-    try {
-      const spawned = await ports.spawn({
-        subagentType: agent.type,
-        prompt: command.text,
-        description: `gauntlet ${agent.invocationId.replace(/^\d{4}-\S+?Z-[0-9a-f]+-/, "")}`.slice(0, 60),
-        cwd: agent.cwd,
-      })
-      if (spawned.agentId === undefined) {
-        const deny = spawned.deny ?? "no agent id"
-        // With none of this run's agents live, the denial cannot be the
-        // at-once cap: no place will free up, so the invocation ends now.
-        if (live === 0) {
-          ports.log(`spawn ${command.id} refused with no agent live: ${deny}`)
-          end(command.id, { reason: "error", detail: `spawn refused: ${deny}` })
-          return
-        }
-        ports.log(`spawn ${command.id} refused (live ${String(live)}): ${deny}; queued`)
-        waiting.push({ command, since: Date.now() })
-        const activity = activities.get(command.id)
-        if (activity !== undefined) activity.state = "waiting"
-        scheduleRetry()
-        return
-      }
-      agent.agentId = spawned.agentId
-      if (!agents.has(command.id)) {
-        // Disposed while the spawn was in flight.
-        await stop(agent, "disposed while spawning")
-        return
-      }
-      const activity = activities.get(command.id)
-      if (activity !== undefined) activity.state = "running"
-      byAgentId.set(spawned.agentId, agent)
-      live += 1
-      await ports.publish(spawned.agentId, { invocation: agent.id, emitTool: agent.emitTool, root: agent.cwd })
-      ports.log(`spawned ${command.id} -> ${spawned.agentId} (${spawned.model ?? "?"}) live ${String(live)}`)
-    } catch (error) {
-      ports.log(`spawn ${command.id} rejected: ${String(error)}`)
-      end(command.id, { reason: "error", detail: `spawn rejected: ${String(error)}` })
-    }
-  }
-
   const drain = () => {
-    const next = waiting.shift()
+    const next = current().find((invocation) => invocation.state === "waiting")
     if (next === undefined) return
-    ports.log(`dequeued ${next.command.id} after ${String(Date.now() - next.since)}ms (live ${String(live)})`)
-    void spawn(next.command)
+    ports.log(`dequeued ${next.id} after ${String(Date.now() - (next.waitingSince ?? Date.now()))}ms (live ${String(live())})`)
+    next.state = "opening"
+    void spawn(next)
     scheduleRetry()
   }
 
+  const spawn = async (invocation: Invocation) => {
+    try {
+      const spawned = await ports.spawn({
+        subagentType: invocation.type,
+        prompt: invocation.firstPrompt,
+        description: `gauntlet ${invocation.invocationId.replace(/^\d{4}-\S+?Z-[0-9a-f]+-/, "")}`.slice(0, 60),
+        cwd: invocation.cwd,
+      })
+      if (spawned.agentId !== undefined) invocation.agentId = spawned.agentId
+      if (invocation.disposed) {
+        await stop(invocation, "disposed while spawning")
+        return
+      }
+      if (invocation.agentId === undefined) {
+        const deny = spawned.deny ?? "no agent id"
+        // With none of this run's agents live, the denial cannot be the
+        // at-once cap: no place will free up, so the invocation ends now.
+        if (live() === 0) {
+          ports.log(`spawn ${invocation.id} refused with no agent live: ${deny}`)
+          end(invocation, { reason: "error", detail: `spawn refused: ${deny}` })
+          return
+        }
+        ports.log(`spawn ${invocation.id} refused (live ${String(live())}): ${deny}; queued`)
+        invocation.state = "waiting"
+        invocation.waitingSince = Date.now()
+        scheduleRetry()
+        return
+      }
+      invocation.state = "running"
+      await ports.publish(invocation.agentId, { invocation: invocation.id, emitTool: invocation.emitTool, root: invocation.cwd })
+      ports.log(`spawned ${invocation.id} -> ${invocation.agentId} (${spawned.model ?? "?"}) live ${String(live())}`)
+    } catch (error) {
+      ports.log(`spawn ${invocation.id} rejected: ${String(error)}`)
+      end(invocation, { reason: "error", detail: `spawn rejected: ${String(error)}` })
+    }
+  }
+
   const prompt = async (command: PromptCommand) => {
-    if (command.turn === 0) return spawn(command)
-    const agent = agents.get(command.id)
-    if (agent?.agentId === undefined) return
-    const activity = activities.get(command.id)
-    if (activity !== undefined) activity.state = "running"
+    const invocation = invocations.get(command.id)
+    if (invocation === undefined || invocation.disposed) return
+    if (command.turn === 0) {
+      invocation.firstPrompt = command.text
+      return spawn(invocation)
+    }
+    if (invocation.agentId === undefined) return
+    invocation.state = "running"
     // Resume is gated by agent.offer, which offers the hidden type only while
     // this send is in flight.
     offering += 1
     try {
-      const refused = await ports.resume(agent.agentId, command.text)
+      const refused = await ports.resume(invocation.agentId, command.text)
       ports.log(`corrective turn ${String(command.turn)} for ${command.id}${refused === undefined ? "" : ` refused: ${cut(refused)}`}`)
-      if (refused !== undefined) end(command.id, { reason: "error", detail: `corrective turn refused: ${refused}` })
+      if (refused !== undefined) end(invocation, { reason: "error", detail: `corrective turn refused: ${refused}` })
     } catch (error) {
-      end(command.id, { reason: "error", detail: `corrective turn rejected: ${String(error)}` })
+      end(invocation, { reason: "error", detail: `corrective turn rejected: ${String(error)}` })
     } finally {
       offering -= 1
     }
   }
 
-  const stop = async (agent: Agent, why: string) => {
-    const queued = waiting.findIndex((entry) => entry.command.id === agent.id)
-    if (queued !== -1) {
-      waiting.splice(queued, 1)
-      end(agent.id, { reason: "aborted" })
+  // A queued spawn has no agent to stop: leaving the queue ends its turn.
+  const stop = async (invocation: Invocation, why: string) => {
+    if (invocation.state === "waiting") {
+      end(invocation, { reason: "aborted" })
       return
     }
-    if (agent.agentId === undefined) return
-    const refused = await ports.stop(agent.agentId).catch(String)
-    ports.log(`TaskStop ${agent.id} (${why})${refused === undefined ? "" : `: ${cut(refused)}`}`)
+    if (invocation.agentId === undefined) return
+    const refused = await ports.stop(invocation.agentId).catch(String)
+    ports.log(`TaskStop ${invocation.id} (${why})${refused === undefined ? "" : `: ${cut(refused)}`}`)
   }
 
   const send = (command: ClaudeHostCommand) => {
@@ -321,82 +317,80 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         return
       }
       case "abort": {
-        const agent = agents.get(command.id)
-        if (agent !== undefined) void stop(agent, "abort")
+        const invocation = invocations.get(command.id)
+        if (invocation !== undefined && !invocation.disposed) void stop(invocation, "abort")
         return
       }
       case "dispose": {
-        const agent = agents.get(command.id)
-        if (agent === undefined) return
-        agents.delete(command.id)
-        // A session disposed mid-turn is an interrupted run; nothing would
-        // stop its subagent once it leaves the registry.
-        const state = activities.get(command.id)?.state
-        if (state === "running" || state === "waiting") void stop(agent, "disposed")
-        if (agent.agentId !== undefined) {
-          live -= 1
-          drain()
-        }
+        const invocation = invocations.get(command.id)
+        if (invocation === undefined || invocation.disposed) return
+        // A session disposed before its turn ended is an interrupted run, and
+        // nothing would stop its subagent once the record is disposed. An
+        // answered or failed one keeps its ending.
+        if (invocation.state === "running") void stop(invocation, "disposed")
+        if (["opening", "waiting", "running"].includes(invocation.state)) invocation.state = "stopped"
+        invocation.disposed = true
+        // Its agent's place under the cap is free.
+        if (invocation.agentId !== undefined) drain()
       }
     }
   }
 
   // Applies gauntlet-tools' new log entries for one agent, in order.
-  const absorb = async (agent: Agent) => {
-    if (agent.agentId === undefined) return
-    const events = await ports.pull(agent.agentId)
-    const activity = activities.get(agent.id)
-    for (const event of events.slice(agent.consumed)) {
-      agent.consumed += 1
+  const absorb = async (invocation: Invocation) => {
+    if (invocation.agentId === undefined) return
+    const events = await ports.pull(invocation.agentId)
+    if (invocation.disposed) return
+    for (const event of events.slice(invocation.consumed)) {
+      invocation.consumed += 1
       if (event.type === "emit") {
-        const answer = host?.emit(agent.id, event.args)
+        const answer = host?.emit(invocation.id, event.args)
         if (answer?.ok === true) {
-          agent.emitAccepted = true
+          invocation.emitAccepted = true
           const items = itemCount(event.args)
-          if (activity !== undefined && items !== undefined) activity.items = items
+          if (items !== undefined) invocation.items = items
         }
         if (answer !== undefined && answer.ok !== event.accepted) {
-          ports.log(`emit verdicts disagree for ${agent.id}: tools ${String(event.accepted)}, engine ${String(answer.ok)}`)
+          ports.log(`emit verdicts disagree for ${invocation.id}: tools ${String(event.accepted)}, engine ${String(answer.ok)}`)
         }
         continue
       }
-      host?.event(agent.id, event)
+      host?.event(invocation.id, event)
     }
   }
 
   const poll = async () => {
-    for (const agent of agents.values()) await absorb(agent)
+    for (const invocation of current()) await absorb(invocation)
   }
 
   // Answers whether the turn was one of this run's agents.
   const turnComplete = async (e: TurnComplete) => {
-    const agent = e.agentId === undefined ? undefined : byAgentId.get(e.agentId)
-    if (agent === undefined || !agents.has(agent.id)) return false
+    const invocation = e.agentId === undefined ? undefined : current().find((each) => each.agentId === e.agentId)
+    if (invocation === undefined) return false
     // The ending still reaches the host when the pull fails: a missed emit
     // is a missing emit, not a turn that never ends.
-    await absorb(agent).catch((error) => ports.log(`pull ${agent.id} failed: ${String(error)}`))
+    await absorb(invocation).catch((error) => ports.log(`pull ${invocation.id} failed: ${String(error)}`))
     let detail: string | undefined
     if (e.reason === "refusal") detail = e.refusal?.explanation ?? "refusal"
     if (e.reason === "error") detail = e.answer
-    ports.log(`turn ${agent.id} ${e.reason} emit=${String(agent.emitAccepted)} usage=${e.usage === undefined ? "none" : JSON.stringify(e.usage)}`)
+    ports.log(`turn ${invocation.id} ${e.reason} emit=${String(invocation.emitAccepted)} usage=${e.usage === undefined ? "none" : JSON.stringify(e.usage)}`)
     if (e.reason === "answer") {
-      host?.event(agent.id, {
+      host?.event(invocation.id, {
         type: "message_end",
-        stopReason: agent.emitAccepted ? "tool_use" : "end_turn",
+        stopReason: invocation.emitAccepted ? "tool_use" : "end_turn",
         usage: e.usage ?? null,
       })
     }
     // An unanswered turn's spend rides on its ending (an aborted turn's
     // requests still cost); an answer reported it through message_end.
-    const ending: TurnEnding = { reason: e.reason }
-    if (e.reason !== "answer" && e.usage !== undefined) ending.usage = e.usage
-    if (detail !== undefined) ending.detail = detail
-    end(agent.id, ending)
+    end(invocation, { reason: e.reason, usage: e.reason === "answer" ? undefined : e.usage, detail })
     return true
   }
 
   const stopAll = async (why: string) => {
-    for (const agent of agents.values()) await stop(agent, why)
+    clearTimeout(retry)
+    retry = undefined
+    for (const invocation of current()) await stop(invocation, why)
   }
 
   return {
@@ -406,9 +400,9 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     turnComplete,
     stopAll,
     isOffering: () => offering > 0,
-    agentIds: () => [...agents.values()].flatMap((agent) => (agent.agentId === undefined ? [] : [agent.agentId])),
-    stats: () => ({ live, waiting: waiting.length }),
+    agentIds: () => current().flatMap((invocation) => (invocation.agentId === undefined ? [] : [invocation.agentId])),
     // This run's invocations in open order, copied for the strip.
-    activity: (): ReadonlyArray<AgentActivity> => [...activities.values()].map((activity) => ({ ...activity })),
+    activity: (): ReadonlyArray<AgentActivity> =>
+      [...invocations.values()].map(({ id, invocationId, items, state }) => ({ id, invocationId, state, items })),
   }
 }
