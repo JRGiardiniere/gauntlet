@@ -54,10 +54,16 @@ export const gauntletHome = Effect.fn("gauntlet.settings.home")(function* () {
 
 // Which Host's configuration a program reads (#177): the CLI keeps its
 // settings and Recipe Catalog in ~/.gauntlet, the Mod in ~/.gauntlet/mod.
-// Runs, Standards Manifests and the update cache stay shared in ~/.gauntlet.
+// Standards Manifests and the update cache stay shared in ~/.gauntlet, and
+// runs default to ~/.gauntlet/runs unless a Host's own runs-root moves them.
 export type Host = "cli" | "mod"
 export const ConfigHost = Context.Reference<Host>("gauntlet/ConfigHost", {
   defaultValue: () => "cli",
+})
+
+// How a Host's person runs `config`, for the repairs its messages name.
+export const configCommandName = Effect.fn("Settings.configCommandName")(function* () {
+  return (yield* ConfigHost) === "mod" ? "/gauntlet config" : "gauntlet config"
 })
 
 const configDirectory = Effect.fn("Settings.configDirectory")(function* () {

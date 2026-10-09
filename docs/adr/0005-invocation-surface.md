@@ -178,8 +178,9 @@ provider for the CLI), so a foreign Seat makes that Recipe invalid where it is
 listed. The Mod writes its initial configuration itself the first time it
 loads with none (Sonnet medium, Opus medium, Opus high; Default Recipe
 `medium`), exactly as `config init` would, and never heals a partial one.
-`/gauntlet config` is the CLI's `config` over the Mod's files. Runs, Lenses,
-Standards Manifests and the update cache stay shared.
+`/gauntlet config` is the CLI's `config` over the Mod's files. Lenses,
+Standards Manifests and the update cache stay shared, and both Hosts' runs land
+in `~/.gauntlet/runs` unless that Host's own `runs-root` moves them.
 
 Lens selections express membership, not priority or execution order. Planning
 produces a deterministic invocation array and the ReviewPlan records that

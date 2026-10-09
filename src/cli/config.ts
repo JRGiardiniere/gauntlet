@@ -29,6 +29,7 @@ import {
   loadSettings,
   recipesDirectory,
   type Settings,
+  configCommandName,
   settingsPath,
   writeSettings,
 } from "../config/settings.ts"
@@ -69,6 +70,7 @@ const describeEntry = (
 // the rest alphabetically — and explains inconsistencies instead of failing,
 // so a malformed settings file can still be found and repaired.
 const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
+  const command = yield* configCommandName()
   const path = yield* settingsPath()
   const pathService = yield* Path.Path
   const catalogPath = yield* recipesDirectory()
@@ -86,7 +88,7 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   if (Result.isFailure(settingsResult)) {
     lines.push(`settings: ${path} — ${settingsResult.failure.reason}`)
   } else if (Option.isNone(settingsResult.success)) {
-    lines.push(`settings: ${path} (missing — run \`gauntlet config init\`)`)
+    lines.push(`settings: ${path} (missing — run \`${command} init\`)`)
   } else {
     lines.push(`settings: ${path}`)
   }
@@ -166,7 +168,7 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   } else {
     lines.push("", "recipes:")
     if (entries.length === 0) {
-      lines.push("- none (run `gauntlet config init`)")
+      lines.push(`- none (run \`${command} init\`)`)
     }
     for (const entry of entries) {
       lines.push(describeEntry(entry, undefined))
@@ -179,6 +181,7 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
 // fresh catalog and settings, is a no-op when they are already valid, and
 // refuses a partial state with repair guidance — never an overwrite (ADR 0005).
 const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
+  const command = yield* configCommandName()
   const fs = yield* FileSystem.FileSystem
   const settingsFile = yield* settingsPath()
   const catalogPath = yield* recipesDirectory()
@@ -254,7 +257,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
     return yield* new ConfigCommandError({
       reason:
         `default-recipe ${defaultRecipe} does not name an available valid recipe — ` +
-        `\`gauntlet config set default-recipe <name>\` or fix ${catalogPath}/${defaultRecipe}.json`,
+        `\`${command} set default-recipe <name>\` or fix ${catalogPath}/${defaultRecipe}.json`,
     })
   }
   yield* loadFinderLenses({
@@ -268,7 +271,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
       })),
   )
   yield* Console.log(
-    "configuration already initialized — nothing to do (run `gauntlet config` to inspect it)",
+    `configuration already initialized — nothing to do (run \`${command}\` to inspect it)`,
   )
 })
 
@@ -279,7 +282,7 @@ const requireSettings = Effect.fn("gauntlet.cli.config_require_settings")(
     if (Option.isNone(settings)) {
       const path = yield* settingsPath()
       return yield* new ConfigCommandError({
-        reason: `no settings file at ${path} — run \`gauntlet config init\` first`,
+        reason: `no settings file at ${path} — run \`${yield* configCommandName()} init\` first`,
       })
     }
     return settings.value
@@ -323,12 +326,13 @@ const noSuchKey = (verb: string, key: string) =>
 
 // Selection failures inside config verbs render as configuration failures —
 // the Run module's wording says "could not review".
-const asConfigError = (failure: RecipeSelectionError) =>
-  new ConfigCommandError({
+const asConfigError = Effect.fn("gauntlet.cli.config_selection_error")(function* (failure: RecipeSelectionError) {
+  return yield* new ConfigCommandError({
     reason: `${failure.reason}${renderAvailable(failure.available)}${
-      failure.available.length === 0 ? " — run `gauntlet config init`" : ""
+      failure.available.length === 0 ? ` — run \`${yield* configCommandName()} init\`` : ""
     }`,
   })
+})
 
 // A config verb's failed write is a configuration failure, never "could not
 // review".
@@ -424,12 +428,12 @@ const runUnset = Effect.fn("gauntlet.cli.config_unset")(function* (
       // pointing it elsewhere is the only supported change (issue #24).
       return yield* new ConfigCommandError({
         reason:
-          "default-recipe cannot be unset — set a different recipe with `gauntlet config set default-recipe <name>`",
+          `default-recipe cannot be unset — set a different recipe with \`${yield* configCommandName()} set default-recipe <name>\``,
       })
     case "default-lenses":
       return yield* new ConfigCommandError({
         reason:
-          "default-lenses cannot be unset — replace it with `gauntlet config set default-lenses <name...>` or pass no names for an empty selection",
+          `default-lenses cannot be unset — replace it with \`${yield* configCommandName()} set default-lenses <name...>\` or pass no names for an empty selection`,
       })
     case "favorites":
       yield* writeSettings({ ...settings, favorites: [] })
