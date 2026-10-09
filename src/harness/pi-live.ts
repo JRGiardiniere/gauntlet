@@ -22,7 +22,6 @@ import {
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
-  piSeatRefusal,
   type SessionConfig,
   StopReason,
   UsageRow,
@@ -213,7 +212,6 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   return {
     workspaceRoot: () => REVIEW_WORKSPACE_ROOT,
     workspacePrompt: "workspace-pi.md",
-    seatRefusal: piSeatRefusal,
     open: (session: SessionConfig) =>
       Effect.gen(function* () {
         // Deliberately zero-arg (no abort signal): the promise is shared

@@ -13,7 +13,8 @@ import {
   loadFinderLenses,
 } from "../content/lens.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
-import { Recipe, type RecipeName } from "../domain/recipe.ts"
+import type { Recipe } from "../domain/recipe.ts"
+import { INITIAL_DEFAULT_LENSES, writeInitialConfig } from "../config/initial-config.ts"
 import type { LensName } from "../domain/review-plan.ts"
 import {
   type CatalogEntry,
@@ -34,50 +35,12 @@ import {
 import {
   type ArtifactWriteError,
   describeArtifactWrite,
-  writeArtifactJson,
 } from "../run/artifact.ts"
 import { resolveInvocationProjectRoot } from "../target/invocation-directory.ts"
 
 export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
   readonly reason: string
 }> {}
-
-// The initial catalog mirrors the old reviewer's MODEL_TIERS: quick keeps the
-// manual luna:high downstream tune under sol:low finders; low/medium/high run
-// one seat top to bottom (John's 2026-08-10 uniform-preset call). After init
-// these files are user-owned; nothing here is re-read or replenished, and only
-// `gauntlet upgrade` touches them, moving Luna/Sol seats forward (#121).
-const SEEDED_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
-  [
-    "quick",
-    Recipe.make({
-      default: "openai/gpt-6-luna:high",
-      finders: "openai/gpt-6-sol:low",
-    }),
-  ],
-  ["low", Recipe.make({ default: "openai/gpt-6-luna:high" })],
-  ["medium", Recipe.make({ default: "openai/gpt-6.1-sol:medium" })],
-  ["high", Recipe.make({ default: "openai/gpt-6.1-sol:high" })],
-]
-
-const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
-
-// language-pitfalls, refactoring-checklist, security and wrapper-proxy stay in
-// the catalog but are not seeded: across 192 runs they and cross-file found 32
-// of 396 unique P1/P2 findings for a third of Finder spend. cross-file is
-// seeded anyway, because seeded bugs never span files and a real PR's
-// regression reached a SQL join only a cross-file trace followed.
-const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
-  "absence",
-  "cleanup",
-  "cross-file",
-  "diff-scan",
-  "presentation-environment",
-  "removed-behavior",
-  "spec-conformance",
-  "standards",
-  "subjective",
-]
 
 const SETTINGS_KEYS = "default-recipe, default-lenses, favorites, runs-root"
 
@@ -217,7 +180,6 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
 // refuses a partial state with repair guidance — never an overwrite (ADR 0005).
 const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
   const settingsFile = yield* settingsPath()
   const catalogPath = yield* recipesDirectory()
   const settingsExists = yield* fs.exists(settingsFile).pipe(
@@ -240,33 +202,19 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
             `initial default-lenses are unusable — ${failure.reason} (${failure.path})`,
         })),
     )
-    yield* fs.makeDirectory(catalogPath, { recursive: true }).pipe(
-      Effect.mapError((cause) =>
+    const initial = yield* writeInitialConfig().pipe(
+      Effect.catchTag("PlatformError", (cause) =>
         new ConfigCommandError({
           reason: `could not create ${catalogPath}: ${String(cause)}`,
         })),
     )
-    yield* Effect.forEach(
-      SEEDED_RECIPES,
-      ([name, recipe]) =>
-        writeArtifactJson(path.join(catalogPath, `${name}.json`), Recipe, recipe),
-      { concurrency: 1 },
-    )
-    yield* writeSettings({
-      "default-recipe": INITIAL_DEFAULT_RECIPE,
-      "default-lenses": INITIAL_DEFAULT_LENSES,
-      favorites: SEEDED_RECIPES.map(([name]) => name),
-    })
+    const names = initial.recipes.map(([name]) => name).join(", ")
     yield* Console.log(
       [
-        `initialized ${catalogPath} with recipes ${
-          SEEDED_RECIPES.map(([name]) => name).join(", ")
-        }`,
-        `default-recipe: ${INITIAL_DEFAULT_RECIPE} · default-lenses: ${
+        `initialized ${catalogPath} with recipes ${names}`,
+        `default-recipe: ${initial.defaultRecipe} · default-lenses: ${
           INITIAL_DEFAULT_LENSES.join(", ")
-        } · favorites: ${
-          SEEDED_RECIPES.map(([name]) => name).join(", ")
-        }`,
+        } · favorites: ${names}`,
         "the seeded files are yours to edit; init never touches them again",
       ].join("\n"),
     )

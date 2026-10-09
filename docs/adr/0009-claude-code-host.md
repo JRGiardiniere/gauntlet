@@ -36,8 +36,10 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
   skill, which only teaches agents the review tool, is hidden from the slash
   menu (`user-invocable: false`) so it adds no third name there (#155).
 - **A Host runs only its own Seats.** `claude-code/` Seats run only on the
-  Claude Code Host, which runs no other provider; Submission refuses a Recipe
-  whose Seats its Host cannot run, before a Run exists.
+  Claude Code Host, which runs no other provider. Amended per #177: each Host
+  keeps its own Recipe Catalog and settings, and its Recipe schema admits
+  only its own Seats, so a foreign Seat is an invalid Recipe in the listing
+  rather than a refusal at Submission.
 - **Claude Code owns transient retry**, as Pi does under ADR-0002. Gauntlet
   adds none on this Host either. The first-response stall retry is
   `invoke.ts`'s and applies on both Hosts.

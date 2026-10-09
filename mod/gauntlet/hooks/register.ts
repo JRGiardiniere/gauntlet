@@ -140,9 +140,10 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "`args` is the /gauntlet syntax, the same as the CLI's `gauntlet review`: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range as git takes it (`main` for the commits since its merge-base, `abc123..def456`, `abc~1..abc` for one commit; add `--working-tree` to `main` to include uncommitted edits); " +
     "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks). " +
     "`deliver <run-id>` posts a finished pull-request review's report on its pull request instead (only when the person asks). " +
+    "`config` answers at once with the Mod's settings and recipes (~/.gauntlet/mod), each invalid recipe with why; `config set default-recipe <name>` changes the default. " +
     (recipes.length === 0
-      ? "No Claude Code recipes are installed."
-      : `Installed Claude Code recipes: ${recipes.join(", ")}; when the person names an effort or model ("gauntlet medium"), pass the recipe here that matches it.`),
+      ? "No recipes are installed."
+      : `Recipes: ${recipes.join(", ")}; when the person names an effort ("gauntlet high"), pass the recipe here that matches it.`),
   inputSchema: { ...reviewToolInputSchema },
 })
 
@@ -179,14 +180,14 @@ export const register: Register = (on) => {
     } catch (error) {
       log($, `engine failed to load: ${String(error)}`)
     }
-    const recipes = await (engine?.claudeRecipes() ?? Promise.resolve([])).catch((error) => {
+    const recipes = await (engine?.recipes() ?? Promise.resolve([])).catch((error) => {
       log($, `recipe catalog unreadable: ${String(error)}`)
       return []
     })
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], or /gauntlet deliver <run-id>; --help for the rest",
+      description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, or /gauntlet config; --help for the rest",
     })
     await recoverLostRun(ports, sessionId)
     startClock($)

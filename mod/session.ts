@@ -86,7 +86,7 @@ export const createSession = (
     EnginePorts,
     "run" | "read" | "log" | "store" | "toast" | "status" | "send" | "submit" | "append" | "row"
   >,
-  engine: Pick<Engine, "start" | "running" | "poll" | "standardsManifest">,
+  engine: Pick<Engine, "start" | "config" | "running" | "poll" | "standardsManifest">,
   options: { readonly build: BuildInfo; readonly pluginRoot: string; readonly sessionId: string },
 ) => {
   const { build, pluginRoot } = options
@@ -130,9 +130,11 @@ export const createSession = (
     return true
   }
 
-  // Starts a review or a delivery in the background; answers the command's one
-  // line.
+  // Starts a review or a delivery in the background and answers the command's
+  // one line; `config` answers with its output and runs nothing.
   const start = async (request: StartRequest): Promise<string> => {
+    const words = commandWords(request.args)
+    if (words[0] === "config") return engine.config({ words, cwd: request.cwd })
     if (claimedAt !== undefined) {
       return `a review is already running (${engine.running()?.runId ?? "starting"}, ${String(Math.round((Date.now() - claimedAt) / 1000))}s); one per session.`
     }

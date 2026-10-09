@@ -329,8 +329,8 @@ describe("submission", () => {
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
-      // claude-code/ Seats run only on the Claude Code host; the scripted
-      // adapter stands in for Pi.
+      // claude-code/ Seats belong in the Mod's catalog; the CLI's lists this
+      // recipe as invalid.
       yield* writeRecipe(fixture, "fixture-claude", {
         default: "fixture/default-model:low",
         verification: "claude-code/sonnet:low",
@@ -342,9 +342,8 @@ describe("submission", () => {
         selectedLensNames: ["fixture-review"],
         addendum: undefined,
       }))
-      expect(refusal).toBeInstanceOf(SubmissionError)
-      if (!Predicate.isTagged(refusal, "SubmissionError")) return
-      expect(refusal.reason).toContain("seats claude-code/sonnet:low")
+      if (!Predicate.isTagged(refusal, "RecipeSelectionError")) return expect.unreachable(String(refusal))
+      expect(refusal.reason).toContain("claude-code/sonnet:low runs only in the Mod")
       expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

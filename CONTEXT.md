@@ -128,8 +128,10 @@ override.
 _Avoid_: base seat, default model, fallback seat
 
 **Recipe Catalog**:
-The user's complete collection of available Recipes. Every Recipe has the same
-status; Gauntlet does not distinguish app-owned, built-in, and custom Recipes.
+The user's complete collection of available Recipes for one Host: the CLI and
+the Mod each have their own, holding only Seats that Host runs. Every Recipe
+has the same status; Gauntlet does not distinguish app-owned, built-in, and
+custom Recipes.
 _Avoid_: recipe database, built-in recipes, app recipes, user recipes
 
 **Default Recipe**:

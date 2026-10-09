@@ -20,9 +20,11 @@ import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
-import { listRecipes } from "../src/config/recipe-catalog.ts"
+import { configCommand } from "../src/cli/config.ts"
+import { isFreshConfig, writeInitialConfig } from "../src/config/initial-config.ts"
+import { availableRecipeNames, listRecipes } from "../src/config/recipe-catalog.ts"
+import { ConfigHost } from "../src/config/settings.ts"
 import { standardsManifestPath } from "../src/config/standards-manifest.ts"
-import { isClaudeCodeSeat } from "../src/domain/recipe.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
 import {
   type ClaudeModelCost,
@@ -335,6 +337,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [GlobalFlag.Help] })),
       Effect.provideService(RunMilestones, onMilestone),
       Effect.provideService(InvocationDirectory, request.cwd),
+      Effect.provideService(ConfigHost, "mod"),
       Effect.provideService(FetchHttpClient.Fetch, fetchOver(ports)),
       Effect.provide(layer),
       // A Layer that cannot be built (a Config read) is a review that could
@@ -379,17 +382,36 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
 
   const turnComplete = (e: TurnComplete) => driver.turnComplete(e)
 
-  // The catalog's valid Recipes this Host can run: every Seat claude-code/.
-  const claudeRecipes = (): Promise<ReadonlyArray<string>> =>
-    listRecipes().pipe(
-      Effect.map((entries) =>
-        entries.flatMap((entry) =>
-          entry._tag === "ValidRecipe" && Object.values(entry.recipe).every(isClaudeCodeSeat) ? [entry.name] : []
-        )
-      ),
-      Effect.provide(platformLayer(ports)),
+  // The names of the Mod's valid Recipes, its configuration written first
+  // when the Mod finds none (#177).
+  const recipes = (): Promise<ReadonlyArray<string>> =>
+    Effect.gen(function* () {
+      if (yield* isFreshConfig()) yield* writeInitialConfig()
+      return availableRecipeNames(yield* listRecipes())
+    }).pipe(Effect.provideService(ConfigHost, "mod"), Effect.provide(platformLayer(ports)), Effect.runPromise)
+
+  // `/gauntlet config …`: the CLI's config command over the Mod's own settings
+  // and catalog, answered at once; it starts no run.
+  const config = (request: { readonly words: ReadonlyArray<string>; readonly cwd: string }): Promise<string> => {
+    let printed = ""
+    const gauntlet = Command.make("gauntlet").pipe(Command.withSubcommands([configCommand]))
+    return Command.runWith(gauntlet, { version: build.stamp.slice(0, 12) })(request.words).pipe(
+      Effect.as(""),
+      Effect.catchTags({
+        ShowHelp: (help) => Effect.succeed(help.errors.map((error) => error.message).join("; ")),
+        ConfigCommandError: (failure) => Effect.succeed(`could not configure — ${failure.reason}`),
+      }),
+      Effect.catch((failure) => Effect.succeed(`could not configure — ${String(failure)}`)),
+      Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [GlobalFlag.Help] })),
+      Effect.provideService(InvocationDirectory, request.cwd),
+      Effect.provideService(ConfigHost, "mod"),
+      Effect.provide(platformLayer({ ...ports, stdout: (text) => {
+        printed += text
+      } })),
+      Effect.map((failed) => [printed.trim(), failed].filter((text) => text !== "").join("\n")),
       Effect.runPromise,
     )
+  }
 
   // Where this repository's Standards Manifest goes, and whether it is there:
   // an empty one is the person's "no standards here", and the lens skips it.
@@ -403,7 +425,8 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
   return {
     start,
     cancel,
-    claudeRecipes,
+    recipes,
+    config,
     standardsManifest,
     turnComplete,
     poll: driver.poll,

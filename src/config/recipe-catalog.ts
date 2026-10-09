@@ -7,8 +7,9 @@ import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
-import { Recipe, RecipeName } from "../domain/recipe.ts"
-import { loadSettings, recipesDirectory } from "./settings.ts"
+import { ClaudeRecipe, PiRecipe, RecipeName } from "../domain/recipe.ts"
+import type { Recipe } from "../domain/recipe.ts"
+import { ConfigHost, loadSettings, recipesDirectory } from "./settings.ts"
 
 // One invalid Recipe never disables the catalog: listing carries it as an
 // entry with its path and Schema error; only selecting it fails (ADR 0005).
@@ -43,12 +44,13 @@ export class RecipeSelectionError extends Data.TaggedError(
   readonly available: ReadonlyArray<string>
 }> {}
 
-const decodeRecipe = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(Recipe),
-  // Unknown keys are invalid so a misspelled stage cannot silently inherit
-  // the default seat (ADR 0005).
-  { onExcessProperty: "error" },
-)
+// Each Host's catalog decodes with its own Seats (#177). Unknown keys are
+// invalid so a misspelled stage cannot silently inherit the default seat
+// (ADR 0005).
+const decoders = {
+  cli: Schema.decodeUnknownEffect(Schema.fromJsonString(PiRecipe), { onExcessProperty: "error" }),
+  mod: Schema.decodeUnknownEffect(Schema.fromJsonString(ClaudeRecipe), { onExcessProperty: "error" }),
+}
 
 const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
   directory: string,
@@ -74,6 +76,7 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
         cause,
       })),
   )
+  const decodeRecipe = decoders[yield* ConfigHost]
   return yield* decodeRecipe(source).pipe(
     Effect.map((recipe): CatalogEntry => ({
       _tag: "ValidRecipe",

@@ -10,7 +10,6 @@ import {
   type StopReason,
   type UsageRow,
 } from "./harness-session.ts"
-import { isClaudeCodeSeat } from "../domain/recipe.ts"
 
 // The Claude Code host's core (#134): runs each AgentInvocation as a hidden
 // Claude Code subagent that the Mod spawns, as a mapping with no
@@ -395,10 +394,6 @@ export const makeClaudeHost = (
       open,
       workspaceRoot: (snapshot: string) => snapshot,
       workspacePrompt: "workspace-claude-code.md",
-      seatRefusal: (seat) =>
-        isClaudeCodeSeat(seat)
-          ? undefined
-          : "the Claude Code host runs only claude-code/ Seats",
     },
     opened,
     event,
