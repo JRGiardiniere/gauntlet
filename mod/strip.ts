@@ -2,7 +2,9 @@
 // module's `ui.render` hook on `AbovePrompt`. Line 1 is each stage with one
 // mark per agent, and one per lens skipped by design; line 2, always there,
 // is the elapsed time and what the run is doing in plain words. Once the dossier is written, line 1 is its Review
-// Priority counts with Open dossier and Dismiss. Counts come from the Run's
+// Priority counts with Open dossier and Dismiss, and a pull-request review's
+// post adds a last line, wrapped: posting, then where it landed or why it did
+// not. Counts come from the Run's
 // milestones and the agent driver's activity, never from progress text; no
 // dollar or cache figure shows.
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
