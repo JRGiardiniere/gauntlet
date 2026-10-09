@@ -138,8 +138,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
   const activities = new Map<string, AgentActivity>()
   let offering = 0
   let live = 0
-  let peak = 0
-  let refusals = 0
   let retry: ReturnType<typeof setTimeout> | undefined
 
   // Each run starts its slot numbering over; a slot is re-registered only
@@ -239,7 +237,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
         cwd: agent.cwd,
       })
       if (spawned.agentId === undefined) {
-        refusals += 1
         const deny = spawned.deny ?? "no agent id"
         // With none of this run's agents live, the denial cannot be the
         // at-once cap: no place will free up, so the invocation ends now.
@@ -265,7 +262,6 @@ export const makeAgentDriver = (ports: AgentPorts) => {
       if (activity !== undefined) activity.state = "running"
       byAgentId.set(spawned.agentId, agent)
       live += 1
-      peak = Math.max(peak, live)
       await ports.publish(spawned.agentId, { invocation: agent.id, emitTool: agent.emitTool, root: agent.cwd })
       ports.log(`spawned ${command.id} -> ${spawned.agentId} (${spawned.model ?? "?"}) live ${String(live)}`)
     } catch (error) {
@@ -411,12 +407,8 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     stopAll,
     isOffering: () => offering > 0,
     agentIds: () => [...agents.values()].flatMap((agent) => (agent.agentId === undefined ? [] : [agent.agentId])),
-    // The snapshot worktrees this run's agents were spawned in.
-    snapshots: () => [...new Set([...agents.values()].map((agent) => agent.cwd))],
-    stats: () => ({ live, peak, refusals, waiting: waiting.length }),
+    stats: () => ({ live, waiting: waiting.length }),
     // This run's invocations in open order, copied for the strip.
     activity: (): ReadonlyArray<AgentActivity> => [...activities.values()].map((activity) => ({ ...activity })),
   }
 }
-
-export type AgentDriver = ReturnType<typeof makeAgentDriver>

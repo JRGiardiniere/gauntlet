@@ -6,10 +6,14 @@ import type { DossierEntryTag } from "../render/dossier-view.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
 
 // What a Run reports while it runs, as data, for a Host that draws the Run
-// instead of printing it (the Mod's strip). How it ended is the Run module's
-// answer; the CLI prints its lines and ignores these.
+// instead of printing it (the Mod's strip) or can lose it mid-run. How it
+// ended is the Run module's answer; the CLI prints its lines and ignores these.
 export type RunMilestone = Data.TaggedEnum<{
   Started: { readonly runId: string; readonly lenses: ReadonlyArray<string> }
+  // The directory the Run's frozen snapshot is made in, reported once it
+  // exists and before the snapshot does. The Run removes it as it ends; a
+  // Host that loses the Run before then removes it whole.
+  SnapshotDirectoryMade: { readonly directory: string }
   FindersFinished: {}
   Routed: { readonly bugClaims: number; readonly observations: number }
   // The digest's surviving entries, the work missing from them, and where

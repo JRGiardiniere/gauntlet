@@ -9,6 +9,7 @@ import {
   runGit,
   TargetUnresolvable,
 } from "../target/git.ts"
+import { reportMilestone, RunMilestone } from "./run-milestones.ts"
 import { RunError } from "./run-record.ts"
 
 type WorkingTreeTarget = Extract<ReviewTarget, { readonly _tag: "WorkingTree" }>
@@ -107,6 +108,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
   const scratchDirectory = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-review-",
   })
+  yield* reportMilestone(RunMilestone.SnapshotDirectoryMade({ directory: scratchDirectory }))
   const directory = path.join(scratchDirectory, "worktree")
   yield* Effect.acquireRelease(
     runGit(target.repoRoot, [

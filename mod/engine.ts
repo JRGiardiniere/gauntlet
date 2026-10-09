@@ -162,17 +162,19 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       readonly startedAt: number
       readonly argv: ReadonlyArray<string>
       runId: string | undefined
+      snapshot: string | undefined
     }
     | undefined
   // What the strip draws: the review in flight, or the last one, kept until
   // the next starts.
   let progress: Progress | undefined
 
+  // One run at a time: the hooks module admits a session's one review before
+  // it starts.
   const start = (
     request: { readonly words: ReadonlyArray<string>; readonly cwd: string },
     onLine: (line: string) => void,
   ): StartedRun => {
-    if (current !== undefined) throw new Error("a review is already running in this session")
     const delivering = request.words[0] === "deliver"
     let printed = ""
     let pending = ""
@@ -205,6 +207,10 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           case "Started": {
             shown.lenses = milestone.lenses
             if (current !== undefined) current.runId = milestone.runId
+            return
+          }
+          case "SnapshotDirectoryMade": {
+            if (current !== undefined) current.snapshot = milestone.directory
             return
           }
           case "FindersFinished": {
@@ -302,7 +308,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Effect.catch((failure) => refuse(`could not review — ${String(failure)}`)),
     )
     const fiber = Effect.runFork(program)
-    current = { fiber, startedAt, argv: request.words, runId: undefined }
+    current = { fiber, startedAt, argv: request.words, runId: undefined, snapshot: undefined }
     const ended = new Promise<RunResult>((resolve) => {
       fiber.addObserver((exit) => {
         current = undefined
@@ -374,9 +380,8 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           startedAt: current.startedAt,
           argv: current.argv,
           agentIds: driver.agentIds(),
-          snapshots: driver.snapshots(),
+          snapshots: current.snapshot === undefined ? [] : [current.snapshot],
         },
-    stats: driver.stats,
     view: (): RunView | undefined =>
       progress === undefined
         ? undefined

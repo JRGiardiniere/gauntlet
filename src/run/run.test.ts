@@ -76,11 +76,12 @@ describe("Run.review", () => {
 
       expect(reported.map((milestone) => milestone._tag)).toEqual([
         "Started",
+        "SnapshotDirectoryMade",
         "FindersFinished",
         "Routed",
         "Reviewed",
       ])
-      const [started, , routed, done] = reported
+      const [started, , , routed, done] = reported
       expect(started).toMatchObject({ runId: reviewed.runId, lenses: ["fixture-review"] })
       expect(routed).toMatchObject({ bugClaims: 1, observations: 1 })
       expect(done).toMatchObject({

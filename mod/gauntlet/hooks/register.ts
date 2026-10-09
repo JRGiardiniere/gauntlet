@@ -33,7 +33,8 @@ type Engines = EngineInterface
 const BUILD_FILE = "hooks/vendor/build.json"
 
 // The store outlives a mod update, so its fields keep their names: `argv` is
-// the words the review was started with.
+// the words the review was started with, and `snapshots` the directories the
+// run's snapshot was made in, each removed whole when the run is lost.
 interface InFlight {
   readonly startedAt: number
   readonly argv: ReadonlyArray<string>
@@ -43,13 +44,13 @@ interface InFlight {
   readonly snapshots: ReadonlyArray<string>
 }
 
-interface TriggerRequest {
+// What /gauntlet or the review tool asked to start.
+interface StartRequest {
   readonly cwd: string
   readonly args: string
   // The subagent whose review tool call started the run; absent for the main
   // agent and /gauntlet.
   readonly agentId?: string | undefined
-  readonly afterRebuild?: "stop" | "run"
 }
 
 const agentsRef = { plugin: "gauntlet", key: "agents" } as const
@@ -59,7 +60,7 @@ let engine: Engine | undefined
 let build: BuildInfo | undefined
 let home = ""
 let tick: { readonly cancel: () => void } | undefined
-let markedAgents = ""
+let markedRun = ""
 let runCwd = ""
 // This session's in-flight marker: the store is one file for every session on
 // the machine, and another session's live run is not lost.
@@ -73,7 +74,11 @@ let logWriting: Promise<unknown> = Promise.resolve()
 const delivery = digestDelivery()
 const STORE_UPDATE_CHECK = "update-checked-at"
 const DAY_MS = 86_400_000
-let starting = false
+// When this session's one review was claimed. The claim is taken before
+// anything is awaited and given back once the review's ending has cancelled
+// its ticker and cleared its marker: a second review is refused until then,
+// and an ending never touches a newer review's ticker or marker.
+let claimedAt: number | undefined
 const loadedAt = Date.now()
 
 const modDir = () => `${home}/.gauntlet/mod`
@@ -126,10 +131,6 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
   }
 }
 
-async function setStatus($: Engines, text: string | undefined) {
-  $.ui.status(text)
-}
-
 // The in-flight marker outlives this module: a reload (or a crashed
 // session) that loses the run leaves it behind for the next load to report.
 async function markInFlight($: Engines, marker: InFlight | undefined) {
@@ -147,12 +148,13 @@ async function reportLostRun($: Engines) {
     const result = await $.tool.call({ tool: "TaskStop", task_id: agentId }).catch((error) => ({ deny: String(error) }))
     stopped.push(`${agentId}: ${"deny" in result && result.deny !== undefined ? `not stopped (${result.deny})` : "stopped"}`)
   }
-  // The lost run's snapshot worktrees: its finalizers never ran.
+  // The lost run's snapshots: its finalizers never ran. Once a snapshot's
+  // directory is gone, a prune drops git's record of the worktree in it.
   for (const snapshot of lost.snapshots) {
-    const removed = await $.process.run(["git", "-C", lost.cwd, "worktree", "remove", "--force", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
-    await $.process.run(["rm", "-rf", snapshot.replace(/\/worktree$/, "")]).catch(() => undefined)
+    const removed = await $.process.run(["rm", "-rf", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
     stopped.push(`${snapshot}: ${removed.exitCode === 0 ? "removed" : `not removed (${removed.stderr.trim()})`}`)
   }
+  if (lost.snapshots.length > 0) await $.process.run(["git", "-C", lost.cwd, "worktree", "prune"]).catch(() => undefined)
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
   const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
@@ -178,30 +180,33 @@ function redraw($: Engines) {
 }
 
 function startTick($: Engines) {
-  tick?.cancel()
-  tick = $.clock.every(250, async () => {
+  const ticker = $.clock.every(250, async () => {
     const running = engine?.running()
     if (running === undefined) return
     await engine?.poll().catch((error) => log($, `poll failed: ${String(error)}`))
+    // Cancelling stops the next tick, not this one: a run that ended during
+    // the poll has had its marker cleared.
+    if (tick !== ticker) return
     redraw($)
-    const agents = running.agentIds.join(",")
-    if (agents !== markedAgents) {
-      markedAgents = agents
+    const work = JSON.stringify([running.agentIds, running.snapshots])
+    if (work !== markedRun) {
+      markedRun = work
       await markInFlight($, { ...running, cwd: runCwd }).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
     }
   })
+  tick = ticker
 }
 
-async function finishRun($: Engines, result: RunResult, request: TriggerRequest, notice: Promise<string | undefined>) {
+async function finishRun($: Engines, result: RunResult, request: StartRequest, notice: Promise<string | undefined>) {
   tick?.cancel()
   tick = undefined
+  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
+  claimedAt = undefined
   drawnAt = 0
   redraw($)
   const { digest, verdict } = result
   log($, `run ${verdict} after ${String(result.seconds)}s`)
   $.ui.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)
-  // The run is over: a review started from here on owns the marker.
-  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
   // The update probe gets a second more, as the CLI's notice does; a slow one
   // never holds back a finished review.
   const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
@@ -213,9 +218,6 @@ async function finishRun($: Engines, result: RunResult, request: TriggerRequest,
     ? `gauntlet: ${shown.join("\n")}`
     : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
   await deliver($, text, shown, request.agentId)
-  // Bookkeeping comes after the result is shown: a failed write only logs.
-  await $.fs.write(`${modDir()}/last-run.json`, JSON.stringify({ ...result, request, stats: engine?.stats() }, null, 2))
-    .catch((error) => log($, `last-run.json failed: ${String(error)}`))
 }
 
 // A subagent that started the review gets its digest as a message, which
@@ -279,32 +281,28 @@ async function openDossier($: Engines, path: string) {
 
 // Starts a review or a delivery in the background; answers the command's one
 // line.
-async function startReview($: Engines, request: TriggerRequest): Promise<string> {
+async function startReview($: Engines, request: StartRequest): Promise<string> {
   if (engine === undefined || build === undefined) return "the engine did not load; see ~/.gauntlet/mod/mod.log"
-  const running = engine.running()
-  if (running !== undefined) {
-    return `a review is already running (${running.runId ?? "starting"}, ${String(Math.round((Date.now() - running.startedAt) / 1000))}s); one per session.`
+  if (claimedAt !== undefined) {
+    return `a review is already running (${engine.running()?.runId ?? "starting"}, ${String(Math.round((Date.now() - claimedAt) / 1000))}s); one per session.`
   }
-  // Two calls can overlap while the first checks the checkout; the engine is
-  // running once the first returns.
-  if (starting) return "a review is already starting; one per session."
-  starting = true
-  try {
-    return await prepareAndStart($, engine, build, request)
-  } finally {
-    starting = false
+  claimedAt = Date.now()
+  const unready = await checkFreshness($, build).catch((error) => {
+    log($, `freshness check failed: ${String(error)}`)
+    return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
+  })
+  if (unready !== undefined) {
+    claimedAt = undefined
+    return unready
   }
+  return startRun($, engine, build, request)
 }
 
-async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, request: TriggerRequest): Promise<string> {
+// Rebuilds the mod when the checkout changed since it was built; answers why
+// the review cannot start now, when it cannot.
+async function checkFreshness($: Engines, build: BuildInfo): Promise<string | undefined> {
   const hashStart = Date.now()
-  let fresh: Awaited<ReturnType<typeof inputsStamp>>
-  try {
-    fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
-  } catch (error) {
-    log($, `stamp failed: ${String(error)}`)
-    return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
-  }
+  const fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
   const hashMs = Date.now() - hashStart
   // The stamp on disk, not the one loaded: a rebuild whose code came out
   // byte-identical (a docs or build-script change) rewrites only build.json,
@@ -312,21 +310,21 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
   // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
   const onDisk = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
   log($, `stamp ${fresh.stamp} over ${String(fresh.files)} files in ${String(hashMs)}ms (built ${onDisk.stamp}, loaded ${build.stamp})`)
-  if (fresh.stamp !== onDisk.stamp) {
-    const rebuildStart = Date.now()
-    await setStatus($, "gauntlet: the checkout changed; rebuilding the mod")
-    const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
-      cwd: build.repoRoot,
-      timeoutMs: 300_000,
-    }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
-    const rebuildMs = Date.now() - rebuildStart
-    log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
-    await setStatus($, undefined)
-    if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
-    if (request.afterRebuild !== "run") {
-      return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
-    }
-  }
+  if (fresh.stamp === onDisk.stamp) return undefined
+  const rebuildStart = Date.now()
+  $.ui.status("gauntlet: the checkout changed; rebuilding the mod")
+  const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
+    cwd: build.repoRoot,
+    timeoutMs: 300_000,
+  }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
+  const rebuildMs = Date.now() - rebuildStart
+  log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
+  $.ui.status(undefined)
+  if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
+  return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
+}
+
+async function startRun($: Engines, engine: Engine, build: BuildInfo, request: StartRequest): Promise<string> {
   const words = commandWords(request.args)
   log($, `starting ${words.join(" ")} in ${request.cwd}`)
   const run = engine.start({ words, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
@@ -335,7 +333,7 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
       .catch((error) => log($, `delivery failed to finish: ${String(error)}`))
     return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
   }
-  markedAgents = ""
+  markedRun = ""
   const notice = checkForUpdate($, build.repoRoot).catch((error) => {
     log($, `update check failed: ${String(error)}`)
     return undefined
@@ -355,10 +353,6 @@ async function prepareAndStart($: Engines, engine: Engine, build: BuildInfo, req
     await marked
     await finishRun($, result, request, notice)
   }).catch((error) => log($, `run failed to finish: ${String(error)}`))
-  // The answer waits for the marker and the ticker, which keeps `starting`
-  // set until they are this review's: a quickly refused review's ending can
-  // then never cancel the next review's ticker or clear its marker.
-  await marked
   const review = await run.request
   if (review === undefined) return "the review did not start; why arrives as a message."
   return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
@@ -392,24 +386,6 @@ async function checkForUpdate($: Engines, repoRoot: string): Promise<string | un
   return releaseNotice(current.stdout, remote.stdout)
 }
 
-// Test runs and cancels arrive as files the mod polls (a command registered
-// after an agent spawned is invisible to it).
-async function checkTrigger($: Engines) {
-  const path = `${modDir()}/trigger.json`
-  if (!(await $.fs.exists(path))) return
-  const text = await $.fs.read(path)
-  await $.process.run(["rm", "-f", path])
-  // SAFETY: the trigger file is the test harness's, written as a TriggerRequest.
-  const request = JSON.parse(text) as TriggerRequest & { readonly kind?: "cancel" }
-  if (request.kind === "cancel") {
-    log($, `cancel requested: ${String(await engine?.cancel())}`)
-    return
-  }
-  const answer = await startReview($, request)
-  log($, `trigger answered: ${answer}`)
-  await $.fs.write(`${modDir()}/trigger-answer.txt`, `${answer}\n`)
-}
-
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
@@ -441,7 +417,6 @@ export const register: Register = (on) => {
     })
     inflightKey = `inflight:${await $.session.id()}`
     await reportLostRun($)
-    $.clock.every(2000, () => checkTrigger($).catch((error) => log($, `trigger failed: ${String(error)}`)))
     return started
   })
 
