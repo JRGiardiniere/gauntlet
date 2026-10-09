@@ -25,6 +25,8 @@ import {
 } from "./prompt.ts"
 import { resolveVerification, type VerifiedBundle } from "./resolution.ts"
 
+// Clusters per verifier bundle (an unmeasured default,
+// docs/spec/pipeline-shape.md).
 const VERIFIER_BUNDLE_SIZE = 4
 
 const VERIFICATION_TOOLS = ["read", "bash"] as const
@@ -44,7 +46,8 @@ export interface VerificationResult {
 }
 
 // The Run learns Verification only through this interface. Pool's clusters
-// go out in verifier bundles of four, one invocation each, side by side.
+// go out in verifier bundles, one invocation each, side by side; a bundle
+// fails closed as a unit (resolution.ts).
 export const executeVerification = Effect.fn("Verification.execute")(function* ({
   plan,
   pooled,
