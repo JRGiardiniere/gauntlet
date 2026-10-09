@@ -222,7 +222,8 @@ export const register: Register = (on) => {
   })
 
   // The main agent's turns (turn.start carries no agentId), so a digest knows
-  // whether it would land in a running turn.
+  // whether it would land in a running turn. The run's own agents step past
+  // this plugin's hooks; gauntlet-tools reports their responses.
   on("turn.start", ($, e, next) => {
     session?.turnStarted()
     return next(e)
@@ -240,7 +241,6 @@ export const register: Register = (on) => {
         agentId: e.agentId,
         reason: e.reason,
         answer: e.answer,
-        usage: e.usage,
         refusal: e.reason === "refusal" ? { explanation: e.refusal.explanation ?? undefined } : undefined,
       })
     }

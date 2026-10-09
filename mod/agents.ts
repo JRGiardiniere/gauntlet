@@ -16,7 +16,6 @@ import type {
   ClaudeHost,
   ClaudeHostCommand,
   ClaudeTurnEnding,
-  ClaudeUsage,
 } from "../src/harness/claude-host.ts"
 import type { GauntletAgent } from "./gauntlet/types/index.d.ts"
 import type { GauntletToolsEvent, GauntletToolsJson } from "./gauntlet-tools/types/index.d.ts"
@@ -68,7 +67,6 @@ export interface TurnComplete {
   readonly agentId?: string | undefined
   readonly reason: "answer" | "aborted" | "refusal" | "error"
   readonly answer: string
-  readonly usage?: ClaudeUsage | undefined
   readonly refusal?: { readonly explanation?: string | undefined } | undefined
 }
 
@@ -376,17 +374,13 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     let detail: string | undefined
     if (e.reason === "refusal") detail = e.refusal?.explanation ?? "refusal"
     if (e.reason === "error") detail = e.answer
-    ports.log(`turn ${invocation.id} ${e.reason} emit=${String(invocation.emitAccepted)} usage=${e.usage === undefined ? "none" : JSON.stringify(e.usage)}`)
-    if (e.reason === "answer") {
-      host?.event(invocation.id, {
-        type: "message_end",
-        stopReason: invocation.emitAccepted ? "tool_use" : "end_turn",
-        usage: e.usage ?? null,
-      })
-    }
-    // An unanswered turn's spend rides on its ending (an aborted turn's
-    // requests still cost); an answer reported it through message_end.
-    end(invocation, { reason: e.reason, usage: e.reason === "answer" ? undefined : e.usage, detail })
+    ports.log(`turn ${invocation.id} ${e.reason} emit=${String(invocation.emitAccepted)}${detail === undefined ? "" : `: ${cut(detail)}`}`)
+    // Each response reached the host as a message_end with its own usage
+    // (pulled above), so the ending carries none. Measured 2026-10-09 on
+    // Claude Code 2.1.295: turn.complete's usage is exactly its steps'
+    // summed, for answered and aborted turns alike, and a request an abort
+    // cut off before its response is counted in neither.
+    end(invocation, { reason: e.reason, detail })
     return true
   }
 

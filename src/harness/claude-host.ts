@@ -17,7 +17,7 @@ import { isClaudeCodeSeat } from "../domain/recipe.ts"
 // invocation logic (deadlines, corrective turns, capture and accounting stay
 // in invoke.ts). The review program runs inside the mod (mod/engine.ts): the
 // core sends Commands out, and the mod's hooks report back what they saw —
-// tool calls, emit arguments and turn endings. Its mutable cells belong to
+// responses, tool calls, emit arguments and turn endings. Its mutable cells belong to
 // the Promise and callback contract of HarnessSession.
 
 export type ClaudeHostCommand =
@@ -42,7 +42,7 @@ export type ClaudeHostCommand =
 // The mod's reports arrive in process, typed by Claude Code's own
 // declarations, so the core takes them as plain types; nothing is decoded.
 
-// A turn's usage as Claude Code's turn.complete reports it.
+// One response's usage as Claude Code's turn.step reports it.
 export interface ClaudeUsage {
   readonly input_tokens: number
   readonly output_tokens: number
@@ -69,9 +69,6 @@ export type ClaudeHostEvent =
 export interface ClaudeTurnEnding {
   readonly reason: "answer" | "aborted" | "refusal" | "error"
   readonly detail?: string | undefined
-  // What an unanswered turn spent before it ended (a stopped agent's
-  // requests still cost); an answered turn reports through message_end.
-  readonly usage?: ClaudeUsage | undefined
 }
 
 export type EmitAnswer =
@@ -79,6 +76,9 @@ export type EmitAnswer =
   | { readonly ok: false; readonly reason: string }
 
 // Claude's stop reasons, mapped onto Pi's vocabulary that invoke.ts reads.
+// A `refusal` ends the invocation as an error. `compaction` cannot arrive:
+// the API answers it only to a request asking to pause after compaction,
+// which Claude Code 2.1.295 never sends.
 const stopReasonOf = (claude: string | null): StopReason => {
   switch (claude) {
     case "end_turn":
@@ -147,8 +147,8 @@ interface Invocation {
   abortRequested: boolean
   opened: ((error: string | undefined) => void) | undefined
   settle: (() => void) | undefined
-  // An abort settles once Claude Code reports the stopped turn, which
-  // carries what the turn spent.
+  // An abort settles once Claude Code reports the stopped turn, by when
+  // its responses have reported what they spent.
   abortSettled: (() => void) | undefined
 }
 
@@ -295,13 +295,15 @@ export const makeClaudeHost = (
     return { ok: true }
   }
 
-  const ended = (id: string, { detail, reason, usage }: ClaudeTurnEnding) => {
+  // Each response reported its own usage, so an ending carries none. A
+  // refusal ended on its response's own `refusal` stop reason, so only an
+  // error, which ends with no response, adds the turn's terminal evidence.
+  const ended = (id: string, { detail, reason }: ClaudeTurnEnding) => {
     const invocation = invocations.get(id)
     if (invocation === undefined) return false
     markStarted(invocation)
-    if (usage !== undefined) invocation.usageRows.push(usageRowOf(invocation, usage))
-    if (reason === "error" || reason === "refusal") {
-      if (usage === undefined) invocation.usageRows.push(ZERO_USAGE)
+    if (reason === "error") {
+      invocation.usageRows.push(ZERO_USAGE)
       dispatch(invocation, {
         type: "message_end",
         stopReason: "error",

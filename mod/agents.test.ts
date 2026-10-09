@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
-import { type ClaudeHostCommand, makeClaudeHost } from "../src/harness/claude-host.ts"
-import { type AgentPorts, makeAgentDriver, type SpawnAnswer } from "./agents.ts"
+import { type ClaudeHostCommand, type ClaudeHostEvent, makeClaudeHost } from "../src/harness/claude-host.ts"
+import { type AgentPorts, makeAgentDriver, type SpawnAnswer, type ToolsEvent } from "./agents.ts"
 
 const OPEN: ClaudeHostCommand = {
   kind: "open",
@@ -18,6 +18,8 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const makePorts = (spawn: () => Promise<SpawnAnswer>, register: () => Promise<void> = async () => {}) => {
   const stopped: Array<string> = []
+  // What gauntlet-tools saw of the agents, as one log.
+  const seen: Array<ToolsEvent> = []
   const ports: AgentPorts = {
     register,
     spawn,
@@ -27,10 +29,23 @@ const makePorts = (spawn: () => Promise<SpawnAnswer>, register: () => Promise<vo
       return undefined
     },
     publish: async () => {},
-    pull: async () => [],
+    pull: async () => seen,
     log: () => {},
   }
-  return { ports, stopped }
+  return { ports, stopped, seen }
+}
+
+// A host whose reports are recorded rather than acted on.
+const recordingHost = (driver: ReturnType<typeof makeAgentDriver>) => {
+  const reported: Array<ClaudeHostEvent> = []
+  driver.attach({
+    ...makeClaudeHost(() => undefined, driver.send),
+    event: (_id, event) => {
+      reported.push(event)
+      return true
+    },
+  })
+  return reported
 }
 
 const started = async (driver: ReturnType<typeof makeAgentDriver>, id = OPEN.id) => {
@@ -43,6 +58,24 @@ const started = async (driver: ReturnType<typeof makeAgentDriver>, id = OPEN.id)
 const states = (driver: ReturnType<typeof makeAgentDriver>) => driver.activity().map((activity) => activity.state)
 
 describe("the agent driver", () => {
+  it("hands each response of a run's agent to the host with Claude's own stop reason, and adds none when the turn ends", async () => {
+    const { ports, seen } = makePorts(async () => ({ agentId: "agent-1" }))
+    const driver = makeAgentDriver(ports)
+    const reported = recordingHost(driver)
+    await started(driver)
+    const response: ToolsEvent = {
+      type: "message_end",
+      stopReason: "max_tokens",
+      usage: { input_tokens: 900, output_tokens: 64, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, model: "claude-fixture" },
+    }
+
+    seen.push(response)
+    await driver.poll()
+    await driver.turnComplete({ agentId: "agent-1", reason: "answer", answer: "" })
+
+    expect(reported).toEqual([response])
+  })
+
   it("stops a running agent whose session is disposed, as an interrupted run does", async () => {
     const { ports, stopped } = makePorts(async () => ({ agentId: "agent-1" }))
     const driver = makeAgentDriver(ports)

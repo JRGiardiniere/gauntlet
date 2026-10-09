@@ -435,9 +435,8 @@ const openCapturedSession = Effect.fn(
           event,
           emitToolName: input.contract.toolName,
         })
-        // A tool call means the first response has finished, so its prefix
-        // is cached. On a host that reports usage only at turn end (Claude
-        // Code) this is the first sign, well before message_end.
+        // A response's end or a tool call means the first response has
+        // finished, so its prefix is cached.
         if (
           (event.type === "message_end" ||
             event.type === "tool_execution_start") &&

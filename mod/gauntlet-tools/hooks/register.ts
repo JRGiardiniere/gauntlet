@@ -1,4 +1,4 @@
-import type { EngineInterface, Register, ToolCallResult, ToolCheckResult } from "claude-code"
+import type { EngineInterface, Register, ToolCallResult, ToolCheckResult, TurnStepResult } from "claude-code"
 import type { GauntletToolsEvent, GauntletToolsJson } from "../types/index.d.ts"
 import { checkEmit, emitTools, FENCED_TOOLS, fencedInputOf, fencedPathOf, isInsideRoot } from "../../tools-core.ts"
 
@@ -6,8 +6,8 @@ import { checkEmit, emitTools, FENCED_TOOLS, fencedInputOf, fencedPathOf, isInsi
 // the hooks of the plugin that spawned them, so the gauntlet plugin cannot answer its
 // own agents' emit tools or watch their reads. This plugin serves the emit
 // tools with the review program's strict decoders, records each agent's tool
-// calls and emits in its own state (the Mod's engine reads them in order),
-// and fences Read/Grep/Glob to the agent's review snapshot.
+// calls, emits and responses in its own state (the Mod's engine reads them in
+// order), and fences Read/Grep/Glob to the agent's review snapshot.
 //
 // Every hook names its tool: matcher-less tool.call/tool.check hooks break
 // other subagents.
@@ -129,6 +129,16 @@ async function fence<E extends { readonly tool: string; readonly tool_use_id?: s
   return { decision: "deny", reason: `${String(path)} is outside the review snapshot ${agent.root}.` }
 }
 
+// Each response of an agent the gauntlet plugin published goes to the engine
+// as it arrives, with Claude's own stop reason and its request's usage; the
+// last one before the turn ends is the invocation's terminal evidence. It is
+// recorded before the step returns, so the engine has it once the turn ends.
+// A step with no response (a null stop reason) reports nothing.
+async function recordStep($: Engines, agentId: string | undefined, step: TurnStepResult) {
+  if (step.stopReason === null || agentId === undefined || (await agentOf($, agentId)) === undefined) return
+  await record($, agentId, { type: "message_end", stopReason: step.stopReason, usage: step.usage }).catch(() => undefined)
+}
+
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
@@ -148,4 +158,11 @@ export const register: Register = (on) => {
   on("tool.check", { tool: "Read" }, ($, e, next) => fence($, e, next))
   on("tool.check", { tool: "Grep" }, ($, e, next) => fence($, e, next))
   on("tool.check", { tool: "Glob" }, ($, e, next) => fence($, e, next))
+
+  // Every other loop's step passes through unchanged.
+  on("turn.step", async function* ($, e, next) {
+    const step = yield* next(e)
+    await recordStep($, e.agentId, step)
+    return step
+  })
 }

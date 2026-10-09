@@ -59,6 +59,20 @@ describe("the Claude Code host", () => {
       expect(Termination.guards.Interrupted(outcome.termination)).toBe(true)
     }))
 
+  it.effect("ends an invocation whose last response hit the context limit as ContextLimit", () =>
+    Effect.gen(function* () {
+      const outcome = yield* invokeOver((host, id) => {
+        host.event(id, {
+          type: "message_end",
+          stopReason: "model_context_window_exceeded",
+          usage: { input_tokens: 180_000, output_tokens: 40, model: "claude-fixture" },
+        })
+        return { reason: "answer" }
+      })
+
+      expect(Termination.guards.ContextLimit(outcome.termination)).toBe(true)
+    }))
+
   it.effect("counts an unpriced model's tokens at $0 rather than failing the run", () =>
     Effect.gen(function* () {
       const outcome = yield* invokeOver((host, id) => {
