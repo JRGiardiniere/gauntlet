@@ -253,10 +253,13 @@ export const register: Register = (on) => {
     return next(e)
   })
 
-  // A run's agent that ends its turn messages the main conversation as a
-  // peer, which shows a row and wakes the main agent; the engine reads its
-  // answer at turn.complete, so its message is dropped. One can arrive after
-  // its run ended, so the session keeps every id it spawned.
+  // Under auto permission mode Claude Code gives every agent a
+  // SubagentHandback tool, whose report reaches the main conversation as a
+  // peer message: a row, and a turn for the main agent. The engine reads the
+  // answer at turn.complete, so the message is dropped here. Answering the
+  // tool call instead does not count as delivered: Claude Code makes the agent
+  // call it again, up to 3 times. A message can arrive after its run ended, so
+  // the session keeps every id it spawned.
   on("prompt.submit", { origin: { kind: "peer" } }, ($, e, next) => {
     const from = /^<agent-message from="([^"]+)">/.exec(e.text)?.[1]
     if (from === undefined || !spawned.has(from)) return next(e)
