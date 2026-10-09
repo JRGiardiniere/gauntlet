@@ -303,20 +303,22 @@ export const makeClaudeHost = (
   // error or refusal ending is terminal evidence only when the turn's last
   // response did not already end it: Claude Code ends a turn as an error
   // after max_tokens responses it gave up retrying (measured on 2.1.295), and
-  // a refusal after the response that stopped on `refusal`.
+  // a refusal after the response that stopped on `refusal`. Any other ending
+  // of a prompt that recorded no response (a lost record) is an error too, so
+  // the invocation fails alone rather than settling with no evidence.
   const ended = (id: string, { detail, reason }: ClaudeTurnEnding) => {
     const invocation = invocations.get(id)
     if (invocation === undefined) return false
     markStarted(invocation)
     const endedByResponse = invocation.lastStop === "length" || invocation.lastStop === "error"
-    if ((reason === "error" || reason === "refusal") && !endedByResponse) {
+    const failed = (errorMessage: string) => {
       invocation.usageRows.push(ZERO_USAGE)
-      dispatch(invocation, {
-        type: "message_end",
-        stopReason: "error",
-        usage: ZERO_USAGE,
-        errorMessage: detail ?? `Claude turn ended: ${reason}`,
-      })
+      dispatch(invocation, { type: "message_end", stopReason: "error", usage: ZERO_USAGE, errorMessage })
+    }
+    if ((reason === "error" || reason === "refusal") && !endedByResponse) {
+      failed(detail ?? `Claude turn ended: ${reason}`)
+    } else if (reason === "answer" && invocation.lastStop === undefined) {
+      failed("Claude Code turn ended with no recorded response")
     } else if (reason === "aborted" && !invocation.abortRequested) {
       // The run did not ask for this stop: a person stopped the subagent.
       dispatch(invocation, { type: "interrupted", reason: "the Claude Code subagent was stopped outside the run" })

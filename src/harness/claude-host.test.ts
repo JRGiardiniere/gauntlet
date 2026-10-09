@@ -59,6 +59,38 @@ describe("the Claude Code host", () => {
       expect(Termination.guards.Interrupted(outcome.termination)).toBe(true)
     }))
 
+  it.effect("counts each response once and ends on the last, the answered ending adding nothing", () =>
+    Effect.gen(function* () {
+      const outcome = yield* invokeOver((host, id) => {
+        host.event(id, {
+          type: "message_end",
+          stopReason: "tool_use",
+          usage: { input_tokens: 100, output_tokens: 20, model: "claude-fixture" },
+        })
+        host.emit(id, EMIT)
+        host.event(id, {
+          type: "message_end",
+          stopReason: "end_turn",
+          usage: { input_tokens: 5, output_tokens: 3, model: "claude-fixture" },
+        })
+        return { reason: "answer" }
+      })
+
+      expect(Termination.guards.Completed(outcome.termination)).toBe(true)
+      expect(outcome.usage.rawRows).toHaveLength(2)
+      expect(outcome.usage.input).toBe(105)
+      expect(outcome.usage.output).toBe(23)
+    }))
+
+  // A response record lost on its way to the engine fails this invocation
+  // alone, not the run.
+  it.effect("ends an answered turn with no recorded response as ProviderFailed", () =>
+    Effect.gen(function* () {
+      const outcome = yield* invokeOver(() => ({ reason: "answer" }))
+
+      expect(Termination.guards.ProviderFailed(outcome.termination)).toBe(true)
+    }))
+
   // Claude Code retries a max_tokens response, then ends the turn as an error.
   it.effect("ends an invocation whose last response hit the token limit as ContextLimit", () =>
     Effect.gen(function* () {

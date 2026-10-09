@@ -369,7 +369,8 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     const invocation = e.agentId === undefined ? undefined : current().find((each) => each.agentId === e.agentId)
     if (invocation === undefined) return false
     // The ending still reaches the host when the pull fails: a missed emit
-    // is a missing emit, not a turn that never ends.
+    // is a missing emit, not a turn that never ends. With no response pulled
+    // since the prompt, the host's ending supplies error evidence instead.
     await absorb(invocation).catch((error) => ports.log(`pull ${invocation.id} failed: ${String(error)}`))
     let detail: string | undefined
     if (e.reason === "refusal") detail = e.refusal?.explanation ?? "refusal"
