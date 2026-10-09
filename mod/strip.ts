@@ -2,7 +2,9 @@
 // module's `ui.render` hook on `AbovePrompt`. Line 1 is each stage with one
 // mark per agent, and one per lens skipped by design; line 2, always there,
 // is the elapsed time and what the run is doing in plain words. Once the dossier is written, line 1 is its Review
-// Priority counts with Open dossier and Dismiss. Counts come from the Run's
+// Priority counts with Open dossier and Dismiss, and a pull-request review's
+// post adds a last line, wrapped: posting, then where it landed or why it did
+// not. Counts come from the Run's
 // milestones and the agent driver's activity, never from progress text; no
 // dollar or cache figure shows.
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
@@ -25,6 +27,9 @@ export interface RunView {
   readonly result: Extract<RunMilestone, { readonly _tag: "Reviewed" }> | undefined
   // Why the review could not run, in the Mod's words.
   readonly refusal: string | undefined
+  // A pull-request review's post: under way, then where it landed or why it
+  // did not.
+  readonly post: { readonly state: "posting" | "posted" | "failed"; readonly text: string } | undefined
 }
 
 type StripChildren<N> = N | string | ReadonlyArray<N>
@@ -276,6 +281,11 @@ export const renderStrip = <N>(
           ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
         ],
       }),
+      // The post's outcome has a line of its own and wraps: a failure's tail
+      // names the run to deliver again, and the strip is where it is said.
+      ...(view.post === undefined || view.result === undefined
+        ? []
+        : [Text({ ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }), children: view.post.text.split("\n")[0] ?? "" })]),
     ],
   })
 }

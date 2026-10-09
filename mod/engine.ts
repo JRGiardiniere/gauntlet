@@ -80,17 +80,15 @@ export interface EnginePorts extends PlatformPorts, AgentPorts, HttpPort {
   readonly status: (text: string | undefined) => void
   // The Caller. `send` messages a subagent and `submit` prompts the main
   // agent, each answering why it did not land, if it did not; `append` adds a
-  // user row to the main agent's conversation, and `row` a transcript row the
-  // person sees and the model does not.
+  // user row to the main agent's conversation.
   readonly send: (agentId: string, text: string) => Promise<string | undefined>
   readonly submit: (text: string) => Promise<string | undefined>
   readonly append: (text: string) => Promise<void>
-  readonly row: (line: string) => void
 }
 
 // How a run ended, in the Mod's words.
 export interface RunResult {
-  // A few words for the toast and the message's heading.
+  // A few words for the message's heading.
   readonly verdict: string
   // The digest, or the help the words asked for; empty when there is neither.
   readonly digest: string
@@ -216,6 +214,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       exitCode: undefined,
       result: undefined,
       refusal: undefined,
+      post: undefined,
     }
     let parsed: (review: Run.ReviewRequest | undefined) => void = () => undefined
     const reviewRequest = new Promise<Run.ReviewRequest | undefined>((resolve) => {
@@ -282,15 +281,17 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
                 ? Effect.sync(() => {
                   answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
                 })
-                : Effect.sync(() =>
+                : Effect.sync(() => {
+                  shown.post = { state: "posting", text: "posting to the pull request" }
                   posting({ verdict: "review finished", digest: reviewed.digest, notes: [], seconds: elapsed() })
-                ).pipe(
+                }).pipe(
                   Effect.andThen(Run.deliver(reviewed.runId)),
                   Effect.match({
-                    onSuccess: (receipt) => ({ verdict: "delivered", notes: [`posted ${receipt.url}`] }),
-                    onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)] }),
+                    onSuccess: (receipt) => ({ verdict: "delivered", notes: [`posted ${receipt.url}`], state: "posted" as const }),
+                    onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)], state: "failed" as const }),
                   }),
-                  Effect.map(({ verdict, notes }) => {
+                  Effect.map(({ verdict, notes, state }) => {
+                    shown.post = { state, text: notes.join("; ") }
                     answer = { verdict, digest: "", notes }
                   }),
                 )
@@ -353,6 +354,11 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         posting(undefined)
         void driver.stopAll("run ended")
         const failed = Exit.isFailure(exit)
+        // A post cut short, by a stop or a defect, may still have landed.
+        if (Exit.isFailure(exit) && shown.post?.state === "posting") {
+          const cut = Cause.hasInterruptsOnly(exit.cause) ? "post interrupted" : defectText(exit.cause)
+          shown.post = { state: "failed", text: `${cut}; check the pull request for the comment` }
+        }
         if (progress === shown) {
           progress = { ...shown, endedAt: Date.now(), exitCode: failed || shown.refusal !== undefined ? 1 : 0 }
         }

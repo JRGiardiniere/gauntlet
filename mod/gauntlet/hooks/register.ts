@@ -41,6 +41,8 @@ let drawn = ""
 let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
+// Every agent this session's runs spawned.
+const spawned = new Set<string>()
 const loadedAt = Date.now()
 
 const modDir = () => `${home}/.gauntlet/mod`
@@ -74,7 +76,11 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     register: async (spec) => {
       await $.agent.register(spec)
     },
-    spawn: (request) => $.agent.spawn(request),
+    spawn: async (request) => {
+      const answer = await $.agent.spawn(request)
+      if (answer.agentId !== undefined) spawned.add(answer.agentId)
+      return answer
+    },
     resume: async (agentId, message) => {
       const sent = await $.tool.call({ tool: "SendMessage", to: agentId, message, summary: "Gauntlet corrective turn" })
       if (sent.deny !== undefined) return sent.deny
@@ -109,7 +115,6 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     append: async (text) => {
       await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } })
     },
-    row: (line) => $.ui.log(line),
   }
 }
 
@@ -219,7 +224,8 @@ export const register: Register = (on) => {
   on("tool.call", { tool: "mcp__gauntlet__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
     if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gauntlet takes them." }
-    return { result: (await session?.start({ cwd: await $.session.root(), args, agentId: e.agentId })) ?? UNLOADED }
+    const request = { cwd: await $.session.root(), args, agentId: e.agentId, isMainTurn: e.agentId === undefined }
+    return { result: (await session?.start(request)) ?? UNLOADED }
   })
 
   // The main agent's turns (turn.start carries no agentId), so a digest knows
@@ -246,6 +252,21 @@ export const register: Register = (on) => {
       })
     }
     return next(e)
+  })
+
+  // Under auto permission mode Claude Code gives every agent a
+  // SubagentHandback tool, whose report reaches the main conversation as a
+  // peer message; an agent resumed for a corrective turn ends with a task
+  // notification. Each is a row and a turn for the main agent, and the engine
+  // reads the answer at turn.complete, so both are dropped here. Answering the
+  // hand-back tool instead does not count as delivered: Claude Code makes the
+  // agent call it again, up to 3 times. A message can arrive after its run
+  // ended, so the session keeps every id it spawned.
+  on("prompt.submit", { origin: [{ kind: "peer" }, { kind: "task-notification" }] }, ($, e, next) => {
+    const from = (/^<agent-message from="([^"]+)">/.exec(e.text) ?? /^<task-notification>\s*<task-id>([^<]+)<\/task-id>/.exec(e.text))?.[1]
+    if (from === undefined || !spawned.has(from)) return next(e)
+    log($, `dropped ${from}'s ${e.origin.kind}`)
+    return { drop: "a Gauntlet agent's report" }
   })
 
   // This mod's own resume and stop calls need no prompt.
