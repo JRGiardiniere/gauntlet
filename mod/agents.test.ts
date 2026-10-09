@@ -123,11 +123,28 @@ describe("the agent driver", () => {
     driver.send({ kind: "dispose", id: "session-2" })
   })
 
+  it("puts a spawn refused again behind the others waiting", async () => {
+    const answers: Array<SpawnAnswer> = [{ agentId: "agent-1" }, { agentId: "agent-2" }, { deny: "a" }, { deny: "b" }, { deny: "a" }, { agentId: "agent-b" }]
+    const { ports } = makePorts(async () => answers.shift() ?? {})
+    const driver = makeAgentDriver(ports)
+    for (const id of ["session-1", "session-2", "waiting-a", "waiting-b"]) await started(driver, id)
+
+    // Each agent leaving frees a place for the next spawn in the queue.
+    driver.send({ kind: "dispose", id: "session-1" })
+    await settle()
+    driver.send({ kind: "dispose", id: "session-2" })
+    await settle()
+
+    expect(driver.agentIds()).toEqual(["agent-b"])
+    expect(states(driver)).toEqual(["stopped", "stopped", "waiting", "running"])
+    driver.send({ kind: "dispose", id: "waiting-a" })
+  })
+
   it("starts a new run from nothing, with no agents or queued spawns left from the last", async () => {
     let spawns = 0
     const { ports, stopped } = makePorts(async () => {
       spawns += 1
-      return spawns === 1 ? { agentId: "agent-1" } : { deny: "fixture denial" }
+      return spawns === 2 ? { deny: "fixture denial" } : { agentId: `agent-${String(spawns)}` }
     })
     const driver = makeAgentDriver(ports)
     await started(driver)
@@ -138,11 +155,10 @@ describe("the agent driver", () => {
     // spawn.
     driver.send({ kind: "dispose", id: OPEN.id })
     await settle()
-    await driver.stopAll("run ended")
+    await started(driver, "session-3")
 
-    expect(driver.activity()).toEqual([])
-    expect(driver.agentIds()).toEqual([])
-    expect(spawns).toBe(2)
+    expect(states(driver)).toEqual(["running"])
+    expect(driver.agentIds()).toEqual(["agent-3"])
     expect(stopped).toEqual([])
   })
 })

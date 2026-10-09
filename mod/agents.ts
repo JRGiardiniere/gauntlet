@@ -95,7 +95,8 @@ interface Invocation extends AgentActivity {
   consumed: number
   emitAccepted: boolean
   disposed: boolean
-  waitingSince?: number
+  // When it last joined the spawn queue.
+  waitingSince: number
 }
 
 type PromptCommand = Extract<ClaudeHostCommand, { readonly kind: "prompt" }>
@@ -198,6 +199,7 @@ export const makeAgentDriver = (ports: AgentPorts) => {
       consumed: 0,
       emitAccepted: false,
       disposed: false,
+      waitingSince: 0,
     }
     invocations.set(command.id, invocation)
     const failure = await slot.ready.then(() => undefined, String)
@@ -217,7 +219,8 @@ export const makeAgentDriver = (ports: AgentPorts) => {
     host?.ended(invocation.id, ending)
   }
 
-  // The spawn queue is the records waiting, retried in open order.
+  // The spawn queue is the records waiting, retried in the order they joined
+  // it: a spawn refused again goes to the back, behind the others waiting.
   const scheduleRetry = () => {
     if (retry !== undefined || !current().some((invocation) => invocation.state === "waiting")) return
     retry = setTimeout(() => {
@@ -227,9 +230,9 @@ export const makeAgentDriver = (ports: AgentPorts) => {
   }
 
   const drain = () => {
-    const next = current().find((invocation) => invocation.state === "waiting")
+    const [next] = current().filter((invocation) => invocation.state === "waiting").sort((a, b) => a.waitingSince - b.waitingSince)
     if (next === undefined) return
-    ports.log(`dequeued ${next.id} after ${String(Date.now() - (next.waitingSince ?? Date.now()))}ms (live ${String(live())})`)
+    ports.log(`dequeued ${next.id} after ${String(Date.now() - next.waitingSince)}ms (live ${String(live())})`)
     next.state = "opening"
     void spawn(next)
     scheduleRetry()
