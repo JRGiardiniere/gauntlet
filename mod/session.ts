@@ -24,6 +24,8 @@ export interface StartRequest {
   // The subagent whose review tool call started the run; absent for the main
   // agent and /gauntlet.
   readonly agentId?: string | undefined
+  // True for the main agent's review tool call, which runs inside its turn.
+  readonly isMainTurn?: boolean | undefined
 }
 
 // The store outlives a mod update, so its fields keep their names: `argv` is
@@ -133,6 +135,9 @@ export const createSession = (
   // Starts a review or a delivery in the background and answers the command's
   // one line; `config` answers with its output and runs nothing.
   const start = async (request: StartRequest): Promise<string> => {
+    // A reload mid-turn misses that turn's start, and a digest submitted then
+    // waits for the turn's end instead of landing in it.
+    if (request.isMainTurn === true) busy = true
     const words = commandWords(request.args)
     if (words[0] === "config") return engine.config({ words, cwd: request.cwd })
     if (claimedAt !== undefined) {

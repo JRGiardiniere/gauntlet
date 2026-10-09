@@ -224,7 +224,8 @@ export const register: Register = (on) => {
   on("tool.call", { tool: "mcp__gauntlet__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
     if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gauntlet takes them." }
-    return { result: (await session?.start({ cwd: await $.session.root(), args, agentId: e.agentId })) ?? UNLOADED }
+    const request = { cwd: await $.session.root(), args, agentId: e.agentId, isMainTurn: e.agentId === undefined }
+    return { result: (await session?.start(request)) ?? UNLOADED }
   })
 
   // The main agent's turns (turn.start carries no agentId), so a digest knows

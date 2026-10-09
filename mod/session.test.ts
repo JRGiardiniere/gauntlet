@@ -310,6 +310,18 @@ describe("the digest's way to its Caller", () => {
     expect(mod.submitted).toEqual([])
   })
 
+  it("appends into the turn whose tool call started the review, though a reload missed its start", async () => {
+    const mod = makeSession()
+    const run = await mod.review({ cwd: "/repo", args: "", isMainTurn: true })
+    run.end(FINISHED)
+    await until(() => mod.appended.length === 1)
+
+    mod.session.stepped()
+    await mod.session.turnEnded()
+
+    expect([mod.submitted, mod.appended]).toEqual([[], [DIGEST]])
+  })
+
   it("leaves the digest appended when its submit is dropped", async () => {
     const mod = makeSession({ submitDrop: "fixture drop" })
     const run = await mod.review({ cwd: "/repo", args: "" })
