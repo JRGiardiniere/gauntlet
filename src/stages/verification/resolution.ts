@@ -133,8 +133,8 @@ export const resolveVerification = (
   bundles: ReadonlyArray<VerifiedBundle>,
 ): ResolvedVerification => {
   let byClaim = HashMap.empty<number, Verdict>()
-  // The repaired Pool output places every paid claim in exactly one cluster;
-  // a claim that escaped placement stands alone under its own index.
+  // Pool places every claim in exactly one cluster (it restores any it left
+  // out), so the own-index fallback below only answers the lookup's Option.
   let clusterOfClaim = HashMap.empty<number, number>()
   for (const cluster of clusters) {
     for (const index of cluster.indexes) {

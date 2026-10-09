@@ -38,8 +38,8 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    never delete. Text-only: no file reads, no ReviewSpecification.
 3. **Verification** — takes Pool's clusters in verifier bundles of 4, one
    invocation per bundle; adversarial; attaches a Verdict (confirmed /
-   refuted / plausible) plus Review Priority and one-line evidence to each
-   cluster. Receives the frozen ReviewSpecification, when one
+   refuted / plausible) and one-line evidence to each cluster, plus Review
+   Priority to a confirmed or plausible one. Receives the frozen ReviewSpecification, when one
    exists, after the scope block and before the claims.
 4. **Judgment** — one invocation, all Observations, decisions by index:
    kept (with Review Priority + reason + finder ratings), dropped (with reason), merged.
