@@ -1,27 +1,25 @@
 import type { EngineInterface, Register } from "claude-code"
 import {
+  BUILD_FILE,
   type BuildInfo,
   createEngine,
-  digestDelivery,
+  createSession,
   type Engine,
   type EnginePorts,
-  inputsStamp,
-  releaseNotice,
+  type Json,
+  recoverLostRun,
   renderStrip,
-  commandWords,
-  type ReviewRequest,
   reviewToolArgs,
   reviewToolInputSchema,
-  type RunResult,
+  type Session,
 } from "../../engine.ts"
 
 // The gauntlet plugin (#134 Idea 3): the Gauntlet review program, bundled into this mod
 // as hooks/vendor/engine.js and run in process. This module is the glue the
 // engine cannot be: it is the only code that may spell `$`, so it hands the
-// engine closures over `$` (ports), registers /gauntlet and the agent's review
-// tool, hands each digest to the main agent, relays turn endings
-// and gauntlet-tools' observations, keeps the bundle fresh, and makes a
-// reload that loses a run loud.
+// engine and the session policy (mod/session.ts) closures over `$` (ports),
+// registers /gauntlet and the agent's review tool, turns hook events into
+// calls on them, relays gauntlet-tools' observations, and draws the strip.
 //
 // Every tool and agent hook names its tool or agent: matcher-less
 // tool.call/tool.check/agent.offer hooks broke other subagents (#134). The
@@ -30,55 +28,19 @@ import {
 
 type Engines = EngineInterface
 
-const BUILD_FILE = "hooks/vendor/build.json"
-
-// The store outlives a mod update, so its fields keep their names: `argv` is
-// the words the review was started with, and `snapshots` the directories the
-// run's snapshot was made in, each removed whole when the run is lost.
-interface InFlight {
-  readonly startedAt: number
-  readonly argv: ReadonlyArray<string>
-  readonly cwd: string
-  readonly runId?: string | undefined
-  readonly agentIds: ReadonlyArray<string>
-  readonly snapshots: ReadonlyArray<string>
-}
-
-// What /gauntlet or the review tool asked to start.
-interface StartRequest {
-  readonly cwd: string
-  readonly args: string
-  // The subagent whose review tool call started the run; absent for the main
-  // agent and /gauntlet.
-  readonly agentId?: string | undefined
-}
-
 const agentsRef = { plugin: "gauntlet", key: "agents" } as const
 const eventsRef = { plugin: "gauntlet-tools", key: "events" } as const
 
 let engine: Engine | undefined
-let build: BuildInfo | undefined
+let session: Session | undefined
 let home = ""
-let tick: { readonly cancel: () => void } | undefined
-let markedRun = ""
-let runCwd = ""
-// This session's in-flight marker: the store is one file for every session on
-// the machine, and another session's live run is not lost.
-let inflightKey = "inflight"
-// Dismiss clears the strip until the next review starts.
-let dismissed = false
+// When the review whose strip was dismissed started: dismissing clears the
+// strip until the next review starts.
+let dismissed: number | undefined
 let drawn = ""
 let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
-const delivery = digestDelivery()
-const STORE_UPDATE_CHECK = "update-checked-at"
-const DAY_MS = 86_400_000
-// When this session's one review was claimed. The claim is taken before
-// anything is awaited and given back once the review's ending has cancelled
-// its ticker and cleared its marker: a second review is refused until then,
-// and an ending never touches a newer review's ticker or marker.
-let claimedAt: number | undefined
 const loadedAt = Date.now()
 
 const modDir = () => `${home}/.gauntlet/mod`
@@ -128,133 +90,46 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     },
     pull: async (agentId) => (await $.state.get({ ...eventsRef, id: agentId })).value ?? [],
     log: (line) => log($, line),
+    store: {
+      // SAFETY: the store takes JSON data only, and reads it back as set.
+      get: async (key) => (await $.store.get(key)) as Json | undefined,
+      set: (key, value) => $.store.set(key, value),
+      delete: (key) => $.store.delete(key),
+    },
+    toast: (text, options) => $.ui.toast(text, options),
+    status: (text) => $.ui.status(text),
+    send: async (agentId, text) => {
+      const sent = await $.session.send({ to: { agentId }, text })
+      return sent.isDelivered ? undefined : sent.reason
+    },
+    submit: async (text) => {
+      const submitted = await $.prompt.submit({ text })
+      return "drop" in submitted ? String(submitted.drop) : undefined
+    },
+    append: async (text) => {
+      await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } })
+    },
+    row: (line) => $.ui.log(line),
   }
 }
 
-// The in-flight marker outlives this module: a reload (or a crashed
-// session) that loses the run leaves it behind for the next load to report.
-async function markInFlight($: Engines, marker: InFlight | undefined) {
-  if (marker === undefined) await $.store.delete(inflightKey)
-  else await $.store.set(inflightKey, marker)
-}
-
-async function reportLostRun($: Engines) {
-  // SAFETY: only markInFlight writes this key, always an InFlight.
-  const lost = (await $.store.get(inflightKey)) as InFlight | undefined
-  if (lost === undefined) return
-  await markInFlight($, undefined)
-  const stopped: Array<string> = []
-  for (const agentId of lost.agentIds) {
-    const result = await $.tool.call({ tool: "TaskStop", task_id: agentId }).catch((error) => ({ deny: String(error) }))
-    stopped.push(`${agentId}: ${"deny" in result && result.deny !== undefined ? `not stopped (${result.deny})` : "stopped"}`)
-  }
-  // The lost run's snapshots: its finalizers never ran. Once a snapshot's
-  // directory is gone, a prune drops git's record of the worktree in it.
-  for (const snapshot of lost.snapshots) {
-    const removed = await $.process.run(["rm", "-rf", snapshot]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
-    stopped.push(`${snapshot}: ${removed.exitCode === 0 ? "removed" : `not removed (${removed.stderr.trim()})`}`)
-  }
-  if (lost.snapshots.length > 0) await $.process.run(["git", "-C", lost.cwd, "worktree", "prune"]).catch(() => undefined)
-  const age = Math.round((Date.now() - lost.startedAt) / 1000)
-  const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
-    `${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
-    "Run /gauntlet again."
-  log($, `${note} ${stopped.join("; ")}`)
-  $.ui.toast(note, { timeoutMs: 15_000 })
-  await $.session.append({ message: { type: "user", content: [{ type: "text", text: note }] } }).catch((error) =>
-    log($, `append failed: ${String(error)}`)
-  )
-}
-
-// Redraws the strip when what it shows changed, and each half second for its
-// clock and the running agents' pulse.
-function redraw($: Engines) {
-  if (dismissed) return
-  const view = engine?.view()
-  const shown = JSON.stringify(view === undefined ? null : { ...view, startedAt: 0 })
-  if (shown === drawn && Date.now() - drawnAt < 500) return
-  drawn = shown
-  drawnAt = Date.now()
-  $.ui.invalidate("ui.render")
-}
-
-function startTick($: Engines) {
-  const ticker = $.clock.every(250, async () => {
-    const running = engine?.running()
-    if (running === undefined) return
-    await engine?.poll().catch((error) => log($, `poll failed: ${String(error)}`))
-    // Cancelling stops the next tick, not this one: a run that ended during
-    // the poll has had its marker cleared.
-    if (tick !== ticker) return
-    redraw($)
-    const work = JSON.stringify([running.agentIds, running.snapshots])
-    if (work !== markedRun) {
-      markedRun = work
-      await markInFlight($, { ...running, cwd: runCwd }).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
-    }
+// The session's ticks, and the strip's: a running review redraws each half
+// second for its clock and the agents' pulse, and any other change to what
+// the strip shows (a review ending) redraws on the next tick.
+function startClock($: Engines) {
+  $.clock.every(250, async () => {
+    const live = await (session?.tick() ?? Promise.resolve(false)).catch((error) => {
+      log($, `tick failed: ${String(error)}`)
+      return false
+    })
+    const view = engine?.view()
+    if (view === undefined || view.startedAt === dismissed) return
+    const shown = JSON.stringify({ ...view, startedAt: 0 })
+    if (shown === drawn && (!live || Date.now() - drawnAt < 500)) return
+    drawn = shown
+    drawnAt = Date.now()
+    $.ui.invalidate("ui.render")
   })
-  tick = ticker
-}
-
-async function finishRun($: Engines, result: RunResult, request: StartRequest, notice: Promise<string | undefined>) {
-  tick?.cancel()
-  tick = undefined
-  await markInFlight($, undefined).catch((error) => log($, `in-flight marker failed: ${String(error)}`))
-  claimedAt = undefined
-  drawnAt = 0
-  redraw($)
-  const { digest, verdict } = result
-  log($, `run ${verdict} after ${String(result.seconds)}s`)
-  $.ui.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)
-  // The update probe gets a second more, as the CLI's notice does; a slow one
-  // never holds back a finished review.
-  const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
-  const said = [...result.notes, ...(update === undefined ? [] : [update])]
-  // Without a digest, the notes say what happened; the verdict stands in
-  // only when there are none (a cancelled run).
-  const shown = digest !== "" ? [...digest.split("\n"), ...said] : result.notes.length === 0 ? [verdict, ...said] : said
-  const text = digest === ""
-    ? `gauntlet: ${shown.join("\n")}`
-    : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
-  await deliver($, text, shown, request.agentId)
-}
-
-// A subagent that started the review gets its digest as a message, which
-// reaches it between tool calls or resumes it once it has stopped; when it
-// cannot be reached, the main agent gets it. A submitted prompt shows the
-// person its text; an appended row or a subagent's message is the model's
-// alone, so the person gets transcript rows, one per line (a row draws no
-// line breaks).
-async function deliver($: Engines, text: string, shown: ReadonlyArray<string>, agentId: string | undefined) {
-  if (agentId !== undefined) {
-    const sent = await $.session.send({ to: { agentId }, text }).catch((error) => ({ isDelivered: false as const, reason: String(error) }))
-    if (sent.isDelivered) {
-      logRows($, shown)
-      return
-    }
-    log($, `digest not sent to ${agentId}: ${sent.reason}`)
-  }
-  if (delivery.route(text) === "submit" && (await submit($, text))) return
-  logRows($, shown)
-  await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } }).catch((error) =>
-    log($, `append failed: ${String(error)}`)
-  )
-}
-
-function logRows($: Engines, shown: ReadonlyArray<string>) {
-  for (const line of shown) {
-    if (line.trim() !== "") $.ui.log(line)
-  }
-}
-
-// Whether the prompt entered; a dropped one leaves the digest to the rows and
-// an appended message.
-async function submit($: Engines, text: string): Promise<boolean> {
-  const submitted = await $.prompt.submit({ text }).catch((error) => ({ drop: String(error) }))
-  if (!("drop" in submitted)) return true
-  log($, `submit dropped: ${String(submitted.drop)}`)
-  return false
 }
 
 const reviewTool = (recipes: ReadonlyArray<string>) => ({
@@ -279,112 +154,7 @@ async function openDossier($: Engines, path: string) {
   }
 }
 
-// Starts a review or a delivery in the background; answers the command's one
-// line.
-async function startReview($: Engines, request: StartRequest): Promise<string> {
-  if (engine === undefined || build === undefined) return "the engine did not load; see ~/.gauntlet/mod/mod.log"
-  if (claimedAt !== undefined) {
-    return `a review is already running (${engine.running()?.runId ?? "starting"}, ${String(Math.round((Date.now() - claimedAt) / 1000))}s); one per session.`
-  }
-  claimedAt = Date.now()
-  const unready = await checkFreshness($, build).catch((error) => {
-    log($, `freshness check failed: ${String(error)}`)
-    return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
-  })
-  if (unready !== undefined) {
-    claimedAt = undefined
-    return unready
-  }
-  return startRun($, engine, build, request)
-}
-
-// Rebuilds the mod when the checkout changed since it was built; answers why
-// the review cannot start now, when it cannot.
-async function checkFreshness($: Engines, build: BuildInfo): Promise<string | undefined> {
-  const hashStart = Date.now()
-  const fresh = await inputsStamp({ run: (argv, stdin) => $.process.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
-  const hashMs = Date.now() - hashStart
-  // The stamp on disk, not the one loaded: a rebuild whose code came out
-  // byte-identical (a docs or build-script change) rewrites only build.json,
-  // and the engine reloads a plugin only when its modules change.
-  // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
-  const onDisk = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
-  log($, `stamp ${fresh.stamp} over ${String(fresh.files)} files in ${String(hashMs)}ms (built ${onDisk.stamp}, loaded ${build.stamp})`)
-  if (fresh.stamp === onDisk.stamp) return undefined
-  const rebuildStart = Date.now()
-  $.ui.status("gauntlet: the checkout changed; rebuilding the mod")
-  const built = await $.process.run([build.bun, "run", "build-mod", $.plugin.root.replace(/\/[^/]+$/, "")], {
-    cwd: build.repoRoot,
-    timeoutMs: 300_000,
-  }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
-  const rebuildMs = Date.now() - rebuildStart
-  log($, `rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
-  $.ui.status(undefined)
-  if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
-  return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
-}
-
-async function startRun($: Engines, engine: Engine, build: BuildInfo, request: StartRequest): Promise<string> {
-  const words = commandWords(request.args)
-  log($, `starting ${words.join(" ")} in ${request.cwd}`)
-  const run = engine.start({ words, cwd: request.cwd }, (line) => log($, `cli: ${line}`))
-  if (words[0] === "deliver") {
-    void run.ended.then((result) => finishRun($, result, request, Promise.resolve(undefined)))
-      .catch((error) => log($, `delivery failed to finish: ${String(error)}`))
-    return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
-  }
-  markedRun = ""
-  const notice = checkForUpdate($, build.repoRoot).catch((error) => {
-    log($, `update check failed: ${String(error)}`)
-    return undefined
-  })
-  // The review runs where its words say (`--repo`), and its marker is down
-  // before its ending clears it; a failed marker write only logs.
-  const marked = run.request.then(async (review) => {
-    if (review === undefined) return
-    // A review brings back a dismissed strip; help leaves it dismissed.
-    dismissed = false
-    runCwd = review.directory
-    await markInFlight($, { startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
-      .catch((error) => log($, `in-flight marker failed: ${String(error)}`))
-    startTick($)
-  })
-  void run.ended.then(async (result) => {
-    await marked
-    await finishRun($, result, request, notice)
-  }).catch((error) => log($, `run failed to finish: ${String(error)}`))
-  const review = await run.request
-  if (review === undefined) return "the review did not start; why arrives as a message."
-  return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
-    (await standardsNote($, engine, review))
-}
-
-// A repository with no Standards Manifest, on a review that would run the
-// standards lens, gets the offer the gauntlet-code-review skill describes.
-async function standardsNote($: Engines, engine: Engine, review: ReviewRequest): Promise<string> {
-  if (review.selectedLensNames !== undefined && !review.selectedLensNames.includes("standards")) return ""
-  const manifest = await engine.standardsManifest(review.directory).catch((error) => {
-    log($, `standards manifest check failed: ${String(error)}`)
-    return undefined
-  })
-  return manifest === undefined || manifest.exists
-    ? ""
-    : ` This repository has no Standards Manifest, so the standards lens is skipped this time; it goes at ${manifest.path}. Offer to set it up, as the gauntlet-code-review skill says.`
-}
-
-// At most one probe a day, as the CLI's: a newer release tag on origin rides on
-// the digest of the review that probed.
-async function checkForUpdate($: Engines, repoRoot: string): Promise<string | undefined> {
-  const checkedAt = Number((await $.store.get(STORE_UPDATE_CHECK)) ?? 0)
-  if (Date.now() - checkedAt < DAY_MS) return undefined
-  await $.store.set(STORE_UPDATE_CHECK, Date.now())
-  const [current, remote] = await Promise.all([
-    $.process.run(["git", "-C", repoRoot, "describe", "--tags", "--exact-match", "--match", "v[0-9]*"]),
-    $.process.run(["git", "-C", repoRoot, "ls-remote", "--tags", "--refs", "origin", "v[0-9]*"], { timeoutMs: 15_000 }),
-  ])
-  if (current.exitCode !== 0 || remote.exitCode !== 0) return undefined
-  return releaseNotice(current.stdout, remote.stdout)
-}
+const UNLOADED = "the engine did not load; see ~/.gauntlet/mod/mod.log"
 
 export const register: Register = (on) => {
   on("session.start", async ($, e, next) => {
@@ -397,11 +167,14 @@ export const register: Register = (on) => {
         ["LINEAR_API_KEY", await $.env.get("LINEAR_API_KEY")],
       ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
     )
+    const ports = portsOf($, env)
+    const sessionId = await $.session.id()
     try {
       const loadStart = Date.now()
       // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
-      build = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
-      engine = createEngine(portsOf($, env), build)
+      const build = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
+      engine = createEngine(ports, build)
+      session = createSession(ports, engine, { build, pluginRoot: $.plugin.root, sessionId })
       log($, `loaded engine ${build.stamp.slice(0, 12)} built ${build.builtAt} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
     } catch (error) {
       log($, `engine failed to load: ${String(error)}`)
@@ -415,14 +188,14 @@ export const register: Register = (on) => {
       name: "gauntlet",
       description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], or /gauntlet deliver <run-id>; --help for the rest",
     })
-    inflightKey = `inflight:${await $.session.id()}`
-    await reportLostRun($)
+    await recoverLostRun(ports, sessionId)
+    startClock($)
     return started
   })
 
   on("ui.render", { component: "AbovePrompt" }, ($, e, next) => {
     const view = engine?.view()
-    if (view === undefined || dismissed || e.props.hasSurvey) return next(e)
+    if (view === undefined || view.startedAt === dismissed || e.props.hasSurvey) return next(e)
     return renderStrip(view, $.ui.resolve(e), { surface: e.surface, columns: e.props.bodyColumns }, Date.now(), {
       stop: () => {
         void engine?.cancel().then((cancelled) => log($, `stop pressed: ${String(cancelled)}`))
@@ -431,7 +204,7 @@ export const register: Register = (on) => {
         void openDossier($, path)
       },
       dismiss: () => {
-        dismissed = true
+        dismissed = view.startedAt
         $.ui.invalidate("ui.render")
       },
     })
@@ -439,32 +212,29 @@ export const register: Register = (on) => {
 
   // The host labels the answer with the plugin's name already.
   on("command.run", { command: "gauntlet" }, async ($, e) => ({
-    text: await startReview($, { cwd: await $.session.root(), args: e.args }),
+    text: (await session?.start({ cwd: await $.session.root(), args: e.args })) ?? UNLOADED,
   }))
 
   on("tool.call", { tool: "mcp__gauntlet__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
     if (args === undefined) return { deny: "review takes `args`, a string: the target and flags as /gauntlet takes them." }
-    return { result: await startReview($, { cwd: await $.session.root(), args, agentId: e.agentId }) }
+    return { result: (await session?.start({ cwd: await $.session.root(), args, agentId: e.agentId })) ?? UNLOADED }
   })
 
-  // The main agent's turns (no agentId), so a digest knows whether it would
-  // land in a running turn.
+  // The main agent's turns (turn.start carries no agentId), so a digest knows
+  // whether it would land in a running turn.
   on("turn.start", ($, e, next) => {
-    delivery.turnStarted()
+    session?.turnStarted()
     return next(e)
   })
   on("turn.step", async function* ($, e, next) {
-    if (e.agentId === undefined) delivery.stepped()
+    if (e.agentId === undefined) session?.stepped()
     return yield* next(e)
   })
 
   // Every turn of every loop passes here; only this run's agents are taken.
   on("turn.complete", async ($, e, next) => {
-    if (e.agentId === undefined) {
-      const unread = delivery.turnEnded()
-      if (unread !== undefined) void submit($, unread).then((entered) => entered ? undefined : log($, "unread digest left in the conversation"))
-    }
+    if (e.agentId === undefined) void session?.turnEnded()
     if (engine !== undefined && e.agentId !== undefined) {
       await engine.turnComplete({
         agentId: e.agentId,

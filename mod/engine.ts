@@ -2,7 +2,8 @@
 // in process inside Claude Code. `bun run build-mod` bundles this entry,
 // Effect included, into the plugin's hooks/vendor/engine.js; the hooks
 // module (mod/gauntlet/hooks/register.ts) hands it ports over `$` and relays
-// the hooks' observations. There is no second pipeline: the typed words go to
+// the hooks' observations; the session policy around its runs is
+// mod/session.ts. There is no second pipeline: the typed words go to
 // the syntax the CLI parses too (src/syntax/syntax.ts), and the request to
 // the Run module (src/run/run.ts), which runs Submission, the snapshot
 // worktree, invoke.ts deadlines and corrective turns, the Stages and the run
@@ -15,6 +16,7 @@ import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
+import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
@@ -39,11 +41,10 @@ import type { RunView } from "./strip.ts"
 
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
-export { commandWords, reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
-export type { ReviewRequest } from "../src/run/run.ts"
-export { releaseNotice } from "./release-update.ts"
-export { digestDelivery } from "./digest-delivery.ts"
-export { inputsStamp } from "./stamp.ts"
+export { reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
+export { BUILD_FILE, createSession, recoverLostRun } from "./session.ts"
+export type { Session } from "./session.ts"
+export type { Json } from "effect/Schema"
 export type { ToolsEvent, PublishedAgent } from "./agents.ts"
 
 // What `bun run build-mod` writes beside the bundle as vendor/build.json.
@@ -65,7 +66,25 @@ export interface HttpPort {
   ) => Promise<{ readonly status: number; readonly headers: Record<string, string>; readonly text: string }>
 }
 
-export interface EnginePorts extends PlatformPorts, AgentPorts, HttpPort {}
+export interface EnginePorts extends PlatformPorts, AgentPorts, HttpPort {
+  // The plugin's key-value store of JSON data, kept across sessions and
+  // reloads.
+  readonly store: {
+    readonly get: (key: string) => Promise<Json | undefined>
+    readonly set: (key: string, value: Json) => Promise<void>
+    readonly delete: (key: string) => Promise<void>
+  }
+  readonly toast: (text: string, options?: { readonly timeoutMs?: number }) => void
+  readonly status: (text: string | undefined) => void
+  // The Caller. `send` messages a subagent and `submit` prompts the main
+  // agent, each answering why it did not land, if it did not; `append` adds a
+  // user row to the main agent's conversation, and `row` a transcript row the
+  // person sees and the model does not.
+  readonly send: (agentId: string, text: string) => Promise<string | undefined>
+  readonly submit: (text: string) => Promise<string | undefined>
+  readonly append: (text: string) => Promise<void>
+  readonly row: (line: string) => void
+}
 
 // How a run ended, in the Mod's words.
 export interface RunResult {
