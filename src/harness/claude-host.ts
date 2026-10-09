@@ -17,7 +17,7 @@ import { isClaudeCodeSeat } from "../domain/recipe.ts"
 // invocation logic (deadlines, corrective turns, capture and accounting stay
 // in invoke.ts). The review program runs inside the mod (mod/engine.ts): the
 // core sends Commands out, and the mod's hooks report back what they saw —
-// tool calls, emit arguments and turn endings. Its mutable cells belong to
+// responses, tool calls, emit arguments and turn endings. Its mutable cells belong to
 // the Promise and callback contract of HarnessSession.
 
 export type ClaudeHostCommand =
@@ -42,7 +42,7 @@ export type ClaudeHostCommand =
 // The mod's reports arrive in process, typed by Claude Code's own
 // declarations, so the core takes them as plain types; nothing is decoded.
 
-// A turn's usage as Claude Code's turn.complete reports it.
+// One response's usage as Claude Code's turn.step reports it.
 export interface ClaudeUsage {
   readonly input_tokens: number
   readonly output_tokens: number
@@ -69,9 +69,6 @@ export type ClaudeHostEvent =
 export interface ClaudeTurnEnding {
   readonly reason: "answer" | "aborted" | "refusal" | "error"
   readonly detail?: string | undefined
-  // What an unanswered turn spent before it ended (a stopped agent's
-  // requests still cost); an answered turn reports through message_end.
-  readonly usage?: ClaudeUsage | undefined
 }
 
 export type EmitAnswer =
@@ -79,6 +76,9 @@ export type EmitAnswer =
   | { readonly ok: false; readonly reason: string }
 
 // Claude's stop reasons, mapped onto Pi's vocabulary that invoke.ts reads.
+// A `refusal` ends the invocation as an error. `compaction` cannot arrive:
+// the API answers it only to a request asking to pause after compaction,
+// which Claude Code 2.1.295 never sends.
 const stopReasonOf = (claude: string | null): StopReason => {
   switch (claude) {
     case "end_turn":
@@ -144,11 +144,13 @@ interface Invocation {
   readonly services: Context.Context<never>
   turns: number
   started: boolean
+  // How the prompt's last response stopped, in Pi's words.
+  lastStop: StopReason | undefined
   abortRequested: boolean
   opened: ((error: string | undefined) => void) | undefined
   settle: (() => void) | undefined
-  // An abort settles once Claude Code reports the stopped turn, which
-  // carries what the turn spent.
+  // An abort settles once Claude Code reports the stopped turn, by when
+  // its responses have reported what they spent.
   abortSettled: (() => void) | undefined
 }
 
@@ -213,6 +215,7 @@ export const makeClaudeHost = (
       new Promise<void>((resolve) => {
         invocation.settle = resolve
         invocation.started = false
+        invocation.lastStop = undefined
         const turn = invocation.turns
         invocation.turns += 1
         send({ kind: "prompt", id: invocation.id, text, turn })
@@ -248,6 +251,7 @@ export const makeClaudeHost = (
         const row = reported.usage === null ? ZERO_USAGE : usageRowOf(invocation, reported.usage)
         invocation.usageRows.push(row)
         const stopReason = stopReasonOf(reported.stopReason)
+        invocation.lastStop = stopReason
         dispatch(
           invocation,
           stopReason === "error"
@@ -295,19 +299,26 @@ export const makeClaudeHost = (
     return { ok: true }
   }
 
-  const ended = (id: string, { detail, reason, usage }: ClaudeTurnEnding) => {
+  // Each response reported its own usage, so an ending carries none. An
+  // error or refusal ending is terminal evidence only when the turn's last
+  // response did not already end it: Claude Code ends a turn as an error
+  // after max_tokens responses it gave up retrying (measured on 2.1.295), and
+  // a refusal after the response that stopped on `refusal`. Any other ending
+  // of a prompt that recorded no response (a lost record) is an error too, so
+  // the invocation fails alone rather than settling with no evidence.
+  const ended = (id: string, { detail, reason }: ClaudeTurnEnding) => {
     const invocation = invocations.get(id)
     if (invocation === undefined) return false
     markStarted(invocation)
-    if (usage !== undefined) invocation.usageRows.push(usageRowOf(invocation, usage))
-    if (reason === "error" || reason === "refusal") {
-      if (usage === undefined) invocation.usageRows.push(ZERO_USAGE)
-      dispatch(invocation, {
-        type: "message_end",
-        stopReason: "error",
-        usage: ZERO_USAGE,
-        errorMessage: detail ?? `Claude turn ended: ${reason}`,
-      })
+    const endedByResponse = invocation.lastStop === "length" || invocation.lastStop === "error"
+    const failed = (errorMessage: string) => {
+      invocation.usageRows.push(ZERO_USAGE)
+      dispatch(invocation, { type: "message_end", stopReason: "error", usage: ZERO_USAGE, errorMessage })
+    }
+    if ((reason === "error" || reason === "refusal") && !endedByResponse) {
+      failed(detail ?? `Claude turn ended: ${reason}`)
+    } else if (reason === "answer" && invocation.lastStop === undefined) {
+      failed("Claude Code turn ended with no recorded response")
     } else if (reason === "aborted" && !invocation.abortRequested) {
       // The run did not ask for this stop: a person stopped the subagent.
       dispatch(invocation, { type: "interrupted", reason: "the Claude Code subagent was stopped outside the run" })
@@ -341,6 +352,7 @@ export const makeClaudeHost = (
         services,
         turns: 0,
         started: false,
+        lastStop: undefined,
         abortRequested: false,
         opened: undefined,
         settle: undefined,

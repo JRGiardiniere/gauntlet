@@ -43,8 +43,9 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
   `invoke.ts`'s and applies on both Hosts.
 - **Two plugins.** Claude Code skips the hooks of the plugin that spawned an
   agent, so `gauntlet` (the command and the engine) cannot see its own agents'
-  tool calls. `gauntlet-tools` serves the emit tools with the strict
-  OutputContract decoders, records each agent's tool calls for the engine,
+  tool calls or responses. `gauntlet-tools` serves the emit tools with the strict
+  OutputContract decoders, records each agent's tool calls and responses
+  (Claude's own stop reason and usage, #172) for the engine,
   and fences Read, Grep and Glob to the Run's snapshot. Its agents get no
   shell, no network and no writes.
 - **Agent types are keyed by Seat, tools and system prompt**, so sibling
