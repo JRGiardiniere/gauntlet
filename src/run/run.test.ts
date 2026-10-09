@@ -82,7 +82,7 @@ describe("Run.review", () => {
         "Reviewed",
       ])
       const [started, , , routed, done] = reported
-      expect(started).toMatchObject({ runId: reviewed.runId, lenses: ["fixture-review"] })
+      expect(started).toMatchObject({ runId: reviewed.runId, lenses: ["fixture-review"], skipped: [] })
       expect(routed).toMatchObject({ bugClaims: 1, observations: 1 })
       expect(done).toMatchObject({
         entries: [

@@ -19,6 +19,7 @@ const running: RunView = {
   startedAt: 0,
   endedAt: undefined,
   lenses,
+  skipped: [],
   findersFinished: false,
   routed: undefined,
   activity: [],
@@ -91,6 +92,18 @@ describe("strip", () => {
       "◆ Gauntlet  Find ✓✗●  Pool ○  Verify ○  Judge ○ [ Stop ]\n1:01 · 1 finder still looking · 5 leads so far",
     )
     expect(draw(view, 61_500)).toContain("✓✗◉")
+  })
+
+  it("draws a skipped lens as not run and leaves it out of the finders still looking", () => {
+    const view: RunView = {
+      ...running,
+      lenses: ["absence", "lens-b"],
+      skipped: [{ lens: "lens-c", reason: "no fixture manifest" }],
+      activity: [finder("absence", "answered", 5), finder("lens-b", "answered", 18)],
+    }
+    expect(draw(view, 61_000)).toBe(
+      "◆ Gauntlet  Find ✓✓⊘  Pool ○  Verify ○  Judge ○ [ Stop ]\n1:01 · 0 finders still looking · 23 leads so far · not run: lens-c (no fixture manifest)",
+    )
   })
 
   it("shows the Review Priority counts with Open dossier and Dismiss once finished", () => {

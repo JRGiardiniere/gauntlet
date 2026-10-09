@@ -5,11 +5,22 @@ import type { CoverageGap } from "../domain/dossier.ts"
 import type { DossierEntryTag } from "../render/dossier-view.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
 
+export interface SkippedLens {
+  readonly lens: string
+  readonly reason: string
+}
+
 // What a Run reports while it runs, as data, for a Host that draws the Run
 // instead of printing it (the Mod's strip) or can lose it mid-run. How it
 // ended is the Run module's answer; the CLI prints its lines and ignores these.
 export type RunMilestone = Data.TaggedEnum<{
-  Started: { readonly runId: string; readonly lenses: ReadonlyArray<string> }
+  // The lenses whose Finders run, and the ones the plan froze but skips
+  // with why (selectRunnableFinders), so no Host works out a skip itself.
+  Started: {
+    readonly runId: string
+    readonly lenses: ReadonlyArray<string>
+    readonly skipped: ReadonlyArray<SkippedLens>
+  }
   // The directory the Run's frozen snapshot is made in, reported once it
   // exists and before the snapshot does. The Run removes it as it ends; a
   // Host that loses the Run before then removes it whole.

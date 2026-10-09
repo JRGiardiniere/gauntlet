@@ -6,6 +6,7 @@ import * as Logger from "effect/Logger"
 import { assembleDossier } from "../assembly/dossier.ts"
 import { routeFinderResults } from "../assembly/finders.ts"
 import { Dossier } from "../domain/dossier.ts"
+import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { renderDigest } from "../render/digest.ts"
 import { viewDossier } from "../render/dossier-view.ts"
@@ -39,9 +40,11 @@ export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
   yield* Console.error(`gauntlet: run ${plan.runId}`)
+  const selection = selectRunnableFinders(plan)
   yield* reportMilestone(RunMilestone.Started({
     runId: plan.runId,
-    lenses: plan.lenses.map((lens) => lens.name),
+    lenses: selection.runnable.map((lens) => lens.name),
+    skipped: selection.skipped.map(({ lens, reason }) => ({ lens: lens.name, reason })),
   }))
   return yield* Effect.scoped(
     Effect.gen(function* () {
