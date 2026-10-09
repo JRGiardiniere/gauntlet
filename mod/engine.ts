@@ -10,7 +10,6 @@
 // record exactly as the CLI's review does. Only the platform services, the
 // HarnessSession adapter and the wording of what comes back differ.
 import * as Cause from "effect/Cause"
-import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -204,6 +203,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     let pending = ""
     let answer: Omit<RunResult, "seconds"> | undefined
     const startedAt = Date.now()
+    const elapsed = () => Math.round((Date.now() - startedAt) / 1000)
     const shown: Progress = {
       startedAt,
       endedAt: undefined,
@@ -280,15 +280,9 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
                 ? Effect.sync(() => {
                   answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
                 })
-                : Clock.currentTimeMillis.pipe(
-                  Effect.map((now) =>
-                    posting({
-                      verdict: "review finished",
-                      digest: reviewed.digest,
-                      notes: [],
-                      seconds: Math.round((now - startedAt) / 1000),
-                    })
-                  ),
+                : Effect.sync(() =>
+                  posting({ verdict: "review finished", digest: reviewed.digest, notes: [], seconds: elapsed() })
+                ).pipe(
                   Effect.andThen(Run.deliver(reviewed.runId)),
                   Effect.match({
                     onSuccess: (receipt) => ({ verdict: "delivered", notes: [`posted ${receipt.url}`] }),
@@ -359,7 +353,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         if (progress === shown) {
           progress = { ...shown, endedAt: Date.now(), exitCode: failed || shown.refusal !== undefined ? 1 : 0 }
         }
-        const seconds = Math.round((Date.now() - startedAt) / 1000)
+        const seconds = elapsed()
         if (Exit.isFailure(exit)) {
           const cancelled = Cause.hasInterruptsOnly(exit.cause)
           // Only a local review interrupted as it finished has a digest

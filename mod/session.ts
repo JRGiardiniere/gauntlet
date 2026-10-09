@@ -186,10 +186,17 @@ export const createSession = (
         .catch((error) => ports.log(`delivery failed to finish: ${String(error)}`))
       return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
     }
-    const notice = checkForUpdate().catch((error) => {
+    // The update notice rides on the run's first message: a posting review's
+    // digest, or else its ending.
+    let unsaid: Promise<string | undefined> | undefined = checkForUpdate().catch((error) => {
       ports.log(`update check failed: ${String(error)}`)
       return undefined
     })
+    const notice = () => {
+      const taken = unsaid ?? Promise.resolve(undefined)
+      unsaid = undefined
+      return taken
+    }
     // The review runs where its words say (`--repo`), and its marker is down
     // before its ending clears it; a failed marker write only logs.
     const marked = run.request.then(async (review) => {
@@ -197,22 +204,18 @@ export const createSession = (
       await mark({ startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
       ticking = { cwd: review.directory, marked: "" }
     })
-    // A review that posts hands off its digest, with the update notice, while
-    // it still holds the session; the post's outcome follows it on its own.
+    // A review that posts hands off its digest while it still holds the
+    // session; the post's outcome follows it on its own.
     const digestSent = run.reviewed.then(async (result) => {
-      if (result === undefined) return false
+      if (result === undefined) return
       await marked
-      await answer(result, request, notice)
-      return true
-    }).catch((error) => {
-      ports.log(`digest failed to send: ${String(error)}`)
-      return false
-    })
+      await answer(result, request, notice())
+    }).catch((error) => ports.log(`digest failed to send: ${String(error)}`))
     void run.ended.then(async (result) => {
       await marked
       await release()
-      const sent = await digestSent
-      await answer(result, request, sent ? Promise.resolve(undefined) : notice)
+      await digestSent
+      await answer(result, request, notice())
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
