@@ -61,11 +61,6 @@ export const ConfigHost = Context.Reference<Host>("gauntlet/ConfigHost", {
   defaultValue: () => "cli",
 })
 
-// How a Host's person runs `config`, for the repairs its messages name.
-export const configCommandName = Effect.fn("Settings.configCommandName")(function* () {
-  return (yield* ConfigHost) === "mod" ? "/gauntlet config" : "gauntlet config"
-})
-
 const configDirectory = Effect.fn("Settings.configDirectory")(function* () {
   const path = yield* Path.Path
   const home = yield* gauntletHome()

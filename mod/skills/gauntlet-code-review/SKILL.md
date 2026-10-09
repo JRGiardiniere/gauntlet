@@ -75,13 +75,15 @@ the Gauntlet CLI's. The review tool with `args` `config` answers at once with
 them: the settings, the Default Recipe and every recipe, each invalid one with
 why.
 
-- To change the default ("make high my default"): `config set default-recipe high`.
+- To change the default ("make high my default"), set `"default-recipe"` in
+  `~/.gauntlet/mod/settings.json` to one of its recipes, keeping the file's
+  other keys.
 - A recipe is one JSON file in `~/.gauntlet/mod/recipes/`, named for the
   recipe, with a `default` Seat and optional `finders`,
   `interpretive-finders`, `pool`, `verification` and `judgment` overrides.
   Seats are `claude-code/<model>:<effort>`: `{"default":"claude-code/opus:medium"}`.
-  After writing or editing one, run `config` and fix anything it lists as
-  invalid.
+  After editing settings or a recipe, run `config` and fix anything it
+  lists as invalid.
 
 ## While it runs
 

@@ -140,7 +140,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "`args` is the /gauntlet syntax, the same as the CLI's `gauntlet review`: a target, which is nothing for the uncommitted changes, a pull request number, or a commit range as git takes it (`main` for the commits since its merge-base, `abc123..def456`, `abc~1..abc` for one commit; add `--working-tree` to `main` to include uncommitted edits); " +
     "then `--repo <path>` to review another local checkout (absolute, `~/…`, or from the session's folder; a pull request number then names that repository's PR), `--recipe <name>` for the models and effort (left out, the configured default), `--lenses a,b`, `--spec <markdown file outside the repo>`, `--no-related-files`, `--destination pr` to also post the report as a comment on the pull request (only when the person asks). " +
     "`deliver <run-id>` posts a finished pull-request review's report on its pull request instead (only when the person asks). " +
-    "`config` answers at once with the Mod's settings and recipes (~/.gauntlet/mod), each invalid recipe with why; `config set default-recipe <name>` changes the default. " +
+    "`config` answers at once with the Mod's settings and recipes (~/.gauntlet/mod), each invalid recipe with why. " +
     (recipes.length === 0
       ? "No recipes are installed."
       : `Recipes: ${recipes.join(", ")}; when the person names an effort ("gauntlet high"), pass the recipe here that matches it.`),

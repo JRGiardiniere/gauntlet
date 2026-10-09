@@ -20,7 +20,7 @@ import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
-import { configCommand } from "../src/cli/config.ts"
+import { printConfiguration } from "../src/cli/config.ts"
 import { isFreshConfig, writeInitialConfig } from "../src/config/initial-config.ts"
 import { availableRecipeNames, listRecipes } from "../src/config/recipe-catalog.ts"
 import { ConfigHost } from "../src/config/settings.ts"
@@ -390,25 +390,26 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       return availableRecipeNames(yield* listRecipes())
     }).pipe(Effect.provideService(ConfigHost, "mod"), Effect.provide(platformLayer(ports)), Effect.runPromise)
 
-  // `/gauntlet config …`: the CLI's config command over the Mod's own settings
-  // and catalog, answered at once; it starts no run.
+  // `/gauntlet config`: the CLI's bare config listing over the Mod's own
+  // settings and catalog, answered at once; it starts no run. Settings change
+  // by editing the Mod's files, so its other words only get that pointer.
   const config = (request: { readonly words: ReadonlyArray<string>; readonly cwd: string }): Promise<string> => {
     let printed = ""
-    const gauntlet = Command.make("gauntlet").pipe(Command.withSubcommands([configCommand]))
-    return Command.runWith(gauntlet, { version: build.stamp.slice(0, 12) })(request.words).pipe(
+    return printConfiguration().pipe(
       Effect.as(""),
-      Effect.catchTags({
-        ShowHelp: (help) => Effect.succeed(help.errors.map((error) => error.message).join("; ")),
-        ConfigCommandError: (failure) => Effect.succeed(`could not configure — ${failure.reason}`),
-      }),
-      Effect.catch((failure) => Effect.succeed(`could not configure — ${String(failure)}`)),
-      Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [GlobalFlag.Help] })),
+      Effect.catch((failure) => Effect.succeed(`could not list the configuration — ${String(failure)}`)),
       Effect.provideService(InvocationDirectory, request.cwd),
       Effect.provideService(ConfigHost, "mod"),
       Effect.provide(platformLayer({ ...ports, stdout: (text) => {
         printed += text
       } })),
-      Effect.map((failed) => [printed.trim(), failed].filter((text) => text !== "").join("\n")),
+      Effect.map((failed) =>
+        [
+          request.words.length > 1 ? "/gauntlet config only lists; edit ~/.gauntlet/mod/settings.json or its recipes/ to change them." : "",
+          printed.trim(),
+          failed,
+        ].filter((text) => text !== "").join("\n")
+      ),
       Effect.runPromise,
     )
   }
