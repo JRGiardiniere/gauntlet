@@ -432,6 +432,20 @@ describe("digest rendering", () => {
     )
   })
 
+  it("names the lenses skipped by design on one line, and prints none when every lens ran", () => {
+    expect(lines).toContain("Not run: spec-conformance (no ReviewSpecification)")
+    const everyLensRan = renderDigest(
+      ReviewPlan.make({
+        ...plan,
+        lenses: plan.lenses.filter(({ name }) => name !== "spec-conformance"),
+      }),
+      dossier,
+      accounting,
+      paths,
+    )
+    expect(everyLensRan).not.toContain("Not run:")
+  })
+
   it("adds a tool-health line only for an error cascade", () => {
     expect(digest).not.toContain("tool health:")
     expect(renderDigest(plan, dossier, quietToolAccounting, paths)).not.toContain(

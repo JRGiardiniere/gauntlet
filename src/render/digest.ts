@@ -1,4 +1,5 @@
 import type { Dossier } from "../domain/dossier.ts"
+import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import {
@@ -87,10 +88,18 @@ export const renderDigest = (
       `tool health: ${describeFinderToolHealth(accounting.finderToolHealth)}`,
     )
     : undefined
+  // A lens that doesn't apply is skipped by design, not missing work, so it
+  // is named apart from the coverage gaps: otherwise only dossier.md says it
+  // never ran.
+  const skipped = selectRunnableFinders(plan).skipped
+  const notRun = skipped.length === 0
+    ? undefined
+    : `Not run: ${skipped.map(({ lens, reason }) => `${lens.name} (${reason})`).join(", ")}`
   return [
     tally,
     ...(coverageGaps === undefined ? [] : [coverageGaps]),
     ...(toolHealth === undefined ? [] : [toolHealth]),
+    ...(notRun === undefined ? [] : [notRun]),
     ...surviving,
     "",
     `dossier.md: ${paths.dossierMarkdown}`,
