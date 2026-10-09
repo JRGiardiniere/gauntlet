@@ -25,6 +25,9 @@ export interface RunView {
   readonly result: Extract<RunMilestone, { readonly _tag: "Reviewed" }> | undefined
   // Why the review could not run, in the Mod's words.
   readonly refusal: string | undefined
+  // A pull-request review's post: under way, then where it landed or why it
+  // did not.
+  readonly post: { readonly state: "posting" | "posted" | "failed"; readonly text: string } | undefined
 }
 
 type StripChildren<N> = N | string | ReadonlyArray<N>
@@ -274,6 +277,15 @@ export const renderStrip = <N>(
         children: [
           Text({ dimColor: true, wrap: "truncate-end", children: `${elapsed} · ${status}` }),
           ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
+          ...(view.post === undefined || view.result === undefined
+            ? []
+            : [
+              Text({
+                ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }),
+                wrap: "truncate-end",
+                children: ` · ${view.post.text.split("\n")[0] ?? ""}`,
+              }),
+            ]),
         ],
       }),
     ],

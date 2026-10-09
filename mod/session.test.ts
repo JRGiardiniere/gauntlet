@@ -32,7 +32,6 @@ const REVIEW: ReviewRequest = {
 const FINISHED: RunResult = { verdict: "review finished", digest: "1 finding\nfixture.ts:3", notes: [], seconds: 3 }
 const DIGEST = "gauntlet review finished:\n\n1 finding\nfixture.ts:3"
 const POSTED: RunResult = { verdict: "delivered", digest: "", notes: ["posted https://github.com/o/r/pull/7#c"], seconds: 9 }
-const OUTCOME = "gauntlet: posted https://github.com/o/r/pull/7#c"
 
 // The engine's slice the session drives, scripted: the test parses each
 // started run's words into a review, hands off a posting review's digest and
@@ -88,7 +87,6 @@ const makeSession = (options: {
   const sent: Array<string> = []
   const submitted: Array<string> = []
   const appended: Array<string> = []
-  const rows: Array<string> = []
   let deletes = 0
   const build: BuildInfo = { stamp: "", files: 0, repoRoot: "/gauntlet", builtAt: "", bun: "bun", prices: {} }
   const ports: Parameters<typeof createSession>[0] & Parameters<typeof recoverLostRun>[0] = {
@@ -128,7 +126,6 @@ const makeSession = (options: {
     append: async (text) => {
       appended.push(text)
     },
-    row: (line) => rows.push(line),
   }
   const { engine, runs, working } = makeEngine(options.polled ?? Promise.resolve())
   const session = createSession(ports, engine, { build, pluginRoot: "/plugins/gauntlet", sessionId: "session-1" })
@@ -162,7 +159,6 @@ const makeSession = (options: {
     sent,
     submitted,
     appended,
-    rows,
     get deletes() {
       return deletes
     },
@@ -225,7 +221,7 @@ describe("the Mod's session", () => {
     expect(mod.store.has(MARKER)).toBe(false)
   })
 
-  it("hands off a posting review's digest before its post ends, holding the session until the post does", async () => {
+  it("hands off a posting review's digest before its post ends, holding the session until the post does and saying nothing more", async () => {
     const submitting = held()
     const mod = makeSession({ submitted: submitting.gate })
     const run = await mod.review({ cwd: "/repo", args: "--pr 7 --destination pr" })
@@ -237,14 +233,13 @@ describe("the Mod's session", () => {
     expect(mod.store.has(MARKER)).toBe(true)
 
     // The post's ending gives the session back though the digest is still on
-    // its way, and its outcome follows the digest.
+    // its way; its outcome is the strip's alone.
     run.end(POSTED)
     await until(() => !mod.store.has(MARKER))
-    expect([mod.store.has(MARKER), mod.submitted]).toEqual([false, [DIGEST]])
     submitting.release()
-    await until(() => mod.submitted.length === 2)
+    await settle()
 
-    expect(mod.submitted[1]).toBe(OUTCOME)
+    expect([mod.submitted, mod.appended]).toEqual([[DIGEST], []])
   })
 
   it("reports a lost review at session start, stopping its agents and removing its snapshot", async () => {
@@ -275,7 +270,7 @@ describe("the digest's way to its Caller", () => {
     await until(() => mod.sent.length === 1)
 
     expect(mod.sent).toEqual([`agent-9: ${DIGEST}`])
-    expect([mod.submitted, mod.appended, mod.rows]).toEqual([[], [], ["1 finding", "fixture.ts:3"]])
+    expect([mod.submitted, mod.appended]).toEqual([[], []])
   })
 
   it("wakes the main agent when the subagent cannot be reached", async () => {
@@ -302,20 +297,6 @@ describe("the digest's way to its Caller", () => {
     expect(mod.submitted).toEqual([DIGEST])
   })
 
-  it("submits at the turn's end both a posting review's digest and its post's outcome", async () => {
-    const mod = makeSession()
-    mod.session.turnStarted()
-    mod.session.stepped()
-    const run = await mod.review({ cwd: "/repo", args: "--pr 7 --destination pr" })
-    run.post(FINISHED)
-    run.end(POSTED)
-    await until(() => mod.appended.length === 2)
-
-    await mod.session.turnEnded()
-
-    expect(mod.submitted).toEqual([`${DIGEST}\n\n${OUTCOME}`])
-  })
-
   it("leaves to the turn a digest that a later step read", async () => {
     const mod = makeSession()
     mod.session.turnStarted()
@@ -335,6 +316,6 @@ describe("the digest's way to its Caller", () => {
     run.end(FINISHED)
     await until(() => mod.appended.length === 1)
 
-    expect([mod.submitted, mod.appended, mod.rows]).toEqual([[DIGEST], [DIGEST], ["1 finding", "fixture.ts:3"]])
+    expect([mod.submitted, mod.appended]).toEqual([[DIGEST], [DIGEST]])
   })
 })

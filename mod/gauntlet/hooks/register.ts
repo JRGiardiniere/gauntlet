@@ -41,6 +41,8 @@ let drawn = ""
 let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
+// Every agent this session's runs spawned.
+const spawned = new Set<string>()
 const loadedAt = Date.now()
 
 const modDir = () => `${home}/.gauntlet/mod`
@@ -74,7 +76,11 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     register: async (spec) => {
       await $.agent.register(spec)
     },
-    spawn: (request) => $.agent.spawn(request),
+    spawn: async (request) => {
+      const answer = await $.agent.spawn(request)
+      if (answer.agentId !== undefined) spawned.add(answer.agentId)
+      return answer
+    },
     resume: async (agentId, message) => {
       const sent = await $.tool.call({ tool: "SendMessage", to: agentId, message, summary: "Gauntlet corrective turn" })
       if (sent.deny !== undefined) return sent.deny
@@ -109,7 +115,6 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     append: async (text) => {
       await $.session.append({ message: { type: "user", content: [{ type: "text", text }] } })
     },
-    row: (line) => $.ui.log(line),
   }
 }
 
@@ -246,6 +251,17 @@ export const register: Register = (on) => {
       })
     }
     return next(e)
+  })
+
+  // A run's agent that ends its turn messages the main conversation as a
+  // peer, which shows a row and wakes the main agent; the engine reads its
+  // answer at turn.complete, so its message is dropped. One can arrive after
+  // its run ended, so the session keeps every id it spawned.
+  on("prompt.submit", { origin: { kind: "peer" } }, ($, e, next) => {
+    const from = /^<agent-message from="([^"]+)">/.exec(e.text)?.[1]
+    if (from === undefined || !spawned.has(from)) return next(e)
+    log($, `dropped ${from}'s hand-back`)
+    return { drop: "a Gauntlet agent's hand-back" }
   })
 
   // This mod's own resume and stop calls need no prompt.

@@ -84,7 +84,7 @@ export const recoverLostRun = async (
 export const createSession = (
   ports: Pick<
     EnginePorts,
-    "run" | "read" | "log" | "store" | "toast" | "status" | "send" | "submit" | "append" | "row"
+    "run" | "read" | "log" | "store" | "status" | "send" | "submit" | "append"
   >,
   engine: Pick<Engine, "start" | "config" | "running" | "poll" | "standardsManifest">,
   options: { readonly build: BuildInfo; readonly pluginRoot: string; readonly sessionId: string },
@@ -207,17 +207,21 @@ export const createSession = (
       ticking = { cwd: review.directory, marked: "" }
     })
     // A review that posts hands off its digest while it still holds the
-    // session; the post's outcome follows it on its own.
+    // session; the post's outcome is the strip's alone.
     const digestSent = run.reviewed.then(async (result) => {
-      if (result === undefined) return
+      if (result === undefined) return false
       await marked
       await answer(result, request, notice())
-    }).catch((error) => ports.log(`digest failed to send: ${String(error)}`))
+      return true
+    }).catch((error) => {
+      ports.log(`digest failed to send: ${String(error)}`)
+      return false
+    })
     void run.ended.then(async (result) => {
       await marked
       await release()
-      await digestSent
-      await answer(result, request, notice())
+      if (await digestSent) ports.log(`run ${result.verdict} after ${String(result.seconds)}s: ${result.notes.join("; ")}`)
+      else await answer(result, request, notice())
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
@@ -265,52 +269,37 @@ export const createSession = (
   const answer = async (result: RunResult, request: StartRequest, notice: Promise<string | undefined>) => {
     const { digest, verdict } = result
     ports.log(`run ${verdict} after ${String(result.seconds)}s`)
-    ports.toast(`gauntlet: ${verdict} after ${String(result.seconds)}s`)
     // The update probe gets a second more, as the CLI's notice does; a slow one
     // never holds back a finished review.
     const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
     const said = [...result.notes, ...(update === undefined ? [] : [update])]
     // Without a digest, the notes say what happened; the verdict stands in
     // only when there are none (a cancelled run).
-    const shown = digest !== "" ? [...digest.split("\n"), ...said] : result.notes.length === 0 ? [verdict, ...said] : said
     const text = digest === ""
-      ? `gauntlet: ${shown.join("\n")}`
+      ? `gauntlet: ${(result.notes.length === 0 ? [verdict, ...said] : said).join("\n")}`
       : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
-    await handOff(text, shown, request.agentId)
+    await handOff(text, request.agentId)
   }
 
   // A subagent that started the review gets its digest as a message, which
   // reaches it between tool calls or resumes it once it has stopped; when it
-  // cannot be reached, the main agent gets it. A submitted prompt shows the
-  // person its text; an appended row or a subagent's message is the model's
-  // alone, so the person gets transcript rows, one per line (a row draws no
-  // line breaks).
-  const handOff = async (text: string, shown: ReadonlyArray<string>, agentId: string | undefined) => {
+  // cannot be reached, the main agent gets it. The person's view of the
+  // ending is the strip: only a submitted prompt also shows them the text.
+  const handOff = async (text: string, agentId: string | undefined) => {
     if (agentId !== undefined) {
       const refused = await ports.send(agentId, text).catch((error) => String(error))
-      if (refused === undefined) {
-        showRows(shown)
-        return
-      }
+      if (refused === undefined) return
       ports.log(`digest not sent to ${agentId}: ${refused}`)
     }
     if (!busy && (await submit(text))) return
     // Busy now (or since a dropped submit), the main agent reads the append at
-    // its next step, or its turn's end submits it, after any message still
-    // unread before it (a posting review's digest).
+    // its next step, or its turn's end submits it.
     if (busy) unread = unread === undefined ? text : `${unread}\n\n${text}`
-    showRows(shown)
     await ports.append(text).catch((error) => ports.log(`append failed: ${String(error)}`))
   }
 
-  const showRows = (shown: ReadonlyArray<string>) => {
-    for (const line of shown) {
-      if (line.trim() !== "") ports.row(line)
-    }
-  }
-
-  // Whether the prompt entered; a dropped one leaves the digest to the rows and
-  // an appended message.
+  // Whether the prompt entered; a dropped one leaves the digest to an appended
+  // message.
   const submit = async (text: string): Promise<boolean> => {
     const dropped = await ports.submit(text).catch((error) => String(error))
     if (dropped === undefined) return true
