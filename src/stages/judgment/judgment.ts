@@ -1,6 +1,6 @@
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import { describeMissingOutput } from "../../domain/agent-outcome.ts"
+import { describeMissingOutput } from "../../assembly/outcome.ts"
 import type { Observation } from "../../domain/candidate.ts"
 import type {
   CoverageGap,

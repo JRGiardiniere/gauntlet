@@ -1,4 +1,7 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import * as HashMap from "effect/HashMap"
+import * as Result from "effect/Result"
 import { formatCandidateLine } from "../../content/candidate-line.ts"
 import { isCompiledBinary } from "../../content/lens.ts"
 import {
@@ -43,16 +46,20 @@ export const loadVerifierPromptTemplates = Effect.fn(
 const verifierClaims = (
   bundle: ReadonlyArray<NumberedPoolCluster>,
   claims: ReadonlyArray<IndexedBugClaim>,
-): string =>
-  bundle.map((cluster) => {
-    const members = cluster.indexes
-      .flatMap((index) => claims.filter((claim) => claim.index === index))
+): string => {
+  const byIndex = HashMap.fromIterable(
+    Array.map(claims, (claim) => [claim.index, claim] as const),
+  )
+  return bundle.map((cluster) => {
+    const members = Array.filterMap(cluster.indexes, (index) =>
+      Result.fromOption(HashMap.get(byIndex, index), () => undefined))
       .map((claim) =>
         formatCandidateLine(claim).split("\n").map((line) => `  ${line}`).join("\n")
       )
       .join("\n")
     return `### [c${String(cluster.number)}] ${cluster.summary}\n${members}`
   }).join("\n\n")
+}
 
 export const assembleVerifierPrompt = (
   templates: VerifierPromptTemplates,

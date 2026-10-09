@@ -10,7 +10,7 @@ import {
   readPromptTemplate,
   renderPromptTemplate,
 } from "../../content/prompt-template.ts"
-import { describeMissingOutput } from "../../domain/agent-outcome.ts"
+import { describeMissingOutput } from "../../assembly/outcome.ts"
 import type { BugClaim } from "../../domain/candidate.ts"
 import type { CoverageGap } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"

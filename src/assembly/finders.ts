@@ -1,8 +1,5 @@
 import * as Array from "effect/Array"
-import {
-  type AgentOutcome,
-  describeMissingOutput,
-} from "../domain/agent-outcome.ts"
+import type { AgentOutcome } from "../domain/agent-outcome.ts"
 import {
   type BugClaim,
   Candidate,
@@ -11,6 +8,7 @@ import {
 import type { CoverageGap } from "../domain/dossier.ts"
 import type { FrozenLens } from "../domain/review-plan.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
+import { describeMissingOutput } from "./outcome.ts"
 
 export interface FinderResult {
   readonly lens: FrozenLens
