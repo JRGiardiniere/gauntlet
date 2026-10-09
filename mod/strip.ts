@@ -1,18 +1,20 @@
 // The Mod's strip: a review in flight, drawn above the prompt by the hooks
 // module's `ui.render` hook on `AbovePrompt`. Line 1 is each stage with one
-// mark per agent; line 2, always there, is the elapsed time and what the run
-// is doing in plain words. Once the dossier is written, line 1 is its Review
+// mark per agent, and one per lens skipped by design; line 2, always there,
+// is the elapsed time and what the run is doing in plain words. Once the dossier is written, line 1 is its Review
 // Priority counts with Open dossier and Dismiss. Counts come from the Run's
 // milestones and the agent driver's activity, never from progress text; no
 // dollar or cache figure shows.
-import type { RunMilestone } from "../src/run/run-milestones.ts"
+import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
 import type { AgentActivity } from "./agents.ts"
 
 export interface RunView {
   readonly startedAt: number
   readonly endedAt: number | undefined
-  // The Finders the run's plan froze, from Started.
+  // The lenses whose Finders run, and the ones skipped by design with why,
+  // from Started.
   readonly lenses: ReadonlyArray<string>
+  readonly skipped: ReadonlyArray<SkippedLens>
   readonly findersFinished: boolean
   // What the Finders' candidates became: BugClaims for Verification,
   // Observations for Judgment.
@@ -223,7 +225,10 @@ export const renderStrip = <N>(
       const states = stage === "Finders"
         ? view.lenses.map((lens) => ran.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state)
         : ran.map((each) => each.state)
-      if (states.length === 0) {
+      // A skipped lens never runs, so it is drawn after the rest, apart from
+      // the ones still to start.
+      const notRun = stage === "Finders" ? view.skipped.map(() => Text({ dimColor: true, children: "⊘" })) : []
+      if (states.length === 0 && notRun.length === 0) {
         cells.push(Text({ dimColor: true, children: "○" }))
         return
       }
@@ -241,9 +246,14 @@ export const renderStrip = <N>(
             : Text({ dimColor: true, children: "○" }),
         )
       }
+      cells.push(...notRun)
     })
     buttons.push(Button({ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }))
-    status = doing(view)
+    // Why a lens is not run goes after what the run is doing, so a narrow
+    // band truncates it first.
+    status = view.skipped.length === 0
+      ? doing(view)
+      : `${doing(view)} · not run: ${view.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`
   }
   return Box({
     flexDirection: "column",

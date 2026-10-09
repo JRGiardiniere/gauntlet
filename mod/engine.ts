@@ -203,6 +203,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       startedAt,
       endedAt: undefined,
       lenses: [],
+      skipped: [],
       findersFinished: false,
       routed: undefined,
       exitCode: undefined,
@@ -225,6 +226,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         switch (milestone._tag) {
           case "Started": {
             shown.lenses = milestone.lenses
+            shown.skipped = milestone.skipped
             if (current !== undefined) current.runId = milestone.runId
             return
           }
