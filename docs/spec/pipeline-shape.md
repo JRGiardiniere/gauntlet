@@ -1,8 +1,9 @@
 # Pipeline shape
 
-The frozen two-path review pipeline, as specification. Prompts and lenses live
-in `content/`; this file is the ordering, routing, and assembly policy ported
-from the old reviewer and restated in CONTEXT.md terms.
+The frozen two-path review pipeline, as specification. Lenses and finder
+prompts live in `content/`, the other Stages' templates with their Stage
+modules in `src/stages/`; this file is the ordering, routing, and assembly
+policy ported from the old reviewer and restated in CONTEXT.md terms.
 
 ## Stages
 
