@@ -200,7 +200,8 @@ export const createSession = (
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
-    return `review started (${words.slice(1).join(" ")}${review.directory === request.cwd ? "" : ` in ${review.directory}`}); progress shows above the prompt, and the digest arrives as a message when it finishes.` +
+    const target = words.slice(1).join(" ")
+    return `review started${target === "" ? "" : ` (${target})`}${review.directory === request.cwd ? "" : ` in ${review.directory}`}; progress shows above the prompt, and the digest arrives as a message when it finishes.` +
       (await standardsNote(review))
   }
 

@@ -196,6 +196,7 @@ describe("the Mod's session", () => {
     const polling = held()
     const mod = makeSession({ polled: polling.gate })
     const run = await mod.review({ cwd: "/repo", args: "" })
+    expect(run.answer).toMatch(/^review started; progress shows/)
     await until(() => mod.store.has(MARKER))
     mod.working()?.agentIds.push("agent-1")
 
