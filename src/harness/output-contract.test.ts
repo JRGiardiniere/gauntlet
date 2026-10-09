@@ -5,8 +5,6 @@ import { Candidate } from "../domain/candidate.ts"
 import {
   decodeOutputContract,
   EmitFindings,
-  EmitPool,
-  EmitVerdicts,
   projectOutputContract,
 } from "./output-contract.ts"
 
@@ -17,10 +15,6 @@ describe("output contracts", () => {
       const sentinels = [
         [EmitFindings, "as it appears in the changed-file list"],
         [EmitFindings, "Do not copy source or invent references"],
-        [EmitPool, "must appear in exactly one cluster"],
-        [EmitVerdicts, "Slice silence alone never lowers priority"],
-        [EmitVerdicts, "include that reasoning on the same line"],
-        [EmitVerdicts, "Never generated test source or shell commands"],
       ] as const
       for (const [contract, sentinel] of sentinels) {
         const document = projectOutputContract(contract)
@@ -80,11 +74,6 @@ describe("output contracts", () => {
           failure_scenario: "empty input throws",
         },
       ])
-
-      const pool = yield* decodeOutputContract(EmitPool)({
-        clusters: [{ indexes: [1], summary: "canonical\nsummary" }],
-      })
-      expect(pool.clusters[0]?.summary).toBe("canonical summary")
     }))
 
   it.effect("preserves source references through the output and Candidate codecs", () =>
@@ -113,7 +102,7 @@ describe("output contracts", () => {
       }
     }))
 
-  it.effect("fails closed on excess fields and conditional verdict fields", () =>
+  it.effect("fails closed on excess fields", () =>
     Effect.gen(function* () {
       const findingsFailure = yield* Effect.flip(
         decodeOutputContract(EmitFindings)({
@@ -123,89 +112,5 @@ describe("output contracts", () => {
         }),
       )
       expect(findingsFailure._tag).toBe("SchemaError")
-
-      const verdictFailure = yield* Effect.flip(
-        decodeOutputContract(EmitVerdicts)({
-          verdicts: [
-            {
-              cluster: 1,
-              verdict: "CONFIRMED",
-              evidence: "reproduced",
-            },
-          ],
-        }),
-      )
-      expect(verdictFailure._tag).toBe("SchemaError")
-
-      for (const evidence of ["first line\nsecond line", "trailing newline\n"]) {
-        const multilineEvidenceFailure = yield* Effect.flip(
-          decodeOutputContract(EmitVerdicts)({
-            verdicts: [
-              {
-                cluster: 1,
-                verdict: "CONFIRMED",
-                review_priority: "P2",
-                evidence,
-              },
-            ],
-          }),
-        )
-        expect(multilineEvidenceFailure._tag).toBe("SchemaError")
-      }
-
-      const refuted = yield* decodeOutputContract(EmitVerdicts)({
-        verdicts: [
-          { cluster: 1, verdict: "REFUTED", evidence: "guard rejects it" },
-        ],
-      })
-      expect(refuted.verdicts).toHaveLength(1)
-    }))
-
-  // Missing and empty suggestion contents reach deterministic resolution.
-  it.effect("preserves missing and empty test suggestion contents for resolution", () =>
-    Effect.gen(function* () {
-      const decode = decodeOutputContract(EmitVerdicts)
-      const suggested = yield* decode({
-        verdicts: [
-          {
-            cluster: 1,
-            verdict: "CONFIRMED",
-            review_priority: "P1",
-            evidence: "reproduced",
-            test_suggestion: {
-              tests: ["src/a.test.ts"],
-              reason: "covers the boundary",
-            },
-          },
-          {
-            cluster: 2,
-            verdict: "REFUTED",
-            evidence: "guard rejects it",
-            test_suggestion: { tests: [], reason: "" },
-          },
-          {
-            cluster: 3,
-            verdict: "PLAUSIBLE",
-            review_priority: "P3",
-            evidence: "needs runtime state",
-            test_suggestion: {},
-          },
-        ],
-      })
-      expect(suggested.verdicts.map(({ test_suggestion }) => test_suggestion)).toEqual([
-        { tests: ["src/a.test.ts"], reason: "covers the boundary" },
-        { tests: [], reason: "" },
-        {},
-      ])
-    }))
-
-  it.effect("requires non-empty pool clusters", () =>
-    Effect.gen(function* () {
-      const poolFailure = yield* Effect.flip(
-        decodeOutputContract(EmitPool)({
-          clusters: [{ indexes: [], summary: "empty cluster" }],
-        }),
-      )
-      expect(poolFailure._tag).toBe("SchemaError")
     }))
 })

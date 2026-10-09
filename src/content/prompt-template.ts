@@ -1,13 +1,25 @@
 import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
 import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
+import { ContentLoadError } from "./lens.ts"
 
 export class PromptAssemblyError extends Data.TaggedError(
   "PromptAssemblyError",
 )<{ readonly reason: string }> {}
+
+export const readPromptTemplate = Effect.fn("PromptTemplate.read")(function* (
+  path: string,
+) {
+  const fs = yield* FileSystem.FileSystem
+  return yield* fs.readFileString(path).pipe(
+    Effect.mapError((cause) =>
+      new ContentLoadError({ path, reason: "could not read prompt", cause })),
+  )
+})
 
 export const renderPromptTemplate = Effect.fn(
   "gauntlet.prompt_template.render",

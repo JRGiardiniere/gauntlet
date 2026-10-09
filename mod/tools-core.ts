@@ -11,12 +11,12 @@ import * as Schema from "effect/Schema"
 import {
   checkOutputContract,
   EmitFindings,
-  EmitPool,
-  EmitVerdicts,
   type OutputContract,
   projectOutputContract,
 } from "../src/harness/output-contract.ts"
 import { EmitJudgments } from "../src/stages/judgment/output-contract.ts"
+import { EmitPool } from "../src/stages/pool/output-contract.ts"
+import { EmitVerdicts } from "../src/stages/verification/output-contract.ts"
 
 import type { FencedToolInput } from "./fence.ts"
 

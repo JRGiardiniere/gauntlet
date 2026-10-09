@@ -2,24 +2,26 @@ import * as Array from "effect/Array"
 import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
+import * as Order from "effect/Order"
 import * as Result from "effect/Result"
-import type { AgentOutcome } from "../domain/agent-outcome.ts"
+import { describeMissingOutput } from "../../assembly/outcome.ts"
+import type { AgentOutcome } from "../../domain/agent-outcome.ts"
 import type {
   CoverageGap,
   EvaluatedBugClaim,
   TestSuggestion,
-} from "../domain/dossier.ts"
-import { Verdict } from "../domain/verdict.ts"
-import type { VerdictsOutput } from "../harness/output-contract.ts"
+} from "../../domain/dossier.ts"
+import { Verdict } from "../../domain/verdict.ts"
 import type {
-  IndexedBugClaim,
   NumberedPoolCluster,
-} from "./pool.ts"
-import { describeMissingOutput } from "./outcome.ts"
+  PooledBugClaims,
+} from "../pool/pool.ts"
+import type { VerdictsOutput } from "./output-contract.ts"
 
 type ReportedVerdict = VerdictsOutput["verdicts"][number]
 
-export interface VerificationResult {
+// One verifier bundle: the clusters one invocation checked, and its outcome.
+export interface VerifiedBundle {
   readonly bundleNumber: number
   readonly clusters: ReadonlyArray<NumberedPoolCluster>
   readonly outcome: AgentOutcome<VerdictsOutput>
@@ -31,42 +33,47 @@ export interface ResolvedVerification {
   readonly coverageGaps: ReadonlyArray<CoverageGap>
 }
 
+// A bundle's verdicts, each beside its cluster in the bundle's order, once
+// every cluster has exactly one.
 const validateVerdicts = (
-  result: VerificationResult,
-): Result.Result<HashMap.HashMap<number, ReportedVerdict>, string> => {
-  const output = result.outcome.output
+  bundle: VerifiedBundle,
+): Result.Result<
+  ReadonlyArray<readonly [NumberedPoolCluster, ReportedVerdict]>,
+  string
+> => {
+  const output = bundle.outcome.output
   if (output === undefined) {
     return Result.fail(
       describeMissingOutput(
-        `verification bundle ${String(result.bundleNumber)}`,
-        result.outcome,
+        `verification bundle ${String(bundle.bundleNumber)}`,
+        bundle.outcome,
       ),
     )
   }
-  if (output.verdicts.length !== result.clusters.length) {
+  if (output.verdicts.length !== bundle.clusters.length) {
     return Result.fail(
-      `verification bundle ${String(result.bundleNumber)} did not report every cluster exactly once`,
+      `verification bundle ${String(bundle.bundleNumber)} did not report every cluster exactly once`,
     )
   }
 
-  const expected = HashSet.fromIterable(
-    Array.map(result.clusters, ({ number }) => number),
+  const clusterOf = HashMap.fromIterable(
+    Array.map(bundle.clusters, (cluster) => [cluster.number, cluster] as const),
   )
   let seen = HashSet.empty<number>()
-  let byCluster = HashMap.empty<number, ReportedVerdict>()
+  const verified: Array<readonly [NumberedPoolCluster, ReportedVerdict]> = []
   for (const verdict of output.verdicts) {
-    if (
-      !HashSet.has(expected, verdict.cluster) ||
-      HashSet.has(seen, verdict.cluster)
-    ) {
+    const cluster = HashMap.get(clusterOf, verdict.cluster)
+    if (Option.isNone(cluster) || HashSet.has(seen, verdict.cluster)) {
       return Result.fail(
-        `verification bundle ${String(result.bundleNumber)} returned an unknown or duplicate cluster label`,
+        `verification bundle ${String(bundle.bundleNumber)} returned an unknown or duplicate cluster label`,
       )
     }
     seen = HashSet.add(seen, verdict.cluster)
-    byCluster = HashMap.set(byCluster, verdict.cluster, verdict)
+    verified.push([cluster.value, verdict])
   }
-  return Result.succeed(byCluster)
+  return Result.succeed(
+    Array.sortWith(verified, ([cluster]) => cluster.number, Order.Number),
+  )
 }
 
 // The wire schema keeps the optional suggestion content-loose so a bad
@@ -74,7 +81,7 @@ const validateVerdicts = (
 // here: an invalid suggestion is dropped with a diagnostic while every
 // verdict stands.
 const validTestSuggestion = (
-  result: VerificationResult,
+  bundle: VerifiedBundle,
   reported: ReportedVerdict,
 ): Result.Result<
   Option.Option<{ tests: Array.NonEmptyArray<string>; reason: string }>,
@@ -83,7 +90,7 @@ const validTestSuggestion = (
   const suggestion = reported.test_suggestion
   if (suggestion === undefined) return Result.succeed(Option.none())
   const where =
-    `verification bundle ${String(result.bundleNumber)} cluster ${String(reported.cluster)}`
+    `verification bundle ${String(bundle.bundleNumber)} cluster ${String(reported.cluster)}`
   if (reported.verdict === "REFUTED") {
     return Result.fail(
       `${where} attached a test suggestion to a refuted cluster; dropped it`,
@@ -122,13 +129,12 @@ const domainVerdict = (reported: ReportedVerdict): Verdict => {
 // semantically incomplete verdict set therefore cannot partially relabel its
 // clusters; every affected paid claim remains explicitly Plausible.
 export const resolveVerification = (
-  claims: ReadonlyArray<IndexedBugClaim>,
-  clusters: ReadonlyArray<NumberedPoolCluster>,
-  results: ReadonlyArray<VerificationResult>,
+  { claims, clusters }: PooledBugClaims,
+  bundles: ReadonlyArray<VerifiedBundle>,
 ): ResolvedVerification => {
   let byClaim = HashMap.empty<number, Verdict>()
-  // The repaired Pool output places every paid claim in exactly one cluster;
-  // a claim that escaped placement stands alone under its own index.
+  // Pool places every claim in exactly one cluster (it restores any it left
+  // out), so the own-index fallback below only answers the lookup's Option.
   let clusterOfClaim = HashMap.empty<number, number>()
   for (const cluster of clusters) {
     for (const index of cluster.indexes) {
@@ -141,8 +147,8 @@ export const resolveVerification = (
   const coverageGaps: Array<CoverageGap> = []
   const testSuggestions: Array<TestSuggestion> = []
 
-  for (const result of results) {
-    const validated = validateVerdicts(result)
+  for (const bundle of bundles) {
+    const validated = validateVerdicts(bundle)
     if (Result.isFailure(validated)) {
       coverageGaps.push({
         stage: "verification",
@@ -150,16 +156,14 @@ export const resolveVerification = (
       })
       continue
     }
-    for (const cluster of result.clusters) {
-      const reported = HashMap.get(validated.success, cluster.number)
-      if (Option.isNone(reported)) continue
-      const verdict = domainVerdict(reported.value)
+    for (const [cluster, reported] of validated.success) {
+      const verdict = domainVerdict(reported)
       for (const index of cluster.indexes) {
         byClaim = HashMap.set(byClaim, index, verdict)
       }
       // One suggestion per recommending cluster, associated with every
       // cluster-mate's stable id — never once per duplicate claim.
-      const suggestion = validTestSuggestion(result, reported.value)
+      const suggestion = validTestSuggestion(bundle, reported)
       if (Result.isFailure(suggestion)) {
         coverageGaps.push({ stage: "verification", reason: suggestion.failure })
       } else if (Option.isSome(suggestion.success)) {

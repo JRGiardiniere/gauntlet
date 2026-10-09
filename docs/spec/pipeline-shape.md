@@ -1,8 +1,9 @@
 # Pipeline shape
 
-The frozen two-path review pipeline, as specification. Prompts and lenses live
-in `content/`; this file is the ordering, routing, and assembly policy ported
-from the old reviewer and restated in CONTEXT.md terms.
+The frozen two-path review pipeline, as specification. Lenses and finder
+prompts live in `content/`, the other Stages' templates with their Stage
+modules in `src/stages/`; this file is the ordering, routing, and assembly
+policy ported from the old reviewer and restated in CONTEXT.md terms.
 
 ## Stages
 
@@ -33,12 +34,12 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    characters, skipping any file over a quarter of that; the kept set renders
    in path order. Each emits Candidates via
    `emit_findings`.
-2. **Pool** — receives the BugClaims only. Clusters duplicates and bundles
-   clusters for verifiers. May bundle, never delete. Text-only: no file reads,
-   no ReviewSpecification.
-3. **Verification** — one invocation per bundle; adversarial; attaches a
-   Verdict (confirmed / refuted / plausible) plus Review Priority and one-line
-   evidence to each cluster. Receives the frozen ReviewSpecification, when one
+2. **Pool** — receives the BugClaims only. Clusters duplicates. May cluster,
+   never delete. Text-only: no file reads, no ReviewSpecification.
+3. **Verification** — takes Pool's clusters in verifier bundles of 4, one
+   invocation per bundle; adversarial; attaches a Verdict (confirmed /
+   refuted / plausible) and one-line evidence to each cluster, plus Review
+   Priority to a confirmed or plausible one. Receives the frozen ReviewSpecification, when one
    exists, after the scope block and before the claims.
 4. **Judgment** — one invocation, all Observations, decisions by index:
    kept (with Review Priority + reason + finder ratings), dropped (with reason), merged.

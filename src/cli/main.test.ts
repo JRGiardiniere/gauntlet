@@ -199,7 +199,7 @@ describe("gauntlet review", () => {
       expect(finderSystemPrompt).not.toContain(snapshot)
       for (const suffix of ["-verification", "-judgment"] as const) {
         const [prompt = ""] = promptTextsFor(run.scripted, suffix)
-        expect(prompt).toContain(`repo=${REVIEW_WORKSPACE_ROOT}`)
+        expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
         expect(prompt).not.toContain(snapshot)
       }
 
