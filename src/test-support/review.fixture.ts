@@ -14,10 +14,7 @@ import {
   type GitHubIssueComment,
   type PullRequestView,
 } from "../github/github.ts"
-import type {
-  FindingsOutput,
-  VerdictsOutput,
-} from "../harness/output-contract.ts"
+import type { FindingsOutput } from "../harness/output-contract.ts"
 import {
   makeScripted,
   scriptedLayer,
@@ -34,14 +31,17 @@ import {
 } from "../linear/linear.ts"
 import { FinderCacheSettle } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
+import type { VerdictsOutput } from "../stages/verification/output-contract.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { commitAll, makeGitFixture } from "./git.fixture.ts"
 
 // The shared review fixture: a real temp git repository, a temp HOME with
 // settings and a recipe catalog, and a fixture content directory standing in
-// for the shipped Lens catalog and prompt templates, plus scripted Stage
-// sessions. Used by the CLI suite, the Run suite and the Submission suite.
+// for the shipped Lens catalog and the finder and workspace prompts (Pool,
+// Verification and Judgment read their own shipped templates), plus scripted
+// Stage sessions. Used by the CLI suite, the Run suite and the Submission
+// suite.
 
 export interface Fixture {
   readonly repo: string
@@ -112,18 +112,6 @@ export const makeFixture = Effect.gen(function* () {
   yield* fs.writeFileString(
     path.join(content, "prompts", "workspace-pi.md"),
     "fixture workspace tools at {{REPO_ROOT}}\n",
-  )
-  yield* fs.writeFileString(
-    path.join(content, "prompts", "pool.md"),
-    "pool candidates\n{{CANDIDATES}}\n",
-  )
-  yield* fs.writeFileString(
-    path.join(content, "prompts", "verifier.md"),
-    "verify claims\n{{SCOPE_BLOCK}}\n{{CLAIMS}}\n",
-  )
-  yield* fs.writeFileString(
-    path.join(content, "prompts", "stage-scope-block.md"),
-    "repo={{REPO_ROOT}}\nfiles={{CHANGED_FILES}}\n{{WORKSPACE_TOOLS}}\n{{DIFF_SECTION}}\n",
   )
   const fixture: Fixture = {
     repo,

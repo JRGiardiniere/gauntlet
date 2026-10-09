@@ -8,7 +8,7 @@ import {
 import type { CoverageGap } from "../domain/dossier.ts"
 import type { FrozenLens } from "../domain/review-plan.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
-import { describeMissingOutput } from "./outcome.ts"
+import { describeMissingOutput } from "../stages/evaluation.ts"
 
 export interface FinderResult {
   readonly lens: FrozenLens

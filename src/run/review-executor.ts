@@ -12,8 +12,9 @@ import { renderDigest } from "../render/digest.ts"
 import { viewDossier } from "../render/dossier-view.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
+import { executePool } from "../stages/pool/pool.ts"
+import { executeVerification } from "../stages/verification/verification.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
-import { executePool, executeVerification } from "./bug-claim-path.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
@@ -88,7 +89,7 @@ export const executeReviewPlan = Effect.fn(
           reviewWorkingDirectory,
           bugClaims: routed.bugClaims,
         })
-        const [bugClaimPath, judgmentPath] = yield* Effect.all(
+        const [verification, judgment] = yield* Effect.all(
           [
             executeVerification({ plan, reviewWorkingDirectory, pooled }),
             executeJudgment({
@@ -103,8 +104,11 @@ export const executeReviewPlan = Effect.fn(
         const dossier = assembleDossier({
           plan,
           finderCoverageGaps: routed.coverageGaps,
-          bugClaimPath,
-          judgmentPath,
+          bugClaimPath: {
+            ...verification,
+            coverageGaps: [...pooled.coverageGaps, ...verification.coverageGaps],
+          },
+          judgmentPath: judgment,
         })
         yield* runProgress("assembling dossier")
         yield* writeArtifactJson(paths.dossier, Dossier, dossier)
@@ -115,11 +119,12 @@ export const executeReviewPlan = Effect.fn(
           costUsd: results.reduce(
             (total, result) => total + result.outcome.usage.costUsd,
             0,
-          ) + bugClaimPath.costUsd + judgmentPath.costUsd,
+          ) + pooled.costUsd + verification.costUsd + judgment.costUsd,
           invocationCount:
             results.length +
-            bugClaimPath.invocationCount +
-            judgmentPath.invocationCount,
+            pooled.invocationCount +
+            verification.invocationCount +
+            judgment.invocationCount,
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
           finderCacheHealth: measureLowFinderCacheHealth(plan, results),
           finderToolHealth: measureFinderToolHealth(results),

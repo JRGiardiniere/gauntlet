@@ -1,7 +1,5 @@
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
-import { describeMissingOutput } from "../../assembly/outcome.ts"
-import { EVALUATION_SYSTEM_PROMPT } from "../../content/evaluation-prompt.ts"
 import type { Observation } from "../../domain/candidate.ts"
 import type {
   CoverageGap,
@@ -10,18 +8,14 @@ import type {
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Judgment } from "../../domain/judgment.ts"
 import { HarnessSessionFactory } from "../../harness/harness-session.ts"
-import { invoke } from "../../harness/invoke.ts"
-import type { PooledBugClaims } from "../../run/bug-claim-path.ts"
-import { REVIEW_INVOCATION_DEADLINES } from "../../run/invocation-policy.ts"
 import {
-  cacheShare,
   counted,
   coverageGapLine,
-  invocationTrail,
-  logDiagnostics,
   runProgress,
   wallSeconds,
 } from "../../run/progress-text.ts"
+import { describeMissingOutput, invokeStageAgent } from "../evaluation.ts"
+import type { PooledBugClaims } from "../pool/pool.ts"
 import { EmitJudgments } from "./output-contract.ts"
 import {
   assembleJudgmentPrompt,
@@ -41,7 +35,7 @@ export interface JudgmentExecution {
   readonly reviewWorkingDirectory: string
   readonly observations: ReadonlyArray<Observation>
   // Pool's BugClaim clusters, which an Observation must not restate.
-  readonly pooled: Pick<PooledBugClaims, "claims" | "clusters">
+  readonly pooled: PooledBugClaims
 }
 
 export interface JudgmentResult {
@@ -101,22 +95,15 @@ export const executeJudgment = Effect.fn(
     plan.specification,
     pooled,
   )
-  yield* runProgress("invoking Judgment")
-  const outcome = yield* invoke({
+  const outcome = yield* invokeStageAgent({
+    label: "Judgment",
     invocationId: `${plan.runId}-judgment`,
     seat,
     cwd: reviewWorkingDirectory,
-    systemPrompt: EVALUATION_SYSTEM_PROMPT,
     prompt,
     contract: EmitJudgments,
     tools: JUDGMENT_TOOLS,
-    deadlines: REVIEW_INVOCATION_DEADLINES,
   })
-  yield* runProgress(
-    `Judgment done — ${invocationTrail(outcome)}`,
-    cacheShare([outcome.usage]),
-  )
-  yield* logDiagnostics("Judgment", outcome.diagnostics)
 
   const repair = resolveJudgment(indexed, outcome.output)
   const reason = outcome.output === undefined
