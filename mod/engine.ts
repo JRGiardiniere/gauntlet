@@ -10,6 +10,7 @@
 // record exactly as the CLI's review does. Only the platform services, the
 // HarnessSession adapter and the wording of what comes back differ.
 import * as Cause from "effect/Cause"
+import * as Clock from "effect/Clock"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -102,6 +103,10 @@ export interface StartedRun {
   // The review the words asked for, once they parse; undefined for a
   // delivery, or for words that never became a review.
   readonly request: Promise<Run.ReviewRequest | undefined>
+  // A pull-request review's digest, as soon as the review has it and before
+  // its post starts; undefined for a run with no post to follow. A run that
+  // has one ends with the post's outcome alone.
+  readonly reviewed: Promise<RunResult | undefined>
   readonly ended: Promise<RunResult>
 }
 
@@ -214,6 +219,10 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     const reviewRequest = new Promise<Run.ReviewRequest | undefined>((resolve) => {
       parsed = resolve
     })
+    let posting: (result: RunResult | undefined) => void = () => undefined
+    const reviewed = new Promise<RunResult | undefined>((resolve) => {
+      posting = resolve
+    })
     // Progress lines go to the mod's log only; nothing reads meaning in them.
     const onStderr = (text: string) => {
       pending += text
@@ -256,27 +265,37 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       Command.withSubcommands(reviewSyntax({ relatedFiles: true }, {
         // Only words that became a review draw the strip: help, a delivery
         // and words that never parsed leave it to the last review.
-        // A pull-request destination delivers the Run once its digest is the
-        // answer: the post's receipt or refusal becomes a note under it, and
-        // a run cancelled while posting still shows the digest.
+        // A pull-request destination hands off the digest before it delivers
+        // the Run, so a slow or hung post never withholds it: the post's
+        // receipt or refusal is the run's answer, and a run cancelled while
+        // posting has shown its digest already.
         review: (review, destination) =>
           Effect.sync(() => {
             progress = shown
             parsed(review)
           }).pipe(
             Effect.andThen(Run.review(review)),
-            Effect.tap((reviewed) =>
-              Effect.sync(() => {
-                answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
-              })
-            ),
             Effect.flatMap((reviewed) =>
               destination === "local"
-                ? Effect.void
-                : Run.deliver(reviewed.runId).pipe(
-                  Effect.match({ onSuccess: (receipt) => `posted ${receipt.url}`, onFailure: refusalText }),
-                  Effect.map((note) => {
-                    answer = { verdict: "review finished", digest: reviewed.digest, notes: [note] }
+                ? Effect.sync(() => {
+                  answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
+                })
+                : Clock.currentTimeMillis.pipe(
+                  Effect.map((now) =>
+                    posting({
+                      verdict: "review finished",
+                      digest: reviewed.digest,
+                      notes: [],
+                      seconds: Math.round((now - startedAt) / 1000),
+                    })
+                  ),
+                  Effect.andThen(Run.deliver(reviewed.runId)),
+                  Effect.match({
+                    onSuccess: (receipt) => ({ verdict: "delivered", notes: [`posted ${receipt.url}`] }),
+                    onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)] }),
+                  }),
+                  Effect.map(({ verdict, notes }) => {
+                    answer = { verdict, digest: "", notes }
                   }),
                 )
             ),
@@ -334,6 +353,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       fiber.addObserver((exit) => {
         current = undefined
         parsed(undefined)
+        posting(undefined)
         void driver.stopAll("run ended")
         const failed = Exit.isFailure(exit)
         if (progress === shown) {
@@ -342,7 +362,8 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         const seconds = Math.round((Date.now() - startedAt) / 1000)
         if (Exit.isFailure(exit)) {
           const cancelled = Cause.hasInterruptsOnly(exit.cause)
-          // Only a review that finished and was posting has a digest here.
+          // Only a local review interrupted as it finished has a digest
+          // here; one that was posting has handed its digest off.
           resolve({
             verdict: cancelled ? "cancelled" : "run ended",
             digest: answer?.digest ?? "",
@@ -352,7 +373,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         } else resolve({ ...(answer ?? { verdict: "help", digest: printed.trim(), notes: [] }), seconds })
       })
     })
-    return { request: reviewRequest, ended }
+    return { request: reviewRequest, reviewed, ended }
   }
 
   // Interrupting the fiber runs the program's finalizers: the snapshot

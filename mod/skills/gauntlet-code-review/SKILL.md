@@ -42,8 +42,9 @@ that isn't cloned on this machine can't be reviewed.
 - `--lenses a,b` only when they name perspectives; `--no-related-files` only
   when they ask.
 - `--destination pr` only when they ask to post the review on the pull request:
-  a pull-request review also posts `dossier.md` as a PR comment, and the digest
-  ends with `posted <url>`.
+  a pull-request review also posts `dossier.md` as a PR comment. The digest
+  arrives without waiting for the post, and a second message follows with
+  `posted <url>` or why the post failed.
 
 To post a finished pull-request review the person asks to post afterwards,
 `args` is `deliver <run id>` (the run id is the run directory's name in the

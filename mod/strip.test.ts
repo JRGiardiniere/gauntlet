@@ -70,6 +70,13 @@ describe("strip", () => {
       withAgents(findersDone, agent("pool", "answered"), agent("verification-1", "answered"), agent("judgment", "running")),
       withAgents(findersDone, agent("pool", "answered"), agent("verification-1", "failed"), agent("judgment", "answered")),
       { ...findersDone, routed: { bugClaims: 0, observations: 0 } },
+      {
+        ...running,
+        lenses: [],
+        skipped: [{ lens: "absence", reason: "no fixture manifest" }],
+        findersFinished: true,
+        routed: { bugClaims: 0, observations: 0 },
+      },
     ].map(doing)).toEqual([
       "Building the first prompt",
       "Sending the first finder to set the cache",
@@ -78,6 +85,7 @@ describe("strip", () => {
       "Grouping 9 possible bugs for checking · 14 notes to weigh",
       "Double-checking 9 possible bugs · weighing 14 notes",
       "Weighing 14 notes",
+      "Writing the dossier",
       "Writing the dossier",
       "Writing the dossier",
     ])
