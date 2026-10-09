@@ -35,8 +35,8 @@ The review runs in the session's repository. For another local checkout, add
 creativemarket.com" is `42 --repo ~/projects/creativemarket.com`. A repository
 that isn't cloned on this machine can't be reviewed.
 
-- `--recipe claude-sonnet-low|medium|high` when they name an effort or model
-  ("gauntlet medium"); left out, their default recipe.
+- `--recipe low|medium|high` when they name an effort ("gauntlet high");
+  left out, their default recipe.
 - `--spec <file>`: requirements context you hold (acceptance criteria, notes),
   written as Markdown to a temporary file outside the repository.
 - `--lenses a,b` only when they name perspectives; `--no-related-files` only
@@ -70,9 +70,20 @@ offer to set it up while the review runs; the next review includes it:
 
 ## Settings
 
-`~/.gauntlet/settings.json` holds `"default-recipe"`, the recipe a review uses
-when it names none. To change it ("make medium my default"), set that key to one
-of the recipes the review tool lists, keeping the file's other keys.
+The Mod keeps its own settings and recipes in `~/.gauntlet/mod/`, apart from
+the Gauntlet CLI's. The review tool with `args` `config` answers at once with
+them: the settings, the Default Recipe and every recipe, each invalid one with
+why.
+
+- To change the default ("make high my default"), set `"default-recipe"` in
+  `~/.gauntlet/mod/settings.json` to one of its recipes, keeping the file's
+  other keys.
+- A recipe is one JSON file in `~/.gauntlet/mod/recipes/`, named for the
+  recipe, with a `default` Seat and optional `finders`,
+  `interpretive-finders`, `pool`, `verification` and `judgment` overrides.
+  Seats are `claude-code/<model>:<effort>`: `{"default":"claude-code/opus:medium"}`.
+  After editing settings or a recipe, run `config` and fix anything it
+  lists as invalid.
 
 ## While it runs
 

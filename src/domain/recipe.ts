@@ -20,19 +20,40 @@ export type RecipeName = typeof RecipeName.Type
 export const FinderClass = Schema.Literals(["specific", "interpretive"])
 export type FinderClass = typeof FinderClass.Type
 
+// Each Host runs its own providers' Seats, and keeps its own Recipe Catalog
+// (#177): the Mod runs only claude-code/ Seats, the CLI every other provider.
+// A Seat the catalog's Host cannot run is a Schema error on that Recipe.
+const CLAUDE_CODE = "claude-code/"
+export const ClaudeSeat = Seat.check(
+  Schema.makeFilter((seat) =>
+    seat.startsWith(CLAUDE_CODE) ||
+    `the Mod runs only claude-code/<model>:<effort> Seats (claude-code/opus:medium), not ${seat}`
+  ),
+)
+export const PiSeat = Seat.check(
+  Schema.makeFilter((seat) =>
+    !seat.startsWith(CLAUDE_CODE) ||
+    `${seat} runs only in the Mod; its recipes are in ~/.gauntlet/mod/recipes`
+  ),
+)
+
 // A Recipe is user-owned content: one strict JSON file in the Recipe Catalog
 // naming a required default seat plus optional per-stage overrides — seats
 // only, never budgets or cost limits (ADR 0005/0006). Decoding rejects
 // unknown keys so a misspelled stage cannot silently inherit the default.
-export const Recipe = Schema.Struct({
-  default: Seat,
-  finders: Schema.optionalKey(Seat),
-  "interpretive-finders": Schema.optionalKey(Seat),
-  pool: Schema.optionalKey(Seat),
-  verification: Schema.optionalKey(Seat),
-  judgment: Schema.optionalKey(Seat),
-})
+const recipeOf = <S extends typeof Seat>(seat: S) =>
+  Schema.Struct({
+    default: seat,
+    finders: Schema.optionalKey(seat),
+    "interpretive-finders": Schema.optionalKey(seat),
+    pool: Schema.optionalKey(seat),
+    verification: Schema.optionalKey(seat),
+    judgment: Schema.optionalKey(seat),
+  })
+export const Recipe = recipeOf(Seat)
 export type Recipe = typeof Recipe.Type
+export const PiRecipe = recipeOf(PiSeat)
+export const ClaudeRecipe = recipeOf(ClaudeSeat)
 
 // Specific finders resolve through `finders` then `default`; interpretive
 // finders through `interpretive-finders`, then `finders`, then `default`
@@ -41,11 +62,6 @@ export const finderSeat = (recipe: Recipe, finderClass: FinderClass): Seat =>
   finderClass === "interpretive"
     ? recipe["interpretive-finders"] ?? recipe.finders ?? recipe.default
     : recipe.finders ?? recipe.default
-
-// Seats of the claude-code provider run only on the Claude Code host, which
-// runs no other provider (#134).
-export const isClaudeCodeSeat = (seat: Seat): boolean =>
-  seat.startsWith("claude-code/")
 
 // Every other seated stage resolves through its named override then `default`.
 export const stageSeat = (

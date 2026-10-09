@@ -17,7 +17,7 @@ it before moving on. Every change outside the clone (installing `bun`, editing
 ## What it needs
 
 - **Claude Code that loads mods.** The mod was built and checked against
-  Claude Code 2.1.291 (`claude --version`). Install step 7 is the real test:
+  Claude Code 2.1.291 (`claude --version`). Install step 6 is the real test:
   `claude plugin validate` reads the mod the way this Claude Code will.
 - **git**, and **bun 1.4.0 or newer** (step 1 installs it).
 - **macOS** for **Open dossier**, which runs `open`. Reviews run anywhere.
@@ -64,30 +64,7 @@ bun run build-mod
 Done when `build-mod` prints `gauntlet built at <clone>/mod/dist/gauntlet` and
 `gauntlet-tools built at <clone>/mod/dist/gauntlet-tools`.
 
-### 4. Claude recipes
-
-A review runs on a recipe from `~/.gauntlet/recipes/`. `/gauntlet` runs its
-agents inside Claude Code, so its recipes name `claude-code/` seats.
-
-- `~/.gauntlet/settings.json` missing (no Gauntlet config yet): in `<clone>`,
-  run `bun bin/gauntlet.ts config init`, then write the recipes below and make
-  low the default with `bun bin/gauntlet.ts config set default-recipe claude-sonnet-low`.
-- `~/.gauntlet/settings.json` present (the person already uses Gauntlet):
-  leave their settings alone. Write each recipe below unless one of that name
-  exists, and remember to tell them to name a recipe on each review.
-
-The recipes, one file each in `~/.gauntlet/recipes/`:
-
-| File | Contents |
-| --- | --- |
-| `claude-sonnet-low.json` | `{"default":"claude-code/sonnet:low"}` |
-| `claude-sonnet-medium.json` | `{"default":"claude-code/sonnet:medium"}` |
-| `claude-sonnet-high.json` | `{"default":"claude-code/sonnet:high"}` |
-
-Done when `bun bin/gauntlet.ts config` (in `<clone>`) lists all three, as
-`claude-sonnet-low — default claude-code/sonnet:low` and so on.
-
-### 5. Load the mod in every session
+### 4. Load the mod in every session
 
 Claude Code loads plugin folders named in `env.CLAUDE_CODE_PLUGIN_DIRS` of
 `~/.claude/settings.json`: absolute paths joined by `:`.
@@ -102,7 +79,7 @@ Claude Code loads plugin folders named in `env.CLAUDE_CODE_PLUGIN_DIRS` of
 Done when the file parses as JSON and `env.CLAUDE_CODE_PLUGIN_DIRS` holds the
 earlier paths plus both new ones.
 
-### 6. The gauntlet-code-review skill
+### 5. The gauntlet-code-review skill
 
 The skill tells Claude when and how to start a review with the mod's tool.
 
@@ -117,7 +94,7 @@ The skill tells Claude when and how to start a review with the mod's tool.
 Done when `~/.claude/skills/gauntlet-code-review/SKILL.md` exists, or the CLI
 is installed.
 
-### 7. Validate
+### 6. Validate
 
 ```sh
 claude plugin validate <clone>/mod/dist/gauntlet
@@ -128,7 +105,7 @@ Done when both end `Validation passed`; warnings about gating hooks and missing
 author information are expected. A failure here usually means this Claude Code
 is too old to load mods: report its version and the output to the person.
 
-### 8. Hand over
+### 7. Hand over
 
 Tell the person:
 
@@ -137,9 +114,12 @@ Tell the person:
 - In a repository with a small uncommitted change, ask Claude to run a
   Gauntlet review ("run gauntlet on my changes", "gauntlet medium on PR 42").
   Claude starts it, carries on or waits, and gets the digest when it lands.
-  The review uses their Claude plan.
+  The review uses their Claude plan, on the Mod's `medium` recipe (Opus,
+  medium effort) unless they name `low` (Sonnet) or `high` (Opus, high
+  effort). The Mod writes these recipes into `~/.gauntlet/mod/` the first
+  time it loads; `/gauntlet config` shows them.
 - They can also type `/gauntlet` (`/gauntlet 42` for pull request 42, `/gauntlet main`
-  for the commits since `main`, `--recipe claude-sonnet-medium` for more effort,
+  for the commits since `main`, `--recipe high` for more effort,
   `/gauntlet deliver <run-id>` to post a finished pull-request review).
 
 ## Update
@@ -163,8 +143,8 @@ move it.
    `env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, keeping any
    other paths; drop the key once it is empty. Show the diff and wait for
    approval before writing.
-2. Remove the `~/.claude/skills/gauntlet-code-review` link step 6 made.
+2. Remove the `~/.claude/skills/gauntlet-code-review` link step 5 made.
 3. Tell the person to restart Claude Code.
-4. Ask before deleting `<clone>`. `~/.gauntlet` holds their settings, recipes,
-   review runs and the mod's log (`~/.gauntlet/mod`), and the Gauntlet CLI
-   shares it: delete it only if they ask.
+4. Ask before deleting `<clone>`. `~/.gauntlet/mod` holds the Mod's settings,
+   recipes and log; `~/.gauntlet` also holds review runs, and the Gauntlet CLI
+   shares it: delete either only if they ask.

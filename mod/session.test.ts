@@ -66,6 +66,7 @@ const makeEngine = (polled: Promise<void>) => {
       })
       return { request: parsed, reviewed, ended }
     },
+    config: async (request: { readonly words: ReadonlyArray<string> }) => `config ${request.words.slice(1).join(" ")}`,
     running: () => running,
     poll: () => polled,
     standardsManifest: async () => ({ path: "/standards", exists: true }),

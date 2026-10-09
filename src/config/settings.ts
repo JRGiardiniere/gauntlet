@@ -1,4 +1,5 @@
 import * as Config from "effect/Config"
+import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -51,16 +52,31 @@ export const gauntletHome = Effect.fn("gauntlet.settings.home")(function* () {
   return path.join(home, ".gauntlet")
 })
 
+// Which Host's configuration a program reads (#177): the CLI keeps its
+// settings and Recipe Catalog in ~/.gauntlet, the Mod in ~/.gauntlet/mod.
+// Standards Manifests and the update cache stay shared in ~/.gauntlet, and
+// runs default to ~/.gauntlet/runs unless a Host's own runs-root moves them.
+export type Host = "cli" | "mod"
+export const ConfigHost = Context.Reference<Host>("gauntlet/ConfigHost", {
+  defaultValue: () => "cli",
+})
+
+const configDirectory = Effect.fn("Settings.configDirectory")(function* () {
+  const path = yield* Path.Path
+  const home = yield* gauntletHome()
+  return (yield* ConfigHost) === "mod" ? path.join(home, "mod") : home
+})
+
 export const settingsPath = Effect.fn("gauntlet.settings.path")(function* () {
   const path = yield* Path.Path
-  return path.join(yield* gauntletHome(), "settings.json")
+  return path.join(yield* configDirectory(), "settings.json")
 })
 
 export const recipesDirectory = Effect.fn(
   "gauntlet.settings.recipes_directory",
 )(function* () {
   const path = yield* Path.Path
-  return path.join(yield* gauntletHome(), "recipes")
+  return path.join(yield* configDirectory(), "recipes")
 })
 
 export const defaultRunsRoot = Effect.fn(

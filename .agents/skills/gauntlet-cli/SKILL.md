@@ -14,8 +14,8 @@ verbatim. The Dossier lives on disk.
 
 **In Claude Code with Gauntlet's mod loaded** (an `mcp__gauntlet__review` tool
 exists), start a review with that tool instead: it runs the same review on
-`claude-code/` Seats, which the CLI cannot run, and its digest reaches you as
-a message. Everything below is the CLI.
+`claude-code/` Seats from the Mod's own recipes (`~/.gauntlet/mod/`), and its
+digest reaches you as a message. Everything below is the CLI.
 
 ## Review
 

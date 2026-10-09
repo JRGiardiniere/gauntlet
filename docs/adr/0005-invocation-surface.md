@@ -169,6 +169,19 @@ hardcoded `gpt-<version>-(luna|sol)` pattern matches, versions compare
 numerically, and a model launch reaches users as a Gauntlet release whose notice
 prompts the upgrade — no background check, separate command, or notified state.
 
+Amended per #177: each Host has its own Recipe Catalog and settings. The CLI's
+stay in `~/.gauntlet/`; the Mod's are in `~/.gauntlet/mod/` (`settings.json`,
+`recipes/`), so the CLI and the Mod can each name their own `low`, `medium` and
+`high`, and a CLI's Pi Default Recipe never reaches the Mod. A Host's Recipe
+schema admits only the Seats it runs (`claude-code/` for the Mod, every other
+provider for the CLI), so a foreign Seat makes that Recipe invalid where it is
+listed. The Mod writes its initial configuration itself the first time it
+loads with none (Sonnet medium, Opus medium, Opus high; Default Recipe
+`medium`), exactly as `config init` would, and never heals a partial one.
+`/gauntlet config` is the CLI's `config` over the Mod's files. Lenses,
+Standards Manifests and the update cache stay shared, and both Hosts' runs land
+in `~/.gauntlet/runs` unless that Host's own `runs-root` moves them.
+
 Lens selections express membership, not priority or execution order. Planning
 produces a deterministic invocation array and the ReviewPlan records that
 resolved array because downstream candidate indexes consume it. The array's

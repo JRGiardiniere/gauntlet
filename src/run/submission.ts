@@ -8,7 +8,7 @@ import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
 import { STANDARDS_LENS_NAME } from "../domain/finder-selection.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
-import { finderSeat, type Seat, stageSeat } from "../domain/recipe.ts"
+import { finderSeat, stageSeat } from "../domain/recipe.ts"
 import {
   candidateCapForLens,
   FrozenLens,
@@ -19,7 +19,6 @@ import type {
   SpecificationSourceDiagnostic,
 } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
-import { HarnessSessionFactory } from "../harness/harness-session.ts"
 import { combineReviewSpecifications } from "../specification/combine.ts"
 import { loadGitHubSpecification } from "../specification/github-source.ts"
 import {
@@ -55,21 +54,6 @@ export class SubmissionError extends Data.TaggedError("SubmissionError")<{
   // No settings exist to take Default Lenses from.
   readonly unconfigured?: boolean
 }> {}
-
-// Each host runs only its own providers' Seats (#134).
-const refuseForeignSeats = Effect.fn("Submission.refuseForeignSeats")(
-  function* (owner: string, seats: ReadonlyArray<Seat>) {
-    const host = yield* HarnessSessionFactory
-    for (const seat of seats) {
-      const refusal = host.seatRefusal(seat)
-      if (refusal !== undefined) {
-        return yield* new SubmissionError({
-          reason: `${owner} seats ${seat}; ${refusal}`,
-        })
-      }
-    }
-  },
-)
 
 const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -313,12 +297,6 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
       : FrozenLens.make(frozen)
   })
 
-  yield* refuseForeignSeats(`recipe ${selected.name}`, [
-    ...frozenLenses.map((lens) => lens.seat),
-    stageSeat(selected.recipe, "pool"),
-    stageSeat(selected.recipe, "verification"),
-    stageSeat(selected.recipe, "judgment"),
-  ])
 
   const { diagnostic, specification } = yield* acquireSpecification(
     request.target,
