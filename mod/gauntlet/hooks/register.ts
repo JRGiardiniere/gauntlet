@@ -83,8 +83,12 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
       const sent = await $.session.send({ to: { agentId }, text })
       return sent.isDelivered ? undefined : sent.reason
     },
+    // Bare, without Claude Code's "The gauntlet plugin sent a message" frame:
+    // the prompt is a digest's one-line headline with the digest in the
+    // appended row before it (the whole text only when that append failed),
+    // and hooks still see the plugin as its origin.
     submit: async (text) => {
-      const submitted = await $.prompt.submit({ text })
+      const submitted = await $.prompt.submit({ text, asUser: true })
       return "drop" in submitted ? String(submitted.drop) : undefined
     },
     append: async (text) => {
