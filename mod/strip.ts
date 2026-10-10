@@ -1,16 +1,18 @@
 // The Mod's strip: a review in flight, drawn above the prompt by the hooks
-// module's `ui.render` hook on `AbovePrompt`. Line 1 is each stage with one
-// mark per agent, and one per lens skipped by design, as text on the
-// terminal and as one SVG (mod/strip-svg.ts) where text is proportional; line 2, always there,
-// is the elapsed time and what the run is doing in plain words. Once the dossier is written, line 1 is its Review
-// Priority counts with Open dossier and Dismiss, and a pull-request review's
-// post adds a last line, wrapped: posting, then where it landed or why it did
-// not. Counts come from the Run's
-// milestones and the invocations' activity (mod/activity.ts), never from progress text; no
-// dollar or cache figure shows.
+// module's `ui.render` hook on `AbovePrompt`, from one reading of the run
+// (`stripState`) laid out two ways. On the terminal, line 1 is each stage with
+// one mark per agent, and one per lens skipped by design, and line 2 the
+// elapsed time and what the run is doing in plain words; once the dossier is
+// written, line 1 is its Review Priority counts with Open dossier and Dismiss.
+// Where text is proportional, a heading line (what the run is doing, or how it
+// ended, and the buttons) stands over one SVG of the stages, the counts and the
+// clock (mod/strip-svg.ts). A pull-request review's post adds a last line,
+// wrapped: posting, then where it landed or why it did not. Counts come from
+// the Run's milestones and the invocations' activity (mod/activity.ts), never
+// from progress text; no dollar or cache figure shows.
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
 import type { AgentActivity } from "./activity.ts"
-import { type MarkState, type TrackMark, type TrackPill, type TrackStage, trackSvg } from "./strip-svg.ts"
+import { type MarkState, type TrackStage, trackSvg } from "./strip-svg.ts"
 
 export interface RunView {
   readonly startedAt: number
@@ -79,8 +81,7 @@ export interface PaneElements<N> {
   readonly Svg?: (props: StripSvg) => N
 }
 
-// Where the strip draws: `e.surface`, never what the element table holds
-// (the terminal's carries an Svg it draws as nothing), and the band's width.
+// Where the strip draws, `e.surface`, and the band's width.
 export interface StripSite {
   readonly surface: "terminal" | "desktop" | "vscode" | "mobile"
   readonly columns: number
@@ -102,15 +103,16 @@ const STAGE_COLOR: Record<Stage, string> = {
   Judgment: "#5fd787",
 }
 const SHORT: Record<Stage, string> = { Finders: "Find", Pool: "Pool", Verification: "Verify", Judgment: "Judge" }
-const NOUN: Record<Stage, readonly [string, string]> = {
-  Finders: ["lead", "leads"],
-  Pool: ["group", "groups"],
-  Verification: ["verdict", "verdicts"],
-  Judgment: ["decision", "decisions"],
-}
-const PRIORITY_COLOR = { P1: "red", P2: "#ff8700", P3: "#d7af00" } as const
-// The SVG's own palette: a hex for every color, as the markup has no theme.
-const PILL_COLOR = { P1: "#e5484d", P2: "#ff8700", P3: "#e0b000", unranked: "#8b8b8b", clean: "#30a46c" } as const
+// Each count's color on the terminal, where P3 takes the theme's warning
+// color so it reads on a light background too, and in the SVG, whose markup
+// has no theme.
+const TALLY = {
+  P1: { terminal: { color: "red", bold: true }, pill: "#e5484d" },
+  P2: { terminal: { color: "#ff8700", bold: true }, pill: "#ff8700" },
+  P3: { terminal: { color: "warning" }, pill: "#e0b000" },
+  unranked: { terminal: { dimColor: true }, pill: "#8b8b8b" },
+  clean: { terminal: { color: "green" }, pill: "#30a46c" },
+} as const
 
 // "<run>-finders-2-finder-absence" → Finders/absence.
 export const stageOf = (invocationId: string): { readonly stage: Stage; readonly name: string } | undefined => {
@@ -156,14 +158,6 @@ const markOf = (state: AgentActivity["state"] | undefined): MarkState =>
 
 const markOrder = (state: MarkState) => (state === "answered" || state === "failed" ? 0 : state === "running" ? 1 : 2)
 
-// What one agent's mark says on hover.
-const markLabel = (stage: Stage, name: string, run: AgentActivity | undefined) => {
-  if (run === undefined || run.state === "opening") return `${name}: waiting`
-  if (run.state === "running") return `${name}: ${stage === "Finders" ? "looking" : "working"}`
-  if (run.state === "answered") return run.items === undefined ? `${name}: done` : `${name}: ${plural(run.items, ...NOUN[stage])}`
-  return `${name}: ${run.state}`
-}
-
 // Each stage's marks: one per agent, ended first, then running, then to
 // start, so the row fills left to right. A Finder lens not yet invoked counts
 // as one to start, by its latest attempt once it has one; a skipped lens never
@@ -171,15 +165,11 @@ const markLabel = (stage: Stage, name: string, run: AgentActivity | undefined) =
 const stageMarks = (view: RunView): ReadonlyArray<TrackStage> =>
   STAGES.map((stage) => {
     const ran = stageRuns(view, stage)
-    const agents = stage === "Finders"
-      ? view.lenses.map((lens) => ({ name: lens, run: ran.findLast((each) => stageOf(each.invocationId)?.name === lens) }))
-      : ran.map((run) => ({ name: stageOf(run.invocationId)?.name ?? stage, run }))
-    const marks: Array<TrackMark> = agents
-      .map(({ name, run }) => ({ state: markOf(run?.state), label: markLabel(stage, name, run) }))
-      .sort((a, b) => markOrder(a.state) - markOrder(b.state))
-    const notRun: ReadonlyArray<TrackMark> = stage === "Finders"
-      ? view.skipped.map(({ lens, reason }) => ({ state: "skipped", label: `${lens}: not run (${reason})` }))
-      : []
+    const states = stage === "Finders"
+      ? view.lenses.map((lens) => ran.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state)
+      : ran.map((each) => each.state)
+    const marks = states.map(markOf).sort((a, b) => markOrder(a) - markOrder(b))
+    const notRun: ReadonlyArray<MarkState> = stage === "Finders" ? view.skipped.map(() => "skipped") : []
     return { name: SHORT[stage], color: STAGE_COLOR[stage], ...stageState(view, stage), marks: [...marks, ...notRun] }
   })
 
@@ -231,141 +221,110 @@ const gapText = (gaps: NonNullable<RunView["result"]>["coverageGaps"]) => {
   ).join(" · ")
 }
 
-export const renderStrip = <N>(
-  view: RunView,
-  el: PaneElements<N>,
-  site: StripSite,
-  now: number,
-  actions: StripActions,
-): N => {
-  const Box = (props: StripBox<N>) => el.Box(props)
-  const Text = (props: StripText) => el.Text(props)
-  const Button = (props: StripButton) => el.Button(props)
-  // The terminal lays the band out in cells; elsewhere text is proportional,
-  // so a count of cells is no width there, and the stage row is a drawing.
-  const width = site.surface === "terminal" ? site.columns : "100%"
-  const drawn = site.surface === "terminal" ? undefined : el.Svg
-  const age = { now, seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
-  // The drawing, with its own clock, gets a row of its own under the heading.
-  let drawing: N | undefined
-  const track = (pills: ReadonlyArray<TrackPill>, alt: string) => {
-    if (drawn === undefined) return false
-    // An image, not a frame: a frame blanks while each redraw's copy loads.
-    drawing = drawn({ ...trackSvg(stageMarks(view), pills, age), alt, isInteractive: false })
-    return true
-  }
-  const ended = view.exitCode !== undefined
-  const elapsed = clock((view.endedAt ?? now) - view.startedAt)
-  const cells: Array<N> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
-  const buttons: Array<N> = []
-  let status: string
-  // The heading off the terminal says what the run is doing and no more: the
-  // drawing marks a skipped lens, and the line has no room for why.
-  let brief: string | undefined
-  let gaps = ""
+interface Tally {
+  readonly text: string
+  readonly kind: keyof typeof TALLY
+}
+
+// The strip's reading of the run, which both layouts draw.
+interface StripState {
+  // A finished review's counts, or how a run with no dossier ended.
+  readonly tallies: ReadonlyArray<Tally>
+  readonly verdict: { readonly text: string; readonly color: string } | undefined
+  // What the run is doing or found, with the lenses not run while it runs,
+  // and the heading's shorter word on it.
+  readonly status: string
+  readonly brief: string
+  readonly gaps: string
+  readonly buttons: ReadonlyArray<StripButton>
+  // Whether the stage row is drawn on the terminal: only while it runs.
+  readonly running: boolean
+}
+
+const stripState = (view: RunView, actions: StripActions): StripState => {
+  const dismiss: StripButton = { key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }
   if (view.result !== undefined) {
     const { coverageGaps, dossierMarkdown, entries } = view.result
-    const pills: Array<TrackPill> = []
+    const tallies: Array<Tally> = []
     for (const priority of ["P1", "P2", "P3"] as const) {
       const count = entries.filter((entry) => entry.reviewPriority === priority).length
-      if (count === 0) continue
-      pills.push({ text: `${priority} ${String(count)}`, color: PILL_COLOR[priority] })
-      if (cells.length > 1) cells.push(Text({ dimColor: true, children: " · " }))
-      cells.push(Text({ color: PRIORITY_COLOR[priority], bold: priority !== "P3", children: `${priority} ${String(count)}` }))
+      if (count > 0) tallies.push({ text: `${priority} ${String(count)}`, kind: priority })
     }
     const unranked = entries.filter((entry) => entry.reviewPriority === undefined).length
-    if (unranked > 0) {
-      pills.push({ text: `${String(unranked)} unranked`, color: PILL_COLOR.unranked })
-      cells.push(Text({ dimColor: true, children: `${cells.length > 1 ? " · " : ""}${String(unranked)} unranked` }))
-    }
-    if (entries.length === 0) {
-      pills.push({ text: "no findings", color: PILL_COLOR.clean })
-      cells.push(Text({ color: "green", children: "no findings" }))
-    }
-    buttons.push(
-      Button({ key: "dossier", label: "Open dossier", hotkey: "o", onPress: () => actions.openDossier(dossierMarkdown) }),
-      Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }),
-    )
+    if (unranked > 0) tallies.push({ text: `${String(unranked)} unranked`, kind: "unranked" })
+    if (entries.length === 0) tallies.push({ text: "no findings", kind: "clean" })
     const found = plural(entries.length, "finding", "findings")
-    status = stageRuns(view, "Finders").length === 0 ? found : `${found} from ${plural(leads(view), "lead", "leads")}`
-    gaps = gapText(coverageGaps)
-    if (track(pills, `${pills.map((pill) => pill.text).join(", ")}: ${status}`)) cells.splice(1)
-  } else if (ended) {
-    cells.push(view.refusal === undefined ? Text({ color: "yellow", children: "ended" }) : Text({ color: "red", children: "could not review" }))
-    buttons.push(Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }))
-    status = view.refusal?.split("\n")[0] ?? "no dossier from this run"
-  } else {
-    // A running agent's mark blinks. The terminal swaps glyphs; elsewhere the
-    // text is proportional, the two glyphs differ in width and the row would
-    // shift each blink, so the one glyph dims instead.
-    const lit = Math.floor(now / 500) % 2 === 0
-    const pulse = (color: string) =>
-      site.surface === "terminal"
-        ? Text({ color, bold: true, children: lit ? "●" : "◉" })
-        : Text({ color, bold: lit, dimColor: !lit, children: "●" })
-    const glyph = (state: MarkState, color: string) => {
-      switch (state) {
+    const status = stageRuns(view, "Finders").length === 0 ? found : `${found} from ${plural(leads(view), "lead", "leads")}`
+    return {
+      tallies,
+      verdict: undefined,
+      status,
+      brief: status,
+      gaps: gapText(coverageGaps),
+      buttons: [{ key: "dossier", label: "Open dossier", hotkey: "o", onPress: () => actions.openDossier(dossierMarkdown) }, dismiss],
+      running: false,
+    }
+  }
+  if (view.exitCode !== undefined) {
+    const status = view.refusal?.split("\n")[0] ?? "no dossier from this run"
+    return {
+      tallies: [],
+      verdict: view.refusal === undefined ? { text: "ended", color: "yellow" } : { text: "could not review", color: "red" },
+      status,
+      brief: status,
+      gaps: "",
+      buttons: [dismiss],
+      running: false,
+    }
+  }
+  // Why a lens is not run goes after what the run is doing, so a narrow band
+  // truncates it first; the heading leaves it to the drawing's marks.
+  const brief = doing(view)
+  return {
+    tallies: [],
+    verdict: undefined,
+    status: view.skipped.length === 0 ? brief : `${brief} · not run: ${view.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`,
+    brief,
+    gaps: "",
+    buttons: [{ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }],
+    running: true,
+  }
+}
+
+const postLine = <N>(view: RunView, el: PaneElements<N>) =>
+  view.post === undefined || view.result === undefined
+    ? []
+    : [el.Text({ ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }), children: view.post.text.split("\n")[0] ?? "" })]
+
+const terminalStrip = <N>(view: RunView, el: PaneElements<N>, width: number | string, now: number, state: StripState): N => {
+  const { Box, Text } = el
+  const cells: Array<N> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
+  state.tallies.forEach((tally, at) => {
+    if (at > 0) cells.push(Text({ dimColor: true, children: " · " }))
+    cells.push(Text({ ...TALLY[tally.kind].terminal, children: tally.text }))
+  })
+  if (state.verdict !== undefined) cells.push(Text({ color: state.verdict.color, children: state.verdict.text }))
+  if (state.running) {
+    // A running agent's mark blinks by swapping glyphs.
+    const pulse = Math.floor(now / 500) % 2 === 0 ? "●" : "◉"
+    const glyph = (mark: MarkState, color: string) => {
+      switch (mark) {
         case "answered":
           return Text({ color, children: "✓" })
         case "failed":
           return Text({ color: "red", children: "✗" })
         case "running":
-          return pulse(color)
+          return Text({ color, bold: true, children: pulse })
         case "skipped":
           return Text({ dimColor: true, children: "⊘" })
         case "waiting":
           return Text({ dimColor: true, children: "○" })
       }
     }
-    if (!track([], doing(view))) {
-      stageMarks(view).forEach(({ color, finished, marks, name, started }, at) => {
-        if (at > 0) cells.push(Text({ children: "  " }))
-        cells.push(Text(started ? { color, bold: !finished, children: `${name} ` } : { dimColor: true, children: `${name} ` }))
-        cells.push(...(marks.length === 0 ? [Text({ dimColor: true, children: "○" })] : marks.map((mark) => glyph(mark.state, color))))
-      })
-    }
-    buttons.push(Button({ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }))
-    // Why a lens is not run goes after what the run is doing, so a narrow
-    // band truncates it first.
-    brief = doing(view)
-    status = view.skipped.length === 0
-      ? doing(view)
-      : `${doing(view)} · not run: ${view.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`
-  }
-  const postLine = view.post === undefined || view.result === undefined
-    ? []
-    : [Text({ ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }), children: view.post.text.split("\n")[0] ?? "" })]
-  // Off the terminal: the heading, what the run is doing and the buttons on
-  // one line, centred on one another, and the drawing under them.
-  if (drawing !== undefined) {
-    return Box({
-      flexDirection: "column",
-      width,
-      children: [
-        Box({
-          flexDirection: "row",
-          width,
-          alignItems: "center",
-          children: [
-            Box({
-              flexGrow: 1,
-              flexShrink: 1,
-              minWidth: 0,
-              flexDirection: "row",
-              alignItems: "center",
-              children: [
-                // The heading keeps its width; what the run is doing truncates.
-                Box({ flexShrink: 0, children: Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet" }) }),
-                Text({ dimColor: true, wrap: "truncate-end", children: ` · ${brief ?? status}` }),
-                ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
-              ],
-            }),
-            ...buttons,
-          ],
-        }),
-        drawing,
-        ...postLine,
-      ],
+    stageMarks(view).forEach(({ color, finished, marks, name, started }, at) => {
+      if (at > 0) cells.push(Text({ children: "  " }))
+      cells.push(Text(started ? { color, bold: !finished, children: `${name} ` } : { dimColor: true, children: `${name} ` }))
+      cells.push(...(marks.length === 0 ? [Text({ dimColor: true, children: "○" })] : marks.map((mark) => glyph(mark, color))))
     })
   }
   return Box({
@@ -376,19 +335,74 @@ export const renderStrip = <N>(
         flexDirection: "row",
         width,
         alignItems: "center",
-        children: [Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", children: cells }), ...buttons],
+        children: [Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", children: cells }), ...state.buttons.map(el.Button)],
       }),
       Box({
         flexDirection: "row",
         width,
         children: [
-          Text({ dimColor: true, wrap: "truncate-end", children: `${elapsed} · ${status}` }),
-          ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
+          Text({ dimColor: true, wrap: "truncate-end", children: `${clock((view.endedAt ?? now) - view.startedAt)} · ${state.status}` }),
+          ...(state.gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${state.gaps}` })]),
         ],
       }),
       // The post's outcome has a line of its own and wraps: a failure's tail
       // names the run to deliver again, and the strip is where it is said.
-      ...postLine,
+      ...postLine(view, el),
     ],
   })
+}
+
+// Off the terminal: the heading, what the run is doing and the buttons on one
+// line, centred on one another, and the drawing under them, at every stage of
+// the run, so the layout never changes as it ends.
+const drawnStrip = <N>(view: RunView, el: PaneElements<N>, svg: (props: StripSvg) => N, now: number, state: StripState): N => {
+  const { Box, Text } = el
+  const age = { now, seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
+  const pills = state.tallies.map((tally) => ({ text: tally.text, color: TALLY[tally.kind].pill }))
+  return Box({
+    flexDirection: "column",
+    width: "100%",
+    children: [
+      Box({
+        flexDirection: "row",
+        width: "100%",
+        alignItems: "center",
+        children: [
+          Box({
+            flexGrow: 1,
+            flexShrink: 1,
+            minWidth: 0,
+            flexDirection: "row",
+            alignItems: "center",
+            children: [
+              // The heading keeps its width; what the run is doing truncates.
+              Box({ flexShrink: 0, children: Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet" }) }),
+              ...(state.verdict === undefined ? [] : [Text({ color: state.verdict.color, children: ` · ${state.verdict.text}` })]),
+              Text({ dimColor: true, wrap: "truncate-end", children: ` · ${state.brief}` }),
+              ...(state.gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${state.gaps}` })]),
+            ],
+          }),
+          ...state.buttons.map(el.Button),
+        ],
+      }),
+      // An image, not a frame: a frame blanks while each redraw's copy loads.
+      svg({ ...trackSvg(stageMarks(view), pills, age), alt: `Gauntlet: ${state.brief}`, isInteractive: false }),
+      ...postLine(view, el),
+    ],
+  })
+}
+
+export const renderStrip = <N>(
+  view: RunView,
+  el: PaneElements<N>,
+  site: StripSite,
+  now: number,
+  actions: StripActions,
+): N => {
+  const state = stripState(view, actions)
+  // The terminal lays the band out in cells; elsewhere text is proportional,
+  // so a count of cells is no width there, and the stage row is a drawing.
+  return site.surface === "terminal" || el.Svg === undefined
+    ? terminalStrip(view, el, site.surface === "terminal" ? site.columns : "100%", now, state)
+    : drawnStrip(view, el, el.Svg, now, state)
 }

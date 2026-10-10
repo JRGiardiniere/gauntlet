@@ -2,9 +2,10 @@ import { flow } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 
-// The words typed after /gauntlet (or passed as the review tool's `args`), as
-// the shared syntax (src/syntax/syntax.ts) parses them: `deliver <run-id>`,
-// `config …`, `demo [scenario]`, or a review, whose `review` may be left out. Words split at whitespace
+// The words typed after /gauntlet (or passed as the review tool's `args`):
+// `deliver <run-id>` or a review, whose `review` may be left out, as the shared
+// syntax (src/syntax/syntax.ts) parses them, or the Mod's own `config …` and
+// `demo [scenario]`. Words split at whitespace
 // outside quotes: a quoted part, even one inside a word
 // (`--repo="~/My Projects/x"`), keeps its spaces and loses its quotes. A
 // backslash escapes nothing, so a path with spaces is quoted.

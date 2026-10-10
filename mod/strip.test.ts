@@ -13,7 +13,7 @@ const agent = (invocationId: string, state: AgentActivity["state"], items?: numb
 const finder = (lens: string, state: AgentActivity["state"], items?: number) =>
   agent(`finders-1-finder-${lens}`, state, items)
 
-const lenses = ["absence", "lens-b", "lens-c"]
+const lenses = ["lens-a", "lens-b", "lens-c"]
 
 const running: RunView = {
   startedAt: 0,
@@ -33,7 +33,7 @@ const findersDone: RunView = {
   ...running,
   findersFinished: true,
   routed: { bugClaims: 9, observations: 14 },
-  activity: [finder("absence", "answered", 5), finder("lens-b", "answered", 18), finder("lens-c", "answered", 0)],
+  activity: [finder("lens-a", "answered", 5), finder("lens-b", "answered", 18), finder("lens-c", "answered", 0)],
 }
 
 const finished = (patch: Partial<NonNullable<RunView["result"]>>): RunView => ({
@@ -63,9 +63,9 @@ describe("strip", () => {
     })
     expect([
       running,
-      withAgents(running, finder("absence", "running")),
-      withAgents(running, finder("absence", "answered", 5), finder("lens-b", "running"), finder("lens-c", "opening")),
-      withAgents(running, finder("absence", "running"), finder("lens-b", "running")),
+      withAgents(running, finder("lens-a", "running")),
+      withAgents(running, finder("lens-a", "answered", 5), finder("lens-b", "running"), finder("lens-c", "opening")),
+      withAgents(running, finder("lens-a", "running"), finder("lens-b", "running")),
       withAgents(findersDone, agent("pool", "running")),
       withAgents(findersDone, agent("pool", "answered"), agent("verification-1", "running"), agent("judgment", "running")),
       withAgents(findersDone, agent("pool", "answered"), agent("verification-1", "answered"), agent("judgment", "running")),
@@ -74,7 +74,7 @@ describe("strip", () => {
       {
         ...running,
         lenses: [],
-        skipped: [{ lens: "absence", reason: "no fixture manifest" }],
+        skipped: [{ lens: "lens-a", reason: "no fixture manifest" }],
         findersFinished: true,
         routed: { bugClaims: 0, observations: 0 },
       },
@@ -95,15 +95,12 @@ describe("strip", () => {
   it("draws one mark per agent while running, done first", () => {
     const view: RunView = {
       ...running,
-      activity: [finder("absence", "answered", 5), finder("lens-b", "running"), finder("lens-c", "failed")],
+      activity: [finder("lens-a", "answered", 5), finder("lens-b", "running"), finder("lens-c", "failed")],
     }
     expect(draw(view, 61_000)).toBe(
       "◆ Gauntlet  Find ✓✗●  Pool ○  Verify ○  Judge ○ [ Stop ]\n1:01 · 1 finder still looking · 5 leads so far",
     )
     expect(draw(view, 61_500)).toContain("✓✗◉")
-    // Proportional text keeps one glyph, so a blink never shifts the row.
-    const desktop = { surface: "desktop", columns: 80 } as const
-    expect(renderStrip(view, text, desktop, 61_500, actions)).toContain("✓✗●")
   })
 
   it("draws the stage row and its clock as one SVG off the terminal", () => {
@@ -119,7 +116,7 @@ describe("strip", () => {
     const view: RunView = {
       ...running,
       skipped: [{ lens: "lens-d", reason: "no fixture manifest" }],
-      activity: [finder("absence", "answered", 5), finder("lens-b", "running")],
+      activity: [finder("lens-a", "answered", 5), finder("lens-b", "running")],
     }
     expect(renderStrip(view, drawing, desktop, 61_000, actions)).toBe(
       "◆ Gauntlet · 2 finders still looking · 5 leads so far [ Stop ]\n[svg]",
@@ -128,9 +125,9 @@ describe("strip", () => {
     // running agent's ping from the wall clock's, so a redraw resumes both.
     expect(sources[0]).toContain("steps(10) -1s infinite")
     expect(sources[0]).toContain('class="ping" style="animation-delay:-0.2s"')
-    for (const title of ["absence: 5 leads", "lens-b: looking", "lens-c: waiting", "lens-d: not run (no fixture manifest)"]) {
-      expect(sources[0]).toContain(`<title>${title}</title>`)
-    }
+    // One ping for the running Finder, one dashed ring for the lens not run.
+    expect(sources[0]?.split('class="ping"').length).toBe(2)
+    expect(sources[0]?.split('stroke-dasharray="2 2"').length).toBe(2)
     expect(renderStrip(finished({ entries: [{ tag: "confirmed", reviewPriority: "P1" }] }), drawing, desktop, 0, actions)).toBe(
       "◆ Gauntlet · 1 finding from 23 leads [ Open dossier ] [ Dismiss ]\n[svg]",
     )
@@ -140,9 +137,9 @@ describe("strip", () => {
   it("draws a skipped lens as not run and leaves it out of the finders still looking", () => {
     const view: RunView = {
       ...running,
-      lenses: ["absence", "lens-b"],
+      lenses: ["lens-a", "lens-b"],
       skipped: [{ lens: "lens-c", reason: "no fixture manifest" }],
-      activity: [finder("absence", "answered", 5), finder("lens-b", "answered", 18)],
+      activity: [finder("lens-a", "answered", 5), finder("lens-b", "answered", 18)],
     }
     expect(draw(view, 61_000)).toBe(
       "◆ Gauntlet  Find ✓✓⊘  Pool ○  Verify ○  Judge ○ [ Stop ]\n1:01 · 0 finders still looking · 23 leads so far · not run: lens-c (no fixture manifest)",
@@ -169,7 +166,7 @@ describe("strip", () => {
     )
     const gapped = finished({
       coverageGaps: [
-        { stage: "finders", lens: "absence", reason: "MissingEmit" },
+        { stage: "finders", lens: "lens-a", reason: "MissingEmit" },
         { stage: "finders", lens: "lens-b", reason: "Timeout" },
         { stage: "verification", reason: "bundle 2 failed" },
       ],

@@ -28,7 +28,6 @@ interface DemoEntry {
 }
 
 interface Scenario {
-  readonly lenses: ReadonlyArray<string>
   readonly skipped: ReadonlyArray<SkippedLens>
   // Each lens's Finder in open order, with its seconds and its candidates;
   // no candidates is a Finder that fails.
@@ -43,7 +42,6 @@ interface Scenario {
 }
 
 const FINDINGS: Scenario = {
-  lenses: ["absence", "cleanup", "cross-file", "diff-scan", "removed-behavior", "subjective"],
   skipped: [],
   finders: [
     ["absence", 4, 1],
@@ -76,7 +74,6 @@ const SCENARIOS = {
   },
   gaps: {
     ...FINDINGS,
-    lenses: FINDINGS.lenses.filter((lens) => lens !== "subjective"),
     skipped: [{ lens: "standards", reason: "no Standards Manifest" }, { lens: "subjective", reason: "not selected" }],
     finders: FINDINGS.finders.filter(([lens]) => lens !== "subjective").map(([lens, seconds, candidates]) =>
       lens === "cross-file" ? [lens, seconds + 4, undefined] : [lens, seconds, candidates]
@@ -146,17 +143,18 @@ export const playDemo = Effect.fn("Demo.play")(
           record.items = items
         }
       })
+    const lenses = scenario.finders.map(([lens]) => lens)
     const review: ReviewRequest = {
       target: SubmissionTargetRequest.WorkingTree({ base: undefined }),
       recipeName: Option.some("demo"),
-      selectedLensNames: scenario.lenses,
+      selectedLensNames: lenses,
       directory: cwd,
       specPath: undefined,
     }
     const reviewed = Effect.gen(function* () {
       const startedAt = yield* Clock.currentTimeMillis
       const directory = yield* fs.makeTempDirectory({ prefix: "gauntlet-demo-" })
-      yield* reportMilestone(RunMilestone.Started({ runId, directory, lenses: scenario.lenses, skipped: scenario.skipped }))
+      yield* reportMilestone(RunMilestone.Started({ runId, directory, lenses, skipped: scenario.skipped }))
       yield* Effect.sleep("1500 millis")
       if (scenario.refusal !== undefined) return yield* new RunRefusal({ reason: scenario.refusal })
       // The first Finder alone, then the rest, as the cache warm-up runs them.

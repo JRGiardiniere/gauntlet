@@ -4,6 +4,7 @@ import {
   type BuildInfo,
   createEngine,
   createSession,
+  DEMO_SCENARIOS,
   type Engine,
   type EnginePorts,
   type Json,
@@ -117,13 +118,19 @@ function startClock($: Engines) {
     const shown = JSON.stringify({ ...view, startedAt: 0 })
     const changed = shown !== drawn
     if (!changed && (!live || Date.now() - tickedAt < 500)) return
-    drawn = shown
     tickedAt = Date.now()
-    ticks += 1
-    await $.state.set({ plugin: "gauntlet", key: "tick" }, ticks)
-    if (changed) {
-      changes += 1
-      await $.state.set({ plugin: "gauntlet", key: "drawn" }, changes)
+    // A change counts as drawn once both bands were told of it; a failed write
+    // leaves it for the next tick.
+    try {
+      ticks += 1
+      await $.state.set({ plugin: "gauntlet", key: "tick" }, ticks)
+      if (changed) {
+        changes += 1
+        await $.state.set({ plugin: "gauntlet", key: "drawn" }, changes)
+      }
+      drawn = shown
+    } catch (error) {
+      log($, `redraw failed: ${String(error)}`)
     }
   })
 }
@@ -183,7 +190,7 @@ export const register: Register = (on) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [findings|clean|gaps|pr|refused] for a scripted review that runs no agents; --help for the rest",
+      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${DEMO_SCENARIOS.join("|")}] for a scripted review that runs no agents; --help for the rest`,
     })
     await recoverLostRun(ports, sessionId)
     startClock($)

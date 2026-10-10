@@ -6,22 +6,17 @@
 // stage at work flows, and the elapsed clock turns as an odometer. The desktop
 // builds a new image from the markup on every redraw, so each animation's
 // phase is set from the wall clock at the draw (a negative delay), and a
-// redraw resumes the motion where it was instead of restarting it.
+// redraw resumes the motion where it was instead of restarting it. An image
+// shows no tooltips, so a mark says only its state.
 
 export type MarkState = "waiting" | "running" | "answered" | "failed" | "skipped"
-
-export interface TrackMark {
-  readonly state: MarkState
-  // The agent's tooltip: its lens or bundle, and what it found.
-  readonly label: string
-}
 
 export interface TrackStage {
   readonly name: string
   readonly color: string
   readonly started: boolean
   readonly finished: boolean
-  readonly marks: ReadonlyArray<TrackMark>
+  readonly marks: ReadonlyArray<MarkState>
 }
 
 export interface TrackPill {
@@ -71,46 +66,37 @@ const escape = (text: string) =>
 
 const num = (value: number, places = 1) => String(Math.round(value * 10 ** places) / 10 ** places)
 
-const titled = (label: string, body: string) => `<g><title>${escape(label)}</title>${body}</g>`
-
 // One agent's mark at (x, DOT_Y); `nth` staggers the pings so a stage of
 // several running agents ripples instead of beating as one.
-const markSvg = (mark: TrackMark, x: number, color: string, nth: number, now: number) => {
+const markSvg = (mark: MarkState, x: number, color: string, nth: number, now: number) => {
   const cx = num(x)
   const cy = num(DOT_Y)
   const r = num(RADIUS)
-  switch (mark.state) {
+  switch (mark) {
     case "running": {
       const delay = `animation-delay:${phase(now, 1.6, -(nth % 6) * 0.27)}`
-      return titled(
-        mark.label,
+      return (
         `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="2" class="ping" style="${delay}"/>` +
-          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" filter="url(#glow)" class="breathe" style="${delay}"/>`,
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" filter="url(#glow)" class="breathe" style="${delay}"/>`
       )
     }
     case "answered":
-      return titled(
-        mark.label,
+      return (
         `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}"/>` +
-          `<path d="M${num(x - 2.6)} ${num(DOT_Y + 0.2)}l1.8 1.9l3.5-3.9" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+          `<path d="M${num(x - 2.6)} ${num(DOT_Y + 0.2)}l1.8 1.9l3.5-3.9" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`
       )
     case "failed":
-      return titled(
-        mark.label,
+      return (
         `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${FAILED}"/>` +
-          `<path d="M${num(x - 2.2)} ${num(DOT_Y - 2.2)}l4.4 4.4M${num(x + 2.2)} ${num(DOT_Y - 2.2)}l-4.4 4.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>`,
+          `<path d="M${num(x - 2.2)} ${num(DOT_Y - 2.2)}l4.4 4.4M${num(x + 2.2)} ${num(DOT_Y - 2.2)}l-4.4 4.4" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/>`
       )
     case "skipped":
-      return titled(
-        mark.label,
+      return (
         `<circle cx="${cx}" cy="${cy}" r="${num(RADIUS - 0.75)}" fill="none" stroke="${MUTED}" stroke-width="1.3" stroke-dasharray="2 2" opacity="0.7"/>` +
-          `<path d="M${num(x - 2.6)} ${num(DOT_Y + 2.6)}l5.2-5.2" stroke="${MUTED}" stroke-width="1.3" opacity="0.7"/>`,
+          `<path d="M${num(x - 2.6)} ${num(DOT_Y + 2.6)}l5.2-5.2" stroke="${MUTED}" stroke-width="1.3" opacity="0.7"/>`
       )
     case "waiting":
-      return titled(
-        mark.label,
-        `<circle cx="${cx}" cy="${cy}" r="${num(RADIUS - 0.75)}" fill="none" stroke="${MUTED}" stroke-width="1.5" opacity="0.6"/>`,
-      )
+      return `<circle cx="${cx}" cy="${cy}" r="${num(RADIUS - 0.75)}" fill="none" stroke="${MUTED}" stroke-width="1.5" opacity="0.6"/>`
   }
 }
 
@@ -174,12 +160,12 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
     `<text x="${num(x)}" y="${num(LABEL_Y)}"${options.end === true ? ' text-anchor="end"' : ""} class="label${options.active === true ? " active" : ""}" fill="${fill}">${escape(text.toUpperCase())}</text>`
   let x = MARGIN
   stages.forEach((stage, at) => {
-    const marks: ReadonlyArray<TrackMark> = stage.marks.length === 0 ? [{ state: "waiting", label: `${stage.name}: nothing yet` }] : stage.marks
+    const marks: ReadonlyArray<MarkState> = stage.marks.length === 0 ? ["waiting"] : stage.marks
     const active = stage.started && !stage.finished
     parts.push(label(x, stage.name, stage.started ? stage.color : MUTED, { active }))
     let running = 0
     marks.forEach((mark, index) => {
-      parts.push(markSvg(mark, x + RADIUS + 1 + index * PITCH, stage.color, mark.state === "running" ? running++ : 0, clock.now))
+      parts.push(markSvg(mark, x + RADIUS + 1 + index * PITCH, stage.color, mark === "running" ? running++ : 0, clock.now))
     })
     const dotsEnd = x + 2 + RADIUS * 2 + (marks.length - 1) * PITCH
     const labelEnd = x + stage.name.length * LETTER
