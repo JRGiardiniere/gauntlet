@@ -1,6 +1,7 @@
 // The Mod's strip: a review in flight, drawn above the prompt by the hooks
 // module's `ui.render` hook on `AbovePrompt`. Line 1 is each stage with one
-// mark per agent, and one per lens skipped by design; line 2, always there,
+// mark per agent, and one per lens skipped by design, as text on the
+// terminal and as one SVG (mod/strip-svg.ts) where text is proportional; line 2, always there,
 // is the elapsed time and what the run is doing in plain words. Once the dossier is written, line 1 is its Review
 // Priority counts with Open dossier and Dismiss, and a pull-request review's
 // post adds a last line, wrapped: posting, then where it landed or why it did
@@ -9,6 +10,7 @@
 // dollar or cache figure shows.
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
 import type { AgentActivity } from "./activity.ts"
+import { type MarkState, type TrackMark, type TrackPill, type TrackStage, trackSvg } from "./strip-svg.ts"
 
 export interface RunView {
   readonly startedAt: number
@@ -60,12 +62,21 @@ interface StripButton {
   readonly onPress: () => void
 }
 
+interface StripSvg {
+  readonly source: string
+  readonly alt: string
+  readonly width: number
+  readonly height: number
+  readonly isInteractive: boolean
+}
+
 // The slice of every surface's element table the strip draws with; N is the
-// table's element type.
+// table's element type. The terminal's has no Svg.
 export interface PaneElements<N> {
   readonly Box: (props: StripBox<N>) => N
   readonly Text: (props: StripText) => N
   readonly Button: (props: StripButton) => N
+  readonly Svg?: (props: StripSvg) => N
 }
 
 // Where the strip draws: `e.surface`, never what the element table holds
@@ -91,7 +102,15 @@ const STAGE_COLOR: Record<Stage, string> = {
   Judgment: "#5fd787",
 }
 const SHORT: Record<Stage, string> = { Finders: "Find", Pool: "Pool", Verification: "Verify", Judgment: "Judge" }
+const NOUN: Record<Stage, readonly [string, string]> = {
+  Finders: ["lead", "leads"],
+  Pool: ["group", "groups"],
+  Verification: ["verdict", "verdicts"],
+  Judgment: ["decision", "decisions"],
+}
 const PRIORITY_COLOR = { P1: "red", P2: "#ff8700", P3: "#878787" } as const
+// The SVG's own palette: a hex for every color, as the markup has no theme.
+const PILL_COLOR = { P1: "#e5484d", P2: "#ff8700", P3: "#8b8b8b", unranked: "#8b8b8b", clean: "#30a46c" } as const
 
 // "<run>-finders-2-finder-absence" → Finders/absence.
 export const stageOf = (invocationId: string): { readonly stage: Stage; readonly name: string } | undefined => {
@@ -131,6 +150,38 @@ const plural = (count: number, one: string, many: string) => `${String(count)} $
 
 // The Finders' candidates so far.
 const leads = (view: RunView) => stageRuns(view, "Finders").reduce((sum, each) => sum + (each.items ?? 0), 0)
+
+const markOf = (state: AgentActivity["state"] | undefined): MarkState =>
+  state === undefined || state === "opening" ? "waiting" : state === "stopped" ? "failed" : state
+
+const markOrder = (state: MarkState) => (state === "answered" || state === "failed" ? 0 : state === "running" ? 1 : 2)
+
+// What one agent's mark says on hover.
+const markLabel = (stage: Stage, name: string, run: AgentActivity | undefined) => {
+  if (run === undefined || run.state === "opening") return `${name}: waiting`
+  if (run.state === "running") return `${name}: ${stage === "Finders" ? "looking" : "working"}`
+  if (run.state === "answered") return run.items === undefined ? `${name}: done` : `${name}: ${plural(run.items, ...NOUN[stage])}`
+  return `${name}: ${run.state}`
+}
+
+// Each stage's marks: one per agent, ended first, then running, then to
+// start, so the row fills left to right. A Finder lens not yet invoked counts
+// as one to start, by its latest attempt once it has one; a skipped lens never
+// runs, so it is drawn after the rest.
+const stageMarks = (view: RunView): ReadonlyArray<TrackStage> =>
+  STAGES.map((stage) => {
+    const ran = stageRuns(view, stage)
+    const agents = stage === "Finders"
+      ? view.lenses.map((lens) => ({ name: lens, run: ran.findLast((each) => stageOf(each.invocationId)?.name === lens) }))
+      : ran.map((run) => ({ name: stageOf(run.invocationId)?.name ?? stage, run }))
+    const marks: Array<TrackMark> = agents
+      .map(({ name, run }) => ({ state: markOf(run?.state), label: markLabel(stage, name, run) }))
+      .sort((a, b) => markOrder(a.state) - markOrder(b.state))
+    const notRun: ReadonlyArray<TrackMark> = stage === "Finders"
+      ? view.skipped.map(({ lens, reason }) => ({ state: "skipped", label: `${lens}: not run (${reason})` }))
+      : []
+    return { name: SHORT[stage], color: STAGE_COLOR[stage], ...stageState(view, stage), marks: [...marks, ...notRun] }
+  })
 
 // What the run is doing, in plain words, from its state.
 export const doing = (view: RunView): string => {
@@ -191,8 +242,11 @@ export const renderStrip = <N>(
   const Text = (props: StripText) => el.Text(props)
   const Button = (props: StripButton) => el.Button(props)
   // The terminal lays the band out in cells; elsewhere text is proportional,
-  // so a count of cells is no width there.
+  // so a count of cells is no width there, and the stage row is a drawing.
   const width = site.surface === "terminal" ? site.columns : "100%"
+  const drawn = site.surface === "terminal" ? undefined : el.Svg
+  const track = (pills: ReadonlyArray<TrackPill>, alt: string) =>
+    drawn === undefined ? undefined : drawn({ ...trackSvg(stageMarks(view), pills), alt, isInteractive: true })
   const ended = view.exitCode !== undefined
   const elapsed = clock((view.endedAt ?? now) - view.startedAt)
   const cells: Array<N> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
@@ -201,15 +255,23 @@ export const renderStrip = <N>(
   let gaps = ""
   if (view.result !== undefined) {
     const { coverageGaps, dossierMarkdown, entries } = view.result
+    const pills: Array<TrackPill> = []
     for (const priority of ["P1", "P2", "P3"] as const) {
       const count = entries.filter((entry) => entry.reviewPriority === priority).length
       if (count === 0) continue
+      pills.push({ text: `${priority} ${String(count)}`, color: PILL_COLOR[priority] })
       if (cells.length > 1) cells.push(Text({ dimColor: true, children: " · " }))
       cells.push(Text({ color: PRIORITY_COLOR[priority], bold: priority !== "P3", children: `${priority} ${String(count)}` }))
     }
     const unranked = entries.filter((entry) => entry.reviewPriority === undefined).length
-    if (unranked > 0) cells.push(Text({ dimColor: true, children: `${cells.length > 1 ? " · " : ""}${String(unranked)} unranked` }))
-    if (entries.length === 0) cells.push(Text({ color: "green", children: "no findings" }))
+    if (unranked > 0) {
+      pills.push({ text: `${String(unranked)} unranked`, color: PILL_COLOR.unranked })
+      cells.push(Text({ dimColor: true, children: `${cells.length > 1 ? " · " : ""}${String(unranked)} unranked` }))
+    }
+    if (entries.length === 0) {
+      pills.push({ text: "no findings", color: PILL_COLOR.clean })
+      cells.push(Text({ color: "green", children: "no findings" }))
+    }
     buttons.push(
       Button({ key: "dossier", label: "Open dossier", hotkey: "o", onPress: () => actions.openDossier(dossierMarkdown) }),
       Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }),
@@ -217,6 +279,8 @@ export const renderStrip = <N>(
     const found = plural(entries.length, "finding", "findings")
     status = stageRuns(view, "Finders").length === 0 ? found : `${found} from ${plural(leads(view), "lead", "leads")}`
     gaps = gapText(coverageGaps)
+    const drawing = track(pills, `${pills.map((pill) => pill.text).join(", ")}: ${status}`)
+    if (drawing !== undefined) cells.splice(1, cells.length - 1, drawing)
   } else if (ended) {
     cells.push(view.refusal === undefined ? Text({ color: "yellow", children: "ended" }) : Text({ color: "red", children: "could not review" }))
     buttons.push(Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }))
@@ -230,39 +294,29 @@ export const renderStrip = <N>(
       site.surface === "terminal"
         ? Text({ color, bold: true, children: lit ? "●" : "◉" })
         : Text({ color, bold: lit, dimColor: !lit, children: "●" })
-    STAGES.forEach((stage, at) => {
-      const { finished, started } = stageState(view, stage)
-      const color = STAGE_COLOR[stage]
-      if (at > 0) cells.push(Text({ children: "  " }))
-      cells.push(Text(started ? { color, bold: !finished, children: `${SHORT[stage]} ` } : { dimColor: true, children: `${SHORT[stage]} ` }))
-      const ran = stageRuns(view, stage)
-      // A Finder lens not yet invoked counts as one to start.
-      const states = stage === "Finders"
-        ? view.lenses.map((lens) => ran.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state)
-        : ran.map((each) => each.state)
-      // A skipped lens never runs, so it is drawn after the rest, apart from
-      // the ones still to start.
-      const notRun = stage === "Finders" ? view.skipped.map(() => Text({ dimColor: true, children: "⊘" })) : []
-      if (states.length === 0 && notRun.length === 0) {
-        cells.push(Text({ dimColor: true, children: "○" }))
-        return
+    const glyph = (state: MarkState, color: string) => {
+      switch (state) {
+        case "answered":
+          return Text({ color, children: "✓" })
+        case "failed":
+          return Text({ color: "red", children: "✗" })
+        case "running":
+          return pulse(color)
+        case "skipped":
+          return Text({ dimColor: true, children: "⊘" })
+        case "waiting":
+          return Text({ dimColor: true, children: "○" })
       }
-      // Ended first, then running, then to start: the row fills left to right.
-      const order = (state: AgentActivity["state"] | undefined) =>
-        state !== undefined && hasEnded(state) ? 0 : state === "running" ? 1 : 2
-      for (const state of [...states].sort((a, b) => order(a) - order(b))) {
-        cells.push(
-          state === "answered"
-            ? Text({ color, children: "✓" })
-            : state === "failed" || state === "stopped"
-            ? Text({ color: "red", children: "✗" })
-            : state === "running"
-            ? pulse(color)
-            : Text({ dimColor: true, children: "○" }),
-        )
-      }
-      cells.push(...notRun)
-    })
+    }
+    const drawing = track([], doing(view))
+    if (drawing !== undefined) cells.push(drawing)
+    else {
+      stageMarks(view).forEach(({ color, finished, marks, name, started }, at) => {
+        if (at > 0) cells.push(Text({ children: "  " }))
+        cells.push(Text(started ? { color, bold: !finished, children: `${name} ` } : { dimColor: true, children: `${name} ` }))
+        cells.push(...(marks.length === 0 ? [Text({ dimColor: true, children: "○" })] : marks.map((mark) => glyph(mark.state, color))))
+      })
+    }
     buttons.push(Button({ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }))
     // Why a lens is not run goes after what the run is doing, so a narrow
     // band truncates it first.
