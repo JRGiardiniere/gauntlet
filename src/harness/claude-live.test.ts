@@ -3,7 +3,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import * as PlatformError from "effect/PlatformError"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
 import type * as ChildProcess from "effect/process/ChildProcess"
@@ -27,11 +26,10 @@ const fixture = (name: string) =>
     return yield* fs.readFileString(path.join(import.meta.dirname, "fixtures", "claude-p", `${name}.jsonl`))
   })
 
-// How a scripted child ends after its stream: an exit code, or a signal the
-// run did not send.
+// A scripted child: its stream, then its exit code.
 interface Child {
   readonly stdout: string
-  readonly ending: number | "signal"
+  readonly ending: number
 }
 
 interface Spawned {
@@ -64,9 +62,7 @@ const scriptedSpawner = (children: Array<Child>, spawned: Array<Spawned>) =>
       })
       return ChildProcessSpawner.makeHandle({
         pid: ChildProcessSpawner.ProcessId(1),
-        exitCode: child.ending === "signal"
-          ? Effect.fail(PlatformError.systemError({ _tag: "Unknown", module: "ChildProcess", method: "spawn", description: "SIGTERM" }))
-          : Effect.succeed(ChildProcessSpawner.ExitCode(child.ending)),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(child.ending)),
         isRunning: Effect.succeed(false),
         kill: () => Effect.void,
         stdin: Sink.drain,
@@ -99,7 +95,7 @@ const input = (cwd: string): InvokeInput<FindingsOutput> => ({
 
 // Invokes once over the scripted children, in a snapshot under a real
 // temporary Run temp area.
-const invokeOver = (...names: ReadonlyArray<readonly [string, number | "signal"]>) =>
+const invokeOver = (...names: ReadonlyArray<readonly [string, number]>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const children = yield* Effect.forEach(names, ([name, ending]) =>
@@ -173,9 +169,9 @@ describe("the Claude Code Host's claude -p adapter", () => {
       expect(outcome.diagnostics).toContain("provider failed: Claude stop reason refusal")
     }))
 
-  it.effect("ends a child killed before its result as interrupted, its unfinished turn costing nothing", () =>
+  it.effect("ends a child SIGTERM stopped before its result as interrupted, its unfinished turn costing nothing", () =>
     Effect.gen(function* () {
-      const { outcome } = yield* invokeOver(["killed", "signal"])
+      const { outcome } = yield* invokeOver(["killed", 143])
 
       expect(Termination.guards.Interrupted(outcome.termination)).toBe(true)
       expect(outcome.usage.rawRows).toHaveLength(1)

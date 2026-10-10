@@ -1,4 +1,6 @@
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
@@ -42,6 +44,11 @@ export interface ClaudeLiveOptions {
 const STRUCTURED_OUTPUT = "StructuredOutput"
 const READ_TOOLS = "Read,Grep,Glob"
 const STDERR_TAIL = 2_000
+const SIGTERM_EXIT = 143
+// How long a disposed session's child, its result in, gets to exit on its
+// own (about half a second, measured) and finish its transcript before it is
+// killed.
+const EXIT_GRACE = Duration.seconds(5)
 
 // Only the fields the adapter reads: extra fields are ignored, and a line
 // that matches none of these shapes is skipped, so a Claude Code update
@@ -117,11 +124,6 @@ const Line = Schema.Union([SystemInit, MessageStart, MessageDelta, Assistant, Us
 const decodeLine = Schema.decodeUnknownOption(Schema.fromJsonString(Line))
 const decodeToolUse = Schema.decodeUnknownOption(ToolUse)
 const decodeToolResult = Schema.decodeUnknownOption(ToolResult)
-const isSystemInit = Schema.is(SystemInit)
-const isMessageStart = Schema.is(MessageStart)
-const isMessageDelta = Schema.is(MessageDelta)
-const isAssistant = Schema.is(Assistant)
-const isUser = Schema.is(User)
 
 // Claude's stop reasons, mapped onto Pi's vocabulary that invoke.ts reads.
 // A `refusal` ends the invocation as an error. `compaction` cannot arrive:
@@ -309,36 +311,46 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
           const onLine = (raw: string) => {
             const line = Option.getOrUndefined(decodeLine(raw))
             if (line === undefined) return
-            if (isSystemInit(line)) {
-              claudeTranscript = { projects: path.dirname(path.dirname(line.memory_paths.auto)), file: `${line.session_id}.jsonl` }
-            } else if (isMessageStart(line)) {
-              dispatch({ type: "message_start" })
-            } else if (isMessageDelta(line)) {
-              onMessageDelta(line.event)
-            } else if (isAssistant(line)) {
-              for (const block of line.message.content) {
-                const use = Option.getOrUndefined(decodeToolUse(block))
-                if (use === undefined) continue
-                toolNames.set(use.id, use.name)
-                dispatch({ type: "tool_execution_start", toolName: toolNameOf(use.name), args: use.input })
+            switch (line.type) {
+              case "system": {
+                claudeTranscript = { projects: path.dirname(path.dirname(line.memory_paths.auto)), file: `${line.session_id}.jsonl` }
+                return
               }
-            } else if (isUser(line)) {
-              for (const block of line.message.content) {
-                const ended = Option.getOrUndefined(decodeToolResult(block))
-                if (ended === undefined) continue
-                const toolName = toolNameOf(toolNames.get(ended.tool_use_id) ?? "unknown")
-                const isError = ended.is_error === true
-                const detail = isError ? toolResultText(ended.content) : undefined
-                dispatch(
-                  detail === undefined
-                    ? { type: "tool_execution_end", toolName, isError }
-                    : { type: "tool_execution_end", toolName, isError, detail },
-                )
+              case "stream_event": {
+                const event = line.event
+                if (event.type === "message_start") dispatch({ type: "message_start" })
+                else onMessageDelta(event)
+                return
               }
-            } else {
-              onResult(line)
-              state.resulted = true
-              settle()
+              case "assistant": {
+                for (const block of line.message.content) {
+                  const use = Option.getOrUndefined(decodeToolUse(block))
+                  if (use === undefined) continue
+                  toolNames.set(use.id, use.name)
+                  dispatch({ type: "tool_execution_start", toolName: toolNameOf(use.name), args: use.input })
+                }
+                return
+              }
+              case "user": {
+                for (const block of line.message.content) {
+                  const ended = Option.getOrUndefined(decodeToolResult(block))
+                  if (ended === undefined) continue
+                  const toolName = toolNameOf(toolNames.get(ended.tool_use_id) ?? "unknown")
+                  const isError = ended.is_error === true
+                  const detail = isError ? toolResultText(ended.content) : undefined
+                  dispatch(
+                    detail === undefined
+                      ? { type: "tool_execution_end", toolName, isError }
+                      : { type: "tool_execution_end", toolName, isError, detail },
+                  )
+                }
+                return
+              }
+              case "result": {
+                onResult(line)
+                state.resulted = true
+                settle()
+              }
             }
           }
           return Effect.scoped(
@@ -360,15 +372,20 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
                   stdin: Stream.make(new TextEncoder().encode(text)),
                 }),
               )
-              const stderr = yield* Effect.forkScoped(Stream.mkString(Stream.decodeText(handle.stderr)))
+              const stderr = yield* Effect.forkScoped(
+                Stream.runFold(Stream.decodeText(handle.stderr), () => "", (tail, text) => `${tail}${text}`.slice(-STDERR_TAIL)),
+              )
               yield* Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (raw) =>
                 Effect.sync(() => onLine(raw)))
               const exit = yield* Effect.exit(handle.exitCode)
-              const errorText = (yield* Fiber.join(stderr)).trim().slice(-STDERR_TAIL)
+              const errorText = (yield* Fiber.join(stderr)).trim()
               if (state.resulted || abortRequested) return
-              // No result: the partial response is lost with the process.
-              if (Exit.isFailure(exit)) {
-                dispatch({ type: "interrupted", reason: "the claude -p child was ended by a signal the run did not send" })
+              // No result: the partial response is lost with the process. A
+              // signal the run did not send ends it, as does SIGTERM, which
+              // Claude Code answers by exiting 143.
+              if (Exit.isFailure(exit) || exit.value === SIGTERM_EXIT) {
+                const how = Exit.isFailure(exit) ? Cause.pretty(exit.cause) : "exit 143"
+                dispatch({ type: "interrupted", reason: `the claude -p child was stopped outside the run (${how})` })
               } else {
                 failed(`claude -p exited with code ${String(exit.value)} before its result${errorText === "" ? "" : `: ${errorText}`}`)
               }
@@ -433,11 +450,18 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             if (turn === undefined || turn.state.resulted) return Promise.resolve()
             return Effect.runPromiseWith(services)(Fiber.interrupt(turn.fiber))
           },
+          // A child still in its turn is killed; one whose result arrived gets
+          // a moment to exit on its own first.
           dispose: () => {
             if (disposed) return
             disposed = true
             const turn = current
-            const ended = turn === undefined || turn.state.resulted ? settled() : Fiber.interrupt(turn.fiber)
+            const ended = turn === undefined
+              ? Effect.void
+              : Effect.andThen(
+                turn.state.resulted ? Effect.timeoutOption(Fiber.await(turn.fiber), EXIT_GRACE) : Effect.void,
+                Fiber.interrupt(turn.fiber),
+              )
             run(Effect.andThen(ended, moveTranscript))
           },
           usageRows: () => usageRows,
