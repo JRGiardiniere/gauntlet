@@ -2,11 +2,11 @@
 // proportional (desktop, the editor, mobile): mod/strip.ts hands it each
 // stage's marks and, once the dossier is written, its Review Priority counts.
 // Its geometry is fixed, so no mark shifts the row as it changes, and its
-// motion lives inside the markup: a running agent pings, the line into the
-// stage at work flows, and the elapsed clock turns as an odometer of CSS
-// animations started at the run's age. A surface reloads the markup on every
-// redraw, restarting all of it, so it is redrawn only when a mark changes (the
-// hooks module's `drawn` state); each mark's <title> names its agent.
+// motion is CSS inside the markup: a running agent pings, the line into the
+// stage at work flows, and the elapsed clock turns as an odometer. The desktop
+// builds a new image from the markup on every redraw, so each animation's
+// phase is set from the wall clock at the draw (a negative delay), and a
+// redraw resumes the motion where it was instead of restarting it.
 
 export type MarkState = "waiting" | "running" | "answered" | "failed" | "skipped"
 
@@ -29,11 +29,18 @@ export interface TrackPill {
   readonly color: string
 }
 
-// The run's age at the draw, and whether its clock still turns.
+// The draw's wall-clock time, the run's age then, and whether its clock
+// still turns.
 export interface TrackClock {
+  readonly now: number
   readonly seconds: number
   readonly running: boolean
 }
+
+// How far into its `period` (seconds) an animation running since the epoch
+// is at `now`, as the negative delay that starts it there; `offset` shifts
+// it, so marks that ripple keep their places in the ripple.
+const phase = (now: number, period: number, offset = 0) => `${num(-(((now / 1000 + offset) % period)), 3)}s`
 
 export interface TrackSvg {
   readonly source: string
@@ -56,26 +63,23 @@ const LETTER = 9
 const escape = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;")
 
-const num = (value: number) => String(Math.round(value * 10) / 10)
+const num = (value: number, places = 1) => String(Math.round(value * 10 ** places) / 10 ** places)
 
-const titled = (label: string, body: string) => `<g>${body}<title>${escape(label)}</title></g>`
+const titled = (label: string, body: string) => `<g><title>${escape(label)}</title>${body}</g>`
 
 // One agent's mark at (x, DOT_Y); `nth` staggers the pings so a stage of
 // several running agents ripples instead of beating as one.
-const markSvg = (mark: TrackMark, x: number, color: string, nth: number) => {
+const markSvg = (mark: TrackMark, x: number, color: string, nth: number, now: number) => {
   const cx = num(x)
   const cy = num(DOT_Y)
   const r = num(RADIUS)
   switch (mark.state) {
     case "running": {
-      const begin = `${num((nth % 6) * 0.27)}s`
+      const delay = `animation-delay:${phase(now, 1.6, -(nth % 6) * 0.27)}`
       return titled(
         mark.label,
-        `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="2">` +
-          `<animate attributeName="r" values="${r};13" dur="1.6s" begin="${begin}" repeatCount="indefinite"/>` +
-          `<animate attributeName="stroke-opacity" values="0.75;0" dur="1.6s" begin="${begin}" repeatCount="indefinite"/></circle>` +
-          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" filter="url(#glow)">` +
-          `<animate attributeName="fill-opacity" values="1;0.55;1" dur="1.6s" begin="${begin}" repeatCount="indefinite"/></circle>`,
+        `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${color}" stroke-width="2" class="ping" style="${delay}"/>` +
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" filter="url(#glow)" class="breathe" style="${delay}"/>`,
       )
     }
     case "answered":
@@ -107,13 +111,12 @@ const markSvg = (mark: TrackMark, x: number, color: string, nth: number) => {
 // The line between two stages: faint until the stage after it starts, solid
 // in its color once that stage is under way, and flowing toward it while it
 // works.
-const connectorSvg = (from: number, to: number, next: TrackStage) => {
+const connectorSvg = (from: number, to: number, next: TrackStage, now: number) => {
   const line = `x1="${num(from)}" y1="${num(DOT_Y)}" x2="${num(to)}" y2="${num(DOT_Y)}"`
   if (!next.started) return `<line ${line} stroke="${MUTED}" stroke-width="1.5" stroke-opacity="0.35" stroke-linecap="round"/>`
   if (next.finished) return `<line ${line} stroke="${next.color}" stroke-width="1.5" stroke-opacity="0.55" stroke-linecap="round"/>`
   return `<line ${line} stroke="${next.color}" stroke-width="1.5" stroke-opacity="0.25" stroke-linecap="round"/>` +
-    `<line ${line} stroke="${next.color}" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 7">` +
-    `<animate attributeName="stroke-dashoffset" values="20;0" dur="0.7s" repeatCount="indefinite"/></line>`
+    `<line ${line} stroke="${next.color}" stroke-width="2" stroke-linecap="round" stroke-dasharray="3 7" class="flow" style="animation-delay:${phase(now, 0.7)}"/>`
 }
 
 const pillSvg = (pill: TrackPill, x: number) => {
@@ -139,7 +142,7 @@ const wheelSvg = (x: number, glyphs: ReadonlyArray<string>, period: number, cloc
   if (!clock.running) {
     return `<g transform="translate(0 ${String(-at * DIGIT_LINE)})">${stack}</g>`
   }
-  const animation = `animation:wheel${String(glyphs.length)} ${String(period)}s steps(${String(glyphs.length)}) ${String(-age)}s infinite`
+  const animation = `animation:wheel${String(glyphs.length)} ${String(period)}s steps(${String(glyphs.length)}) ${num(-(clock.seconds % period), 3)}s infinite`
   return `<g style="${animation}">${stack}</g>`
 }
 
@@ -170,12 +173,12 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
     )
     let running = 0
     marks.forEach((mark, index) => {
-      parts.push(markSvg(mark, x + RADIUS + 1 + index * PITCH, stage.color, mark.state === "running" ? running++ : 0))
+      parts.push(markSvg(mark, x + RADIUS + 1 + index * PITCH, stage.color, mark.state === "running" ? running++ : 0, clock.now))
     })
     const dotsEnd = x + 2 + RADIUS * 2 + (marks.length - 1) * PITCH
     const end = Math.max(dotsEnd, x + stage.name.length * LETTER)
     const following = stages[at + 1]
-    if (following !== undefined) parts.push(connectorSvg(dotsEnd + 5, end + GAP - 5, following))
+    if (following !== undefined) parts.push(connectorSvg(dotsEnd + 5, end + GAP - 5, following, clock.now))
     x = end + GAP
   })
   // The counts stand close after the track, and the clock after them.
@@ -198,6 +201,10 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
     `<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}` +
     `.label{font-size:10px;font-weight:600;letter-spacing:1.2px}.active{font-weight:800}.pill{font-size:11px;font-weight:700}` +
     `.clock{font-size:12px;font-weight:500;fill:${MUTED}}` +
+    `.ping{transform-box:fill-box;transform-origin:center;vector-effect:non-scaling-stroke;animation:ping 1.6s linear infinite}` +
+    `.breathe{animation:breathe 1.6s ease-in-out infinite}.flow{animation:flow 0.7s linear infinite}` +
+    `@keyframes ping{from{transform:scale(1);opacity:0.75}to{transform:scale(2.36);opacity:0}}` +
+    `@keyframes breathe{50%{opacity:0.55}}@keyframes flow{from{stroke-dashoffset:20}to{stroke-dashoffset:0}}` +
     [6, 10].map((glyphs) => `@keyframes wheel${String(glyphs)}{to{transform:translateY(${String(-glyphs * DIGIT_LINE)}px)}}`).join("") +
     `</style></defs>` +
     `${parts.join("")}</svg>`

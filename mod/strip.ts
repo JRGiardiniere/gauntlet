@@ -246,12 +246,13 @@ export const renderStrip = <N>(
   const width = site.surface === "terminal" ? site.columns : "100%"
   const drawn = site.surface === "terminal" ? undefined : el.Svg
   // The drawing turns its own clock, so the line under it leaves it out.
-  const age = { seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
+  const age = { now, seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
   let clocked = true
   const track = (pills: ReadonlyArray<TrackPill>, alt: string) => {
     if (drawn === undefined) return undefined
     clocked = false
-    return drawn({ ...trackSvg(stageMarks(view), pills, age), alt, isInteractive: true })
+    // An image, not a frame: a frame blanks while each redraw's copy loads.
+    return drawn({ ...trackSvg(stageMarks(view), pills, age), alt, isInteractive: false })
   }
   const ended = view.exitCode !== undefined
   const elapsed = clock((view.endedAt ?? now) - view.startedAt)

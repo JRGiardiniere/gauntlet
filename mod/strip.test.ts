@@ -124,8 +124,10 @@ describe("strip", () => {
     expect(renderStrip(view, drawing, desktop, 61_000, actions)).toBe(
       "◆ Gauntlet  [svg] [ Stop ]\n2 finders still looking · 5 leads so far · not run: lens-d (no fixture manifest)",
     )
-    // The clock turns in the drawing from the run's age at the draw.
+    // The clock turns in the drawing from the run's age at the draw, and the
+    // running agent's ping from the wall clock's, so a redraw resumes both.
     expect(sources[0]).toContain("steps(10) -1s infinite")
+    expect(sources[0]).toContain('class="ping" style="animation-delay:-0.2s"')
     for (const title of ["absence: 5 leads", "lens-b: looking", "lens-c: waiting", "lens-d: not run (no fixture manifest)"]) {
       expect(sources[0]).toContain(`<title>${title}</title>`)
     }
