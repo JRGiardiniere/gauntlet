@@ -51,6 +51,8 @@ export interface TrackSvg {
 const HEIGHT = 40
 const LABEL_Y = 12
 const DOT_Y = 28
+// The pills and the clock centre on the label and its marks together.
+const MID = 20
 const RADIUS = 5.5
 const PITCH = 17
 const GAP = 30
@@ -123,8 +125,8 @@ const pillSvg = (pill: TrackPill, x: number) => {
   const width = pill.text.length * 7 + 16
   return {
     width,
-    source: `<rect x="${num(x)}" y="${num(DOT_Y - 10)}" width="${num(width)}" height="20" rx="10" fill="${pill.color}" fill-opacity="0.14" stroke="${pill.color}" stroke-opacity="0.6"/>` +
-      `<text x="${num(x + width / 2)}" y="${num(DOT_Y + 4)}" text-anchor="middle" fill="${pill.color}" class="pill">${escape(pill.text)}</text>`,
+    source: `<rect x="${num(x)}" y="${num(MID - 10)}" width="${num(width)}" height="20" rx="10" fill="${pill.color}" fill-opacity="0.14" stroke="${pill.color}" stroke-opacity="0.6"/>` +
+      `<text x="${num(x + width / 2)}" y="${num(MID + 4)}" text-anchor="middle" fill="${pill.color}" class="pill">${escape(pill.text)}</text>`,
   }
 }
 
@@ -137,7 +139,7 @@ const wheelSvg = (x: number, glyphs: ReadonlyArray<string>, period: number, cloc
   const age = Math.floor(clock.seconds % period)
   const at = Math.floor(age / (period / glyphs.length))
   const stack = glyphs.map((glyph, index) =>
-    `<text x="${num(x)}" y="${num(DOT_Y + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`
+    `<text x="${num(x)}" y="${num(MID + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`
   ).join("")
   if (!clock.running) {
     return `<g transform="translate(0 ${String(-at * DIGIT_LINE)})">${stack}</g>`
@@ -152,7 +154,7 @@ const clockSvg = (x: number, clock: TrackClock) => {
   const parts = [
     wheelSvg(x, ["", ...ten.slice(1)], 6000, clock),
     wheelSvg(x + DIGIT, ten, 600, clock),
-    `<text x="${num(x + DIGIT * 2)}" y="${num(DOT_Y + 4)}" class="clock">:</text>`,
+    `<text x="${num(x + DIGIT * 2)}" y="${num(MID + 4)}" class="clock">:</text>`,
     wheelSvg(x + DIGIT * 2 + 4, ten.slice(0, 6), 60, clock),
     wheelSvg(x + DIGIT * 3 + 4, ten, 10, clock),
   ]
@@ -197,7 +199,7 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
   const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(HEIGHT)}" viewBox="0 0 ${String(width)} ${String(HEIGHT)}">` +
     `<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.6" result="blur"/>` +
     `<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
-    `<clipPath id="window"><rect x="${num(clockX - 2)}" y="${num(DOT_Y - 8)}" width="${String(timer.width + 4)}" height="${String(DIGIT_LINE)}"/></clipPath>` +
+    `<clipPath id="window"><rect x="${num(clockX - 2)}" y="${num(MID - 8)}" width="${String(timer.width + 4)}" height="${String(DIGIT_LINE)}"/></clipPath>` +
     `<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}` +
     `.label{font-size:10px;font-weight:600;letter-spacing:1.2px}.active{font-weight:800}.pill{font-size:11px;font-weight:700}` +
     `.clock{font-size:12px;font-weight:500;fill:${MUTED}}` +

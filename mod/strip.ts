@@ -245,14 +245,14 @@ export const renderStrip = <N>(
   // so a count of cells is no width there, and the stage row is a drawing.
   const width = site.surface === "terminal" ? site.columns : "100%"
   const drawn = site.surface === "terminal" ? undefined : el.Svg
-  // The drawing turns its own clock, so the line under it leaves it out.
   const age = { now, seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
-  let clocked = true
+  // The drawing, with its own clock, gets a row of its own under the heading.
+  let drawing: N | undefined
   const track = (pills: ReadonlyArray<TrackPill>, alt: string) => {
-    if (drawn === undefined) return undefined
-    clocked = false
+    if (drawn === undefined) return false
     // An image, not a frame: a frame blanks while each redraw's copy loads.
-    return drawn({ ...trackSvg(stageMarks(view), pills, age), alt, isInteractive: false })
+    drawing = drawn({ ...trackSvg(stageMarks(view), pills, age), alt, isInteractive: false })
+    return true
   }
   const ended = view.exitCode !== undefined
   const elapsed = clock((view.endedAt ?? now) - view.startedAt)
@@ -286,8 +286,7 @@ export const renderStrip = <N>(
     const found = plural(entries.length, "finding", "findings")
     status = stageRuns(view, "Finders").length === 0 ? found : `${found} from ${plural(leads(view), "lead", "leads")}`
     gaps = gapText(coverageGaps)
-    const drawing = track(pills, `${pills.map((pill) => pill.text).join(", ")}: ${status}`)
-    if (drawing !== undefined) cells.splice(1, cells.length - 1, drawing)
+    if (track(pills, `${pills.map((pill) => pill.text).join(", ")}: ${status}`)) cells.splice(1)
   } else if (ended) {
     cells.push(view.refusal === undefined ? Text({ color: "yellow", children: "ended" }) : Text({ color: "red", children: "could not review" }))
     buttons.push(Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }))
@@ -315,9 +314,7 @@ export const renderStrip = <N>(
           return Text({ dimColor: true, children: "○" })
       }
     }
-    const drawing = track([], doing(view))
-    if (drawing !== undefined) cells.push(drawing)
-    else {
+    if (!track([], doing(view))) {
       stageMarks(view).forEach(({ color, finished, marks, name, started }, at) => {
         if (at > 0) cells.push(Text({ children: "  " }))
         cells.push(Text(started ? { color, bold: !finished, children: `${name} ` } : { dimColor: true, children: `${name} ` }))
@@ -330,6 +327,41 @@ export const renderStrip = <N>(
     status = view.skipped.length === 0
       ? doing(view)
       : `${doing(view)} · not run: ${view.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`
+  }
+  const postLine = view.post === undefined || view.result === undefined
+    ? []
+    : [Text({ ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }), children: view.post.text.split("\n")[0] ?? "" })]
+  // Off the terminal: the heading, what the run is doing and the buttons on
+  // one line, centred on one another, and the drawing under them.
+  if (drawing !== undefined) {
+    return Box({
+      flexDirection: "column",
+      width,
+      children: [
+        Box({
+          flexDirection: "row",
+          width,
+          alignItems: "center",
+          children: [
+            Box({
+              flexGrow: 1,
+              flexShrink: 1,
+              minWidth: 0,
+              flexDirection: "row",
+              alignItems: "center",
+              children: [
+                Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet" }),
+                Text({ dimColor: true, wrap: "truncate-end", children: ` · ${status}` }),
+                ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
+              ],
+            }),
+            ...buttons,
+          ],
+        }),
+        drawing,
+        ...postLine,
+      ],
+    })
   }
   return Box({
     flexDirection: "column",
@@ -345,15 +377,13 @@ export const renderStrip = <N>(
         flexDirection: "row",
         width,
         children: [
-          Text({ dimColor: true, wrap: "truncate-end", children: clocked ? `${elapsed} · ${status}` : status }),
+          Text({ dimColor: true, wrap: "truncate-end", children: `${elapsed} · ${status}` }),
           ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
         ],
       }),
       // The post's outcome has a line of its own and wraps: a failure's tail
       // names the run to deliver again, and the strip is where it is said.
-      ...(view.post === undefined || view.result === undefined
-        ? []
-        : [Text({ ...(view.post.state === "failed" ? { color: "red" } : { dimColor: true }), children: view.post.text.split("\n")[0] ?? "" })]),
+      ...postLine,
     ],
   })
 }

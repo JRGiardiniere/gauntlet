@@ -122,7 +122,7 @@ describe("strip", () => {
       activity: [finder("absence", "answered", 5), finder("lens-b", "running")],
     }
     expect(renderStrip(view, drawing, desktop, 61_000, actions)).toBe(
-      "◆ Gauntlet  [svg] [ Stop ]\n2 finders still looking · 5 leads so far · not run: lens-d (no fixture manifest)",
+      "◆ Gauntlet · 2 finders still looking · 5 leads so far · not run: lens-d (no fixture manifest) [ Stop ]\n[svg]",
     )
     // The clock turns in the drawing from the run's age at the draw, and the
     // running agent's ping from the wall clock's, so a redraw resumes both.
@@ -132,7 +132,7 @@ describe("strip", () => {
       expect(sources[0]).toContain(`<title>${title}</title>`)
     }
     expect(renderStrip(finished({ entries: [{ tag: "confirmed", reviewPriority: "P1" }] }), drawing, desktop, 0, actions)).toBe(
-      "◆ Gauntlet  [svg] [ Open dossier ] [ Dismiss ]\n1 finding from 23 leads",
+      "◆ Gauntlet · 1 finding from 23 leads [ Open dossier ] [ Dismiss ]\n[svg]",
     )
     expect(sources.at(-1)).toContain(">P1 1</text>")
   })
