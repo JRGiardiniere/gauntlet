@@ -17,7 +17,6 @@ export const BUILD_FILE = "hooks/vendor/build.json"
 const STORE_UPDATE_CHECK = "update-checked-at"
 const DAY_MS = 86_400_000
 
-// What /gauntlet or the review tool asked to start.
 // What the transcript draws of a message the session sends the main agent:
 // "gauntlet review finished:" and the digest's counts line become one line;
 // a message of notes alone draws its first line.
@@ -26,6 +25,7 @@ export const digestHeadline = (text: string): string => {
   return first.endsWith(":") && second !== undefined ? `${first.slice(0, -1)} · ${second}` : first
 }
 
+// What /gauntlet or the review tool asked to start.
 export interface StartRequest {
   readonly cwd: string
   readonly args: string
