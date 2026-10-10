@@ -314,7 +314,8 @@ export const createSession = (
     else await submit(prompt)
   }
 
-  // A dropped prompt leaves the digest to the appended row.
+  // A dropped prompt leaves the digest to the appended row, or, when that
+  // append failed too, to the log alone.
   const submit = async (text: string) => {
     const dropped = await ports.submit(text).catch((error) => String(error))
     if (dropped !== undefined) ports.log(`submit dropped: ${dropped}`)
