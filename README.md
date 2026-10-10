@@ -59,9 +59,10 @@ gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post 
 
 ### In Claude Code, on your Claude plan
 
-Gauntlet also runs inside Claude Code as a mod: the reviewers are Claude Code
-subagents, progress shows above the prompt, and the digest comes back to the
-agent that asked. It needs no CLI. Ask Claude Code:
+Gauntlet also runs inside Claude Code as a mod, one plugin: each reviewer is a
+headless `claude -p` process of your Claude Code, not a subagent, progress
+shows above the prompt, and the digest is the one message that comes back to
+the agent that asked. It needs no CLI. Ask Claude Code:
 
 > Install Gauntlet for Claude Code by following https://github.com/JRGiardiniere/gauntlet/blob/main/INSTALL.md
 
@@ -73,5 +74,6 @@ review yourself.
 Run a review with `gauntlet --log-level debug review ...` to include each
 invocation's complete Pi session transcript in that Run's existing `run.log`.
 The transcript entries include prompts, model messages, tool calls, and tool
-results. Normal terminal output stays bounded, and ordinary reviews do not
-read or persist transcripts.
+results. Normal terminal output stays bounded, and ordinary CLI reviews do not
+read or persist transcripts. A Mod review always keeps each agent's own Claude
+Code transcript in its run directory's `transcripts/` folder.

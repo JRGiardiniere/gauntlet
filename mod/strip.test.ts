@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { AgentActivity } from "./agents.ts"
+import type { AgentActivity } from "./activity.ts"
 import { doing, type PaneElements, renderStrip, type RunView, type StripActions } from "./strip.ts"
 
 const RUN = "2026-10-06T00-49-12-527Z-0ce2"
@@ -64,7 +64,7 @@ describe("strip", () => {
     expect([
       running,
       withAgents(running, finder("absence", "running")),
-      withAgents(running, finder("absence", "answered", 5), finder("lens-b", "running"), finder("lens-c", "waiting")),
+      withAgents(running, finder("absence", "answered", 5), finder("lens-b", "running"), finder("lens-c", "opening")),
       withAgents(running, finder("absence", "running"), finder("lens-b", "running")),
       withAgents(findersDone, agent("pool", "running")),
       withAgents(findersDone, agent("pool", "answered"), agent("verification-1", "running"), agent("judgment", "running")),

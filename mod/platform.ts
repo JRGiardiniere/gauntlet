@@ -31,15 +31,21 @@ import type {
   ProcessSpawnResult,
 } from "claude-code"
 import * as ByteSize from "effect/ByteSize"
+import * as Cause from "effect/Cause"
 import * as Channel from "effect/Channel"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Console from "effect/Console"
+import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
+import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
+import * as Predicate from "effect/Predicate"
+import * as Queue from "effect/Queue"
 import * as Sink from "effect/Sink"
 import * as Stdio from "effect/Stdio"
 import * as Stream from "effect/Stream"
@@ -267,31 +273,34 @@ const commandArgv = (command: ChildProcess.StandardCommand) => {
 const definedEnv = (env: Record<string, string | undefined> | undefined) =>
   Object.fromEntries(Object.entries(env ?? {}).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])))
 
+const spawnFailure = (description: string) =>
+  PlatformError.systemError({ _tag: "Unknown", module: "ChildProcess", method: "spawn", description })
+
+// `$.process.spawn` takes stdin as one string, written whole and then closed.
+const stdinText = (input: ChildProcess.CommandOptions["stdin"]) => {
+  const stream = input !== undefined && !Predicate.isString(input) && !Stream.isStream(input) ? input.stream : input
+  return Stream.isStream(stream) ? Effect.asSome(Stream.mkString(Stream.decodeText(stream))) : Effect.succeedNone
+}
+
+// The child's output streams as it comes, stdout and stderr each in its own
+// queue; its exit code fails, as Node's does, when a signal ended it.
 const spawnOver = (ports: PlatformPorts) => (command: ChildProcess.Command) =>
   Effect.gen(function* () {
-    if (command._tag !== "StandardCommand") {
-      return yield* PlatformError.systemError({
-        _tag: "Unknown",
-        module: "ChildProcess",
-        method: "spawn",
-        description: "piped commands are not available in the mod",
-      })
-    }
+    if (command._tag !== "StandardCommand") return yield* spawnFailure("piped commands are not available in the mod")
     if (command.options.extendEnv === false) {
-      return yield* PlatformError.systemError({
-        _tag: "Unknown",
-        module: "ChildProcess",
-        method: "spawn",
-        description: "a child without the host's environment is not available in the mod",
-      })
+      return yield* spawnFailure("a child without the host's environment is not available in the mod")
     }
     const request: ProcessSpawnRequest = { argv: commandArgv(command), env: definedEnv(command.options.env) }
     if (command.options.cwd !== undefined) request.cwd = command.options.cwd
-    // The loop runs in a scope of its own: an interrupt (a cancelled run)
-    // closes it, which leaves the loop and so kills the child before cleanup
+    const input = yield* stdinText(command.options.stdin)
+    if (Option.isSome(input)) request.input = input.value
+    const stdout = yield* Queue.unbounded<Uint8Array, PlatformError.PlatformError | Cause.Done>()
+    const stderr = yield* Queue.unbounded<Uint8Array, PlatformError.PlatformError | Cause.Done>()
+    const ended = yield* Deferred.make<ChildProcessSpawner.ExitCode, PlatformError.PlatformError>()
+    // The loop runs in the spawn's scope: closing it (a cancelled run, or a
+    // killed child) leaves the loop, which kills the child before cleanup
     // removes the snapshot under it.
-    const output = { stdout: "", stderr: "" }
-    const ended = yield* Channel.runForEach(
+    const loop = yield* Channel.runForEach(
       Channel.fromAsyncIterable(ports.spawnProcess(request), (cause) =>
         PlatformError.systemError({
           _tag: "NotFound",
@@ -299,23 +308,37 @@ const spawnOver = (ports: PlatformPorts) => (command: ChildProcess.Command) =>
           method: "spawn",
           description: `${command.command} could not run: ${String(cause)}`,
         })),
-      (chunk) =>
-        Effect.sync(() => {
-          output[chunk.stream] += chunk.text
-        }),
+      (chunk) => Queue.offer(chunk.stream === "stdout" ? stdout : stderr, encoder.encode(chunk.text)),
+    ).pipe(
+      Effect.flatMap((result) =>
+        result.code === null
+          ? Effect.fail(spawnFailure(`${command.command} was ended by ${result.signal ?? "a signal"}`))
+          : Effect.succeed(ChildProcessSpawner.ExitCode(result.code))
+      ),
+      // A killed child's streams end, and its exit code says it was killed.
+      Effect.onExit((exit) =>
+        Effect.all([
+          Queue.end(stdout),
+          Queue.end(stderr),
+          Deferred.done(
+            ended,
+            Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
+              ? Exit.fail(spawnFailure(`${command.command} was killed`))
+              : exit,
+          ),
+        ], { discard: true })
+      ),
+      Effect.forkScoped,
     )
-    // A child a signal ended reads as 1, as `$.process.run` reports it.
-    const result = { exitCode: ended.code ?? 1, ...output }
-    const once = (text: string) => Stream.make(encoder.encode(text))
     return ChildProcessSpawner.makeHandle({
       pid: ChildProcessSpawner.ProcessId(0),
-      exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(result.exitCode)),
-      isRunning: Effect.succeed(false),
-      kill: () => Effect.void,
+      exitCode: Deferred.await(ended),
+      isRunning: Effect.map(Deferred.isDone(ended), (done) => !done),
+      kill: () => Fiber.interrupt(loop),
       stdin: Sink.drain,
-      stdout: once(result.stdout),
-      stderr: once(result.stderr),
-      all: once(`${result.stdout}${result.stderr}`),
+      stdout: Stream.fromQueue(stdout),
+      stderr: Stream.fromQueue(stderr),
+      all: Stream.merge(Stream.fromQueue(stdout), Stream.fromQueue(stderr)),
       getInputFd: () => Sink.drain,
       getOutputFd: () => Stream.empty,
       unref: Effect.succeed(Effect.void),

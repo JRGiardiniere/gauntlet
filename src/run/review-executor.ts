@@ -44,6 +44,7 @@ export const executeReviewPlan = Effect.fn(
   const selection = selectRunnableFinders(plan)
   yield* reportMilestone(RunMilestone.Started({
     runId: plan.runId,
+    directory: paths.root,
     lenses: selection.runnable.map((lens) => lens.name),
     skipped: selection.skipped.map(({ lens, reason }) => ({ lens: lens.name, reason })),
   }))

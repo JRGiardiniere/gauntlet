@@ -7,8 +7,10 @@ ones `gauntlet review` runs. Only the platform services and the
 HarnessSession adapter differ. Amended per #159: both Hosts parse the one
 review syntax (`src/syntax/`) into a request for the Run module
 (`src/run/run.ts`), which answers data each Host words itself; the Mod reads
-no CLI output. Each AgentInvocation is a hidden Claude Code
-subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
+no CLI output. Amended per #181: each AgentInvocation is a headless
+`claude -p` child process of the running Claude Code, on a
+`claude-code/<model>:<effort>` Seat, one process per turn
+(`src/harness/claude-live.ts`). Pi is not involved.
 
 ## Considered Options
 
@@ -21,12 +23,22 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
 - **A Claude-shaped pipeline** (Ideas 2 and 2b): a second review pipeline
   written for Claude Code. Rejected: with the same context it scored the same
   (5.3 of 7 on seeded-bugs-2), and two pipelines would drift.
+- **Session subagents** (#134 to #179): each invocation a hidden subagent the
+  mod spawned. Replaced per #181: under auto mode every subagent sends a
+  `SubagentHandback` report and a resumed one a task notification, each a row
+  and a turn for the main agent, which the mod could only drop by heuristic.
+  A `claude -p` child sends neither, appears in no agent list, and does not
+  depend on the permission mode.
+- **The Agent SDK, or one long-lived child per invocation** over the
+  stream-json control protocol. Rejected: `$.process.spawn` takes stdin as one
+  string and closes it, so the mod cannot hold a multi-turn stdin, serve SDK
+  MCP tools or answer `can_use_tool`; and the SDK is a runtime dependency.
 
 ## Decisions
 
 - **The Mod takes the plain name; the CLI carries the qualifier.** The Mod's
-  command, plugins and review tool are `/gauntlet`, `gauntlet` and
-  `gauntlet-tools`, and `mcp__gauntlet__review`; the CLI's agent skill is
+  command, plugin and review tool are `/gauntlet`, `gauntlet` and
+  `mcp__gauntlet__review`; the CLI's agent skill is
   `gauntlet-cli`, since Claude Code lists skills as slash commands and the two
   cannot share `gauntlet` there. Someone using only the Mod sees Gauntlet;
   with both installed, the `-cli` one is the one that is a CLI. Rejected:
@@ -43,25 +55,43 @@ subagent on a `claude-code/<model>:<effort>` Seat. Pi is not involved.
 - **Claude Code owns transient retry**, as Pi does under ADR-0002. Gauntlet
   adds none on this Host either. The first-response stall retry is
   `invoke.ts`'s and applies on both Hosts.
-- **Two plugins.** Claude Code skips the hooks of the plugin that spawned an
-  agent, so `gauntlet` (the command and the engine) cannot see its own agents'
-  tool calls or responses. `gauntlet-tools` serves the emit tools with the strict
-  OutputContract decoders, records each agent's tool calls and responses
-  (Claude's own stop reason and usage, #172) for the engine,
-  and fences Read, Grep and Glob to the Run's snapshot. Its agents get no
-  shell, no network and no writes.
-- **Agent types are keyed by Seat, tools and system prompt**, so sibling
-  Finders share a cached prefix, and spawns refused at Claude Code's
-  per-session cap of 20 subagents wait in the mod's own queue.
-- **Cost is notional.** Claude Code reports tokens, not dollars, so the
-  Dossier prices them with Pi's Anthropic catalog. The real cost is Claude
-  plan usage, which is why `/gauntlet` passes `--related-files` by default; the
-  CLI keeps it opt-in, since it gave no lift on gpt-6-luna:high.
+- **One plugin; each invocation is a `claude -p` child** (amended per #181).
+  The engine starts every turn through `$.process.spawn`, with the same argv
+  on every turn but for `--session-id` on turn 0 and `--resume` after it: a
+  resumed session keeps its system prompt and model and nothing else. The
+  argv pins `--permission-mode default --permission-prompts none` (with
+  telemetry off an unpinned child starts in auto mode), `--setting-sources ""`
+  and `--strict-mcp-config`; `--tools Read,Grep,Glob` (or `""` for a no-tools
+  Stage) with the child's cwd at the snapshot is the fence, since a read
+  outside the cwd is refused. The child loads no plugins
+  (`CLAUDE_CODE_PLUGIN_DIRS=""`), no CLAUDE.md and no Agent tool, and gets no
+  shell, no network and no writes. The adapter reads the child's
+  `--output-format stream-json` with Effect Schema listing only the fields it
+  uses, so a Claude Code update that adds to the stream cannot break a run.
+- **Each contract is the child's `--json-schema`** (amended per #181). Claude
+  Code serves it as a `StructuredOutput` tool, retries in-band violations, and
+  ends the turn on a valid call with the object in `result.structured_output`,
+  which then passes the strict OutputContract decode before it is captured.
+  A missing or retry-exhausted output is a missing emit, which gets
+  `invoke.ts`'s corrective turn.
+- **Cost is the turn's `total_cost_usd`** (amended per #181): Claude Code's
+  list price for the child's turn, put on its last response's usage row; a
+  killed turn costs $0. The real cost is Claude plan usage, which is why
+  `/gauntlet` passes `--related-files` by default; the CLI keeps it opt-in,
+  since it gave no lift on gpt-6-luna:high.
+- **A child's Claude transcript moves into the run directory** (#181), under
+  `transcripts/<invocation id>.<session id>.jsonl`, when its invocation is
+  disposed. It is found by its session's file name under Claude Code's
+  projects folder: a snapshot is a git worktree, whose auto-memory path names
+  the main repository's project folder, not the one holding the transcript.
 
 ## Consequences
 
-- A mod reload (any change to its files) wipes a run in flight. The next
-  load reports it, stops its orphaned agents and removes its snapshot, and
-  says to run `/gauntlet` again.
+- A mod reload (any change to its files) wipes a run in flight, and kills its
+  children with it (amended per #181). The next load reports the run, removes
+  its snapshot, and says to run `/gauntlet` again. The killed children's
+  transcripts stay under `~/.claude/projects/`.
+- Each child costs about 273 MB at peak and 0.4s to start; sibling Finders
+  with the same system prompt still share a cached prefix.
 - The mod's FileSystem answers only the methods the review path calls. A CLI
   change that calls another one fails on the next `/gauntlet` run.

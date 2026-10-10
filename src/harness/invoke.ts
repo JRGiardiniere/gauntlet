@@ -40,8 +40,8 @@ import {
 const MAX_CORRECTIVE_TURNS = 2
 const MIN_RETRY_REMAINING_MILLIS = 5_000
 // How long teardown waits for an abort to settle before the usage sweep: a
-// host may report a stopped turn's spend only as the abort lands (Claude
-// Code), while Pi's abort may never settle.
+// host's abort may settle only once its child process is gone (Claude Code),
+// while Pi's abort may never settle.
 const ABORT_SETTLE_MILLIS = 5_000
 
 export interface InvocationDeadlines {

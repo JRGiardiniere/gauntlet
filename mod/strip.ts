@@ -5,10 +5,10 @@
 // Priority counts with Open dossier and Dismiss, and a pull-request review's
 // post adds a last line, wrapped: posting, then where it landed or why it did
 // not. Counts come from the Run's
-// milestones and the agent driver's activity, never from progress text; no
+// milestones and the invocations' activity (mod/activity.ts), never from progress text; no
 // dollar or cache figure shows.
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
-import type { AgentActivity } from "./agents.ts"
+import type { AgentActivity } from "./activity.ts"
 
 export interface RunView {
   readonly startedAt: number

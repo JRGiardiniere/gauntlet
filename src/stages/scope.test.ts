@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import { ReviewTarget } from "../domain/review-target.ts"
-import { makeClaudeHost } from "../harness/claude-host.ts"
+import { makeClaudeLiveFactory } from "../harness/claude-live.ts"
 import { assembleStageScope, loadStageScopeTemplates } from "./scope.ts"
 
 const target = ReviewTarget.cases.WorkingTree.make({
@@ -34,11 +34,11 @@ describe("Stage scope block", () => {
 
   it.effect("tells the model on the Claude Code host about that host's tools", () =>
     Effect.gen(function* () {
-      const host = makeClaudeHost(() => undefined, () => undefined)
+      const factory = yield* makeClaudeLiveFactory({ executable: undefined, runDirectory: () => undefined })
       const scope = yield* assembleStageScope(
-        yield* loadStageScopeTemplates(host.factory.workspacePrompt),
+        yield* loadStageScopeTemplates(factory.workspacePrompt),
         target,
-        host.factory.workspaceRoot(reviewRoot),
+        factory.workspaceRoot(reviewRoot),
         undefined,
       )
       expect(scope).toContain("`Grep`")
