@@ -18,7 +18,13 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
   dossier.md               # human-readable Dossier
   receipt.json             # DeliveryReceipt, when delivery was attempted
   run.log                  # in-flight Effect log; full transcripts at debug level
+  transcripts/             # Mod runs: each claude -p child's own Claude transcript
 ```
+
+Amended per #181: a Run on the Claude Code Host also keeps each invocation's
+Claude Code transcript, moved in as Claude Code wrote it (its own JSONL, the
+one exception to the rule below), under
+`transcripts/<invocation id>.<session id>.jsonl`.
 
 The old repo's 14-file zoo (`job/status/frozen-preset/request/scope/
 candidates/result/handoff/presentation` + per-stage logs) dissolves into

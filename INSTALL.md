@@ -5,10 +5,12 @@ the person you work with. `/gauntlet` runs a Gauntlet review inside Claude Code:
 strip above the prompt, the digest lands in the transcript, and **Open
 dossier** opens the full report.
 
-The mod is two Claude Code plugin folders, `gauntlet` and `gauntlet-tools`, built
-from a git checkout. They stay bound to that checkout: they read lenses and
-prompts from it, and rebuild themselves from it with the `bun` that built them.
-So the clone stays where you put it, and `bun` must be a real command.
+The mod is one Claude Code plugin folder, `gauntlet`, built
+from a git checkout. It stays bound to that checkout: it reads lenses and
+prompts from it, and rebuilds itself from it with the `bun` that built it.
+So the clone stays where you put it, and `bun` must be a real command. A
+review's agents are headless `claude -p` processes it starts, not subagents of
+the session.
 
 Work through **Install** in order. Each step ends on its done-when check; reach
 it before moving on. Every change outside the clone (installing `bun`, editing
@@ -17,7 +19,7 @@ it before moving on. Every change outside the clone (installing `bun`, editing
 ## What it needs
 
 - **Claude Code that loads mods.** The mod was built and checked against
-  Claude Code 2.1.291 (`claude --version`). Install step 6 is the real test:
+  Claude Code 2.1.296 (`claude --version`). Install step 6 is the real test:
   `claude plugin validate` reads the mod the way this Claude Code will.
 - **git**, and **bun 1.4.0 or newer** (step 1 installs it).
 - **macOS** for **Open dossier**, which runs `open`. Reviews run anywhere.
@@ -61,8 +63,7 @@ bun install
 bun run build-mod
 ```
 
-Done when `build-mod` prints `gauntlet built at <clone>/mod/dist/gauntlet` and
-`gauntlet-tools built at <clone>/mod/dist/gauntlet-tools`.
+Done when `build-mod` prints `gauntlet built at <clone>/mod/dist/gauntlet`.
 
 ### 4. Load the mod in every session
 
@@ -70,14 +71,14 @@ Claude Code loads plugin folders named in `env.CLAUDE_CODE_PLUGIN_DIRS` of
 `~/.claude/settings.json`: absolute paths joined by `:`.
 
 1. Read `~/.claude/settings.json` (treat a missing file as `{}`).
-2. Add `<clone>/mod/dist/gauntlet` and `<clone>/mod/dist/gauntlet-tools` to
-   `env.CLAUDE_CODE_PLUGIN_DIRS`, after any paths already there, skipping one
-   already listed. Every other key and value stays as it was.
+2. Add `<clone>/mod/dist/gauntlet` to `env.CLAUDE_CODE_PLUGIN_DIRS`, after
+   any paths already there, unless it is already listed. Every other key and
+   value stays as it was.
 3. Show the person the diff and wait for their approval.
 4. Write the file.
 
 Done when the file parses as JSON and `env.CLAUDE_CODE_PLUGIN_DIRS` holds the
-earlier paths plus both new ones.
+earlier paths plus the new one.
 
 ### 5. The gauntlet-code-review skill
 
@@ -98,10 +99,9 @@ is installed.
 
 ```sh
 claude plugin validate <clone>/mod/dist/gauntlet
-claude plugin validate <clone>/mod/dist/gauntlet-tools
 ```
 
-Done when both end `Validation passed`; warnings about gating hooks and missing
+Done when it ends `Validation passed`; warnings about gating hooks and missing
 author information are expected. A failure here usually means this Claude Code
 is too old to load mods: report its version and the output to the person.
 
@@ -133,13 +133,18 @@ bun install
 bun run build-mod
 ```
 
+`env.CLAUDE_CODE_PLUGIN_DIRS` lists only `<clone>/mod/dist/gauntlet`: if it
+also lists `<clone>/mod/dist/gauntlet-tools`, from an install before #181,
+remove that path the way **Uninstall** step 1 says (the build deletes that
+folder, and Claude Code skips a missing one meanwhile).
+
 Then tell the person to restart Claude Code. Rebuild the same way after
 upgrading `bun`: the build records the `bun` it ran with, and an upgrade can
 move it.
 
 ## Uninstall
 
-1. Remove the two `<clone>/mod/dist/...` paths from
+1. Remove the `<clone>/mod/dist/gauntlet` path from
    `env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, keeping any
    other paths; drop the key once it is empty. Show the diff and wait for
    approval before writing.

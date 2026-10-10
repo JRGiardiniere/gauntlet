@@ -11,6 +11,15 @@ result, surfacing the affected candidates as plausible/undecided rather than
 silently rewriting a label. (The old repo's loose one-candidate bench twins
 are not ported.)
 
+On Pi each contract is a tool under its own name below. On the Claude Code
+Host (#181) each contract is the `--json-schema` of the child's
+`StructuredOutput` tool: the JSON Schema projection, with the tool description
+as its top-level `description`, and per-field descriptions reaching the model
+through that tool's input schema. The prompts name the tool the way the Host
+says the model sees it. Claude Code's own validator answers violations
+in-band; the object a valid call ends the turn with still passes the strict
+decoder before it counts.
+
 ## `emit_findings` — Finders
 
 Tool description: "Report the findings from your review pass. Call this

@@ -12,7 +12,9 @@ user-invocable: false
 
 A review is one call to `mcp__gauntlet__review` (load it with ToolSearch when
 only its name is listed). It returns at once; the review takes minutes, and its
-agents run on the person's Claude plan.
+agents run on the person's Claude plan. They are headless `claude -p`
+processes, not subagents: they show only on the strip above the prompt, and
+the digest is the one message the review sends you.
 
 ## Start
 
