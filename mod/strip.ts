@@ -108,9 +108,9 @@ const NOUN: Record<Stage, readonly [string, string]> = {
   Verification: ["verdict", "verdicts"],
   Judgment: ["decision", "decisions"],
 }
-const PRIORITY_COLOR = { P1: "red", P2: "#ff8700", P3: "#878787" } as const
+const PRIORITY_COLOR = { P1: "red", P2: "#ff8700", P3: "#d7af00" } as const
 // The SVG's own palette: a hex for every color, as the markup has no theme.
-const PILL_COLOR = { P1: "#e5484d", P2: "#ff8700", P3: "#8b8b8b", unranked: "#8b8b8b", clean: "#30a46c" } as const
+const PILL_COLOR = { P1: "#e5484d", P2: "#ff8700", P3: "#e0b000", unranked: "#8b8b8b", clean: "#30a46c" } as const
 
 // "<run>-finders-2-finder-absence" → Finders/absence.
 export const stageOf = (invocationId: string): { readonly stage: Stage; readonly name: string } | undefined => {
