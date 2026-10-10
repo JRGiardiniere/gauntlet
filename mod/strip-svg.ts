@@ -48,14 +48,18 @@ export interface TrackSvg {
   readonly height: number
 }
 
-const HEIGHT = 40
+// A running mark's ping reaches 13 past its centre: the margins keep it whole.
+const MARGIN = 8
+const HEIGHT = 44
 const LABEL_Y = 12
 const DOT_Y = 28
-// The pills and the clock centre on the label and its marks together.
-const MID = 20
 const RADIUS = 5.5
 const PITCH = 17
-const GAP = 30
+// Every line between stages is this long, from the last mark of one, so a
+// stage of many marks sits as far from the next as a stage of one.
+const CONNECT = 40
+// Between the track, the counts and the clock, each under its own label.
+const SECTION = 22
 const MUTED = "#8b8b8b"
 const FAILED = "#e5484d"
 // Labels are small caps in the system face; this is their measured advance
@@ -125,8 +129,8 @@ const pillSvg = (pill: TrackPill, x: number) => {
   const width = pill.text.length * 7 + 16
   return {
     width,
-    source: `<rect x="${num(x)}" y="${num(MID - 10)}" width="${num(width)}" height="20" rx="10" fill="${pill.color}" fill-opacity="0.14" stroke="${pill.color}" stroke-opacity="0.6"/>` +
-      `<text x="${num(x + width / 2)}" y="${num(MID + 4)}" text-anchor="middle" fill="${pill.color}" class="pill">${escape(pill.text)}</text>`,
+    source: `<rect x="${num(x)}" y="${num(DOT_Y - 10)}" width="${num(width)}" height="20" rx="10" fill="${pill.color}" fill-opacity="0.14" stroke="${pill.color}" stroke-opacity="0.6"/>` +
+      `<text x="${num(x + width / 2)}" y="${num(DOT_Y + 4)}" text-anchor="middle" fill="${pill.color}" class="pill">${escape(pill.text)}</text>`,
   }
 }
 
@@ -139,7 +143,7 @@ const wheelSvg = (x: number, glyphs: ReadonlyArray<string>, period: number, cloc
   const age = Math.floor(clock.seconds % period)
   const at = Math.floor(age / (period / glyphs.length))
   const stack = glyphs.map((glyph, index) =>
-    `<text x="${num(x)}" y="${num(MID + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`
+    `<text x="${num(x)}" y="${num(DOT_Y + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`
   ).join("")
   if (!clock.running) {
     return `<g transform="translate(0 ${String(-at * DIGIT_LINE)})">${stack}</g>`
@@ -154,7 +158,7 @@ const clockSvg = (x: number, clock: TrackClock) => {
   const parts = [
     wheelSvg(x, ["", ...ten.slice(1)], 6000, clock),
     wheelSvg(x + DIGIT, ten, 600, clock),
-    `<text x="${num(x + DIGIT * 2)}" y="${num(MID + 4)}" class="clock">:</text>`,
+    `<text x="${num(x + DIGIT * 2)}" y="${num(DOT_Y + 4)}" class="clock">:</text>`,
     wheelSvg(x + DIGIT * 2 + 4, ten.slice(0, 6), 60, clock),
     wheelSvg(x + DIGIT * 3 + 4, ten, 10, clock),
   ]
@@ -166,40 +170,50 @@ const clockSvg = (x: number, clock: TrackClock) => {
 
 export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray<TrackPill>, clock: TrackClock): TrackSvg => {
   const parts: Array<string> = []
-  let x = 2
+  const label = (x: number, text: string, fill: string, options: { readonly active?: boolean; readonly end?: boolean } = {}) =>
+    `<text x="${num(x)}" y="${num(LABEL_Y)}"${options.end === true ? ' text-anchor="end"' : ""} class="label${options.active === true ? " active" : ""}" fill="${fill}">${escape(text.toUpperCase())}</text>`
+  let x = MARGIN
   stages.forEach((stage, at) => {
     const marks: ReadonlyArray<TrackMark> = stage.marks.length === 0 ? [{ state: "waiting", label: `${stage.name}: nothing yet` }] : stage.marks
     const active = stage.started && !stage.finished
-    parts.push(
-      `<text x="${num(x)}" y="${num(LABEL_Y)}" class="label${active ? " active" : ""}" fill="${stage.started ? stage.color : MUTED}">${escape(stage.name.toUpperCase())}</text>`,
-    )
+    parts.push(label(x, stage.name, stage.started ? stage.color : MUTED, { active }))
     let running = 0
     marks.forEach((mark, index) => {
       parts.push(markSvg(mark, x + RADIUS + 1 + index * PITCH, stage.color, mark.state === "running" ? running++ : 0, clock.now))
     })
     const dotsEnd = x + 2 + RADIUS * 2 + (marks.length - 1) * PITCH
-    const end = Math.max(dotsEnd, x + stage.name.length * LETTER)
+    const labelEnd = x + stage.name.length * LETTER
     const following = stages[at + 1]
-    if (following !== undefined) parts.push(connectorSvg(dotsEnd + 5, end + GAP - 5, following, clock.now))
-    x = end + GAP
+    if (following === undefined) {
+      x = Math.max(dotsEnd, labelEnd)
+      return
+    }
+    // A label longer than its marks may push the next stage, and the line, on.
+    const next = Math.max(dotsEnd + CONNECT + 10, labelEnd + 12)
+    parts.push(connectorSvg(dotsEnd + 5, next - 5, following, clock.now))
+    x = next
   })
-  // The counts stand close after the track, and the clock after them.
-  x -= GAP - 16
-  pills.forEach((pill) => {
-    const drawn = pillSvg(pill, x)
-    parts.push(drawn.source)
-    x += drawn.width + 6
-  })
-  x += pills.length > 0 ? 6 : 0
+  if (pills.length > 0) {
+    x += SECTION
+    parts.push(label(x, "findings", MUTED))
+    pills.forEach((pill, at) => {
+      const drawn = pillSvg(pill, x + (at === 0 ? 0 : 6))
+      parts.push(drawn.source)
+      x += drawn.width + (at === 0 ? 0 : 6)
+    })
+  }
+  x += SECTION
   const timer = clockSvg(x, clock)
+  // Over the clock's right edge: its minutes' tens wheel is blank until ten.
+  parts.push(label(x + timer.width, "time", MUTED, { end: true }))
   parts.push(timer.source)
   const clockX = x
   x += timer.width
-  const width = Math.ceil(x + 2)
+  const width = Math.ceil(x + MARGIN)
   const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(HEIGHT)}" viewBox="0 0 ${String(width)} ${String(HEIGHT)}">` +
     `<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.6" result="blur"/>` +
     `<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
-    `<clipPath id="window"><rect x="${num(clockX - 2)}" y="${num(MID - 8)}" width="${String(timer.width + 4)}" height="${String(DIGIT_LINE)}"/></clipPath>` +
+    `<clipPath id="window"><rect x="${num(clockX - 2)}" y="${num(DOT_Y - 8)}" width="${String(timer.width + 4)}" height="${String(DIGIT_LINE)}"/></clipPath>` +
     `<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}` +
     `.label{font-size:10px;font-weight:600;letter-spacing:1.2px}.active{font-weight:800}.pill{font-size:11px;font-weight:700}` +
     `.clock{font-size:12px;font-weight:500;fill:${MUTED}}` +
