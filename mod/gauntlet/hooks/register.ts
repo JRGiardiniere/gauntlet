@@ -171,7 +171,7 @@ export const register: Register = (on) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, or /gauntlet config; --help for the rest",
+      description: "Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [findings|clean|gaps|pr|refused] for a scripted review that runs no agents; --help for the rest",
     })
     await recoverLostRun(ports, sessionId)
     startClock($)

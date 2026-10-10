@@ -4,13 +4,13 @@ import * as Schema from "effect/Schema"
 
 // The words typed after /gauntlet (or passed as the review tool's `args`), as
 // the shared syntax (src/syntax/syntax.ts) parses them: `deliver <run-id>`,
-// `config …`, or a review, whose `review` may be left out. Words split at whitespace
+// `config …`, `demo [scenario]`, or a review, whose `review` may be left out. Words split at whitespace
 // outside quotes: a quoted part, even one inside a word
 // (`--repo="~/My Projects/x"`), keeps its spaces and loses its quotes. A
 // backslash escapes nothing, so a path with spaces is quoted.
 export const commandWords = (args: string): ReadonlyArray<string> => {
   const words = args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((word) => word.replace(/(["'])(.*?)\1/g, "$2")) ?? []
-  return words[0] === "review" || words[0] === "deliver" || words[0] === "config" ? words : ["review", ...words]
+  return words[0] === "review" || words[0] === "deliver" || words[0] === "config" || words[0] === "demo" ? words : ["review", ...words]
 }
 
 // The review tool's `args`, decoded where the call arrives; undefined when

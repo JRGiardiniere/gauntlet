@@ -31,9 +31,10 @@ import { HarnessSessionFactory } from "../src/harness/harness-session.ts"
 import { Linear } from "../src/linear/linear.ts"
 import * as Run from "../src/run/run.ts"
 import { type RunMilestone, RunMilestones } from "../src/run/run-milestones.ts"
-import { reviewSyntax } from "../src/syntax/syntax.ts"
+import { type Destination, reviewSyntax } from "../src/syntax/syntax.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
 import { type AgentActivity, makeActivity } from "./activity.ts"
+import { playDemo } from "./demo.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
 import type { RunView } from "./strip.ts"
 
@@ -262,42 +263,54 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         shown.refusal = reason
         answer = { verdict: delivering ? "could not deliver" : "could not review", digest: "", notes: [reason] }
       })
+    // A review the words asked for, from the strip's first draw to its
+    // answer, run by the Run module or the demo's stand-in for it. Only words
+    // that became a review draw the strip: help, a delivery and words that
+    // never parsed leave it to the last review.
+    // A pull-request destination hands off the digest before it delivers the
+    // Run, so a slow or hung post never withholds it: the post's receipt or
+    // refusal is the run's answer, and a run cancelled while posting has shown
+    // its digest already.
+    const reviewing = <E, R, R2>(
+      review: Run.ReviewRequest,
+      destination: Destination,
+      run: {
+        readonly review: Effect.Effect<{ readonly runId: string; readonly digest: string }, E, R>
+        readonly deliver: (runId: string) => Effect.Effect<{ readonly url: string }, Run.RunRefusal, R2>
+        readonly activity: () => ReadonlyArray<AgentActivity>
+      },
+    ) =>
+      Effect.sync(() => {
+        progress = shown
+        activity = run.activity
+        parsed(review)
+      }).pipe(
+        Effect.andThen(run.review),
+        Effect.flatMap((reviewed) =>
+          destination === "local"
+            ? Effect.sync(() => {
+              answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
+            })
+            : Effect.sync(() => {
+              shown.post = { state: "posting", text: "posting to the pull request" }
+              posting({ verdict: "review finished", digest: reviewed.digest, notes: [], seconds: elapsed() })
+            }).pipe(
+              Effect.andThen(run.deliver(reviewed.runId)),
+              Effect.match({
+                onSuccess: (receipt) => ({ verdict: "delivered", notes: [`posted ${receipt.url}`], state: "posted" as const }),
+                onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)], state: "failed" as const }),
+              }),
+              Effect.map(({ verdict, notes, state }) => {
+                shown.post = { state, text: notes.join("; ") }
+                answer = { verdict, digest: "", notes }
+              }),
+            )
+        ),
+      )
     const gauntlet = Command.make("gauntlet").pipe(
       Command.withSubcommands(reviewSyntax({ relatedFiles: true }, {
-        // Only words that became a review draw the strip: help, a delivery
-        // and words that never parsed leave it to the last review.
-        // A pull-request destination hands off the digest before it delivers
-        // the Run, so a slow or hung post never withholds it: the post's
-        // receipt or refusal is the run's answer, and a run cancelled while
-        // posting has shown its digest already.
         review: (review, destination) =>
-          Effect.sync(() => {
-            progress = shown
-            activity = watched.activity
-            parsed(review)
-          }).pipe(
-            Effect.andThen(Run.review(review)),
-            Effect.flatMap((reviewed) =>
-              destination === "local"
-                ? Effect.sync(() => {
-                  answer = { verdict: "review finished", digest: reviewed.digest, notes: [] }
-                })
-                : Effect.sync(() => {
-                  shown.post = { state: "posting", text: "posting to the pull request" }
-                  posting({ verdict: "review finished", digest: reviewed.digest, notes: [], seconds: elapsed() })
-                }).pipe(
-                  Effect.andThen(Run.deliver(reviewed.runId)),
-                  Effect.match({
-                    onSuccess: (receipt) => ({ verdict: "delivered", notes: [`posted ${receipt.url}`], state: "posted" as const }),
-                    onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)], state: "failed" as const }),
-                  }),
-                  Effect.map(({ verdict, notes, state }) => {
-                    shown.post = { state, text: notes.join("; ") }
-                    answer = { verdict, digest: "", notes }
-                  }),
-                )
-            ),
-          ),
+          reviewing(review, destination, { review: Run.review(review), deliver: Run.deliver, activity: watched.activity }),
         deliver: (runId) =>
           Run.deliver(runId).pipe(
             Effect.map((receipt) => {
@@ -330,7 +343,15 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         }),
       ),
     )
-    const program = Command.runWith(gauntlet, { version: build.stamp.slice(0, 12) })(request.words).pipe(
+    // `demo` plays a scripted review (mod/demo.ts) where the CLI's words
+    // would run one.
+    const program = Effect.suspend(() =>
+      request.words[0] === "demo"
+        ? playDemo(request.words.slice(1), request.cwd).pipe(
+          Effect.flatMap((demo) => reviewing(demo.review, demo.destination, demo.run)),
+        )
+        : Command.runWith(gauntlet, { version: build.stamp.slice(0, 12) })(request.words)
+    ).pipe(
       Effect.catchTags({
         // Help asked for is printed; help shown for words that did not parse
         // carries why.
