@@ -235,7 +235,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
         const usageRows: Array<UsageRow> = []
         const transcript: Array<HarnessEvent> = []
         const toolNames = new Map<string, string>()
-        let transcriptPath: string | undefined
+        let claudeTranscript: { readonly projects: string; readonly file: string } | undefined
         let turns = 0
         let current: Turn | undefined
         let abortRequested = false
@@ -310,9 +310,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             const line = Option.getOrUndefined(decodeLine(raw))
             if (line === undefined) return
             if (isSystemInit(line)) {
-              // Its transcript sits beside its auto-memory folder, named for
-              // the session: no guess at Claude Code's path encoding.
-              transcriptPath = path.join(path.dirname(line.memory_paths.auto), `${line.session_id}.jsonl`)
+              claudeTranscript = { projects: path.dirname(path.dirname(line.memory_paths.auto)), file: `${line.session_id}.jsonl` }
             } else if (isMessageStart(line)) {
               dispatch({ type: "message_start" })
             } else if (isMessageDelta(line)) {
@@ -385,12 +383,28 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
         // the next one resumes it, or before the transcript moves.
         const settled = () => (current === undefined ? Effect.void : Effect.asVoid(Fiber.await(current.fiber)))
 
+        // The child's transcript is `<session_id>.jsonl` in one of Claude
+        // Code's project folders, the folder init's auto-memory path sits two
+        // levels under. Which one is the cwd's, unless the cwd is a git
+        // worktree (a snapshot always is), whose auto memory is its main
+        // repository's; so it is found by its name rather than by spelling
+        // Claude Code's path encoding.
         const moveTranscript = Effect.gen(function* () {
           const runDirectory = options.runDirectory()
-          if (transcriptPath === undefined || runDirectory === undefined) return
+          if (claudeTranscript === undefined || runDirectory === undefined) return
+          const { file, projects } = claudeTranscript
+          let found: string | undefined
+          for (const project of yield* fs.readDirectory(projects)) {
+            const candidate = path.join(projects, project, file)
+            if (yield* fs.exists(candidate)) {
+              found = candidate
+              break
+            }
+          }
+          if (found === undefined) return yield* Effect.logWarning(`Claude transcript ${file} for ${config.invocationId} not found under ${projects}`)
           const folder = path.join(runDirectory, "transcripts")
           yield* fs.makeDirectory(folder, { recursive: true })
-          yield* fs.rename(transcriptPath, path.join(folder, `${config.invocationId}.${sessionId}.jsonl`))
+          yield* fs.rename(found, path.join(folder, `${config.invocationId}.${sessionId}.jsonl`))
         }).pipe(
           Effect.catch((error) => Effect.logWarning(`Claude transcript for ${config.invocationId} not moved: ${String(error)}`)),
         )
