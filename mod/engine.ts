@@ -40,7 +40,7 @@ import type { RunView } from "./strip.ts"
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
 export { reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
-export { BUILD_FILE, createSession, digestHeadline, recoverLostRun } from "./session.ts"
+export { BUILD_FILE, createSession, recoverLostRun } from "./session.ts"
 export type { Session } from "./session.ts"
 export type { Json } from "effect/Schema"
 

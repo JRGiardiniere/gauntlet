@@ -204,7 +204,7 @@ describe("the Mod's session", () => {
     run.post(FINISHED)
     await until(() => mod.submitted.length === 1)
 
-    expect(mod.submitted).toEqual([DIGEST])
+    expect([mod.submitted, mod.appended]).toEqual([[digestHeadline(DIGEST)], [DIGEST]])
     expect(await mod.attempt({ cwd: "/repo", args: "" })).toMatch(/one per session/)
     expect(mod.store.has(MARKER)).toBe(true)
 
@@ -215,7 +215,7 @@ describe("the Mod's session", () => {
     submitting.release()
     await settle()
 
-    expect([mod.submitted, mod.appended]).toEqual([[DIGEST], []])
+    expect([mod.submitted, mod.appended]).toEqual([[digestHeadline(DIGEST)], [DIGEST]])
   })
 
   it("reports a lost review at session start, removing its snapshot", async () => {
@@ -253,8 +253,7 @@ describe("the digest's way to its Caller", () => {
     run.end(FINISHED)
     await until(() => mod.submitted.length === 1)
 
-    expect(mod.submitted).toEqual([DIGEST])
-    expect(mod.appended).toEqual([])
+    expect([mod.submitted, mod.appended]).toEqual([[digestHeadline(DIGEST)], [DIGEST]])
   })
 
   it("submits at the turn's end a digest appended after the turn's last model call", async () => {
@@ -268,7 +267,7 @@ describe("the digest's way to its Caller", () => {
 
     await mod.session.turnEnded()
 
-    expect(mod.submitted).toEqual([DIGEST])
+    expect(mod.submitted).toEqual([digestHeadline(DIGEST)])
   })
 
   it("leaves to the turn a digest that a later step read", async () => {
@@ -300,14 +299,14 @@ describe("the digest's way to its Caller", () => {
     const mod = makeSession({ submitDrop: "fixture drop" })
     const run = await mod.review({ cwd: "/repo", args: "" })
     run.end(FINISHED)
-    await until(() => mod.appended.length === 1)
+    await until(() => mod.submitted.length === 1)
 
-    expect([mod.submitted, mod.appended]).toEqual([[DIGEST], [DIGEST]])
+    expect([mod.submitted, mod.appended]).toEqual([[digestHeadline(DIGEST)], [DIGEST]])
   })
 })
 
-describe("the digest's row in the transcript", () => {
-  it("draws the verdict and the counts line as one line, and a notes-only message as its first", () => {
+describe("the digest's headline", () => {
+  it("joins the verdict and the counts line as one line, and a notes-only message as its first", () => {
     expect(digestHeadline("gauntlet review finished:\n\n1 confirmed · 0 kept — 42s\n- [P2 confirmed] a.ts:1 — x\n\ndossier.md: /r/dossier.md"))
       .toBe("gauntlet review finished · 1 confirmed · 0 kept — 42s")
     expect(digestHeadline("gauntlet: could not review — no such ref\nmore")).toBe("gauntlet: could not review — no such ref")

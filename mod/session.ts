@@ -17,9 +17,9 @@ export const BUILD_FILE = "hooks/vendor/build.json"
 const STORE_UPDATE_CHECK = "update-checked-at"
 const DAY_MS = 86_400_000
 
-// What the transcript draws of a message the session sends the main agent:
-// "gauntlet review finished:" and the digest's counts line become one line;
-// a message of notes alone draws its first line.
+// The one line of a message to the main agent that the person sees:
+// "gauntlet review finished:" and the digest's counts line joined; a message
+// of notes alone, its first line.
 export const digestHeadline = (text: string): string => {
   const [first = "", second] = text.split("\n").filter((line) => line.trim() !== "")
   return first.endsWith(":") && second !== undefined ? `${first.slice(0, -1)} · ${second}` : first
@@ -288,28 +288,36 @@ export const createSession = (
 
   // A subagent that started the review gets its digest as a message, which
   // reaches it between tool calls or resumes it once it has stopped; when it
-  // cannot be reached, the main agent gets it. The person's view of the
-  // ending is the strip: only a submitted prompt also shows them the text.
+  // cannot be reached, the main agent gets it. The main agent's copy is an
+  // appended row, which the model reads and the person does not see; the
+  // prompt that wakes an idle agent (or ends a turn whose last model call
+  // missed the row) is its one-line headline, the only part the person sees,
+  // as the CLI's ending is one notification row.
   const handOff = async (text: string, agentId: string | undefined) => {
     if (agentId !== undefined) {
       const refused = await ports.send(agentId, text).catch((error) => String(error))
       if (refused === undefined) return
       ports.log(`digest not sent to ${agentId}: ${refused}`)
     }
-    if (!busy && (await submit(text))) return
-    // Busy now (or since a dropped submit), the main agent reads the append at
-    // its next step, or its turn's end submits it.
-    if (busy) unread = unread === undefined ? text : `${unread}\n\n${text}`
-    await ports.append(text).catch((error) => ports.log(`append failed: ${String(error)}`))
+    const appended = await ports.append(text).then(
+      () => true,
+      (error) => {
+        ports.log(`append failed: ${String(error)}`)
+        return false
+      },
+    )
+    // With no row to read, the prompt carries the whole text.
+    const prompt = appended ? digestHeadline(text) : text
+    // Busy, the main agent reads the row at its next step, or its turn's end
+    // submits the prompt.
+    if (busy) unread = unread === undefined ? prompt : `${unread}\n\n${prompt}`
+    else await submit(prompt)
   }
 
-  // Whether the prompt entered; a dropped one leaves the digest to an appended
-  // message.
-  const submit = async (text: string): Promise<boolean> => {
+  // A dropped prompt leaves the digest to the appended row.
+  const submit = async (text: string) => {
     const dropped = await ports.submit(text).catch((error) => String(error))
-    if (dropped === undefined) return true
-    ports.log(`submit dropped: ${dropped}`)
-    return false
+    if (dropped !== undefined) ports.log(`submit dropped: ${dropped}`)
   }
 
   return {
@@ -326,7 +334,7 @@ export const createSession = (
       busy = false
       const left = unread
       unread = undefined
-      if (left !== undefined && !(await submit(left))) ports.log("unread digest left in the conversation")
+      if (left !== undefined) await submit(left)
     },
   }
 }
