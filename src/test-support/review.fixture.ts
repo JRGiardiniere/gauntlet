@@ -103,7 +103,7 @@ export const makeFixture = Effect.gen(function* () {
   )
   yield* fs.writeFileString(
     path.join(content, "prompts", "finder-system.md"),
-    "fixture finder system prompt\n",
+    "fixture finder system prompt, emitting with {{EMIT_TOOL}}\n",
   )
   yield* fs.writeFileString(
     path.join(content, "prompts", "finder-shared-block.md"),

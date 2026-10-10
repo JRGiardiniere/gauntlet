@@ -71,9 +71,9 @@ const promptReader = Effect.fn("FinderPrompt.promptReader")(
 
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
-)(function* (workspacePrompt: string) {
+)(function* (workspacePrompt: string, emitToolName: string) {
   const readPrompt = yield* promptReader()
-  const [systemPrompt, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
+  const [systemTemplate, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
     [
       readPrompt("finder-system.md"),
       readPrompt("finder-shared-block.md"),
@@ -81,8 +81,15 @@ export const loadFinderPromptTemplates = Effect.fn(
     ],
     { concurrency: 3 },
   )
+  const systemPrompt = yield* renderPromptTemplate(
+    "finder system",
+    systemTemplate,
+    [["EMIT_TOOL", emitToolName]],
+  )
   return {
-    systemPrompt,
+    // Rendering trims the template's end. Restoring the final newline keeps
+    // the system prompt the file's own text with only the slot filled.
+    systemPrompt: `${systemPrompt}\n`,
     sharedPromptTemplate,
     workspaceTools,
   } satisfies FinderPromptTemplates

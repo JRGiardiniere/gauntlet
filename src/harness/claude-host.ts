@@ -394,6 +394,8 @@ export const makeClaudeHost = (
       open,
       workspaceRoot: (snapshot: string) => snapshot,
       workspacePrompt: "workspace-claude-code.md",
+      // gauntlet-tools serves each emit tool under the contract's own name.
+      emitToolName: (toolName: string) => toolName,
     },
     opened,
     event,

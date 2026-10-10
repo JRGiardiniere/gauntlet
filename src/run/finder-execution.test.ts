@@ -17,6 +17,7 @@ import {
 import type { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { InvocationSetupError } from "../harness/harness-session.ts"
+import { EmitFindings } from "../harness/output-contract.ts"
 import {
   makeScripted,
   type Scripted,
@@ -103,7 +104,7 @@ const executeFixture = (
     yield* fs.makeDirectory(path.join(content, "prompts"), { recursive: true })
     yield* fs.writeFileString(
       path.join(content, "prompts", "finder-system.md"),
-      "fixture finder system prompt\n",
+      "fixture finder system prompt, emitting with {{EMIT_TOOL}}\n",
     )
     yield* fs.writeFileString(
       path.join(content, "prompts", "finder-shared-block.md"),
@@ -260,6 +261,10 @@ describe("Finder stage interface", () => {
         expect(first).toBe(second)
         expect(first).toContain("shared start")
       }
+      expect(standardSystemPrompts[0]).toContain(
+        `emitting with ${scripted.factory.emitToolName(EmitFindings.toolName)}\n`,
+      )
+      expect(standardSystemPrompts[0]).not.toContain("{{")
       expect(standardSystemPrompts[0]).not.toContain("SPECIFICATION-NEEDLE")
       expect(interpretiveSystemPrompts[0]).toContain("SPECIFICATION-NEEDLE")
       for (const { text } of scripted.prompts) {
