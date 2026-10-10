@@ -30,13 +30,13 @@ export interface StartRequest {
 
 // The store outlives a mod update, so its fields keep their names: `argv` is
 // the words the review was started with, and `snapshots` the directories the
-// run's snapshot was made in, each removed whole when the run is lost.
+// run's snapshot was made in, each removed whole when the run is lost. The
+// run's `claude -p` children die with the mod that started them.
 const InFlight = Schema.Struct({
   startedAt: Schema.Finite,
   argv: Schema.Array(Schema.String),
   cwd: Schema.String,
   runId: Schema.optionalKey(Schema.String),
-  agentIds: Schema.Array(Schema.String),
   snapshots: Schema.Array(Schema.String),
 })
 type InFlight = typeof InFlight.Type
@@ -46,10 +46,10 @@ type InFlight = typeof InFlight.Type
 const inflightKey = (sessionId: string) => `inflight:${sessionId}`
 
 // A marker found as the session loads is a run an earlier load lost: it is
-// reported loudly, and what the run left behind is stopped and removed. This
-// needs no engine, so a load whose engine failed still does it.
+// reported loudly, and the snapshot it left behind is removed. This needs no
+// engine, so a load whose engine failed still does it.
 export const recoverLostRun = async (
-  ports: Pick<EnginePorts, "run" | "stop" | "log" | "store" | "toast" | "append">,
+  ports: Pick<EnginePorts, "run" | "log" | "store" | "toast" | "append">,
   sessionId: string,
 ) => {
   const key = inflightKey(sessionId)
@@ -62,10 +62,6 @@ export const recoverLostRun = async (
     return
   }
   const outcomes: Array<string> = []
-  for (const agentId of lost.agentIds) {
-    const refused = await ports.stop(agentId).catch((error) => String(error))
-    outcomes.push(`${agentId}: ${refused === undefined ? "stopped" : `not stopped (${refused})`}`)
-  }
   // The lost run's snapshots: its finalizers never ran. Once a snapshot's
   // directory is gone, a prune drops git's record of the worktree in it.
   for (const snapshot of lost.snapshots) {
@@ -76,7 +72,7 @@ export const recoverLostRun = async (
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
   const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
-    `${String(lost.agentIds.length)} orphaned agent(s) told to stop, ${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
+    `${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
     "Run /gauntlet again."
   ports.log(`${note} ${outcomes.join("; ")}`)
   ports.toast(note, { timeoutMs: 15_000 })
@@ -88,7 +84,7 @@ export const createSession = (
     EnginePorts,
     "run" | "read" | "log" | "store" | "status" | "send" | "submit" | "append"
   >,
-  engine: Pick<Engine, "start" | "config" | "running" | "poll" | "standardsManifest">,
+  engine: Pick<Engine, "start" | "config" | "running" | "standardsManifest">,
   options: { readonly build: BuildInfo; readonly pluginRoot: string; readonly sessionId: string },
 ) => {
   const { build, pluginRoot } = options
@@ -114,17 +110,13 @@ export const createSession = (
     (marker === undefined ? ports.store.delete(key) : ports.store.set(key, marker))
       .catch((error) => ports.log(`in-flight marker failed: ${String(error)}`))
 
-  // Polls the review's agents and re-marks the review when its agents or
-  // snapshot changed; answers whether a review is running, for the strip's
-  // pulse.
+  // Re-marks the review when its snapshot changed; answers whether a review
+  // is running, for the strip's pulse.
   const tick = async (): Promise<boolean> => {
     const review = ticking
     const running = engine.running()
     if (review === undefined || running === undefined) return false
-    await engine.poll().catch((error) => ports.log(`poll failed: ${String(error)}`))
-    // A review that ended during the poll has had its marker cleared.
-    if (ticking !== review) return false
-    const work = JSON.stringify([running.agentIds, running.snapshots])
+    const work = JSON.stringify(running.snapshots)
     if (work !== review.marked) {
       review.marked = work
       await mark({ ...running, cwd: review.cwd })
@@ -208,7 +200,7 @@ export const createSession = (
     // before its ending clears it; a failed marker write only logs.
     const marked = run.request.then(async (review) => {
       if (review === undefined) return
-      await mark({ startedAt: Date.now(), argv: words, cwd: review.directory, agentIds: [], snapshots: [] })
+      await mark({ startedAt: Date.now(), argv: words, cwd: review.directory, snapshots: [] })
       ticking = { cwd: review.directory, marked: "" }
     })
     // A review that posts hands off its digest while it still holds the

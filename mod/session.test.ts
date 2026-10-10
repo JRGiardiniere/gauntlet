@@ -36,8 +36,8 @@ const POSTED: RunResult = { verdict: "delivered", digest: "", notes: ["posted ht
 // The engine's slice the session drives, scripted: the test parses each
 // started run's words into a review, hands off a posting review's digest and
 // ends it.
-const makeEngine = (polled: Promise<void>) => {
-  type Running = { runId: string | undefined; startedAt: number; argv: ReadonlyArray<string>; agentIds: Array<string>; snapshots: Array<string> }
+const makeEngine = () => {
+  type Running = { runId: string | undefined; startedAt: number; argv: ReadonlyArray<string>; snapshots: Array<string> }
   let running: Running | undefined
   const runs: Array<{
     readonly parse: (review: ReviewRequest | undefined) => void
@@ -52,7 +52,7 @@ const makeEngine = (polled: Promise<void>) => {
       const parsed = new Promise<ReviewRequest | undefined>((resolve) => (parse = resolve))
       const reviewed = new Promise<RunResult | undefined>((resolve) => (post = resolve))
       const ended = new Promise<RunResult>((resolve) => (end = resolve))
-      running = { runId: undefined, startedAt: Date.now(), argv: request.words, agentIds: [], snapshots: [] }
+      running = { runId: undefined, startedAt: Date.now(), argv: request.words, snapshots: [] }
       runs.push({
         parse,
         post,
@@ -67,14 +67,12 @@ const makeEngine = (polled: Promise<void>) => {
     },
     config: async (request: { readonly words: ReadonlyArray<string> }) => `config ${request.words.slice(1).join(" ")}`,
     running: () => running,
-    poll: () => polled,
     standardsManifest: async () => ({ path: "/standards", exists: true }),
   }
   return { engine, runs, working: () => running }
 }
 
 const makeSession = (options: {
-  readonly polled?: Promise<void>
   readonly deleted?: Promise<void>
   readonly submitted?: Promise<void>
   readonly sendRefusal?: string
@@ -83,12 +81,11 @@ const makeSession = (options: {
   // A recent update check: no review here probes for a release.
   const store = new Map<string, Json>([["update-checked-at", Date.now()]])
   const ran: Array<ReadonlyArray<string>> = []
-  const stopped: Array<string> = []
   const sent: Array<string> = []
   const submitted: Array<string> = []
   const appended: Array<string> = []
   let deletes = 0
-  const build: BuildInfo = { stamp: "", files: 0, repoRoot: "/gauntlet", builtAt: "", bun: "bun", prices: {} }
+  const build: BuildInfo = { stamp: "", files: 0, repoRoot: "/gauntlet", builtAt: "", bun: "bun" }
   const ports: Parameters<typeof createSession>[0] & Parameters<typeof recoverLostRun>[0] = {
     // Git lists no inputs, so the stamp is the same on every check.
     run: async (argv) => {
@@ -96,10 +93,6 @@ const makeSession = (options: {
       return { exitCode: 0, stdout: "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false }
     },
     read: async () => JSON.stringify({ ...build, stamp: STAMP }),
-    stop: async (agentId) => {
-      stopped.push(agentId)
-      return undefined
-    },
     log: () => {},
     store: {
       get: async (key) => store.get(key),
@@ -127,7 +120,7 @@ const makeSession = (options: {
       appended.push(text)
     },
   }
-  const { engine, runs, working } = makeEngine(options.polled ?? Promise.resolve())
+  const { engine, runs, working } = makeEngine()
   const session = createSession(ports, engine, { build, pluginRoot: "/plugins/gauntlet", sessionId: "session-1" })
   // Starts a review and parses its words; answers the command's line.
   const review = async (request: StartRequest) => {
@@ -155,7 +148,6 @@ const makeSession = (options: {
     working,
     store,
     ran,
-    stopped,
     sent,
     submitted,
     appended,
@@ -198,28 +190,12 @@ describe("the Mod's session", () => {
     expect(second.answer).toMatch(/^review started \(--recipe two\)/)
     submitting.release()
     await settle()
-    mod.working()?.agentIds.push("agent-2")
+    mod.working()?.snapshots.push("/tmp/gauntlet-review-2")
 
     expect(await mod.session.tick()).toBe(true)
-    expect(mod.store.get(MARKER)).toMatchObject({ argv: ["review", "--recipe", "two"], agentIds: ["agent-2"] })
+    expect(mod.store.get(MARKER)).toMatchObject({ argv: ["review", "--recipe", "two"], snapshots: ["/tmp/gauntlet-review-2"] })
   })
 
-  it("never rewrites the marker of a review that ended during a tick's poll", async () => {
-    const polling = held()
-    const mod = makeSession({ polled: polling.gate })
-    const run = await mod.review({ cwd: "/repo", args: "" })
-    expect(run.answer).toMatch(/^review started; progress shows/)
-    await until(() => mod.store.has(MARKER))
-    mod.working()?.agentIds.push("agent-1")
-
-    const ticked = mod.session.tick()
-    run.end(FINISHED)
-    await until(() => mod.submitted.length === 1)
-    polling.release()
-
-    expect(await ticked).toBe(false)
-    expect(mod.store.has(MARKER)).toBe(false)
-  })
 
   it("hands off a posting review's digest before its post ends, holding the session until the post does and saying nothing more", async () => {
     const submitting = held()
@@ -242,23 +218,21 @@ describe("the Mod's session", () => {
     expect([mod.submitted, mod.appended]).toEqual([[DIGEST], []])
   })
 
-  it("reports a lost review at session start, stopping its agents and removing its snapshot", async () => {
+  it("reports a lost review at session start, removing its snapshot", async () => {
     const mod = makeSession()
     mod.store.set(MARKER, {
       startedAt: Date.now(),
       argv: ["review", "main"],
       cwd: "/repo",
       runId: "run-1",
-      agentIds: ["agent-1"],
       snapshots: ["/tmp/gauntlet-review-1"],
     })
 
     await recoverLostRun(mod.ports, "session-1")
 
-    expect(mod.stopped).toEqual(["agent-1"])
     expect(mod.ran).toEqual([["rm", "-rf", "/tmp/gauntlet-review-1"], ["git", "-C", "/repo", "worktree", "prune"]])
     expect(mod.store.has(MARKER)).toBe(false)
-    expect(mod.appended).toEqual([expect.stringMatching(/^gauntlet: run run-1 \(review main\) was lost when the mod reloaded\. 1 orphaned/)])
+    expect(mod.appended).toEqual([expect.stringMatching(/^gauntlet: run run-1 \(review main\) was lost when the mod reloaded\. 1 snapshot worktree\(s\) removed/)])
   })
 })
 

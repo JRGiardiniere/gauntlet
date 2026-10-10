@@ -19,17 +19,16 @@ import {
 // engine cannot be: it is the only code that may spell `$`, so it hands the
 // engine and the session policy (mod/session.ts) closures over `$` (ports),
 // registers /gauntlet and the agent's review tool, turns hook events into
-// calls on them, relays gauntlet-tools' observations, and draws the strip.
+// calls on them, and draws the strip. A review's agents are `claude -p`
+// children the engine starts through `$.process.spawn` (#181), so none of
+// their tool calls or turns pass through these hooks.
 //
-// Every tool and agent hook names its tool or agent: matcher-less
-// tool.call/tool.check/agent.offer hooks broke other subagents (#134). The
-// turn.step hook only passes through; a worktree subagent's Bash still ran
-// with it loaded (Claude Code 2.1.291, #146).
+// Every tool hook names its tool: matcher-less tool.call/tool.check hooks
+// broke other subagents (#134). The turn.step hook only passes through; a
+// worktree subagent's Bash still ran with it loaded (Claude Code 2.1.291,
+// #146).
 
 type Engines = EngineInterface
-
-const agentsRef = { plugin: "gauntlet", key: "agents" } as const
-const eventsRef = { plugin: "gauntlet-tools", key: "events" } as const
 
 let engine: Engine | undefined
 let session: Session | undefined
@@ -41,8 +40,6 @@ let drawn = ""
 let drawnAt = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
-// Every agent this session's runs spawned.
-const spawned = new Set<string>()
 const loadedAt = Date.now()
 
 const modDir = () => `${home}/.gauntlet/mod`
@@ -73,28 +70,6 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
     stdout: () => undefined,
     stderr: () => undefined,
     fetch: (url, init) => $.http.fetch(url, init),
-    register: async (spec) => {
-      await $.agent.register(spec)
-    },
-    spawn: async (request) => {
-      const answer = await $.agent.spawn(request)
-      if (answer.agentId !== undefined) spawned.add(answer.agentId)
-      return answer
-    },
-    resume: async (agentId, message) => {
-      const sent = await $.tool.call({ tool: "SendMessage", to: agentId, message, summary: "Gauntlet corrective turn" })
-      if (sent.deny !== undefined) return sent.deny
-      return sent.isError === true ? String(sent.result) : undefined
-    },
-    stop: async (agentId) => {
-      const stopped = await $.tool.call({ tool: "TaskStop", task_id: agentId })
-      if (stopped.deny !== undefined) return stopped.deny
-      return stopped.isError === true ? String(stopped.result) : undefined
-    },
-    publish: async (agentId, agent) => {
-      await $.state.set({ ...agentsRef, id: agentId }, agent)
-    },
-    pull: async (agentId) => (await $.state.get({ ...eventsRef, id: agentId })).value ?? [],
     log: (line) => log($, line),
     store: {
       // SAFETY: the store takes JSON data only, and reads it back as set.
@@ -171,6 +146,8 @@ export const register: Register = (on) => {
         ["HOME", home],
         ["TMPDIR", await $.env.get("TMPDIR")],
         ["LINEAR_API_KEY", await $.env.get("LINEAR_API_KEY")],
+        // The running Claude Code's executable, which runs the review's agents.
+        ["CLAUDE_CODE_EXECPATH", await $.env.get("CLAUDE_CODE_EXECPATH")],
       ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
     )
     const ports = portsOf($, env)
@@ -228,9 +205,9 @@ export const register: Register = (on) => {
     return { result: (await session?.start(request)) ?? UNLOADED }
   })
 
+
   // The main agent's turns (turn.start carries no agentId), so a digest knows
-  // whether it would land in a running turn. The run's own agents step past
-  // this plugin's hooks; gauntlet-tools reports their responses.
+  // whether it would land in a running turn.
   on("turn.start", ($, e, next) => {
     session?.turnStarted()
     return next(e)
@@ -239,47 +216,8 @@ export const register: Register = (on) => {
     if (e.agentId === undefined) session?.stepped()
     return yield* next(e)
   })
-
-  // Every turn of every loop passes here; only this run's agents are taken.
-  on("turn.complete", async ($, e, next) => {
+  on("turn.complete", ($, e, next) => {
     if (e.agentId === undefined) void session?.turnEnded()
-    if (engine !== undefined && e.agentId !== undefined) {
-      await engine.turnComplete({
-        agentId: e.agentId,
-        reason: e.reason,
-        answer: e.answer,
-        refusal: e.reason === "refusal" ? { explanation: e.refusal.explanation ?? undefined } : undefined,
-      })
-    }
     return next(e)
   })
-
-  // Under auto permission mode Claude Code gives every agent a
-  // SubagentHandback tool, whose report reaches the main conversation as a
-  // peer message; an agent resumed for a corrective turn ends with a task
-  // notification. Each is a row and a turn for the main agent, and the engine
-  // reads the answer at turn.complete, so both are dropped here. Answering the
-  // hand-back tool instead does not count as delivered: Claude Code makes the
-  // agent call it again, up to 3 times. A message can arrive after its run
-  // ended, so the session keeps every id it spawned.
-  on("prompt.submit", { origin: [{ kind: "peer" }, { kind: "task-notification" }] }, ($, e, next) => {
-    const from = (/^<agent-message from="([^"]+)">/.exec(e.text) ?? /^<task-notification>\s*<task-id>([^<]+)<\/task-id>/.exec(e.text))?.[1]
-    if (from === undefined || !spawned.has(from)) return next(e)
-    log($, `dropped ${from}'s ${e.origin.kind}`)
-    return { drop: "a Gauntlet agent's report" }
-  })
-
-  // This mod's own resume and stop calls need no prompt.
-  on("tool.check", { tool: "SendMessage" }, ($, e, next) => (next.origin?.plugin === "gauntlet" ? { decision: "allow" } : next(e)))
-  on("tool.check", { tool: "TaskStop" }, ($, e, next) => (next.origin?.plugin === "gauntlet" ? { decision: "allow" } : next(e)))
-
-  // Hidden from the model except while the engine's SendMessage resumes one.
-  on("agent.offer", { agent: "gauntlet:slot-1" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-2" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-3" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-4" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-5" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-6" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-7" }, () => ({ isOffered: engine?.isOffering() === true }))
-  on("agent.offer", { agent: "gauntlet:slot-8" }, () => ({ isOffered: engine?.isOffering() === true }))
 }

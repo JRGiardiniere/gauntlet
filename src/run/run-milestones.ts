@@ -15,9 +15,11 @@ export interface SkippedLens {
 // ended is the Run module's answer; the CLI prints its lines and ignores these.
 export type RunMilestone = Data.TaggedEnum<{
   // The lenses whose Finders run, and the ones the plan froze but skips
-  // with why (selectRunnableFinders), so no Host works out a skip itself.
+  // with why (selectRunnableFinders), so no Host works out a skip itself;
+  // the run directory, where a Host's own artifacts go.
   Started: {
     readonly runId: string
+    readonly directory: string
     readonly lenses: ReadonlyArray<string>
     readonly skipped: ReadonlyArray<SkippedLens>
   }

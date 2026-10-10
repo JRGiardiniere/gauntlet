@@ -26,18 +26,14 @@ import { availableRecipeNames, listRecipes } from "../src/config/recipe-catalog.
 import { ConfigHost } from "../src/config/settings.ts"
 import { standardsManifestPath } from "../src/config/standards-manifest.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
-import {
-  type ClaudeModelCost,
-  claudePrice,
-  makeClaudeHost,
-} from "../src/harness/claude-host.ts"
+import { makeClaudeLiveFactory } from "../src/harness/claude-live.ts"
 import { HarnessSessionFactory } from "../src/harness/harness-session.ts"
 import { Linear } from "../src/linear/linear.ts"
 import * as Run from "../src/run/run.ts"
 import { type RunMilestone, RunMilestones } from "../src/run/run-milestones.ts"
 import { reviewSyntax } from "../src/syntax/syntax.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
-import { type AgentPorts, makeAgentDriver, type TurnComplete } from "./agents.ts"
+import { type AgentActivity, makeActivity } from "./activity.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
 import type { RunView } from "./strip.ts"
 
@@ -47,7 +43,6 @@ export { reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
 export { BUILD_FILE, createSession, recoverLostRun } from "./session.ts"
 export type { Session } from "./session.ts"
 export type { Json } from "effect/Schema"
-export type { ToolsEvent, PublishedAgent } from "./agents.ts"
 
 // What `bun run build-mod` writes beside the bundle as vendor/build.json.
 export interface BuildInfo {
@@ -57,8 +52,6 @@ export interface BuildInfo {
   readonly builtAt: string
   // The bun that built it, which rebuilds it.
   readonly bun: string
-  // Pi's Anthropic catalog, $/Mtok per model id, frozen at build time.
-  readonly prices: Readonly<Record<string, ClaudeModelCost>>
 }
 
 export interface HttpPort {
@@ -68,7 +61,9 @@ export interface HttpPort {
   ) => Promise<{ readonly status: number; readonly headers: Record<string, string>; readonly text: string }>
 }
 
-export interface EnginePorts extends PlatformPorts, AgentPorts, HttpPort {
+export interface EnginePorts extends PlatformPorts, HttpPort {
+  // The mod's log, ~/.gauntlet/mod/mod.log.
+  readonly log: (line: string) => void
   // The plugin's key-value store of JSON data, kept across sessions and
   // reloads.
   readonly store: {
@@ -172,13 +167,12 @@ const fetchOver = (http: HttpPort) => {
   return fetch as unknown as typeof globalThis.fetch
 }
 
-// The strip's view less the driver's activity.
+// The strip's view less the invocations' activity.
 type Progress = {
   -readonly [K in Exclude<keyof RunView, "activity">]: RunView[K]
 }
 
 export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
-  const driver = makeAgentDriver(ports)
   let current:
     | {
       readonly fiber: Fiber.Fiber<void>
@@ -189,8 +183,9 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     }
     | undefined
   // What the strip draws: the review in flight, or the last one, kept until
-  // the next starts.
+  // the next starts, with its invocations' activity.
   let progress: Progress | undefined
+  let activity: () => ReadonlyArray<AgentActivity> = () => []
 
   // One run at a time: the hooks module admits a session's one review before
   // it starts.
@@ -199,6 +194,10 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     onLine: (line: string) => void,
   ): StartedRun => {
     const delivering = request.words[0] === "deliver"
+    const watched = makeActivity()
+    // Kept past the run's end: the last invocations' transcripts move into
+    // it as their children exit.
+    let runDirectory: string | undefined
     let printed = ""
     let pending = ""
     let answer: Omit<RunResult, "seconds"> | undefined
@@ -237,6 +236,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           case "Started": {
             shown.lenses = milestone.lenses
             shown.skipped = milestone.skipped
+            runDirectory = milestone.directory
             if (current !== undefined) current.runId = milestone.runId
             return
           }
@@ -273,6 +273,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         review: (review, destination) =>
           Effect.sync(() => {
             progress = shown
+            activity = watched.activity
             parsed(review)
           }).pipe(
             Effect.andThen(Run.review(review)),
@@ -305,10 +306,17 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           ),
       })),
     )
-    const host = makeClaudeHost(claudePrice((model) => build.prices[model]), driver.send)
-    driver.attach(host)
+    // Each invocation is a `claude -p` child of this Claude Code (#181),
+    // watched for the strip.
+    const factory = Layer.effect(
+      HarnessSessionFactory,
+      makeClaudeLiveFactory({
+        executable: ports.env.CLAUDE_CODE_EXECPATH,
+        runDirectory: () => runDirectory,
+      }).pipe(Effect.map(watched.watch)),
+    )
     const layer = Layer.mergeAll(
-      Layer.succeed(HarnessSessionFactory, host.factory),
+      factory,
       Linear.Default,
       liveGitHubLayer,
     ).pipe(
@@ -352,7 +360,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         current = undefined
         parsed(undefined)
         posting(undefined)
-        void driver.stopAll("run ended")
         const failed = Exit.isFailure(exit)
         // A post cut short, by a stop or a defect, may still have landed.
         if (Exit.isFailure(exit) && shown.post?.state === "posting") {
@@ -380,13 +387,11 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
   }
 
   // Interrupting the fiber runs the program's finalizers: the snapshot
-  // worktree is removed and every live agent is stopped.
+  // worktree is removed and every invocation's child is killed.
   const cancel = () => {
     if (current === undefined) return Promise.resolve(false)
     return Effect.runPromise(Fiber.interrupt(current.fiber)).then(() => true)
   }
-
-  const turnComplete = (e: TurnComplete) => driver.turnComplete(e)
 
   // The names of the Mod's valid Recipes, its configuration written first
   // when the Mod finds none (#177).
@@ -435,9 +440,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     recipes,
     config,
     standardsManifest,
-    turnComplete,
-    poll: driver.poll,
-    isOffering: driver.isOffering,
     running: () =>
       current === undefined
         ? undefined
@@ -445,7 +447,6 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
           runId: current.runId,
           startedAt: current.startedAt,
           argv: current.argv,
-          agentIds: driver.agentIds(),
           snapshots: current.snapshot === undefined ? [] : [current.snapshot],
         },
     view: (): RunView | undefined =>
@@ -453,7 +454,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         ? undefined
         : {
           ...progress,
-          activity: driver.activity(),
+          activity: activity(),
         },
   }
 }

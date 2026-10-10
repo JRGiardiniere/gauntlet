@@ -74,8 +74,9 @@ export type HarnessEvent =
       readonly detail?: string
     }
   | { readonly type: "contract_violation"; readonly reason: string }
-  // The turn was stopped from outside the run (a person stopped the Claude
-  // Code subagent): the invocation ends Interrupted. Pi never sends it.
+  // The turn was stopped from outside the run (a signal the run did not send
+  // ended the `claude -p` child): the invocation ends Interrupted. Pi never
+  // sends it.
   | { readonly type: "interrupted"; readonly reason: string }
 
 export interface HarnessSession {
@@ -85,7 +86,7 @@ export interface HarnessSession {
   // by the invocation itself — Gauntlet never re-prompts an aborted session
   // (stall retry is a fresh invocation; corrective turns re-prompt only after
   // a clean stop); teardown gives it a bounded wait before the usage sweep,
-  // since the Claude Code host reports a stopped turn's spend as it settles.
+  // since the Claude Code host's abort settles once its child is gone.
   readonly abort: () => Promise<void>
   readonly dispose: () => void
   // Terminal accounting sweep over the session's assistant messages, raw and
@@ -114,10 +115,10 @@ export interface EmitToolSpec {
   readonly description: string
   readonly parameters: JsonSchema.JsonSchema
   readonly execute: (args: EmitToolArgs) => void
-  // The strict OutputContract decode, for hosts that do not validate tool
-  // arguments against `parameters` themselves (Claude Code does not enforce
-  // a registered tool's schema). Answers the rejection reason, or undefined
-  // when the arguments decode.
+  // The strict OutputContract decode, for hosts whose own validation of
+  // `parameters` is not the authority (Claude Code's --json-schema validator
+  // checks the projection, not the decoder). Answers the rejection reason, or
+  // undefined when the arguments decode.
   readonly check: (args: EmitToolArgs) => string | undefined
 }
 
@@ -200,7 +201,8 @@ export interface HarnessSessionFactoryContract {
   // read-only Read, Grep and Glob.
   readonly workspacePrompt: string
   // The name the prompts give a contract's emit tool on this host, given the
-  // contract's own name: Pi registers the tool under that name.
+  // contract's own name: Pi registers the tool under that name, and Claude
+  // Code serves every contract as its StructuredOutput tool.
   readonly emitToolName: (toolName: string) => string
 }
 
