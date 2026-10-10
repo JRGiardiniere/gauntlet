@@ -453,6 +453,9 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       open,
       workspaceRoot: () => REVIEW_WORKSPACE_ROOT,
       workspacePrompt: "workspace-pi.md",
+      // Unlike the contract's own name, so a test sees the prompts take the
+      // emit tool's name from the factory.
+      emitToolName: (toolName: string) => `scripted_${toolName}`,
     },
     log,
     configs,

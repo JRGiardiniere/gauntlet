@@ -389,6 +389,9 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         "prompt:1.1",
         "prompt:1.2",
       ])
+      expect(scripted.prompts[1]?.text).toContain(
+        `You ended without calling ${scripted.factory.emitToolName(EmitFindings.toolName)}.`,
+      )
       expect(outcome.diagnostics.join(" ")).toContain("1 corrective turn")
     }))
 

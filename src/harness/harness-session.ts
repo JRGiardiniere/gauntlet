@@ -199,6 +199,9 @@ export interface HarnessSessionFactoryContract {
   // Pi's read and simulated bash over writable scratch, or Claude Code's
   // read-only Read, Grep and Glob.
   readonly workspacePrompt: string
+  // The name the prompts give a contract's emit tool on this host, given the
+  // contract's own name: Pi registers the tool under that name.
+  readonly emitToolName: (toolName: string) => string
 }
 
 // The single primary testing seam. Live layer: pi-live.ts. Test layer: the

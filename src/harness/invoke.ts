@@ -662,7 +662,9 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
           return Termination.cases.MissingEmit.make({ correctiveTurns: turns })
         }
         turns += 1
-        prompt = correctivePrompt(input.contract.toolName)
+        prompt = correctivePrompt(
+          (yield* HarnessSessionFactory).emitToolName(input.contract.toolName),
+        )
       }
     }
   }

@@ -9,7 +9,11 @@ export const PoolOutput = Schema.Struct({
   clusters: Schema.Array(
     Schema.Struct({
       indexes: described(
-        Schema.NonEmptyArray(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
+        // A plain array with a minimum, not NonEmptyArray: its tuple projection
+        // (prefixItems) is refused by Claude Code's strict Ajv --json-schema.
+        Schema.Array(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))).check(
+          Schema.isMinLength(1),
+        ),
         "Candidate indexes in this cluster (1+ members).",
       ),
       summary: inlineText(

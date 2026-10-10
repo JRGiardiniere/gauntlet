@@ -212,6 +212,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   return {
     workspaceRoot: () => REVIEW_WORKSPACE_ROOT,
     workspacePrompt: "workspace-pi.md",
+    emitToolName: (toolName: string) => toolName,
     open: (session: SessionConfig) =>
       Effect.gen(function* () {
         // Deliberately zero-arg (no abort signal): the promise is shared

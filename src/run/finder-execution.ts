@@ -93,7 +93,10 @@ export const executeFinders = Effect.fn(
   const invocations = finderInvocationsInPlan(plan)
   const host = yield* HarnessSessionFactory
   const templates = yield* Effect.cached(
-    loadFinderPromptTemplates(host.workspacePrompt),
+    loadFinderPromptTemplates(
+      host.workspacePrompt,
+      host.emitToolName(EmitFindings.toolName),
+    ),
   )
   // Gathered once, by the first partition that needs it.
   const relatedFilesSection = yield* Effect.cached(
