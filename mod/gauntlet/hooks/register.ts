@@ -146,8 +146,6 @@ export const register: Register = (on) => {
         ["HOME", home],
         ["TMPDIR", await $.env.get("TMPDIR")],
         ["LINEAR_API_KEY", await $.env.get("LINEAR_API_KEY")],
-        // The running Claude Code's executable, which runs the review's agents.
-        ["CLAUDE_CODE_EXECPATH", await $.env.get("CLAUDE_CODE_EXECPATH")],
       ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
     )
     const ports = portsOf($, env)
@@ -204,7 +202,6 @@ export const register: Register = (on) => {
     const request = { cwd: await $.session.root(), args, agentId: e.agentId, isMainTurn: e.agentId === undefined }
     return { result: (await session?.start(request)) ?? UNLOADED }
   })
-
 
   // The main agent's turns (turn.start carries no agentId), so a digest knows
   // whether it would land in a running turn.

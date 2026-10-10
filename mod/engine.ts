@@ -311,7 +311,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     const factory = Layer.effect(
       HarnessSessionFactory,
       makeClaudeLiveFactory({
-        executable: ports.env.CLAUDE_CODE_EXECPATH,
+        executable: "claude",
         runDirectory: () => runDirectory,
       }).pipe(Effect.map(watched.watch)),
     )

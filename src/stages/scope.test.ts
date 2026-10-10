@@ -34,7 +34,7 @@ describe("Stage scope block", () => {
 
   it.effect("tells the model on the Claude Code host about that host's tools", () =>
     Effect.gen(function* () {
-      const factory = yield* makeClaudeLiveFactory({ executable: undefined, runDirectory: () => undefined })
+      const factory = yield* makeClaudeLiveFactory({ executable: "claude", runDirectory: () => undefined })
       const scope = yield* assembleStageScope(
         yield* loadStageScopeTemplates(factory.workspacePrompt),
         target,

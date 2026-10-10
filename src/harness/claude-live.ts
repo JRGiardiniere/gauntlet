@@ -32,9 +32,10 @@ import {
 // cells belong to the Promise and callback contract of HarnessSession.
 
 export interface ClaudeLiveOptions {
-  // The running Claude Code's own executable, as it tells its children
-  // (CLAUDE_CODE_EXECPATH); undefined when it said nothing.
-  readonly executable: string | undefined
+  // The `claude` to run. The Mod names it bare, found on the PATH Claude Code
+  // was started with: CLAUDE_CODE_EXECPATH reaches only its Bash tool's
+  // children, never the process a mod's `$.env` reads.
+  readonly executable: string
   // The Run's directory once Submission made it: a disposed invocation's
   // Claude transcript moves into its transcripts/ folder.
   readonly runDirectory: () => string | undefined
@@ -178,13 +179,6 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
 
     const open = (config: SessionConfig) =>
       Effect.gen(function* () {
-        const executable = options.executable
-        if (executable === undefined) {
-          return yield* new InvocationSetupError({
-            operation: "open",
-            reason: "the running Claude Code did not say where its executable is (CLAUDE_CODE_EXECPATH)",
-          })
-        }
         // The opening fiber's services, so the bridge logs to the Run's
         // run.log, with the platform the factory was built over.
         const services = Context.merge(yield* Effect.context<never>(), platform)
@@ -356,7 +350,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
           return Effect.scoped(
             Effect.gen(function* () {
               const handle = yield* spawner.spawn(
-                ChildProcess.make(executable, argv(turn), {
+                ChildProcess.make(options.executable, argv(turn), {
                   cwd: config.cwd,
                   extendEnv: true,
                   // No plugins, no reload watch, and a faster exit; never
