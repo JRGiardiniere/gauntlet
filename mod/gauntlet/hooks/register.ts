@@ -5,10 +5,13 @@ import {
   createEngine,
   createSession,
   DEMO_SCENARIOS,
+  type DossierPane,
   type Engine,
   type EnginePorts,
+  explainPrompt,
   type Json,
   recoverLostRun,
+  renderDossierPane,
   renderStrip,
   reviewToolArgs,
   reviewToolInputSchema,
@@ -41,6 +44,9 @@ let drawn = ""
 let tickedAt = 0
 let ticks = 0
 let changes = 0
+// The Dossier the pane shows, and which of its findings.
+let dossier: DossierPane | undefined
+let dossierAt = 0
 
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
@@ -158,6 +164,32 @@ async function openDossier($: Engines, path: string) {
   }
 }
 
+// Opens the run's Dossier in the pane, or its markdown when the pane cannot
+// read it; a narrow terminal leaves the pane waiting and says why.
+async function showDossier($: Engines, runDirectory: string) {
+  const loaded = await engine?.dossierPane(runDirectory).catch((error) => {
+    log($, `dossier pane for ${runDirectory} failed: ${String(error)}`)
+    return undefined
+  })
+  if (loaded === undefined) return openDossier($, `${runDirectory}/dossier.md`)
+  if (dossier?.runId !== loaded.runId) dossierAt = 0
+  dossier = loaded
+  const opened = await $.ui.open({ id: "dossier", title: "Gauntlet dossier", focus: true })
+  if (opened.isPlaced) $.ui.invalidate("ui.render")
+  else $.ui.toast(`gauntlet: ${opened.reason}`)
+}
+
+// `/gauntlet dossier [run-id]`: that run's Dossier in the pane, the latest
+// run's without one.
+async function dossierCommand($: Engines, words: ReadonlyArray<string>) {
+  const runs = `${home}/.gauntlet/runs`
+  const runId = words[1] ?? (await $.fs.list(runs).catch(() => []))
+    .map((entry) => entry.name).filter((name) => !name.startsWith(".")).sort().at(-1)
+  if (runId === undefined) return `no runs in ${runs}`
+  await showDossier($, `${runs}/${runId}`)
+  return `the Dossier of ${runId}`
+}
+
 const UNLOADED = "the engine did not load; see ~/.gauntlet/mod/mod.log"
 
 export const register: Register = (on) => {
@@ -190,7 +222,7 @@ export const register: Register = (on) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${DEMO_SCENARIOS.join("|")}] for a scripted review that runs no agents; --help for the rest`,
+      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, /gauntlet dossier [run-id] to read a Dossier, or /gauntlet demo [${DEMO_SCENARIOS.join("|")}] for a scripted review that runs no agents; --help for the rest`,
     })
     await recoverLostRun(ports, sessionId)
     startClock($)
@@ -208,7 +240,7 @@ export const register: Register = (on) => {
         void engine?.cancel().then((cancelled) => log($, `stop pressed: ${String(cancelled)}`))
       },
       openDossier: (path) => {
-        void openDossier($, path)
+        void showDossier($, path.slice(0, path.lastIndexOf("/")))
       },
       dismiss: () => {
         dismissed = view.startedAt
@@ -217,10 +249,29 @@ export const register: Register = (on) => {
     })
   })
 
+  on("ui.render", { component: "Pane", requestId: "dossier" }, ($, e, next) => {
+    if (dossier === undefined) return next(e)
+    const shown = dossier
+    return renderDossierPane(shown, $.ui.resolve(e), dossierAt, {
+      select: (at) => {
+        dossierAt = at
+        $.ui.invalidate("ui.render")
+      },
+      explain: (finding) => {
+        void $.prompt.submit({ text: explainPrompt(shown, finding), asUser: true })
+      },
+      openMarkdown: () => {
+        void openDossier($, `${shown.runDirectory}/dossier.md`)
+      },
+    })
+  })
+
   // The host labels the answer with the plugin's name already.
-  on("command.run", { command: "gauntlet" }, async ($, e) => ({
-    text: (await session?.start({ cwd: await $.session.root(), args: e.args })) ?? UNLOADED,
-  }))
+  on("command.run", { command: "gauntlet" }, async ($, e) => {
+    const words = e.args.trim().split(/\s+/)
+    if (words[0] === "dossier") return { text: await dossierCommand($, words) }
+    return { text: (await session?.start({ cwd: await $.session.root(), args: e.args })) ?? UNLOADED }
+  })
 
   on("tool.call", { tool: "mcp__gauntlet__review" }, async ($, e) => {
     const args = reviewToolArgs(e)
