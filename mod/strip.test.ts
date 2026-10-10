@@ -122,7 +122,7 @@ describe("strip", () => {
       activity: [finder("absence", "answered", 5), finder("lens-b", "running")],
     }
     expect(renderStrip(view, drawing, desktop, 61_000, actions)).toBe(
-      "◆ Gauntlet · 2 finders still looking · 5 leads so far · not run: lens-d (no fixture manifest) [ Stop ]\n[svg]",
+      "◆ Gauntlet · 2 finders still looking · 5 leads so far [ Stop ]\n[svg]",
     )
     // The clock turns in the drawing from the run's age at the draw, and the
     // running agent's ping from the wall clock's, so a redraw resumes both.

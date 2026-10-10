@@ -259,6 +259,9 @@ export const renderStrip = <N>(
   const cells: Array<N> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
   const buttons: Array<N> = []
   let status: string
+  // The heading off the terminal says what the run is doing and no more: the
+  // drawing marks a skipped lens, and the line has no room for why.
+  let brief: string | undefined
   let gaps = ""
   if (view.result !== undefined) {
     const { coverageGaps, dossierMarkdown, entries } = view.result
@@ -324,6 +327,7 @@ export const renderStrip = <N>(
     buttons.push(Button({ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }))
     // Why a lens is not run goes after what the run is doing, so a narrow
     // band truncates it first.
+    brief = doing(view)
     status = view.skipped.length === 0
       ? doing(view)
       : `${doing(view)} · not run: ${view.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`
@@ -350,8 +354,9 @@ export const renderStrip = <N>(
               flexDirection: "row",
               alignItems: "center",
               children: [
-                Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet" }),
-                Text({ dimColor: true, wrap: "truncate-end", children: ` · ${status}` }),
+                // The heading keeps its width; what the run is doing truncates.
+                Box({ flexShrink: 0, children: Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet" }) }),
+                Text({ dimColor: true, wrap: "truncate-end", children: ` · ${brief ?? status}` }),
                 ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
               ],
             }),
