@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest"
 import type { ReviewRequest } from "../src/run/run.ts"
 import { SubmissionTargetRequest } from "../src/run/submission.ts"
 import type { BuildInfo, RunResult } from "./engine.ts"
-import { createSession, recoverLostRun, type StartRequest } from "./session.ts"
+import { createSession, digestHeadline, recoverLostRun, type StartRequest } from "./session.ts"
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -303,5 +303,13 @@ describe("the digest's way to its Caller", () => {
     await until(() => mod.appended.length === 1)
 
     expect([mod.submitted, mod.appended]).toEqual([[DIGEST], [DIGEST]])
+  })
+})
+
+describe("the digest's row in the transcript", () => {
+  it("draws the verdict and the counts line as one line, and a notes-only message as its first", () => {
+    expect(digestHeadline("gauntlet review finished:\n\n1 confirmed · 0 kept — 42s\n- [P2 confirmed] a.ts:1 — x\n\ndossier.md: /r/dossier.md"))
+      .toBe("gauntlet review finished · 1 confirmed · 0 kept — 42s")
+    expect(digestHeadline("gauntlet: could not review — no such ref\nmore")).toBe("gauntlet: could not review — no such ref")
   })
 })

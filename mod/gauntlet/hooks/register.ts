@@ -4,6 +4,7 @@ import {
   type BuildInfo,
   createEngine,
   createSession,
+  digestHeadline,
   type Engine,
   type EnginePorts,
   type Json,
@@ -189,6 +190,15 @@ export const register: Register = (on) => {
         $.ui.invalidate("ui.render")
       },
     })
+  })
+
+  // The digest and the post outcome reach the main agent in full, but the
+  // transcript draws each as one line, as the CLI's ending is one notification
+  // row; the expanded view (ctrl+o) shows it all.
+  on("ui.render", { component: "UserMessage" }, ($, e, next) => {
+    const { isExpanded, origin, text } = e.props
+    if (isExpanded || origin.kind !== "plugin" || origin.name !== "gauntlet") return next(e)
+    return next({ ...e, props: { ...e.props, text: digestHeadline(text) } })
   })
 
   // The host labels the answer with the plugin's name already.
