@@ -222,7 +222,14 @@ export const renderStrip = <N>(
     buttons.push(Button({ key: "dismiss", label: "Dismiss", hotkey: "d", onPress: actions.dismiss }))
     status = view.refusal?.split("\n")[0] ?? "no dossier from this run"
   } else {
-    const pulse = Math.floor(now / 500) % 2 === 0 ? "●" : "◉"
+    // A running agent's mark blinks. The terminal swaps glyphs; elsewhere the
+    // text is proportional, the two glyphs differ in width and the row would
+    // shift each blink, so the one glyph dims instead.
+    const lit = Math.floor(now / 500) % 2 === 0
+    const pulse = (color: string) =>
+      site.surface === "terminal"
+        ? Text({ color, bold: true, children: lit ? "●" : "◉" })
+        : Text({ color, bold: lit, dimColor: !lit, children: "●" })
     STAGES.forEach((stage, at) => {
       const { finished, started } = stageState(view, stage)
       const color = STAGE_COLOR[stage]
@@ -250,7 +257,7 @@ export const renderStrip = <N>(
             : state === "failed" || state === "stopped"
             ? Text({ color: "red", children: "✗" })
             : state === "running"
-            ? Text({ color, bold: true, children: pulse })
+            ? pulse(color)
             : Text({ dimColor: true, children: "○" }),
         )
       }

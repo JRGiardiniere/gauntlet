@@ -101,6 +101,9 @@ describe("strip", () => {
       "◆ Gauntlet  Find ✓✗●  Pool ○  Verify ○  Judge ○ [ Stop ]\n1:01 · 1 finder still looking · 5 leads so far",
     )
     expect(draw(view, 61_500)).toContain("✓✗◉")
+    // Proportional text keeps one glyph, so a blink never shifts the row.
+    const desktop = { surface: "desktop", columns: 80 } as const
+    expect(renderStrip(view, text, desktop, 61_500, actions)).toContain("✓✗●")
   })
 
   it("draws a skipped lens as not run and leaves it out of the finders still looking", () => {
