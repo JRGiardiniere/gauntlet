@@ -245,8 +245,14 @@ export const renderStrip = <N>(
   // so a count of cells is no width there, and the stage row is a drawing.
   const width = site.surface === "terminal" ? site.columns : "100%"
   const drawn = site.surface === "terminal" ? undefined : el.Svg
-  const track = (pills: ReadonlyArray<TrackPill>, alt: string) =>
-    drawn === undefined ? undefined : drawn({ ...trackSvg(stageMarks(view), pills), alt, isInteractive: true })
+  // The drawing turns its own clock, so the line under it leaves it out.
+  const age = { seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
+  let clocked = true
+  const track = (pills: ReadonlyArray<TrackPill>, alt: string) => {
+    if (drawn === undefined) return undefined
+    clocked = false
+    return drawn({ ...trackSvg(stageMarks(view), pills, age), alt, isInteractive: true })
+  }
   const ended = view.exitCode !== undefined
   const elapsed = clock((view.endedAt ?? now) - view.startedAt)
   const cells: Array<N> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
@@ -338,7 +344,7 @@ export const renderStrip = <N>(
         flexDirection: "row",
         width,
         children: [
-          Text({ dimColor: true, wrap: "truncate-end", children: `${elapsed} · ${status}` }),
+          Text({ dimColor: true, wrap: "truncate-end", children: clocked ? `${elapsed} · ${status}` : status }),
           ...(gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${gaps}` })]),
         ],
       }),

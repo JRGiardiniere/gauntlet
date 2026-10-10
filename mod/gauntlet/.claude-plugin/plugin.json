@@ -1,5 +1,6 @@
 {
   "name": "gauntlet",
   "version": "0.1.0",
-  "description": "Gauntlet review run in process inside Claude Code (#134 Idea 3): /gauntlet [target] [--recipe=…] [--lenses=…] [--spec=…]"
+  "description": "Gauntlet review run in process inside Claude Code (#134 Idea 3): /gauntlet [target] [--recipe=\u2026] [--lenses=\u2026] [--spec=\u2026]",
+  "types": "./types/gauntlet.d.ts"
 }

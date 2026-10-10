@@ -2,9 +2,11 @@
 // proportional (desktop, the editor, mobile): mod/strip.ts hands it each
 // stage's marks and, once the dossier is written, its Review Priority counts.
 // Its geometry is fixed, so no mark shifts the row as it changes, and its
-// motion is SMIL inside the markup: a running agent pings, and the line into
-// the stage at work flows. The markup holds no clock, so it changes only when
-// a mark does, and each mark's <title> names its agent.
+// motion lives inside the markup: a running agent pings, the line into the
+// stage at work flows, and the elapsed clock turns as an odometer of CSS
+// animations started at the run's age. A surface reloads the markup on every
+// redraw, restarting all of it, so it is redrawn only when a mark changes (the
+// hooks module's `drawn` state); each mark's <title> names its agent.
 
 export type MarkState = "waiting" | "running" | "answered" | "failed" | "skipped"
 
@@ -25,6 +27,12 @@ export interface TrackStage {
 export interface TrackPill {
   readonly text: string
   readonly color: string
+}
+
+// The run's age at the draw, and whether its clock still turns.
+export interface TrackClock {
+  readonly seconds: number
+  readonly running: boolean
 }
 
 export interface TrackSvg {
@@ -117,7 +125,41 @@ const pillSvg = (pill: TrackPill, x: number) => {
   }
 }
 
-export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray<TrackPill>): TrackSvg => {
+const DIGIT = 7
+const DIGIT_LINE = 14
+
+// One odometer wheel: its glyphs stacked a line apart, stepped one line every
+// `period / glyphs.length` seconds, begun `age` seconds into its turn.
+const wheelSvg = (x: number, glyphs: ReadonlyArray<string>, period: number, clock: TrackClock) => {
+  const age = Math.floor(clock.seconds % period)
+  const at = Math.floor(age / (period / glyphs.length))
+  const stack = glyphs.map((glyph, index) =>
+    `<text x="${num(x)}" y="${num(DOT_Y + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`
+  ).join("")
+  if (!clock.running) {
+    return `<g transform="translate(0 ${String(-at * DIGIT_LINE)})">${stack}</g>`
+  }
+  const animation = `animation:wheel${String(glyphs.length)} ${String(period)}s steps(${String(glyphs.length)}) ${String(-age)}s infinite`
+  return `<g style="${animation}">${stack}</g>`
+}
+
+// m:ss, a minute's tens shown only from ten minutes on.
+const clockSvg = (x: number, clock: TrackClock) => {
+  const ten = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+  const parts = [
+    wheelSvg(x, ["", ...ten.slice(1)], 6000, clock),
+    wheelSvg(x + DIGIT, ten, 600, clock),
+    `<text x="${num(x + DIGIT * 2)}" y="${num(DOT_Y + 4)}" class="clock">:</text>`,
+    wheelSvg(x + DIGIT * 2 + 4, ten.slice(0, 6), 60, clock),
+    wheelSvg(x + DIGIT * 3 + 4, ten, 10, clock),
+  ]
+  return {
+    width: DIGIT * 4 + 4,
+    source: `<g clip-path="url(#window)">${parts.join("")}</g>`,
+  }
+}
+
+export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray<TrackPill>, clock: TrackClock): TrackSvg => {
   const parts: Array<string> = []
   let x = 2
   stages.forEach((stage, at) => {
@@ -136,19 +178,28 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
     if (following !== undefined) parts.push(connectorSvg(dotsEnd + 5, end + GAP - 5, following))
     x = end + GAP
   })
-  // The counts stand close after the track.
+  // The counts stand close after the track, and the clock after them.
   x -= GAP - 16
   pills.forEach((pill) => {
     const drawn = pillSvg(pill, x)
     parts.push(drawn.source)
     x += drawn.width + 6
   })
-  const width = Math.ceil(x - (pills.length > 0 ? 6 : 16) + 2)
+  x += pills.length > 0 ? 6 : 0
+  const timer = clockSvg(x, clock)
+  parts.push(timer.source)
+  const clockX = x
+  x += timer.width
+  const width = Math.ceil(x + 2)
   const source = `<svg xmlns="http://www.w3.org/2000/svg" width="${String(width)}" height="${String(HEIGHT)}" viewBox="0 0 ${String(width)} ${String(HEIGHT)}">` +
     `<defs><filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.6" result="blur"/>` +
     `<feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>` +
+    `<clipPath id="window"><rect x="${num(clockX - 2)}" y="${num(DOT_Y - 8)}" width="${String(timer.width + 4)}" height="${String(DIGIT_LINE)}"/></clipPath>` +
     `<style>text{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;font-variant-numeric:tabular-nums}` +
-    `.label{font-size:10px;font-weight:600;letter-spacing:1.2px}.active{font-weight:800}.pill{font-size:11px;font-weight:700}</style></defs>` +
+    `.label{font-size:10px;font-weight:600;letter-spacing:1.2px}.active{font-weight:800}.pill{font-size:11px;font-weight:700}` +
+    `.clock{font-size:12px;font-weight:500;fill:${MUTED}}` +
+    [6, 10].map((glyphs) => `@keyframes wheel${String(glyphs)}{to{transform:translateY(${String(-glyphs * DIGIT_LINE)}px)}}`).join("") +
+    `</style></defs>` +
     `${parts.join("")}</svg>`
   return { source, width, height: HEIGHT }
 }

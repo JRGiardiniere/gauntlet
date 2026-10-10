@@ -166,7 +166,8 @@ const program = Effect.gen(function* () {
     return yield* new ModBuildFailed({ step: plugin.name, cause: `imports that cannot run in the mod: ${refused.join(", ")}` })
   }
   yield* fs.makeDirectory(`${staging}/.claude-plugin`, { recursive: true })
-  for (const file of [".claude-plugin/plugin.json", "hooks/hooks.json"]) {
+  yield* fs.makeDirectory(`${staging}/types`, { recursive: true })
+  for (const file of [".claude-plugin/plugin.json", "hooks/hooks.json", "types/gauntlet.d.ts"]) {
     yield* fs.copyFile(`${source}/${file}`, `${staging}/${file}`)
   }
   const hooks = yield* fs.readFileString(`${source}/hooks/register.ts`)

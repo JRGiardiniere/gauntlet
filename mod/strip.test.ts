@@ -106,7 +106,7 @@ describe("strip", () => {
     expect(renderStrip(view, text, desktop, 61_500, actions)).toContain("✓✗●")
   })
 
-  it("draws the stage row as one SVG off the terminal, unchanged by the clock", () => {
+  it("draws the stage row and its clock as one SVG off the terminal", () => {
     const sources: Array<string> = []
     const drawing: PaneElements<string> = {
       ...text,
@@ -122,15 +122,15 @@ describe("strip", () => {
       activity: [finder("absence", "answered", 5), finder("lens-b", "running")],
     }
     expect(renderStrip(view, drawing, desktop, 61_000, actions)).toBe(
-      "◆ Gauntlet  [svg] [ Stop ]\n1:01 · 2 finders still looking · 5 leads so far · not run: lens-d (no fixture manifest)",
+      "◆ Gauntlet  [svg] [ Stop ]\n2 finders still looking · 5 leads so far · not run: lens-d (no fixture manifest)",
     )
-    renderStrip(view, drawing, desktop, 61_500, actions)
-    expect(sources[0]).toBe(sources[1])
+    // The clock turns in the drawing from the run's age at the draw.
+    expect(sources[0]).toContain("steps(10) -1s infinite")
     for (const title of ["absence: 5 leads", "lens-b: looking", "lens-c: waiting", "lens-d: not run (no fixture manifest)"]) {
       expect(sources[0]).toContain(`<title>${title}</title>`)
     }
     expect(renderStrip(finished({ entries: [{ tag: "confirmed", reviewPriority: "P1" }] }), drawing, desktop, 0, actions)).toBe(
-      "◆ Gauntlet  [svg] [ Open dossier ] [ Dismiss ]\n12:34 · 1 finding from 23 leads",
+      "◆ Gauntlet  [svg] [ Open dossier ] [ Dismiss ]\n1 finding from 23 leads",
     )
     expect(sources.at(-1)).toContain(">P1 1</text>")
   })

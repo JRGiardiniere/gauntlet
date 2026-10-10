@@ -37,7 +37,10 @@ let home = ""
 // strip until the next review starts.
 let dismissed: number | undefined
 let drawn = ""
-let drawnAt = 0
+let tickedAt = 0
+let ticks = 0
+let changes = 0
+
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
 const loadedAt = Date.now()
@@ -97,9 +100,12 @@ function portsOf($: Engines, env: Record<string, string>): EnginePorts {
   }
 }
 
-// The session's ticks, and the strip's: a running review redraws each half
-// second for its clock and the agents' pulse, and any other change to what
-// the strip shows (a review ending) redraws on the next tick.
+// The session's ticks, and the strip's: a running review redraws the
+// terminal's band each half second for its clock and the agents' pulse, and
+// any change to what the strip shows (a mark, a review ending) redraws every
+// band on the next tick. Each band subscribes to its own value (the plugin's
+// types/gauntlet.d.ts): the other surfaces reload the strip's drawing on
+// every redraw, restarting its animations, so they skip the half-second ones.
 function startClock($: Engines) {
   $.clock.every(250, async () => {
     const live = await (session?.tick() ?? Promise.resolve(false)).catch((error) => {
@@ -109,10 +115,16 @@ function startClock($: Engines) {
     const view = engine?.view()
     if (view === undefined || view.startedAt === dismissed) return
     const shown = JSON.stringify({ ...view, startedAt: 0 })
-    if (shown === drawn && (!live || Date.now() - drawnAt < 500)) return
+    const changed = shown !== drawn
+    if (!changed && (!live || Date.now() - tickedAt < 500)) return
     drawn = shown
-    drawnAt = Date.now()
-    $.ui.invalidate("ui.render")
+    tickedAt = Date.now()
+    ticks += 1
+    await $.state.set({ plugin: "gauntlet", key: "tick" }, ticks)
+    if (changed) {
+      changes += 1
+      await $.state.set({ plugin: "gauntlet", key: "drawn" }, changes)
+    }
   })
 }
 
@@ -178,7 +190,10 @@ export const register: Register = (on) => {
     return started
   })
 
-  on("ui.render", { component: "AbovePrompt" }, ($, e, next) => {
+  on("ui.render", { component: "AbovePrompt" }, async ($, e, next) => {
+    // The engine reads a state ref's plugin and key off the source, as literals.
+    if (e.surface === "terminal") await $.state.get({ plugin: "gauntlet", key: "tick" })
+    else await $.state.get({ plugin: "gauntlet", key: "drawn" })
     const view = engine?.view()
     if (view === undefined || view.startedAt === dismissed || e.props.hasSurvey) return next(e)
     return renderStrip(view, $.ui.resolve(e), { surface: e.surface, columns: e.props.bodyColumns }, Date.now(), {
