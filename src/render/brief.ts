@@ -76,8 +76,11 @@ const sketch = (body: string) => {
   const change = lines.some((line) => /^[+-]/.test(line))
   const rows = lines.map((line) => {
     const kind = !change ? "" : line.startsWith("+") ? " add" : line.startsWith("-") ? " del" : " ctx"
-    const text = change ? line.slice(1) : line
-    const sign = change ? `<span class="sign">${line.startsWith("-") ? "−" : escapeHtml(line.charAt(0).trim())}</span>` : ""
+    // A context line keeps its first character unless it is the space
+    // that lines it up with the signs.
+    const signed = /^[+\- ]/.test(line)
+    const text = change && signed ? line.slice(1) : line
+    const sign = change ? `<span class="sign">${line.startsWith("-") ? "−" : line.startsWith("+") ? "+" : ""}</span>` : ""
     return `<div class="row${kind}">${sign}<span class="src">${escapeHtml(text) || " "}</span></div>`
   })
   return frame(
@@ -109,7 +112,7 @@ const drawReference = (reference: CodeReference, context: BriefContext) => {
   if (lines === undefined) {
     context.problems.push(
       reference.revision === undefined
-        ? `${reference.file} is not a reviewed file`
+        ? `${reference.file} is not a file the page can show as reviewed; name a commit with @<commit>`
         : `${reference.file} does not exist at ${reference.revision}`,
     )
     return ""

@@ -1,7 +1,7 @@
+import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
@@ -63,11 +63,13 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
   ).pipe(Effect.mapError(unreadable(`the data in ${paths.dossierPage} is corrupt`)))
 
   const directory = path.join(paths.root, "briefs")
-  const listed = (yield* fs.exists(directory).pipe(Effect.orElseSucceed(() => false)))
-    ? yield* fs.readDirectory(directory, { recursive: true }).pipe(
-      Effect.mapError(unreadable(`could not list ${directory}`)),
-    )
-    : []
+  const listed = yield* fs.readDirectory(directory, { recursive: true }).pipe(
+    Effect.catch((cause) =>
+      Predicate.isTagged(cause.reason, "NotFound")
+        ? Effect.succeed<ReadonlyArray<string>>([])
+        : Effect.fail(unreadable(`could not list ${directory}`)(cause))
+    ),
+  )
   const briefs = new Map<string, string>()
   for (const file of listed.filter((name) => name.endsWith(".md")).sort()) {
     const text = yield* fs.readFileString(path.join(directory, file)).pipe(
@@ -76,19 +78,24 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     briefs.set(file.slice(0, -".md".length), text)
   }
 
+  // A working-tree Run reviewed its changed files with uncommitted edits the
+  // head commit lacks, so only the page's own copy shows them as reviewed.
+  const uncommitted = new Set(
+    plan.target._tag === "WorkingTree" ? [...plan.target.changedFiles, ...plan.target.untrackedFiles] : [],
+  )
   const wanted = new Map(
     [...briefs.values()].flatMap(briefReferences)
-      .filter(({ file, revision }) => revision !== undefined || data.sources[file] === undefined)
+      .filter(({ file, revision }) =>
+        revision !== undefined || (data.sources[file] === undefined && !uncommitted.has(file))
+      )
       .map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
   )
-  const extraSources = new Map<string, ReadonlyArray<string>>()
-  for (const [key, { file, revision }] of wanted) {
-    const text = yield* runGit(dossier.target.repoRoot, [
-      "show",
-      `${revision ?? dossier.target.headCommit}:${file}`,
-    ]).pipe(Effect.option)
-    if (Option.isSome(text)) extraSources.set(key, text.value.replace(/\n$/, "").split("\n"))
-  }
+  const read = yield* Effect.forEach(wanted, ([key, { file, revision }]) =>
+    runGit(dossier.target.repoRoot, ["show", `${revision ?? dossier.target.headCommit}:${file}`]).pipe(
+      Effect.map((text) => [key, text.replace(/\n$/, "").split("\n")] as const),
+      Effect.option,
+    ), { concurrency: "unbounded" })
+  const extraSources = new Map(Arr.getSomes(read))
 
   const drawn = renderDossierPage({
     plan,

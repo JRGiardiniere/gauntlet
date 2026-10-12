@@ -13,6 +13,8 @@ import { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
+import { renderBrief } from "./brief.ts"
+import { parseDiffHunks } from "./code-text.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
 import { dossierPageData, dossierPageFiles, renderDossierPage } from "./dossier-page.ts"
@@ -509,5 +511,30 @@ describe("dossier page rendering", () => {
       })],
       unresolved: [],
     }))).toEqual(["src/beta.ts", "src/alpha.ts"])
+  })
+})
+
+describe("page text parsing", () => {
+  it("keeps an added line that reads like a file header inside its hunk", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,1 +1,2 @@",
+      " keep",
+      "+++ counter",
+      "@@ -9,1 +10,1 @@",
+      "-old",
+      "+new",
+    ].join("\n")
+    const hunks = parseDiffHunks(diff).get("src/a.ts") ?? []
+    expect(hunks.map((hunk) => hunk.rows.length)).toEqual([2, 2])
+    expect(hunks[0]?.rows[1]).toEqual({ kind: "added", newLine: 2, text: "++ counter" })
+  })
+
+  it("keeps the first character of a sketch line written without a sign", () => {
+    const { html } = renderBrief("```sketch\nrenderStrip\n+ track()\n```\n", "E-01", () => undefined)
+    expect(html).toContain(`<span class="src">renderStrip</span>`)
+    expect(html).toContain(`<span class="src"> track()</span>`)
   })
 })

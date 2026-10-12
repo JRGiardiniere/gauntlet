@@ -281,6 +281,11 @@ const stamp = (entry: DossierEntryView, small = false) => {
 const needsThought = (entry: DossierEntryView) =>
   entry.tag === "judgment" || entry.tag === "plausible" || entry.tag === "undecided"
 
+// What survived evaluation is a finding (CONTEXT.md); what nobody settled
+// stays an unresolved Candidate.
+export const noun = (entry: DossierEntryView) =>
+  entry.tag === "plausible" || entry.tag === "undecided" ? "unresolved Candidate" : "finding"
+
 interface Filed {
   readonly entry: DossierEntryView
   readonly number: string
@@ -314,7 +319,7 @@ const exhibit = (
       }</p>`,
     )
   const prompt = needsThought(entry)
-    ? `Write a brief for Gauntlet finding ${candidate.id} (${location(candidate)}): run \`gauntlet brief ${runId} ${candidate.id}\` and follow what it prints.`
+    ? `Write a brief for Gauntlet ${noun(entry)} ${candidate.id} (${location(candidate)}): run \`gauntlet brief ${runId} ${candidate.id}\` and follow what it prints.`
     : `Explain Gauntlet finding ${candidate.id} (${location(candidate)}) from run ${runId}: read its entry in ${runDirectory}/dossier.json, check the code, and show me what goes wrong and how to fix it.`
   const handOff = brief !== undefined
     ? `<a class="act act-brief" href="#${number}-brief">${ICON.brief}<span>Read the brief</span></a>`

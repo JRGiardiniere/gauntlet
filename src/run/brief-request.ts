@@ -6,6 +6,7 @@ import * as Schema from "effect/Schema"
 import { isCompiledBinary } from "../content/lens.ts"
 import { readPromptTemplate, renderPromptTemplate } from "../content/prompt-template.ts"
 import { Dossier } from "../domain/dossier.ts"
+import { noun } from "../render/dossier-page.ts"
 import { viewDossier } from "../render/dossier-view.ts"
 import type { LoadedRun } from "./run-record.ts"
 
@@ -38,11 +39,12 @@ export const briefRequest = Effect.fn("Brief.request")(function* (
   )
   if (entry === undefined) {
     return yield* new BriefError({
-      reason: `run ${plan.runId} has no finding or unresolved claim ${findingId}`,
+      reason: `run ${plan.runId} has no finding or unresolved Candidate ${findingId}`,
     })
   }
   const { file, line } = entry.candidate
   return yield* renderPromptTemplate("brief", yield* readPromptTemplate(templatePath), [
+    ["SUBJECT", noun(entry)],
     ["FINDING_ID", findingId],
     ["LOCATION", line === undefined ? file : `${file}:${line}`],
     ["RUN_ID", plan.runId],

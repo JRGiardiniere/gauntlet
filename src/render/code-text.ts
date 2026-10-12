@@ -24,10 +24,11 @@ export interface Hunk {
   readonly rows: ReadonlyArray<DiffRow>
 }
 
-const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,(\d+))? @@/
+const HUNK_HEADER = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/
 
 // Hunks by the file's path after the change. A deleted file has no lines
-// after the change, so it has no hunks to cite.
+// after the change, so it has no hunks to cite. A hunk's header counts its
+// lines, so an added line that reads "++ x" stays a row, not a file header.
 export const parseDiffHunks = (
   diff: string,
 ): ReadonlyMap<string, ReadonlyArray<Hunk>> => {
@@ -36,7 +37,23 @@ export const parseDiffHunks = (
   let rows: Array<DiffRow> = []
   let oldLine = 0
   let newLine = 0
+  let oldLeft = 0
+  let newLeft = 0
   for (const line of diff.split("\n")) {
+    if (hunks !== undefined && (oldLeft > 0 || newLeft > 0)) {
+      if (line.startsWith("+")) {
+        rows.push({ kind: "added", newLine: newLine++, text: line.slice(1) })
+        newLeft--
+      } else if (line.startsWith("-")) {
+        rows.push({ kind: "removed", oldLine: oldLine++, text: line.slice(1) })
+        oldLeft--
+      } else if (line.startsWith(" ")) {
+        rows.push({ kind: "context", oldLine: oldLine++, newLine: newLine++, text: line.slice(1) })
+        oldLeft--
+        newLeft--
+      }
+      continue
+    }
     if (line.startsWith("diff --git ")) {
       hunks = undefined
       continue
@@ -50,28 +67,11 @@ export const parseDiffHunks = (
     const header = HUNK_HEADER.exec(line)
     if (header !== null && hunks !== undefined) {
       oldLine = Number(header[1])
-      newLine = Number(header[2])
+      oldLeft = header[2] === undefined ? 1 : Number(header[2])
+      newLine = Number(header[3])
+      newLeft = header[4] === undefined ? 1 : Number(header[4])
       rows = []
-      hunks.push({
-        header: line,
-        newStart: newLine,
-        newLength: header[3] === undefined ? 1 : Number(header[3]),
-        rows,
-      })
-      continue
-    }
-    if (hunks === undefined || hunks.length === 0) continue
-    if (line.startsWith("+")) {
-      rows.push({ kind: "added", newLine: newLine++, text: line.slice(1) })
-    } else if (line.startsWith("-")) {
-      rows.push({ kind: "removed", oldLine: oldLine++, text: line.slice(1) })
-    } else if (line.startsWith(" ")) {
-      rows.push({
-        kind: "context",
-        oldLine: oldLine++,
-        newLine: newLine++,
-        text: line.slice(1),
-      })
+      hunks.push({ header: line, newStart: newLine, newLength: newLeft, rows })
     }
   }
   return files

@@ -1,4 +1,4 @@
-Write a brief for Gauntlet finding {{FINDING_ID}} ({{LOCATION}}) in run {{RUN_ID}}.
+Write a brief for Gauntlet {{SUBJECT}} {{FINDING_ID}} ({{LOCATION}}) in run {{RUN_ID}}.
 
 Every Run writes `dossier.html` beside `dossier.md`: each finding an exhibit
 with its claim beside the reviewed code. A brief is your explanation of one
