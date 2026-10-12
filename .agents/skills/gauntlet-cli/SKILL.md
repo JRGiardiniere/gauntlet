@@ -4,7 +4,7 @@ description: >-
   Runs the Gauntlet CLI's `gauntlet review` as your own managed long-running
   command and relays the stdout digest verbatim. Use when asked to review
   uncommitted changes, a branch's commits, or a pull request, to configure a
-  Recipe, or to deliver a completed Dossier.
+  Recipe, to deliver a completed Dossier, or to write a brief for a finding.
 ---
 
 # Gauntlet
@@ -129,6 +129,34 @@ reason. A pass is supporting evidence only to the extent the existing test
 actually covers the suspected behavior — never automatic refutation of a
 scenario it may not cover. Verdicts stand either way; Gauntlet never runs
 suggested tests itself.
+
+## Briefs
+
+Every Run writes `dossier.html` beside `dossier.md`: each finding an exhibit
+with its claim beside the reviewed code. A brief is your explanation of one
+finding, drawn on its exhibit — written for John, who has the claim in front
+of him and wants to see the mechanism and the fix. The Dossier already holds
+the what and the why; your work is to show them.
+
+1. Read the finding's entry in `<run dir>/dossier.json` by its candidate id
+   (`findings` or `unresolved`): the summary, Judgment's reason or
+   Verification's evidence, the failure scenario. Explain that reasoning; when
+   the code says otherwise, say so in one line. A Plausible claim was never
+   settled: show what input or test would settle it.
+2. Read the code it cites, enough to see the shape it describes.
+3. Write `<run dir>/briefs/<finding id>.md` (the id `subjective/6` is
+   `briefs/subjective/6.md`): a `# ` heading with the one-line takeaway (what
+   to do), a few short paragraphs, and for each point the smallest view that
+   makes it:
+   - ` ```sketch ` — a call tree, file tree or pseudocode; lines starting
+     `+` or `-` read as a change to it, so one sketch shows before and after.
+   - ` ```code <file>:<from>-<to> [@<commit>] [mark=<lines>] ` with an empty
+     body — reviewed lines, or a commit's with `@`; the page reads them.
+     `mark=250,254` pins those lines.
+   - ` ```ts ` (any language) — an illustration, such as the fix's shape.
+   Content only: the page owns layout, and raw HTML shows as text.
+4. Run `gauntlet page <run-id>`. Done when it prints the page's path and no
+   `gauntlet: briefs/…` lines; each such line names a block to fix.
 
 ## Recipe
 

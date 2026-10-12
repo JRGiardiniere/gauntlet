@@ -15,7 +15,7 @@ import { Verdict } from "../domain/verdict.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
-import { dossierPageFiles, renderDossierPage } from "./dossier-page.ts"
+import { dossierPageData, dossierPageFiles, renderDossierPage } from "./dossier-page.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (
@@ -480,10 +480,9 @@ describe("dossier page rendering", () => {
         }),
       ],
     }),
-    accounting,
+    data: dossierPageData(accounting, new Map([["src/alpha.ts", source]])),
     runDirectory: paths.root,
-    sources: new Map([["src/alpha.ts", source]]),
-  })
+  }).html
 
   it("files every finding and unresolved entry as an exhibit, with model text as text", () => {
     expect(page.match(/<article class="exhibit/g)).toHaveLength(6)

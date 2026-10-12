@@ -1,0 +1,105 @@
+import * as Data from "effect/Data"
+import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
+import * as Path from "effect/Path"
+import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
+import { Dossier } from "../domain/dossier.ts"
+import { briefReferences, sourceKey } from "../render/brief.ts"
+import {
+  DossierPageData,
+  pageDataText,
+  renderDossierPage,
+} from "../render/dossier-page.ts"
+import { runGit } from "../target/git.ts"
+import { describeArtifactWrite, writeArtifactText } from "./artifact.ts"
+import type { LoadedRun } from "./run-record.ts"
+
+export class PageError extends Data.TaggedError("PageError")<{
+  readonly reason: string
+  readonly cause?: unknown
+}> {}
+
+export interface RedrawnPage {
+  readonly path: string
+  readonly problems: ReadonlyArray<string>
+}
+
+const unreadable = (what: string) => (cause: { readonly message: string }) =>
+  new PageError({ reason: `${what}: ${cause.message.replace(/\s+/g, " ")}`, cause })
+
+// Redraws a Run's dossier.html with the briefs in its briefs/ directory. The
+// exhibits come from the data the page carries, so they stay what the Run
+// saw; a brief's code that the page doesn't carry is read from git, at the
+// reviewed head or at the commit the brief names.
+export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
+  { paths, plan }: LoadedRun,
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const dossier = yield* fs.readFileString(paths.dossier).pipe(
+    Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
+    Effect.mapError(unreadable(`could not read ${paths.dossier}`)),
+  )
+  const page = yield* fs.readFileString(paths.dossierPage).pipe(
+    Effect.mapError((cause) =>
+      new PageError({
+        reason: Predicate.isTagged("NotFound")(cause.reason)
+          ? `run ${plan.runId} has no dossier.html; it predates the page`
+          : `could not read ${paths.dossierPage}: ${cause.message}`,
+        cause,
+      })
+    ),
+  )
+  const dataText = pageDataText(page)
+  if (dataText === undefined) {
+    return yield* new PageError({
+      reason: `${paths.dossierPage} carries no page data; it predates briefs`,
+    })
+  }
+  const data = yield* Schema.decodeEffect(Schema.fromJsonString(DossierPageData))(
+    dataText,
+  ).pipe(Effect.mapError(unreadable(`the data in ${paths.dossierPage} is corrupt`)))
+
+  const directory = path.join(paths.root, "briefs")
+  const listed = (yield* fs.exists(directory).pipe(Effect.orElseSucceed(() => false)))
+    ? yield* fs.readDirectory(directory, { recursive: true }).pipe(
+      Effect.mapError(unreadable(`could not list ${directory}`)),
+    )
+    : []
+  const briefs = new Map<string, string>()
+  for (const file of listed.filter((name) => name.endsWith(".md")).sort()) {
+    const text = yield* fs.readFileString(path.join(directory, file)).pipe(
+      Effect.mapError(unreadable(`could not read briefs/${file}`)),
+    )
+    briefs.set(file.slice(0, -".md".length), text)
+  }
+
+  const wanted = new Map(
+    [...briefs.values()].flatMap(briefReferences)
+      .filter(({ file, revision }) => revision !== undefined || data.sources[file] === undefined)
+      .map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
+  )
+  const extraSources = new Map<string, ReadonlyArray<string>>()
+  for (const [key, { file, revision }] of wanted) {
+    const text = yield* runGit(dossier.target.repoRoot, [
+      "show",
+      `${revision ?? dossier.target.headCommit}:${file}`,
+    ]).pipe(Effect.option)
+    if (Option.isSome(text)) extraSources.set(key, text.value.replace(/\n$/, "").split("\n"))
+  }
+
+  const drawn = renderDossierPage({
+    plan,
+    dossier,
+    data,
+    runDirectory: paths.root,
+    briefs,
+    extraSources,
+  })
+  yield* writeArtifactText(paths.dossierPage, drawn.html).pipe(
+    Effect.mapError((failure) => new PageError({ reason: describeArtifactWrite(failure), cause: failure })),
+  )
+  return { path: paths.dossierPage, problems: drawn.problems } satisfies RedrawnPage
+})

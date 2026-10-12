@@ -28,6 +28,7 @@ import {
   describeArtifactWrite,
   describePlatformError,
 } from "./artifact.ts"
+import { PageError, redrawDossierPage } from "./dossier-page-redraw.ts"
 import { executeReviewPlan } from "./review-executor.ts"
 import { loadRun, type RunError, type RunPaths } from "./run-record.ts"
 import {
@@ -79,6 +80,7 @@ export type RunFailure =
   | ContentLoadError
   | DeliveryError
   | InvocationSetupError
+  | PageError
   | PlatformError.PlatformError
   | PromptAssemblyError
   | RecipeCatalogError
@@ -128,6 +130,8 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
       return new RunRefusal({
         reason: `could not review — ${describePlatformError(failure)}`,
       })
+    case "PageError":
+      return new RunRefusal({ reason: `could not draw the page — ${failure.reason}` })
     case "ConfigError":
       return new RunRefusal({ reason: `could not review — ${failure.message}` })
     case "SubmissionError":
@@ -186,6 +190,19 @@ export const deliver = Effect.fn("Run.deliver")(
         })),
     )
     return yield* deliverCompletedRun(loaded)
+  },
+  Effect.mapError(refusalOf),
+)
+
+// Redraws a completed Run's dossier.html with the briefs agents have written
+// into its briefs/ directory, answering what the page could not draw.
+export const page = Effect.fn("Run.page")(
+  function* (runId: string) {
+    const runsRoot = yield* resolveRunsRoot()
+    const loaded = yield* loadRun(runsRoot, runId).pipe(
+      Effect.mapError((cause) => new PageError({ reason: cause.reason, cause })),
+    )
+    return yield* redrawDossierPage(loaded)
   },
   Effect.mapError(refusalOf),
 )

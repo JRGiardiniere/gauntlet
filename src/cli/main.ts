@@ -4,6 +4,7 @@ import * as Option from "effect/Option"
 import * as Command from "effect/cli/Command"
 import { configCommand } from "./config.ts"
 import { loginCommand } from "./login.ts"
+import { pageCommand } from "./page.ts"
 import {
   deliverCommand,
   progress,
@@ -18,6 +19,7 @@ const gauntlet = Command.make("gauntlet").pipe(
   Command.withSubcommands([
     reviewCommand,
     deliverCommand,
+    pageCommand,
     configCommand,
     loginCommand,
     upgradeCommand,

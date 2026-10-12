@@ -44,7 +44,7 @@ code,kbd{font-family:var(--mono);font-size:.86em}
 p code,li code,.lead code,.rest code{-webkit-box-decoration-break:clone;box-decoration-break:clone;background:var(--sheet-2);border:1px solid var(--rule);border-radius:3px;padding:0 .3em;color:var(--ink-1)}
 a{color:inherit}
 .muted{color:var(--ink-3)}
-.field-label,.tag,.sp-tab,.sec-head,.ev-kind,.act,.ba-switch button,.sp-view button,.dk,.stamp,.sleeve-title,.sp-mark,.brief-by,.st-by{font-family:var(--cond);font-stretch:72%;text-transform:uppercase;letter-spacing:.07em}
+.field-label,.tag,.sp-tab,.sec-head,.ev-kind,.act,.sp-view button,.dk,.stamp,.sleeve-title,.sp-mark,.brief-by,.st-by{font-family:var(--cond);font-stretch:72%;text-transform:uppercase;letter-spacing:.07em}
 
 /* the spine */
 .spine{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;background:var(--kraft);color:var(--kraft-ink);padding:18px 0 24px;border-right:1px solid var(--kraft-2);box-shadow:inset -8px 0 14px -10px rgba(0,0,0,.25)}
@@ -160,34 +160,6 @@ h1{margin:0;font-family:var(--cond);font-stretch:68%;font-weight:800;font-size:c
 .pin{flex:none;position:sticky;right:8px;font:800 11px/1 var(--cond);font-stretch:72%;letter-spacing:.06em;color:var(--sheet);background:var(--ink);padding:3px 6px 2px;border-radius:2px;box-shadow:-10px 0 0 color-mix(in oklab,var(--ink) 16%,var(--sheet))}
 .t-kw{color:var(--ink-1);font-weight:650} .t-str{color:var(--ink-2)} .t-num{color:var(--ink-1)} .t-com{color:var(--ink-3);font-style:italic} .t-type{color:var(--ink-1);font-weight:550}
 
-/* diagrams */
-.dg-wrap{overflow-x:auto;padding:14px 12px 8px}
-.diagram{display:block;max-width:100%;height:auto;margin:0 auto;font-family:var(--mono)}
-.dg-node rect{fill:var(--sheet);stroke:var(--ink-2);stroke-width:1.2}
-.dg-label{font-size:12.5px;fill:var(--ink-1);font-weight:600}
-.dg-note{font:400 11px var(--text);fill:var(--ink-3)}
-.dg-accent rect{stroke:var(--ink);stroke-width:2;fill:color-mix(in oklab,var(--ink) 9%,var(--sheet))}
-.dg-state rect{stroke-dasharray:4 3}
-.dg-muted rect{stroke:var(--rule-2)} .dg-muted .dg-label{fill:var(--ink-3)}
-.dg-edge{fill:none;stroke-width:1.4}
-.dg-calls{stroke:var(--ink-3)} .dg-head.dg-calls{fill:none;stroke:var(--ink-3);stroke-width:1.4}
-.dg-writes{stroke:var(--ink);stroke-dasharray:5 4;stroke-width:1.8} .dg-head.dg-writes{fill:none;stroke:var(--ink);stroke-dasharray:none;stroke-width:1.6}
-.dg-reads{stroke:var(--ink-2);stroke-dasharray:1.5 3.5;stroke-linecap:round} .dg-head.dg-reads{fill:none;stroke:var(--ink-2);stroke-dasharray:none;stroke-width:1.4}
-.dg-elabel{font-size:11px;fill:var(--ink-2);paint-order:stroke;stroke:var(--sheet);stroke-width:4px}
-.dg-legend{margin-left:auto;display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-3)}
-.dg-legend i{display:inline-block;width:20px;height:0;border-top:1.6px solid var(--ink-3);margin-left:6px}
-.dg-legend .lg-writes{border-top:1.8px dashed var(--ink)} .dg-legend .lg-reads{border-top:2px dotted var(--ink-2)}
-
-/* before / after */
-.ba{display:flex;flex-direction:column;gap:12px}
-.ba-switch{display:inline-flex;align-self:flex-start;border:1px solid var(--ink-2);border-radius:3px;overflow:hidden}
-.ba-switch button{border:0;background:var(--sheet);color:var(--ink-1);font-size:13px;font-weight:800;padding:6px 12px;cursor:pointer}
-.ba-switch button span{font-family:var(--mono);font-stretch:100%;text-transform:none;letter-spacing:0;font-weight:400;font-size:11.5px;color:var(--ink-3);margin-left:4px}
-.ba-switch button[aria-selected="true"]{background:var(--ink-1);color:var(--sheet)}
-.ba-switch button[aria-selected="true"] span{color:color-mix(in oklab,var(--sheet) 70%,transparent)}
-.ba-pane{display:flex;flex-direction:column;gap:12px}
-.ba-pane[hidden]{display:none}
-
 /* a brief, clipped to its exhibit */
 .brief{margin:0 22px 22px;padding:16px 20px 20px;background:var(--sheet-2);border:1px solid var(--rule-2);border-radius:2px;position:relative;display:flex;flex-direction:column;gap:14px}
 .brief-head{display:flex;align-items:center;gap:12px}
@@ -195,7 +167,15 @@ h1{margin:0;font-family:var(--cond);font-stretch:68%;font-weight:800;font-size:c
 .brief-head .clip svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 .brief-by{font-family:var(--text);font-stretch:100%;text-transform:none;letter-spacing:0;font-size:13px;color:var(--ink-3)}
 .takeaway{margin:0;font-family:var(--cond);font-stretch:80%;font-size:clamp(22px,2.3vw,30px);font-weight:750;line-height:1.18;letter-spacing:-.005em;color:var(--ink-1);max-width:34ch;text-wrap:balance}
-.prose{max-width:72ch;color:var(--ink-2)} .prose p{margin:0 0 10px} .prose p:last-child{margin:0} .prose strong{color:var(--ink-1)}
+.brief-body{display:flex;flex-direction:column;gap:12px;color:var(--ink-2)}
+.brief-body>:is(p,ul,ol,blockquote,table,h2,h3,h4){margin:0;max-width:72ch}
+.brief-body :is(ul,ol){padding-left:20px} .brief-body li+li{margin-top:3px}
+.brief-body strong{color:var(--ink-1)}
+.brief-body :is(h2,h3,h4){font-family:var(--cond);font-stretch:72%;text-transform:uppercase;letter-spacing:.07em;font-size:14px;font-weight:800;color:var(--ink-1);margin-top:6px}
+.brief-body blockquote{border-left:3px solid var(--rule-2);padding-left:12px}
+.brief-body table{border-collapse:collapse;font-size:14px} .brief-body :is(th,td){border-bottom:1px solid var(--rule);padding:4px 12px 4px 0;text-align:left;vertical-align:top}
+.brief-body th{font-family:var(--cond);font-stretch:72%;text-transform:uppercase;letter-spacing:.07em;font-size:12px;color:var(--ink-3)}
+.sketch .src{padding-left:14px} .diff.sketch .src{padding-left:4px} .diff.sketch .sign{padding-left:10px;width:26px}
 
 /* set aside */
 .sleeve{margin-top:40px;padding:0;background:var(--sheet-2)}
@@ -291,11 +271,6 @@ export const DOSSIER_PAGE_SCRIPT = String.raw`
         label.textContent = t.dataset.done; t.classList.add("ok")
         setTimeout(() => { label.textContent = was; t.classList.remove("ok") }, 1400)
       })
-    }
-    if (t.dataset.side) {
-      const ba = t.closest(".ba")
-      for (const b of ba.querySelectorAll(".ba-switch button")) b.setAttribute("aria-selected", String(b === t))
-      for (const p of ba.querySelectorAll(":scope > .ba-pane")) p.hidden = p.dataset.pane !== t.dataset.side
     }
     if (t.dataset.view) {
       for (const b of document.querySelectorAll(".sp-view button")) b.setAttribute("aria-checked", String(b === t))

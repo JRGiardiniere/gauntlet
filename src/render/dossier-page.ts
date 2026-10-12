@@ -1,15 +1,19 @@
 // The Dossier page: one Run's Dossier as a single offline HTML file, written
 // beside dossier.md. dossier.md stays the Dossier; this is a reading of it
 // for a person — each finding an exhibit, its claim beside the reviewed code.
-// Deterministic from the frozen plan, the Dossier, the Run's accounting and
-// the reviewed files: no model calls, no clock (ADR 0006).
+// Deterministic from the frozen plan, the Dossier, the page's data and any
+// briefs: no model calls, no clock (ADR 0006). The data — the Run's accounting
+// and the reviewed files — rides inside the page, so adding a brief later
+// redraws it from what the Run saw, not from the code as it is now.
 import type { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { TargetIdentity } from "../domain/review-target.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
+import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
+import { renderBrief, type RenderedBrief } from "./brief.ts"
 import {
   escapeHtml,
   type Hunk,
@@ -18,6 +22,16 @@ import {
   parseDiffHunks,
 } from "./code-text.ts"
 import { DOSSIER_PAGE_CSS, DOSSIER_PAGE_SCRIPT } from "./dossier-page-assets.ts"
+import {
+  code,
+  CONTEXT,
+  excerpt,
+  frame,
+  ICON,
+  inline,
+  paragraphs,
+  pinTail,
+} from "./page-frames.ts"
 import { describeRecipe, describeRunNotes } from "./dossier-markdown.ts"
 import {
   type DossierEntryTag,
@@ -25,14 +39,50 @@ import {
   viewDossier,
 } from "./dossier-view.ts"
 
+export const DossierPageData = Schema.Struct({
+  costUsd: Schema.Finite,
+  invocationCount: Schema.Int,
+  wallTimeSeconds: Schema.Int,
+  runNotes: Schema.Array(Schema.String),
+  // Reviewed files by repository path, as lines: the head commit plus, for a
+  // working tree, its overlay.
+  sources: Schema.Record(Schema.String, Schema.Array(Schema.String)),
+})
+export type DossierPageData = typeof DossierPageData.Type
+
+export const dossierPageData = (
+  accounting: RunAccounting,
+  sources: ReadonlyMap<string, ReadonlyArray<string>>,
+): DossierPageData => ({
+  costUsd: accounting.costUsd,
+  invocationCount: accounting.invocationCount,
+  wallTimeSeconds: accounting.wallTimeSeconds,
+  runNotes: describeRunNotes(accounting),
+  sources: Object.fromEntries(sources),
+})
+
+const DATA_ELEMENT = /<script type="application\/json" id="dossier-page-data">(.*?)<\/script>/s
+
+// The data a page was drawn from, as its JSON text.
+export const pageDataText = (page: string): string | undefined =>
+  DATA_ELEMENT.exec(page)?.[1]
+
 export interface DossierPageInput {
   readonly plan: ReviewPlan
   readonly dossier: Dossier
-  readonly accounting: RunAccounting
+  readonly data: DossierPageData
   readonly runDirectory: string
-  // Reviewed files by repository path, as lines: the head commit plus, for a
-  // working tree, its overlay.
-  readonly sources: ReadonlyMap<string, ReadonlyArray<string>>
+  // Brief markdown by finding id.
+  readonly briefs?: ReadonlyMap<string, string>
+  // Lines the briefs show beyond the reviewed files, by sourceKey.
+  readonly extraSources?: ReadonlyMap<string, ReadonlyArray<string>>
+}
+
+export interface DrawnDossierPage {
+  readonly html: string
+  // Briefs the page could not draw whole, worded for the agent that wrote
+  // them.
+  readonly problems: ReadonlyArray<string>
 }
 
 // ---------------------------------------------------------------------------
@@ -96,21 +146,7 @@ export const dossierPageFiles = (
 }
 
 // ---------------------------------------------------------------------------
-// Prose
-
-const inline = (text: string) =>
-  escapeHtml(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
-
-const paragraphs = (text: string) =>
-  text.trim().split(/\n{2,}/).map((paragraph) => {
-    const lines = paragraph.split("\n")
-    return lines.every((line) => /^\s*[-*] /.test(line))
-      ? `<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*[-*] /, ""))}</li>`).join("")}</ul>`
-      : `<p>${inline(paragraph.replace(/\n/g, " "))}</p>`
-  }).join("")
+// Evidence
 
 // The claim's first sentence leads; the rest follows it as body.
 const splitLead = (summary: string) => {
@@ -119,60 +155,6 @@ const splitLead = (summary: string) => {
   return match === null
     ? { lead: summary, rest: "" }
     : { lead: match[1] ?? summary, rest: summary.slice(match[0].length) }
-}
-
-// ---------------------------------------------------------------------------
-// Evidence
-
-const ICON = {
-  check: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8.6l3 3 6.6-7.2"/></svg>`,
-  copy: `<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.2"/><path d="M10.5 3.2V2.8a.8.8 0 00-.8-.8H3.3a.8.8 0 00-.8.8v6.4c0 .4.4.8.8.8h.4"/></svg>`,
-  flag: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 14.5V2"/><path d="M4 2.5h8.2l-1.8 3 1.8 3H4"/></svg>`,
-  brief: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h6l3 3v8h-9z"/><path d="M9.5 2.5v3h3M5.8 8.5h4.4M5.8 11h4.4"/></svg>`,
-}
-
-const pinTail = (pin: string) =>
-  `<span class="leader" aria-hidden="true"></span><span class="pin">${escapeHtml(pin)}</span>`
-
-const frame = (head: string, body: string, caption?: string) =>
-  `<figure class="evidence"><figcaption class="ev-head">${head}</figcaption>${body}${
-    caption === undefined ? "" : `<p class="ev-caption">${inline(caption)}</p>`
-  }</figure>`
-
-const code = (rows: ReadonlyArray<string>, kind = "") =>
-  `<div class="code${kind}"><div class="code-inner">${rows.join("")}</div></div>`
-
-const CONTEXT = 6
-
-const excerpt = (
-  file: string,
-  lines: ReadonlyArray<string>,
-  from: number,
-  to: number,
-  marked: ReadonlySet<number>,
-  pin: string,
-  caption?: string,
-) => {
-  const start = Math.max(1, from)
-  const end = Math.min(lines.length, to)
-  if (start > end) return ""
-  const highlight = lineHighlighter(file)
-  // Prime the block-comment state with the lines above the window.
-  for (const line of lines.slice(Math.max(0, start - 41), start - 1)) highlight(line)
-  const rows: Array<string> = []
-  for (let number = start; number <= end; number++) {
-    const mark = marked.has(number)
-    rows.push(
-      `<div class="row${mark ? " mark" : ""}"><span class="no">${number}</span><span class="src">${
-        highlight(lines[number - 1] ?? "") || " "
-      }</span>${mark ? pinTail(pin) : ""}</div>`,
-    )
-  }
-  return frame(
-    `<span class="ev-kind">Source</span><code>${escapeHtml(file)}:${start}${end > start ? `–${end}` : ""}</code><span class="ev-rev">as reviewed</span>`,
-    code(rows),
-    caption,
-  )
 }
 
 const WINDOW = 9
@@ -225,7 +207,14 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
       if (hunk !== undefined) return change(file, hunk, line, pin)
       return lines === undefined
         ? ""
-        : excerpt(file, lines, line - CONTEXT, line + CONTEXT, new Set([line]), pin)
+        : excerpt({
+          file,
+          lines,
+          from: line - CONTEXT,
+          to: line + CONTEXT,
+          marked: new Set([line]),
+          pin,
+        })
     })()
   const known = [...sources.files.keys()]
   const seen = new Set<string>()
@@ -241,7 +230,15 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
       if (path === undefined || pathLines === undefined || nearOwn || seen.has(key) || seen.size >= 3) continue
       seen.add(key)
       const marked = new Set(Array.from({ length: to - from + 1 }, (_, i) => from + i))
-      cited.push(excerpt(path, pathLines, from - 3, to + 3, marked, pin, "cited in the finding"))
+      cited.push(excerpt({
+        file: path,
+        lines: pathLines,
+        from: from - 3,
+        to: to + 3,
+        marked,
+        pin,
+        caption: "cited in the finding",
+      }))
     }
   }
   return [own, ...cited].join("")
@@ -287,6 +284,7 @@ const needsThought = (entry: DossierEntryView) =>
 interface Filed {
   readonly entry: DossierEntryView
   readonly number: string
+  readonly brief?: RenderedBrief
 }
 
 const field = (label: string, body: string) =>
@@ -294,7 +292,7 @@ const field = (label: string, body: string) =>
 
 const exhibit = (
   sources: PageSources,
-  { entry, number }: Filed,
+  { brief, entry, number }: Filed,
   runId: string,
   runDirectory: string,
 ) => {
@@ -315,8 +313,19 @@ const exhibit = (
         inline(entry.testSuggestion.reason)
       }</p>`,
     )
-  const explain =
-    `Explain Gauntlet finding ${candidate.id} (${location(candidate)}) from run ${runId}: read its entry in ${runDirectory}/dossier.json, check the code, and show me what goes wrong and how to fix it.`
+  const prompt = needsThought(entry)
+    ? `Use the gauntlet-cli skill to write a brief for Gauntlet finding ${candidate.id} (${location(candidate)}) in run ${runId}; its run directory is ${runDirectory}.`
+    : `Explain Gauntlet finding ${candidate.id} (${location(candidate)}) from run ${runId}: read its entry in ${runDirectory}/dossier.json, check the code, and show me what goes wrong and how to fix it.`
+  const handOff = brief !== undefined
+    ? `<a class="act" href="#${number}-brief">${ICON.brief}<span>Read the brief</span></a>`
+    : `<button type="button" class="act" data-copy="${escapeHtml(prompt)}" data-done="Prompt copied">${ICON.brief}<span>${
+      needsThought(entry) ? "Ask for a brief" : "Explain"
+    }</span></button>`
+  const briefSheet = brief === undefined ? "" : `<section class="brief" id="${number}-brief" aria-label="Brief for ${number}">
+      <header class="brief-head"><span class="clip">${ICON.clip}</span><span class="tag">Brief · ${number}</span><span class="brief-by">written by an agent, from the Dossier and the code</span></header>
+      ${brief.takeaway === undefined ? "" : `<p class="takeaway">${inline(brief.takeaway)}</p>`}
+      ${brief.html}
+    </section>`
   return `<article class="exhibit${needsThought(entry) ? " thought" : ""}" id="${number}" data-no="${number}" data-thought="${needsThought(entry)}" tabindex="-1" style="--ink:${ink}">
     <header class="ex-head">
       <span class="tag"><i class="hole" aria-hidden="true"></i>Exhibit ${number}</span>
@@ -332,11 +341,12 @@ const exhibit = (
         <div class="acts">
           <button type="button" class="act act-review" data-review>${ICON.check}<span>Stamp reviewed</span><kbd>x</kbd></button>
           <button type="button" class="act" data-copy="${escapeHtml(location(candidate))}" data-done="Copied">${ICON.copy}<span>Copy location</span></button>
-          <button type="button" class="act" data-copy="${escapeHtml(explain)}" data-done="Prompt copied">${ICON.brief}<span>Explain</span></button>
+          ${handOff}
         </div>
       </div>
       <div class="proof">${evidence(sources, entry, number)}</div>
     </div>
+    ${briefSheet}
   </article>`
 }
 
@@ -359,20 +369,32 @@ const duration = (seconds: number) =>
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1)
 const short = (commit: string) => commit.slice(0, 7)
 
-export const renderDossierPage = (input: DossierPageInput): string => {
-  const { accounting, dossier, plan, runDirectory } = input
+export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => {
+  const { data, dossier, plan, runDirectory } = input
+  const briefs = input.briefs ?? new Map<string, string>()
   const sources: PageSources = {
     hunks: parseDiffHunks(plan.target.diff),
-    files: input.sources,
+    files: new Map(Object.entries(data.sources)),
   }
+  const lookup = (key: string) => input.extraSources?.get(key) ?? sources.files.get(key)
+  const problems: Array<string> = []
   const target = dossier.target
   const view = viewDossier(dossier)
-  const numbered = (prefix: string) => (entry: DossierEntryView, index: number): Filed => ({
-    entry,
-    number: `${prefix}-${String(index + 1).padStart(2, "0")}`,
-  })
+  const numbered = (prefix: string) => (entry: DossierEntryView, index: number): Filed => {
+    const number = `${prefix}-${String(index + 1).padStart(2, "0")}`
+    const text = briefs.get(entry.candidate.id)
+    if (text === undefined) return { entry, number }
+    const brief = renderBrief(text, number, lookup)
+    problems.push(...brief.problems.map((problem) => `briefs/${entry.candidate.id}.md: ${problem}`))
+    return { entry, number, brief }
+  }
   const findings = view.findings.map(numbered("E"))
   const unresolved = view.unresolved.map(numbered("U"))
+  for (const id of briefs.keys()) {
+    if (![...findings, ...unresolved].some(({ entry }) => entry.candidate.id === id)) {
+      problems.push(`briefs/${id}.md: no finding or unresolved entry has the id ${id}`)
+    }
+  }
   const filed = [...findings, ...unresolved]
   const setAside = [...view.refutedClaims, ...view.droppedObservations]
   const ranked = (priority: ReviewPriority | undefined) =>
@@ -396,10 +418,10 @@ export const renderDossierPage = (input: DossierPageInput): string => {
     })
   }`
 
-  const spineItem = ({ entry, number }: Filed) =>
+  const spineItem = ({ brief, entry, number }: Filed) =>
     `<li><a href="#${number}" data-for="${number}" data-thought="${needsThought(entry)}"><span class="ix">${number}</span><span class="sf">${
       escapeHtml(basename(location(entry.candidate)))
-    }</span><span class="sp-check" aria-label="reviewed">${ICON.check}</span><span class="sp-flag" aria-label="you stopped here">${ICON.flag}</span></a></li>`
+    }</span>${brief === undefined ? "" : `<span class="sp-brief" title="Has a brief">${ICON.clip}</span>`}<span class="sp-check" aria-label="reviewed">${ICON.check}</span><span class="sp-flag" aria-label="you stopped here">${ICON.flag}</span></a></li>`
   const tabGroup = (label: string, style: string, items: ReadonlyArray<Filed>) =>
     `<div class="sp-group ${style}${items.length === 0 ? " empty" : ""}"><div class="sp-tab"><span>${label}</span><b>${items.length}</b></div>${
       items.length === 0 ? "" : `<ol>${items.map(spineItem).join("")}</ol>`
@@ -423,7 +445,7 @@ export const renderDossierPage = (input: DossierPageInput): string => {
   </nav>`
 
   const finders = selectRunnableFinders(plan)
-  const runNotes = describeRunNotes(accounting)
+  const { runNotes } = data
   const indexField = (label: string, value: string, style = "") =>
     `<div class="ix-field ${style}"><span class="field-label">${label}</span><span class="ix-value">${value}</span></div>`
   const muted = (text: string) => `<span class="muted">(${escapeHtml(text)})</span>`
@@ -445,9 +467,9 @@ export const renderDossierPage = (input: DossierPageInput): string => {
       ${indexField("Case", `<code>${escapeHtml(dossier.runId)}</code>`, "w2")}
       ${indexField("Filed", escapeHtml(filedOn(dossier.runId)), "w2")}
       ${indexField("Subject", `${escapeHtml(kind)} in <code>${escapeHtml(target.repoRoot.replace(/^\/Users\/[^/]+/, "~"))}</code>`, "w2")}
-      ${indexField("Cost", `$${accounting.costUsd.toFixed(2)}`, "num")}
-      ${indexField("Invocations", String(accounting.invocationCount), "num")}
-      ${indexField("Time", duration(accounting.wallTimeSeconds), "num")}
+      ${indexField("Cost", `$${data.costUsd.toFixed(2)}`, "num")}
+      ${indexField("Invocations", String(data.invocationCount), "num")}
+      ${indexField("Time", duration(data.wallTimeSeconds), "num")}
       ${
     indexField(
       "Not run",
@@ -486,7 +508,7 @@ export const renderDossierPage = (input: DossierPageInput): string => {
   const exhibits = (items: ReadonlyArray<Filed>) =>
     items.map((item) => exhibit(sources, item, dossier.runId, runDirectory)).join("")
 
-  return `<!doctype html>
+  const html = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -515,8 +537,10 @@ ${spine}
   </details>
   <footer class="colophon"><code>dossier.md</code> is the Dossier; this page is a reading of it. Code as reviewed at <code>${escapeHtml(short(target.headCommit))}</code>.</footer>
 </main>
+<script type="application/json" id="dossier-page-data">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>
 <script>${DOSSIER_PAGE_SCRIPT}</script>
 </body>
 </html>
 `
+  return { html, problems }
 }
