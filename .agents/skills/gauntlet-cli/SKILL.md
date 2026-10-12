@@ -157,7 +157,19 @@ the what and the why; your work is to show them.
      change. `mark=250,254` pins those lines.
    - ` ```ts ` (any language) — an illustration, such as the fix's shape.
    Content only: the page owns layout, and raw HTML shows as text.
-4. Run `gauntlet page <run-id>`. Done when it prints the page's path and no
+4. Read the prose back as plain speech and rewrite each sentence that fails:
+   - It names the mechanism: the function, the line, the value, the count.
+     A sentence that would read the same in another project's review says
+     nothing about this one; cut it.
+   - It carries one idea, with a subject and a verb. Spell out arrows and
+     abbreviations.
+   - It names the actor: "`startClock` sets `drawn`", not "`drawn` is set".
+   - It uses the concrete word: "add" over "wedge in", "base" over
+     "substrate", "way" over "vector", "use" over "leverage".
+   - It is the claim alone, with no lead-in ("it is worth noting that") and
+     one hedge at most. An unsettled claim says so once, with what would
+     settle it.
+5. Run `gauntlet page <run-id>`. Done when it prints the page's path and no
    `gauntlet: briefs/…` lines; each such line names a block to fix.
 
 ## Recipe
