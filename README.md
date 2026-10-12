@@ -62,12 +62,15 @@ gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post 
 Gauntlet also runs inside Claude Code as a mod, one plugin: each reviewer is a
 headless `claude -p` process of your Claude Code, not a subagent, progress
 shows above the prompt, and the digest is the one message that comes back to
-the agent that asked. It needs no CLI. Ask Claude Code:
+the agent that asked. It needs no CLI, only Claude Code and git:
 
-> Install Gauntlet for Claude Code by following https://github.com/JRGiardiniere/gauntlet/blob/main/INSTALL.md
+```sh
+claude plugin marketplace add JRGiardiniere/gauntlet
+claude plugin install gauntlet@gauntlet
+```
 
-It installs the newest release; "update Gauntlet" moves to the next. Type `/gauntlet` to start a
-review yourself.
+`claude plugin update gauntlet` moves to the next release; [INSTALL.md](INSTALL.md)
+has the rest. Type `/gauntlet` to start a review yourself, or ask Claude for one.
 
 ## Debugging a review
 

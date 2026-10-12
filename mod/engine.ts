@@ -116,7 +116,7 @@ const refusalText = (refusal: Run.RunRefusal) =>
   refusal.unconfirmedPost !== undefined
     ? `${refusal.reason}; check the pull request for the comment before /gauntlet deliver ${refusal.unconfirmedPost}`
     : refusal.unconfigured === true
-    ? `${refusal.reason}; set up Gauntlet's recipes and settings as its INSTALL.md says`
+    ? `${refusal.reason}; add a recipe to ~/.gauntlet/mod/recipes/, and /gauntlet config lists them`
     : refusal.reason
 
 // The mod has no global fetch; Linear's FetchHttpClient gets this one over

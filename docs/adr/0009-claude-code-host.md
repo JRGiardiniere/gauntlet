@@ -10,7 +10,9 @@ review syntax (`src/syntax/`) into a request for the Run module
 no CLI output. Amended per #181: each AgentInvocation is a headless
 `claude -p` child process of the running Claude Code, on a
 `claude-code/<model>:<effort>` Seat, one process per turn
-(`src/harness/claude-live.ts`). Pi is not involved.
+(`src/harness/claude-live.ts`). Pi is not involved. Amended per #184: the
+Mod is built in CI and installs and updates as a marketplace plugin (see
+**Distribution**).
 
 ## Considered Options
 
@@ -84,6 +86,24 @@ no CLI output. Amended per #181: each AgentInvocation is a headless
   disposed. It is found by its session's file name under Claude Code's
   projects folder: a snapshot is a git worktree, whose auto-memory path names
   the main repository's project folder, not the one holding the transcript.
+
+## Distribution
+
+Amended per #184. The release workflow builds the Mod with the release's
+version in its `plugin.json` and attaches it as `gauntlet-mod.zip`; this
+repository's `.claude-plugin/marketplace.json` names that asset at
+`releases/latest/download` as an `archive` source, so neither file changes
+per release. Users install with `claude plugin marketplace add
+JRGiardiniere/gauntlet` and `claude plugin install gauntlet@gauntlet`, and
+update with `claude plugin update gauntlet`; Claude Code compares the
+`plugin.json` versions. The plugin carries the lenses, Host prompts and Stage
+templates beside the bundle, which finds them from its `import.meta.url`
+(the mod loader gives modules no `import.meta.dirname`). It needs no checkout
+and no Bun: the Mod no longer rebuilds itself from a clone or checks for
+releases itself. Rejected: committing the built plugin to the repository
+(670KB per release), and pinning each release's URL and `sha256` (a CI commit
+to `marketplace.json` per release). A review's `claude -p` children don't
+load the installed plugin: `--setting-sources ""` leaves it disabled.
 
 ## Consequences
 

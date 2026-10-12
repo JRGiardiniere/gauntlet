@@ -164,9 +164,6 @@ const program = Effect.gen(function* () {
   )
   yield* fs.makeDirectory(outDir, { recursive: true })
   yield* fs.remove(dir, { recursive: true, force: true })
-  // A gauntlet-tools folder an older build left is removed, so Claude Code
-  // skips a CLAUDE_CODE_PLUGIN_DIRS entry that still names it.
-  yield* fs.remove(`${outDir}/gauntlet-tools`, { recursive: true, force: true })
   yield* fs.rename(staging, dir)
   const size = (yield* fs.stat(`${dir}/hooks/vendor/${plugin.vendor}`)).size
   yield* Console.log(`${plugin.name} built at ${dir}: vendor/${plugin.vendor} ${String(size)} B`)
