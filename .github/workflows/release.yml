@@ -1,5 +1,8 @@
 # Tag-driven releases: pushing v<major>.<minor>.<patch> builds one binary per
-# platform and publishes them all on a GitHub release. The tag is the single
+# platform and the Mod's plugin zip, and publishes them all on a GitHub
+# release. The marketplace (.claude-plugin/marketplace.json) installs the Mod
+# from the latest release's gauntlet-mod.zip, whose plugin.json carries the
+# tag's version. The tag is the single
 # source of truth for the version — scripts/bundle.ts bakes it in as a define,
 # and package.json's placeholder version is never consulted.
 #
@@ -55,8 +58,26 @@ jobs:
           path: dist/${{ matrix.asset }}
           if-no-files-found: error
 
+  mod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Build the Mod
+        run: GAUNTLET_VERSION="${GITHUB_REF_NAME#v}" bun scripts/build-mod.ts dist
+      - name: Zip the plugin
+        run: cd dist/gauntlet && zip -qr ../gauntlet-mod.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gauntlet-mod.zip
+          path: dist/gauntlet-mod.zip
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, mod]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

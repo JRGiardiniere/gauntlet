@@ -20,7 +20,9 @@ import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
+import { briefCommand } from "../src/cli/brief.ts"
 import { printConfiguration } from "../src/cli/config.ts"
+import { pageCommand } from "../src/cli/page.ts"
 import { isFreshConfig, writeInitialConfig } from "../src/config/initial-config.ts"
 import { availableRecipeNames, listRecipes } from "../src/config/recipe-catalog.ts"
 import { ConfigHost } from "../src/config/settings.ts"
@@ -41,20 +43,10 @@ import type { RunView } from "./strip.ts"
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
 export { reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
-export { BUILD_FILE, createSession, recoverLostRun } from "./session.ts"
+export { createSession, recoverLostRun } from "./session.ts"
 export { DEMO_SCENARIOS } from "./demo.ts"
 export type { Session } from "./session.ts"
 export type { Json } from "effect/Schema"
-
-// What `bun run build-mod` writes beside the bundle as vendor/build.json.
-export interface BuildInfo {
-  readonly stamp: string
-  readonly files: number
-  readonly repoRoot: string
-  readonly builtAt: string
-  // The bun that built it, which rebuilds it.
-  readonly bun: string
-}
 
 export interface HttpPort {
   readonly fetch: (
@@ -174,7 +166,8 @@ type Progress = {
   -readonly [K in Exclude<keyof RunView, "activity">]: RunView[K]
 }
 
-export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
+// `version` is the plugin's, from its plugin.json.
+export const createEngine = (ports: EnginePorts, version: string) => {
   let current:
     | {
       readonly fiber: Fiber.Fiber<void>
@@ -351,7 +344,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
         ? playDemo(request.words.slice(1), request.cwd).pipe(
           Effect.flatMap((demo) => reviewing(demo.review, demo.destination, demo.run)),
         )
-        : Command.runWith(gauntlet, { version: build.stamp.slice(0, 12) })(request.words)
+        : Command.runWith(gauntlet, { version })(request.words)
     ).pipe(
       Effect.catchTags({
         // Help asked for is printed; help shown for words that did not parse
@@ -423,26 +416,39 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       return availableRecipeNames(yield* listRecipes())
     }).pipe(Effect.provideService(ConfigHost, "mod"), Effect.provide(platformLayer(ports)), Effect.runPromise)
 
-  // `/gauntlet config`: the CLI's bare config listing over the Mod's own
-  // settings and catalog, answered at once; it starts no run. Settings change
-  // by editing the Mod's files, so its other words only get that pointer.
-  const config = (request: { readonly words: ReadonlyArray<string>; readonly cwd: string }): Promise<string> => {
+  // The words answered at once, which start no run: `config`, the CLI's bare
+  // config listing over the Mod's own settings and catalog (they change by
+  // editing the Mod's files, so its other words only get that pointer), and
+  // the CLI's own `page <run-id>` and `brief <run-id> <finding-id>`, answered
+  // with what they print.
+  const answer = (request: { readonly words: ReadonlyArray<string>; readonly cwd: string }): Promise<string> => {
     let printed = ""
-    return printConfiguration().pipe(
-      Effect.as(""),
-      Effect.catch((failure) => Effect.succeed(`could not list the configuration — ${String(failure)}`)),
+    const print = (text: string) => {
+      printed += text
+    }
+    const program = request.words[0] === "config"
+      ? Effect.sync(() => {
+        if (request.words.length > 1) print("/gauntlet config only lists; edit ~/.gauntlet/mod/settings.json or its recipes/ to change them.\n")
+      }).pipe(
+        Effect.andThen(printConfiguration()),
+        Effect.catch((failure) => Effect.sync(() => print(`could not list the configuration — ${String(failure)}`))),
+      )
+      : Command.runWith(Command.make("gauntlet").pipe(Command.withSubcommands([pageCommand, briefCommand])), { version })(request.words).pipe(
+        Effect.catchTags({
+          ShowHelp: (help) =>
+            Effect.sync(() => {
+              if (help.errors.length > 0) print(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet ${request.words[0] ?? ""} --help shows the syntax`)
+            }),
+          RunRefusal: (refusal) => Effect.sync(() => print(`gauntlet: ${refusal.reason}`)),
+        }),
+        Effect.provideService(CliConfig.CliConfig, CliConfig.make({ builtIns: [GlobalFlag.Help] })),
+      )
+    return program.pipe(
       Effect.provideService(InvocationDirectory, request.cwd),
       Effect.provideService(ConfigHost, "mod"),
-      Effect.provide(platformLayer({ ...ports, stdout: (text) => {
-        printed += text
-      } })),
-      Effect.map((failed) =>
-        [
-          request.words.length > 1 ? "/gauntlet config only lists; edit ~/.gauntlet/mod/settings.json or its recipes/ to change them." : "",
-          printed.trim(),
-          failed,
-        ].filter((text) => text !== "").join("\n")
-      ),
+      Effect.provide(platformLayer({ ...ports, stdout: print, stderr: print })),
+      Effect.catch((failure) => Effect.sync(() => print(`gauntlet: ${String(failure)}`))),
+      Effect.map(() => printed.trim()),
       Effect.runPromise,
     )
   }
@@ -460,7 +466,7 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
     start,
     cancel,
     recipes,
-    config,
+    answer,
     standardsManifest,
     running: () =>
       current === undefined

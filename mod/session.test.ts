@@ -3,7 +3,7 @@ import type { Json } from "effect/Schema"
 import { describe, expect, it } from "vitest"
 import type { ReviewRequest } from "../src/run/run.ts"
 import { SubmissionTargetRequest } from "../src/run/submission.ts"
-import type { BuildInfo, RunResult } from "./engine.ts"
+import type { RunResult } from "./engine.ts"
 import { createSession, digestHeadline, recoverLostRun, type StartRequest } from "./session.ts"
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -65,7 +65,7 @@ const makeEngine = () => {
       })
       return { request: parsed, reviewed, ended }
     },
-    config: async (request: { readonly words: ReadonlyArray<string> }) => `config ${request.words.slice(1).join(" ")}`,
+    answer: async (request: { readonly words: ReadonlyArray<string> }) => `answered ${request.words.join(" ")}`,
     running: () => running,
     standardsManifest: async () => ({ path: "/standards", exists: true }),
   }
@@ -78,21 +78,17 @@ const makeSession = (options: {
   readonly sendRefusal?: string
   readonly submitDrop?: string
 } = {}) => {
-  // A recent update check: no review here probes for a release.
-  const store = new Map<string, Json>([["update-checked-at", Date.now()]])
+  const store = new Map<string, Json>()
   const ran: Array<ReadonlyArray<string>> = []
   const sent: Array<string> = []
   const submitted: Array<string> = []
   const appended: Array<string> = []
   let deletes = 0
-  const build: BuildInfo = { stamp: "", files: 0, repoRoot: "/gauntlet", builtAt: "", bun: "bun" }
   const ports: Parameters<typeof createSession>[0] & Parameters<typeof recoverLostRun>[0] = {
-    // Git lists no inputs, so the stamp is the same on every check.
     run: async (argv) => {
       ran.push(argv)
       return { exitCode: 0, stdout: "", stderr: "", isStdoutTruncated: false, isStderrTruncated: false }
     },
-    read: async () => JSON.stringify({ ...build, stamp: STAMP }),
     log: () => {},
     store: {
       get: async (key) => store.get(key),
@@ -106,7 +102,6 @@ const makeSession = (options: {
       },
     },
     toast: () => {},
-    status: () => {},
     send: async (agentId, text) => {
       sent.push(`${agentId}: ${text}`)
       return options.sendRefusal
@@ -121,11 +116,11 @@ const makeSession = (options: {
     },
   }
   const { engine, runs, working } = makeEngine()
-  const session = createSession(ports, engine, { build, pluginRoot: "/plugins/gauntlet", sessionId: "session-1" })
+  const session = createSession(ports, engine, "session-1")
   // Starts a review and parses its words; answers the command's line.
   const review = async (request: StartRequest) => {
-    const answer = session.start(request)
     const count = runs.length
+    const answer = session.start(request)
     await until(() => runs.length > count)
     runs[count]?.parse(REVIEW)
     return {
@@ -157,9 +152,6 @@ const makeSession = (options: {
   }
 }
 
-// The stamp of a checkout whose git lists no inputs.
-const STAMP = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-
 describe("the Mod's session", () => {
   it("admits one of two overlapping starts and refuses the other", async () => {
     const mod = makeSession()
@@ -168,6 +160,16 @@ describe("the Mod's session", () => {
 
     expect(second).toMatch(/^a review is already running \(starting, \d+s\); one per session\.$/)
     expect((await first).answer).toMatch(/^review started \(--recipe one\)/)
+    expect(mod.runs).toHaveLength(1)
+  })
+
+  it("answers config, page and brief at once, even while a review runs, and starts no run for them", async () => {
+    const mod = makeSession()
+    await mod.review({ cwd: "/repo", args: "" })
+
+    expect(await mod.session.start({ cwd: "/repo", args: "page run-1" })).toBe("answered page run-1")
+    expect(await mod.session.start({ cwd: "/repo", args: "brief run-1 fixture/2" })).toBe("answered brief run-1 fixture/2")
+    expect(await mod.session.start({ cwd: "/repo", args: "config" })).toBe("answered config")
     expect(mod.runs).toHaveLength(1)
   })
 

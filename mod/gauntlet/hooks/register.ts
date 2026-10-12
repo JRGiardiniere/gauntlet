@@ -1,7 +1,5 @@
 import type { EngineInterface, Register } from "claude-code"
 import {
-  BUILD_FILE,
-  type BuildInfo,
   createEngine,
   createSession,
   DEMO_SCENARIOS,
@@ -179,11 +177,11 @@ export const register: Register = (on) => {
     const sessionId = await $.session.id()
     try {
       const loadStart = Date.now()
-      // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
-      const build = JSON.parse(await $.fs.read(`${$.plugin.root}/${BUILD_FILE}`)) as BuildInfo
-      engine = createEngine(ports, build)
-      session = createSession(ports, engine, { build, pluginRoot: $.plugin.root, sessionId })
-      log($, `loaded engine ${build.stamp.slice(0, 12)} built ${build.builtAt} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
+      // SAFETY: the build writes plugin.json's version, the release's.
+      const { version } = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)) as { version: string }
+      engine = createEngine(ports, version)
+      session = createSession(ports, engine, sessionId)
+      log($, `loaded engine ${version} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
     } catch (error) {
       log($, `engine failed to load: ${String(error)}`)
     }

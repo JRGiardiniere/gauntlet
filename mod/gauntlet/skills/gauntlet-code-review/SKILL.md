@@ -1,10 +1,11 @@
 ---
 name: gauntlet-code-review
 description: >-
-  Runs a Gauntlet code review inside Claude Code with Gauntlet's review tool
-  and carries on with the findings when its digest arrives. Use when asked to
-  run Gauntlet, or a Gauntlet review of uncommitted changes, a branch's
-  commits, or a pull request, and when asked to update Gauntlet.
+  Runs a Gauntlet code review inside Claude Code through the Mod's review tool
+  (`mcp__gauntlet__review`), not the `gauntlet` command, and carries on with
+  the findings when its digest arrives. Use when asked to run Gauntlet, or a
+  Gauntlet review of uncommitted changes, a branch's commits, or a pull
+  request; to write a brief for a finding; and to update Gauntlet.
 user-invocable: false
 ---
 
@@ -102,11 +103,22 @@ with what they asked the review for. A digest that says the review could not
 run says why. If a review was interrupted, run it again if the person still
 wants it.
 
+## Briefs
+
+Every review writes `dossier.html` beside `dossier.md`: a page with each
+finding beside the code it cites. A brief is your explanation of one finding,
+drawn on the page. The page's "Ask for a brief" prompt names CLI commands;
+here each is the review tool with the same words as `args`, answered at once:
+
+1. `brief <run id> <finding id>` answers with the instructions for that
+   finding's brief. Follow them: they say what to read and where to write it.
+2. Their last step, `gauntlet page <run id>`, is `args` `page <run id>`. It
+   redraws the page and answers with its path, plus a `gauntlet: briefs/…`
+   line for each block the page could not draw. Fix those and redraw until
+   there are none.
+
 ## Update
 
-The mod is built from a git checkout, `<clone>`: in `env.CLAUDE_CODE_PLUGIN_DIRS`
-of `~/.claude/settings.json`, the path that ends in `/mod/dist/gauntlet`, minus
-that ending.
-It sits on a release tag, not a branch, so don't `git pull`. Follow the
-**Update** section of `<clone>/INSTALL.md`, then tell the person to restart
-Claude Code.
+The Mod is a Claude Code plugin from the `gauntlet` marketplace. Run
+`claude plugin update gauntlet` in a shell, then tell the person to run
+`/reload-plugins`.

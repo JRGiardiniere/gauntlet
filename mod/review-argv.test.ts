@@ -8,6 +8,7 @@ describe("/gauntlet arguments as the shared syntax's words", () => {
     expect(commandWords("12 --recipe high")).toEqual(["review", "12", "--recipe", "high"])
     expect(commandWords("review abc~1..abc")).toEqual(["review", "abc~1..abc"])
     expect(commandWords("deliver 2026-10-08T12-00-00-000Z-ab12")).toEqual(["deliver", "2026-10-08T12-00-00-000Z-ab12"])
+    expect(commandWords("brief run-1 fixture/2")).toEqual(["brief", "run-1", "fixture/2"])
     expect(commandWords('--repo="~/My Projects/x" 641')).toEqual(["review", "--repo=~/My Projects/x", "641"])
   })
 

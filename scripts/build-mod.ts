@@ -1,7 +1,8 @@
 // The build-mod step's runMain boundary: builds the Mod
 // (#134 Idea 3) as the plugin folder mod/dist/gauntlet, or under the folder
-// given as the first argument (the mod rebuilds itself into its own
-// plugin folder's parent).
+// given as the first argument. The release workflow zips that folder for the
+// marketplace (#184); GAUNTLET_VERSION, the release's, becomes plugin.json's
+// version, which is what `claude plugin update` compares.
 //
 // mod/gauntlet is the plugin minus its vendor folder. Its hooks module ships
 // as source (the engine reads a hooks module's source statically), with its
@@ -11,24 +12,20 @@
 // every Schema decode).
 // Pi stays out of the import graph: the lens loader's parseFrontmatter is
 // Pi's own small module, and any other Pi import fails the build, as does
-// any node: import but node:buffer's isUtf8. Source files that locate
-// content through import.meta get their checkout path, so the bundle reads
-// lenses and prompts from the checkout as `bun bin/gauntlet.ts` does.
-// vendor/build.json carries the freshness stamp, the checkout and the bun to
-// rebuild with.
+// any node: import but node:buffer's isUtf8. The plugin carries its own
+// content: content/ and the Stage templates (src/**/*.md) sit beside the
+// bundle as they sit in the checkout, and each source file's
+// import.meta.dirname becomes its directory there, found from the bundle's
+// import.meta.url (Claude Code's mod loader gives modules no dirname).
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Config from "effect/Config"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
-import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import * as ChildProcess from "effect/process/ChildProcess"
-import type { ChildProcessSpawner } from "effect/process/ChildProcessSpawner"
-import * as Stream from "effect/Stream"
-import { inputsStamp } from "../mod/stamp.ts"
 
 interface BunPluginBuild {
   readonly onResolve: (
@@ -54,6 +51,7 @@ declare const Bun: {
     readonly plugins: ReadonlyArray<{ readonly name: string; readonly setup: (build: BunPluginBuild) => void }>
   }) => Promise<{ readonly success: boolean; readonly logs: ReadonlyArray<object> }>
   readonly file: (path: string) => { readonly text: () => Promise<string> }
+  readonly fileURLToPath: (url: URL) => string
 }
 
 class ModBuildFailed extends Data.TaggedError("ModBuildFailed")<{
@@ -62,6 +60,9 @@ class ModBuildFailed extends Data.TaggedError("ModBuildFailed")<{
 }> {}
 
 const repoRoot = `${import.meta.dirname}/..`
+// The checkout's root as Bun reports module paths, for each source file's
+// directory relative to it.
+const sourceRoot = Bun.fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "")
 
 const plugin = { name: "gauntlet", entry: "engine.ts", vendor: "engine.js", respell: "../../engine.ts" } as const
 
@@ -92,35 +93,21 @@ const graphGuard = {
     })
     build.onLoad({ filter: /.*/, namespace: "gc-refused" }, () => ({ contents: "export {}", loader: "js" }))
     build.onLoad({ filter: /\/src\/.*\.ts$/ }, (args) =>
-      Bun.file(args.path).text().then((source) => ({
-        contents: source
-          .replaceAll("import.meta.dirname", JSON.stringify(args.path.slice(0, args.path.lastIndexOf("/"))))
-          .replaceAll("import.meta.url", JSON.stringify(`file://${args.path}`)),
-        loader: "ts",
-      })))
+      Bun.file(args.path).text().then((source) => {
+        const directory = `./${args.path.slice(`${sourceRoot}/`.length, args.path.lastIndexOf("/"))}`
+        return {
+          contents: !args.path.startsWith(`${sourceRoot}/src/`) ? source : source.replaceAll(
+            "import.meta.dirname",
+            `decodeURIComponent(new URL(${JSON.stringify(directory)}, import.meta.url).pathname)`,
+          ),
+          loader: "ts",
+        }
+      }))
   },
 }
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
-
-const runCommand = (argv: ReadonlyArray<string>, stdin?: string) =>
-  Effect.scoped(
-    Effect.gen(function* () {
-      const handle = yield* ChildProcess.make(argv[0] ?? "", argv.slice(1), {
-        cwd: repoRoot,
-        stdin: Stream.make(new TextEncoder().encode(stdin ?? "")),
-      })
-      const [stdout, stderr, exitCode] = yield* Effect.all(
-        [
-          Stream.decodeText(handle.stdout).pipe(Stream.mkString),
-          Stream.decodeText(handle.stderr).pipe(Stream.mkString),
-          handle.exitCode,
-        ],
-        { concurrency: 3 },
-      )
-      return { exitCode, stdout, stderr }
-    }),
-  )
+const decodeJson = Schema.decodeEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -128,19 +115,7 @@ const program = Effect.gen(function* () {
   const root = path.resolve(repoRoot)
   const outDir = path.resolve(process.argv[2] ?? `${root}/mod/dist`)
   const minify = !process.argv.includes("--no-minify")
-  const services = yield* Effect.context<ChildProcessSpawner>()
-  const stamped = yield* Effect.tryPromise({
-    try: () =>
-      inputsStamp({ run: (argv, stdin) => Effect.runPromiseWith(services)(runCommand(argv, stdin)) }, root),
-    catch: (cause) => new ModBuildFailed({ step: "stamp", cause }),
-  })
-  const info = {
-    stamp: stamped.stamp,
-    files: stamped.files,
-    repoRoot: root,
-    builtAt: DateTime.formatIso(yield* DateTime.now),
-    bun: process.execPath,
-  }
+  const version = yield* Config.String("GAUNTLET_VERSION").pipe(Config.withDefault("0.0.0-dev"))
 
   const source = `${root}/mod/${plugin.name}`
   // Staged outside the watched folder, then moved in by one rename, so the
@@ -167,15 +142,26 @@ const program = Effect.gen(function* () {
   }
   yield* fs.makeDirectory(`${staging}/.claude-plugin`, { recursive: true })
   yield* fs.makeDirectory(`${staging}/types`, { recursive: true })
-  for (const file of [".claude-plugin/plugin.json", "hooks/hooks.json", "types/gauntlet.d.ts"]) {
+  for (const file of ["hooks/hooks.json", "types/gauntlet.d.ts"]) {
     yield* fs.copyFile(`${source}/${file}`, `${staging}/${file}`)
+  }
+  yield* fs.copy(`${source}/skills`, `${staging}/skills`)
+  const manifest = yield* decodeJson(yield* fs.readFileString(`${source}/.claude-plugin/plugin.json`))
+  yield* fs.writeFileString(
+    `${staging}/.claude-plugin/plugin.json`,
+    `${yield* encodeJson({ ...manifest, version })}\n`,
+  )
+  // The content the bundle reads, where its rewritten paths look.
+  yield* fs.copy(`${root}/content`, `${staging}/hooks/vendor/content`)
+  for (const template of (yield* fs.readDirectory(`${root}/src`, { recursive: true })).filter((entry) => entry.endsWith(".md"))) {
+    yield* fs.makeDirectory(path.dirname(`${staging}/hooks/vendor/src/${template}`), { recursive: true })
+    yield* fs.copyFile(`${root}/src/${template}`, `${staging}/hooks/vendor/src/${template}`)
   }
   const hooks = yield* fs.readFileString(`${source}/hooks/register.ts`)
   yield* fs.writeFileString(
     `${staging}/hooks/register.ts`,
     hooks.replaceAll(`"${plugin.respell}"`, `"./vendor/${plugin.vendor}"`),
   )
-  yield* fs.writeFileString(`${staging}/hooks/vendor/build.json`, `${yield* encodeJson(info)}\n`)
   yield* fs.makeDirectory(outDir, { recursive: true })
   yield* fs.remove(dir, { recursive: true, force: true })
   // A gauntlet-tools folder an older build left is removed, so Claude Code
@@ -184,7 +170,7 @@ const program = Effect.gen(function* () {
   yield* fs.rename(staging, dir)
   const size = (yield* fs.stat(`${dir}/hooks/vendor/${plugin.vendor}`)).size
   yield* Console.log(`${plugin.name} built at ${dir}: vendor/${plugin.vendor} ${String(size)} B`)
-  yield* Console.log(`stamp ${info.stamp} over ${String(info.files)} files`)
+  yield* Console.log(`version ${version}`)
 })
 
 program.pipe(Effect.scoped, Effect.provide(NodeServices.layer), NodeRuntime.runMain)

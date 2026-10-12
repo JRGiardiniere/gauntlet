@@ -8,14 +8,9 @@
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type { ReviewRequest } from "../src/run/run.ts"
-import type { BuildInfo, Engine, EnginePorts, RunResult } from "./engine.ts"
-import { releaseNotice } from "./release-update.ts"
+import type { Engine, EnginePorts, RunResult } from "./engine.ts"
 import { commandWords } from "./review-argv.ts"
-import { inputsStamp } from "./stamp.ts"
 
-export const BUILD_FILE = "hooks/vendor/build.json"
-const STORE_UPDATE_CHECK = "update-checked-at"
-const DAY_MS = 86_400_000
 
 // The one line of a message to the main agent that the person sees:
 // "gauntlet review finished:" and the digest's counts line joined; a message
@@ -24,6 +19,10 @@ export const digestHeadline = (text: string): string => {
   const [first = "", second] = text.split("\n").filter((line) => line.trim() !== "")
   return first.endsWith(":") && second !== undefined ? `${first.slice(0, -1)} · ${second}` : first
 }
+
+// Words the engine answers at once, as the command's own answer, without
+// starting a run.
+const ANSWERED_AT_ONCE = new Set(["config", "page", "brief"])
 
 // What /gauntlet or the review tool asked to start.
 export interface StartRequest {
@@ -88,15 +87,11 @@ export const recoverLostRun = async (
 }
 
 export const createSession = (
-  ports: Pick<
-    EnginePorts,
-    "run" | "read" | "log" | "store" | "status" | "send" | "submit" | "append"
-  >,
-  engine: Pick<Engine, "start" | "config" | "running" | "standardsManifest">,
-  options: { readonly build: BuildInfo; readonly pluginRoot: string; readonly sessionId: string },
+  ports: Pick<EnginePorts, "log" | "store" | "send" | "submit" | "append">,
+  engine: Pick<Engine, "start" | "answer" | "running" | "standardsManifest">,
+  sessionId: string,
 ) => {
-  const { build, pluginRoot } = options
-  const key = inflightKey(options.sessionId)
+  const key = inflightKey(sessionId)
   // When this session's one review was claimed. The claim is taken before
   // anything is awaited and given back once the review's ending has stopped
   // its ticks and cleared its marker: a second review is refused until then,
@@ -139,46 +134,12 @@ export const createSession = (
     // waits for the turn's end instead of landing in it.
     if (request.isMainTurn === true) busy = true
     const words = commandWords(request.args)
-    if (words[0] === "config") return engine.config({ words, cwd: request.cwd })
+    if (ANSWERED_AT_ONCE.has(words[0] ?? "")) return engine.answer({ words, cwd: request.cwd })
     if (claimedAt !== undefined) {
       return `a review is already running (${engine.running()?.runId ?? "starting"}, ${String(Math.round((Date.now() - claimedAt) / 1000))}s); one per session.`
     }
     claimedAt = Date.now()
-    const unready = await checkFreshness().catch((error) => {
-      ports.log(`freshness check failed: ${String(error)}`)
-      return `could not check the checkout for changes to the mod: ${String(error).slice(0, 300)}`
-    })
-    if (unready !== undefined) {
-      claimedAt = undefined
-      return unready
-    }
     return startRun(request)
-  }
-
-  // Rebuilds the mod when the checkout changed since it was built; answers why
-  // the review cannot start now, when it cannot.
-  const checkFreshness = async (): Promise<string | undefined> => {
-    const hashStart = Date.now()
-    const fresh = await inputsStamp({ run: (argv, stdin) => ports.run(argv, stdin === undefined ? {} : { stdin }) }, build.repoRoot)
-    const hashMs = Date.now() - hashStart
-    // The stamp on disk, not the one loaded: a rebuild whose code came out
-    // byte-identical (a docs or build-script change) rewrites only build.json,
-    // and the engine reloads a plugin only when its modules change.
-    // SAFETY: scripts/build-mod.ts writes build.json from a BuildInfo.
-    const onDisk = JSON.parse(await ports.read(`${pluginRoot}/${BUILD_FILE}`)) as BuildInfo
-    ports.log(`stamp ${fresh.stamp} over ${String(fresh.files)} files in ${String(hashMs)}ms (built ${onDisk.stamp}, loaded ${build.stamp})`)
-    if (fresh.stamp === onDisk.stamp) return undefined
-    const rebuildStart = Date.now()
-    ports.status("gauntlet: the checkout changed; rebuilding the mod")
-    const built = await ports.run([build.bun, "run", "build-mod", pluginRoot.replace(/\/[^/]+$/, "")], {
-      cwd: build.repoRoot,
-      timeoutMs: 300_000,
-    }).catch((error) => ({ exitCode: 1, stdout: "", stderr: String(error) }))
-    const rebuildMs = Date.now() - rebuildStart
-    ports.log(`rebuild exit ${String(built.exitCode)} in ${String(rebuildMs)}ms: ${built.stdout.trim()} ${built.stderr.trim()}`)
-    ports.status(undefined)
-    if (built.exitCode !== 0) return `the checkout changed and the rebuild failed: ${built.stderr.trim().slice(0, 300)}`
-    return `rebuilt the mod from the changed checkout in ${String(rebuildMs)}ms; it reloads in a few seconds. Start the review again.`
   }
 
   const startRun = async (request: StartRequest): Promise<string> => {
@@ -188,21 +149,10 @@ export const createSession = (
     if (words[0] === "deliver") {
       void run.ended.then(async (result) => {
         await release()
-        await answer(result, request, Promise.resolve(undefined))
+        await answer(result, request)
       })
         .catch((error) => ports.log(`delivery failed to finish: ${String(error)}`))
       return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
-    }
-    // The update notice rides on the run's first message: a posting review's
-    // digest, or else its ending.
-    let unsaid: Promise<string | undefined> | undefined = checkForUpdate().catch((error) => {
-      ports.log(`update check failed: ${String(error)}`)
-      return undefined
-    })
-    const notice = () => {
-      const taken = unsaid ?? Promise.resolve(undefined)
-      unsaid = undefined
-      return taken
     }
     // The review runs where its words say (`--repo`), and its marker is down
     // before its ending clears it; a failed marker write only logs.
@@ -216,7 +166,7 @@ export const createSession = (
     const digestSent = run.reviewed.then(async (result) => {
       if (result === undefined) return false
       await marked
-      await answer(result, request, notice())
+      await answer(result, request)
       return true
     }).catch((error) => {
       ports.log(`digest failed to send: ${String(error)}`)
@@ -226,7 +176,7 @@ export const createSession = (
       await marked
       await release()
       if (await digestSent) ports.log(`run ${result.verdict} after ${String(result.seconds)}s: ${result.notes.join("; ")}`)
-      else await answer(result, request, notice())
+      else await answer(result, request)
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
@@ -248,20 +198,6 @@ export const createSession = (
       : ` This repository has no Standards Manifest, so the standards lens is skipped this time; it goes at ${manifest.path}. Offer to set it up, as the gauntlet-code-review skill says.`
   }
 
-  // At most one probe a day, as the CLI's: a newer release tag on origin rides
-  // on the digest of the review that probed.
-  const checkForUpdate = async (): Promise<string | undefined> => {
-    const checkedAt = Number((await ports.store.get(STORE_UPDATE_CHECK)) ?? 0)
-    if (Date.now() - checkedAt < DAY_MS) return undefined
-    await ports.store.set(STORE_UPDATE_CHECK, Date.now())
-    const [current, remote] = await Promise.all([
-      ports.run(["git", "-C", build.repoRoot, "describe", "--tags", "--exact-match", "--match", "v[0-9]*"]),
-      ports.run(["git", "-C", build.repoRoot, "ls-remote", "--tags", "--refs", "origin", "v[0-9]*"], { timeoutMs: 15_000 }),
-    ])
-    if (current.exitCode !== 0 || remote.exitCode !== 0) return undefined
-    return releaseNotice(current.stdout, remote.stdout)
-  }
-
   // A run's ending stops its ticks, clears its marker and gives the session
   // back before its answer is on its way.
   const release = async () => {
@@ -271,18 +207,14 @@ export const createSession = (
   }
 
   // Says a digest, or what ended the run, to the Caller.
-  const answer = async (result: RunResult, request: StartRequest, notice: Promise<string | undefined>) => {
-    const { digest, verdict } = result
+  const answer = async (result: RunResult, request: StartRequest) => {
+    const { digest, verdict, notes } = result
     ports.log(`run ${verdict} after ${String(result.seconds)}s`)
-    // The update probe gets a second more, as the CLI's notice does; a slow one
-    // never holds back a finished review.
-    const update = await Promise.race([notice, new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 1000))])
-    const said = [...result.notes, ...(update === undefined ? [] : [update])]
     // Without a digest, the notes say what happened; the verdict stands in
     // only when there are none (a cancelled run).
     const text = digest === ""
-      ? `gauntlet: ${(result.notes.length === 0 ? [verdict, ...said] : said).join("\n")}`
-      : `gauntlet ${verdict}:\n\n${digest}${said.length === 0 ? "" : `\n\n${said.join("\n")}`}`
+      ? `gauntlet: ${(notes.length === 0 ? [verdict] : notes).join("\n")}`
+      : `gauntlet ${verdict}:\n\n${digest}${notes.length === 0 ? "" : `\n\n${notes.join("\n")}`}`
     await handOff(text, request.agentId)
   }
 

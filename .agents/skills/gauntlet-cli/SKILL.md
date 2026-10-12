@@ -1,8 +1,8 @@
 ---
 name: gauntlet-cli
 description: >-
-  Runs the Gauntlet CLI's `gauntlet review` as your own managed long-running
-  command and relays the stdout digest verbatim. Use when asked to review
+  Runs the Gauntlet CLI's `gauntlet review` in a shell, as your own managed
+  long-running command, and relays the stdout digest verbatim. Use when asked to review
   uncommitted changes, a branch's commits, or a pull request, to configure a
   Recipe, or to deliver a completed Dossier.
 ---
