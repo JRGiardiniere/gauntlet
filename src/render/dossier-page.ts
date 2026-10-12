@@ -314,7 +314,7 @@ const exhibit = (
       }</p>`,
     )
   const prompt = needsThought(entry)
-    ? `Use the gauntlet-cli skill to write a brief for Gauntlet finding ${candidate.id} (${location(candidate)}) in run ${runId}; its run directory is ${runDirectory}.`
+    ? `Write a brief for Gauntlet finding ${candidate.id} (${location(candidate)}): run \`gauntlet brief ${runId} ${candidate.id}\` and follow what it prints.`
     : `Explain Gauntlet finding ${candidate.id} (${location(candidate)}) from run ${runId}: read its entry in ${runDirectory}/dossier.json, check the code, and show me what goes wrong and how to fix it.`
   const handOff = brief !== undefined
     ? `<a class="act" href="#${number}-brief">${ICON.brief}<span>Read the brief</span></a>`

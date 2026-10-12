@@ -221,6 +221,13 @@ describe("gauntlet review", () => {
       expect(stdout).toContain("dossier.json")
       expect(stdout).not.toContain("gauntlet:")
 
+      // An agent asked for a brief gets its instructions from the CLI.
+      const asked = yield* runCommand(fixture, ["brief", plan.runId, "fixture-review/2"], makeScripted({ sessions: [] })).effect
+      expect(asked).toBe(0)
+      expect((yield* TestConsole.logLines).join("\n")).toContain(
+        `Write \`${path.join(runDir, "briefs", "fixture-review/2.md")}\``,
+      )
+
       // A brief written into the run directory is drawn on its finding's
       // exhibit when the page is redrawn; one the page can't draw whole is
       // named on stderr for the agent that wrote it.

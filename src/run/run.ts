@@ -28,6 +28,7 @@ import {
   describeArtifactWrite,
   describePlatformError,
 } from "./artifact.ts"
+import { BriefError, briefRequest } from "./brief-request.ts"
 import { PageError, redrawDossierPage } from "./dossier-page-redraw.ts"
 import { executeReviewPlan } from "./review-executor.ts"
 import { loadRun, type RunError, type RunPaths } from "./run-record.ts"
@@ -76,6 +77,7 @@ export class RunRefusal extends Data.TaggedError("RunRefusal")<{
 export type RunFailure =
   | AdapterContractViolation
   | ArtifactWriteError
+  | BriefError
   | Config.ConfigError
   | ContentLoadError
   | DeliveryError
@@ -132,6 +134,8 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
       })
     case "PageError":
       return new RunRefusal({ reason: `could not draw the page — ${failure.reason}` })
+    case "BriefError":
+      return new RunRefusal({ reason: `could not ask for a brief — ${failure.reason}` })
     case "ConfigError":
       return new RunRefusal({ reason: `could not review — ${failure.message}` })
     case "SubmissionError":
@@ -203,6 +207,17 @@ export const page = Effect.fn("Run.page")(
       Effect.mapError((cause) => new PageError({ reason: cause.reason, cause })),
     )
     return yield* redrawDossierPage(loaded)
+  },
+  Effect.mapError(refusalOf),
+)
+
+export const brief = Effect.fn("Run.brief")(
+  function* (runId: string, findingId: string) {
+    const runsRoot = yield* resolveRunsRoot()
+    const loaded = yield* loadRun(runsRoot, runId).pipe(
+      Effect.mapError((cause) => new BriefError({ reason: cause.reason, cause })),
+    )
+    return yield* briefRequest(loaded, findingId)
   },
   Effect.mapError(refusalOf),
 )
