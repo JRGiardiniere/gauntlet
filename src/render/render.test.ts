@@ -15,6 +15,7 @@ import { Verdict } from "../domain/verdict.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
+import { dossierPageFiles, renderDossierPage } from "./dossier-page.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (
@@ -193,6 +194,7 @@ const paths: RunPaths = {
   finderStage: "/runs/run-fixture/finder-stage.json",
   dossier: "/runs/run-fixture/dossier.json",
   dossierMarkdown: "/runs/run-fixture/dossier.md",
+  dossierPage: "/runs/run-fixture/dossier.html",
   receipt: "/runs/run-fixture/receipt.json",
   runLog: "/runs/run-fixture/run.log",
 }
@@ -455,5 +457,58 @@ describe("digest rendering", () => {
     expect(cascade.split("\n")[1]).toBe(
       "tool health: 24/24 finder tool calls errored",
     )
+  })
+})
+
+describe("dossier page rendering", () => {
+  const source = ["export const alpha = (input: string) => {", "  let i = 0", "  while (i < input.length) i += step(input)", "  return i", "}"]
+  const page = renderDossierPage({
+    plan,
+    dossier: Dossier.make({
+      ...dossier,
+      findings: [
+        ...dossier.findings,
+        DossierFinding.cases.Judgment.make({
+          candidate: observation("fixture-lens/8", "<script>alert(1)</script> renders as text"),
+          judgment: Judgment.cases.Kept.make({
+            reviewPriority: "P3",
+            reason: "see alpha.ts:3",
+            goodFind: true,
+            cleanlyExplained: true,
+            mergedCandidateIds: [],
+          }),
+        }),
+      ],
+    }),
+    accounting,
+    runDirectory: paths.root,
+    sources: new Map([["src/alpha.ts", source]]),
+  })
+
+  it("files every finding and unresolved entry as an exhibit, with model text as text", () => {
+    expect(page.match(/<article class="exhibit/g)).toHaveLength(6)
+    expect(page).toContain("&lt;script&gt;alert(1)&lt;/script&gt; renders as text")
+    expect(page).not.toContain("<script>alert(1)")
+  })
+
+  it("shows the reviewed lines a finding cites, pinned to its exhibit", () => {
+    expect(page).toMatch(/<span class="no">3<\/span><span class="src">.*?while.*?<span class="pin">E-03<\/span>/)
+  })
+
+  it("asks for each finding's file and the files its evaluator cites", () => {
+    expect(dossierPageFiles(plan, Dossier.make({
+      ...dossier,
+      findings: [DossierFinding.cases.Judgment.make({
+        candidate: observation("fixture-lens/8", "a claim"),
+        judgment: Judgment.cases.Kept.make({
+          reviewPriority: "P3",
+          reason: "see alpha.ts:3 and gamma.ts:9",
+          goodFind: true,
+          cleanlyExplained: true,
+          mergedCandidateIds: [],
+        }),
+      })],
+      unresolved: [],
+    }))).toEqual(["src/beta.ts", "src/alpha.ts"])
   })
 })

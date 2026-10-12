@@ -87,6 +87,7 @@ describe("gauntlet review", () => {
 
       const entries = yield* fs.readDirectory(runDir)
       expect([...entries].sort()).toEqual([
+        "dossier.html",
         "dossier.json",
         "dossier.md",
         "finder-stage.json",

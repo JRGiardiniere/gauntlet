@@ -11,10 +11,12 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import { renderDigest } from "../render/digest.ts"
 import { viewDossier } from "../render/dossier-view.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
+import { dossierPageFiles, renderDossierPage } from "../render/dossier-page.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { executePool } from "../stages/pool/pool.ts"
 import { executeVerification } from "../stages/verification/verification.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
+import { readReviewedFiles } from "./reviewed-files.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
@@ -133,6 +135,22 @@ export const executeReviewPlan = Effect.fn(
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
+        // The page reads the reviewed files while the review worktree still
+        // holds them, so its code is what the Run saw.
+        const sources = yield* readReviewedFiles(
+          reviewWorkingDirectory,
+          dossierPageFiles(plan, dossier),
+        )
+        yield* writeArtifactText(
+          paths.dossierPage,
+          renderDossierPage({
+            plan,
+            dossier,
+            accounting,
+            runDirectory: paths.root,
+            sources,
+          }),
+        )
 
         const view = viewDossier(dossier)
         yield* reportMilestone(RunMilestone.Reviewed({
