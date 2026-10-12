@@ -317,7 +317,7 @@ const exhibit = (
     ? `Write a brief for Gauntlet finding ${candidate.id} (${location(candidate)}): run \`gauntlet brief ${runId} ${candidate.id}\` and follow what it prints.`
     : `Explain Gauntlet finding ${candidate.id} (${location(candidate)}) from run ${runId}: read its entry in ${runDirectory}/dossier.json, check the code, and show me what goes wrong and how to fix it.`
   const handOff = brief !== undefined
-    ? `<a class="act" href="#${number}-brief">${ICON.brief}<span>Read the brief</span></a>`
+    ? `<a class="act act-brief" href="#${number}-brief">${ICON.brief}<span>Read the brief</span></a>`
     : `<button type="button" class="act" data-copy="${escapeHtml(prompt)}" data-done="Prompt copied">${ICON.brief}<span>${
       needsThought(entry) ? "Ask for a brief" : "Explain"
     }</span></button>`
@@ -326,7 +326,7 @@ const exhibit = (
       ${brief.takeaway === undefined ? "" : `<p class="takeaway">${inline(brief.takeaway)}</p>`}
       ${brief.html}
     </section>`
-  return `<article class="exhibit${needsThought(entry) ? " thought" : ""}" id="${number}" data-no="${number}" data-thought="${needsThought(entry)}" tabindex="-1" style="--ink:${ink}">
+  return `<article class="exhibit${needsThought(entry) ? " thought" : ""}${brief === undefined ? "" : " briefed"}" id="${number}" data-no="${number}" data-thought="${needsThought(entry)}" tabindex="-1" style="--ink:${ink}">
     <header class="ex-head">
       <span class="tag"><i class="hole" aria-hidden="true"></i>Exhibit ${number}</span>
       <code class="ex-loc">${escapeHtml(location(candidate))}</code>
@@ -419,7 +419,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
   }`
 
   const spineItem = ({ brief, entry, number }: Filed) =>
-    `<li><a href="#${number}" data-for="${number}" data-thought="${needsThought(entry)}"><span class="ix">${number}</span><span class="sf">${
+    `<li><a href="#${number}" data-for="${number}" data-thought="${needsThought(entry)}" data-brief="${brief !== undefined}"><span class="ix">${number}</span><span class="sf">${
       escapeHtml(basename(location(entry.candidate)))
     }</span>${brief === undefined ? "" : `<span class="sp-brief" title="Has a brief">${ICON.clip}</span>`}<span class="sp-check" aria-label="reviewed">${ICON.check}</span><span class="sp-flag" aria-label="you stopped here">${ICON.flag}</span></a></li>`
   const tabGroup = (label: string, style: string, items: ReadonlyArray<Filed>) =>
@@ -427,13 +427,19 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
       items.length === 0 ? "" : `<ol>${items.map(spineItem).join("")}</ol>`
     }</div>`
   const unranked = ranked(undefined)
+  const briefed = filed.filter(({ brief }) => brief !== undefined).length
   const spine = `<nav class="spine" aria-label="Exhibits">
     <div class="sp-mark"><span class="diamond">◆</span> Gauntlet</div>
     <div class="sp-view" role="radiogroup" aria-label="Which exhibits">
       <button type="button" role="radio" aria-checked="true" data-view="all">All exhibits</button>
       <button type="button" role="radio" aria-checked="false" data-view="thought">Needs thought <b>${
     filed.filter(({ entry }) => needsThought(entry)).length
-  }</b></button>
+  }</b></button>${
+    briefed === 0
+      ? ""
+      : `
+      <button type="button" role="radio" aria-checked="false" data-view="briefs">Briefs <b>${briefed}</b></button>`
+  }
     </div>
     ${tabGroup("P1", "sp-p1", ranked("P1"))}
     ${tabGroup("P2", "sp-p2", ranked("P2"))}

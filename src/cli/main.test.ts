@@ -244,6 +244,7 @@ describe("gauntlet review", () => {
       )
       const page = yield* fs.readFileString(path.join(runDir, "dossier.html"))
       expect(page).toContain(`<p class="takeaway">Name the value for its role</p>`)
+      expect(page).toContain(`data-view="briefs">Briefs <b>1</b>`)
       expect(page).toContain("needle-added-line")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

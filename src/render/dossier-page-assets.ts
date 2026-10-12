@@ -196,6 +196,13 @@ h1{margin:0;font-family:var(--cond);font-stretch:68%;font-weight:800;font-size:c
 /* views */
 body.view-thought .exhibit:not(.thought){display:none}
 body.view-thought .spine li a[data-thought="false"]{display:none}
+/* Briefs: each briefed finding as its heading and lead sentence, then its brief */
+body.view-briefs .exhibit:not(.briefed),body.view-briefs .spine li a[data-brief="false"],body.view-briefs #set-aside{display:none}
+body.view-briefs .exhibit :is(.rest,.field,.proof,.act-brief){display:none}
+body.view-briefs .ex-body{grid-template-columns:minmax(0,1fr);padding-bottom:6px}
+body.view-briefs .claim{max-width:72ch}
+body.view-briefs .index .ix-grid,body.view-briefs .brief-head{display:none}
+body.view-briefs .brief{background:none;border:0;padding-top:4px}
 
 @media (max-width:1180px){.ex-body{grid-template-columns:minmax(0,1fr)}.claim{max-width:none}.proof{margin-top:16px}}
 @media (max-width:820px){
@@ -245,6 +252,15 @@ export const DOSSIER_PAGE_SCRIPT = String.raw`
     const p = document.querySelector("[data-progress]")
     if (p) p.textContent = String(store.done.length)
   }
+  // The view is remembered per run; #briefs opens the page on the briefs.
+  const show = (view) => {
+    const button = document.querySelector('.sp-view button[data-view="' + view + '"]')
+    if (!button) return
+    for (const b of document.querySelectorAll(".sp-view button")) b.setAttribute("aria-checked", String(b === button))
+    document.body.classList.toggle("view-thought", view === "thought")
+    document.body.classList.toggle("view-briefs", view === "briefs")
+  }
+  show(location.hash === "#briefs" ? "briefs" : store.view || "all")
   const visible = () => exhibits.filter((ex) => ex.offsetParent !== null)
   let current = null
   const focus = (ex) => {
@@ -272,10 +288,7 @@ export const DOSSIER_PAGE_SCRIPT = String.raw`
         setTimeout(() => { label.textContent = was; t.classList.remove("ok") }, 1400)
       })
     }
-    if (t.dataset.view) {
-      for (const b of document.querySelectorAll(".sp-view button")) b.setAttribute("aria-checked", String(b === t))
-      document.body.classList.toggle("view-thought", t.dataset.view === "thought")
-    }
+    if (t.dataset.view) { store.view = t.dataset.view; save(); show(store.view) }
   })
   document.addEventListener("keydown", (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey || /INPUT|TEXTAREA/.test(document.activeElement?.tagName || "")) return
