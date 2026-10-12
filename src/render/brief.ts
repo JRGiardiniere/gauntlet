@@ -12,7 +12,7 @@
 // A first-level heading is the brief's takeaway. Raw HTML stays text.
 import MarkdownIt from "markdown-it"
 import { escapeHtml, lineHighlighter } from "./code-text.ts"
-import { code, excerpt, frame } from "./page-frames.ts"
+import { code, excerpt, frame, markdown } from "./page-frames.ts"
 
 export interface CodeReference {
   readonly file: string
@@ -50,8 +50,6 @@ const codeReference = (info: string): CodeReference | undefined => {
     revision: match[4],
   }
 }
-
-const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false })
 
 const fences = (text: string) =>
   markdown.parse(text, {}).filter((token) => token.type === "fence")

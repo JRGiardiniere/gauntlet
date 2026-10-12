@@ -2,7 +2,6 @@ import { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { TargetIdentity } from "../domain/review-target.ts"
 import {
   describeFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
@@ -13,20 +12,7 @@ import {
   type DossierEntryView,
   viewDossier,
 } from "./dossier-view.ts"
-
-const shortCommit = (commit: string) => commit.slice(0, 7)
-
-export const describeTargetIdentity = (target: TargetIdentity): string =>
-  TargetIdentity.match(target, {
-    WorkingTree: ({ baseCommit, headCommit, repoRoot }) =>
-      `working tree at ${repoRoot} (HEAD ${shortCommit(headCommit)}${
-        baseCommit === undefined ? "" : `, since ${shortCommit(baseCommit)}`
-      })`,
-    Commits: ({ baseCommit, headCommit, repoRoot }) =>
-      `commits ${shortCommit(baseCommit)}..${shortCommit(headCommit)} at ${repoRoot}`,
-    PullRequest: ({ headCommit, number }) =>
-      `PR #${number} (head ${shortCommit(headCommit)})`,
-  })
+import { describeTargetIdentity } from "./target-text.ts"
 
 // File paths, summaries, reasons, evidence, and failure scenarios are
 // model-authored. One finding must stay one list item, so line breaks

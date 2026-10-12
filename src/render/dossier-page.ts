@@ -1,4 +1,4 @@
-// The Dossier page: one Run's Dossier as a single offline HTML file, written
+// The Dossier page: one Run's Dossier as a single HTML file, written
 // beside dossier.md. dossier.md stays the Dossier; this is a reading of it
 // for a person — each finding an exhibit, its claim beside the reviewed code.
 // Deterministic from the frozen plan, the Dossier, the page's data and any
@@ -9,7 +9,6 @@ import type { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { TargetIdentity } from "../domain/review-target.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
 import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
@@ -22,6 +21,7 @@ import {
   parseDiffHunks,
 } from "./code-text.ts"
 import { DOSSIER_PAGE_CSS, DOSSIER_PAGE_SCRIPT } from "./dossier-page-assets.ts"
+import { describeTargetForPage, shortCommit } from "./target-text.ts"
 import {
   code,
   CONTEXT,
@@ -117,22 +117,27 @@ const prose = (entry: DossierEntryView): ReadonlyArray<string> => [
   entry.candidate._tag === "BugClaim" ? entry.candidate.failureScenario : "",
 ]
 
+// The paths the Run knows, which a cited name resolves against. Writing the
+// page and drawing it resolve against the same paths, so a name means one
+// file in both.
+const citablePaths = (plan: ReviewPlan, dossier: Dossier): ReadonlyArray<string> => [
+  ...new Set([
+    ...plan.target.changedFiles,
+    ...pageEntries(dossier).flatMap(({ candidate }) => [
+      candidate.file,
+      ...(candidate.sourceReferences ?? []),
+    ]),
+  ]),
+]
+
 // The reviewed files an exhibit can show: each finding's own file and the
-// files its evaluator cites, resolved against the paths the Run knows.
+// files its evaluator cites.
 export const dossierPageFiles = (
   plan: ReviewPlan,
   dossier: Dossier,
 ): ReadonlyArray<string> => {
   const entries = pageEntries(dossier)
-  const known = [
-    ...new Set([
-      ...plan.target.changedFiles,
-      ...entries.flatMap(({ candidate }) => [
-        candidate.file,
-        ...(candidate.sourceReferences ?? []),
-      ]),
-    ]),
-  ]
+  const known = citablePaths(plan, dossier)
   const files = new Set(entries.map(({ candidate }) => candidate.file))
   for (const entry of entries) {
     for (const text of prose(entry)) {
@@ -192,6 +197,7 @@ const change = (file: string, hunk: Hunk, line: number | undefined, pin: string)
 interface PageSources {
   readonly hunks: ReadonlyMap<string, ReadonlyArray<Hunk>>
   readonly files: ReadonlyMap<string, ReadonlyArray<string>>
+  readonly citable: ReadonlyArray<string>
 }
 
 // An exhibit's proof: the changed hunk at the finding's line, or the lines
@@ -216,12 +222,11 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
           pin,
         })
     })()
-  const known = [...sources.files.keys()]
   const seen = new Set<string>()
   const cited: Array<string> = []
   for (const text of prose(entry)) {
     for (const match of text.matchAll(CITATION)) {
-      const path = resolveCited(match[1] ?? "", file, known)
+      const path = resolveCited(match[1] ?? "", file, sources.citable)
       const from = Number(match[2])
       const to = Math.min(match[3] === undefined ? from : Number(match[3]), from + 20)
       const key = `${path}:${from}`
@@ -372,7 +377,6 @@ const duration = (seconds: number) =>
   seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, "0")}s`
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1)
-const short = (commit: string) => commit.slice(0, 7)
 
 export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => {
   const { data, dossier, plan, runDirectory } = input
@@ -380,6 +384,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
   const sources: PageSources = {
     hunks: parseDiffHunks(plan.target.diff),
     files: new Map(Object.entries(data.sources)),
+    citable: citablePaths(plan, dossier),
   }
   const lookup = (key: string) => input.extraSources?.get(key) ?? sources.files.get(key)
   const problems: Array<string> = []
@@ -405,23 +410,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
   const ranked = (priority: ReviewPriority | undefined) =>
     findings.filter(({ entry }) => entry.reviewPriority === priority)
 
-  const kind = TargetIdentity.match(target, {
-    WorkingTree: () => "Working tree",
-    Commits: () => "Commits",
-    PullRequest: ({ number }) => `Pull request #${number}`,
-  })
-  const range = TargetIdentity.match(target, {
-    WorkingTree: ({ headCommit }) => `working tree on ${short(headCommit)}`,
-    Commits: ({ baseCommit, headCommit }) => `${short(baseCommit)}‥${short(headCommit)}`,
-    PullRequest: ({ baseCommit, headCommit }) => `${short(baseCommit)}‥${short(headCommit)}`,
-  })
-  const subject = `${basename(target.repoRoot)}${
-    TargetIdentity.match(target, {
-      WorkingTree: () => "",
-      Commits: () => "",
-      PullRequest: ({ number }) => ` #${number}`,
-    })
-  }`
+  const { kind, range, subject } = describeTargetForPage(target)
 
   const spineItem = ({ brief, entry, number }: Filed) =>
     `<li><a href="#${number}" data-for="${number}" data-thought="${needsThought(entry)}" data-brief="${brief !== undefined}"><span class="ix">${number}</span><span class="sf">${
@@ -546,7 +535,7 @@ ${spine}
     <summary><span class="sleeve-title">Set aside</span><span class="muted">${view.refutedClaims.length} refuted by Verification · ${view.droppedObservations.length} dropped by Judgment</span></summary>
     <ol class="aside">${setAside.map(asideRow).join("")}</ol>
   </details>
-  <footer class="colophon"><code>dossier.md</code> is the Dossier; this page is a reading of it. Code as reviewed at <code>${escapeHtml(short(target.headCommit))}</code>.</footer>
+  <footer class="colophon"><code>dossier.md</code> is the Dossier; this page is a reading of it. Code as reviewed at <code>${escapeHtml(shortCommit(target.headCommit))}</code>.</footer>
 </main>
 <script type="application/json" id="dossier-page-data">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>
 <script>${DOSSIER_PAGE_SCRIPT}</script>

@@ -1,7 +1,9 @@
 // The Dossier page's stylesheet and script, inlined into every page so the
-// file opens offline. Colour is adjudication ink only (P1–P3 stamps, the
-// pinned line); code and diffs carry weight and tone, never hue. The script
-// keeps reviewed marks and the flag in localStorage, per run.
+// file needs nothing beside it; only the Archivo font comes from Google
+// Fonts, and offline the page falls back to system faces. Colour is
+// adjudication ink only (P1–P3 stamps, the pinned line); code and diffs
+// carry weight and tone, never hue. The script keeps reviewed marks and the
+// flag in localStorage, per run.
 export const DOSSIER_PAGE_CSS = String.raw`
 :root{
   --desk:#e6e0d3; --kraft:#c9a56b; --kraft-2:#b48f55; --kraft-ink:#2e2412; --kraft-ink-2:#5b4728;

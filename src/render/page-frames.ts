@@ -1,20 +1,18 @@
 // The pieces every page block is drawn from: inline prose, the evidence
 // frame, and an excerpt of reviewed lines with its pinned marks.
+import MarkdownIt from "markdown-it"
 import { escapeHtml, lineHighlighter } from "./code-text.ts"
+import { shortCommit } from "./target-text.ts"
 
-export const inline = (text: string) =>
-  escapeHtml(text)
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>")
+// Model prose and briefs are markdown. markdown-it is the one dependency the
+// page adds: a parser covers lists, links, emphasis and fences the way
+// CommonMark does, where a hand-written subset drops what it doesn't know.
+// Raw HTML stays text, and markdown-it refuses javascript: links.
+export const markdown = new MarkdownIt({ html: false, linkify: false, typographer: false })
 
-export const paragraphs = (text: string) =>
-  text.trim().split(/\n{2,}/).map((paragraph) => {
-    const lines = paragraph.split("\n")
-    return lines.every((line) => /^\s*[-*] /.test(line))
-      ? `<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*[-*] /, ""))}</li>`).join("")}</ul>`
-      : `<p>${inline(paragraph.replace(/\n/g, " "))}</p>`
-  }).join("")
+export const inline = (text: string) => markdown.renderInline(text)
+
+export const paragraphs = (text: string) => markdown.render(text)
 
 export const ICON = {
   check: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.2 8.6l3 3 6.6-7.2"/></svg>`,
@@ -68,7 +66,7 @@ export const excerpt = (
     )
   }
   return frame(
-    `<span class="ev-kind">Source</span><code>${escapeHtml(file)}:${start}${end > start ? `–${end}` : ""}</code><span class="ev-rev">${revision === undefined ? "as reviewed" : `@${escapeHtml(revision.slice(0, 7))}`}</span>`,
+    `<span class="ev-kind">Source</span><code>${escapeHtml(file)}:${start}${end > start ? `–${end}` : ""}</code><span class="ev-rev">${revision === undefined ? "as reviewed" : `@${escapeHtml(shortCommit(revision))}`}</span>`,
     code(rows),
     caption,
   )

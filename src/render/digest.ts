@@ -1,27 +1,14 @@
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { TargetIdentity } from "../domain/review-target.ts"
 import {
   describeFinderToolHealth,
   isFinderToolCascade,
 } from "../run/finder-tool-health.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { viewDossier } from "./dossier-view.ts"
+import { describeTargetShort } from "./target-text.ts"
 import type { RunPaths } from "../run/run-record.ts"
-
-const shortCommit = (commit: string) => commit.slice(0, 7)
-
-const describeTargetShort = (target: TargetIdentity): string =>
-  TargetIdentity.match(target, {
-    WorkingTree: ({ baseCommit, headCommit }) =>
-      `working tree @ ${shortCommit(headCommit)}${
-        baseCommit === undefined ? "" : ` since ${shortCommit(baseCommit)}`
-      }`,
-    Commits: ({ baseCommit, headCommit }) =>
-      `commits ${shortCommit(baseCommit)}..${shortCommit(headCommit)}`,
-    PullRequest: ({ number }) => `PR #${number}`,
-  })
 
 // Candidate text is model-authored: the digest's bounded, line-oriented
 // contract (one finding = one line) survives only if that text can neither
