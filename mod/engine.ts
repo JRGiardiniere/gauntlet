@@ -35,7 +35,6 @@ import { type Destination, reviewSyntax } from "../src/syntax/syntax.ts"
 import { InvocationDirectory } from "../src/target/invocation-directory.ts"
 import { type AgentActivity, makeActivity } from "./activity.ts"
 import { playDemo } from "./demo.ts"
-import { loadDossierPane } from "./dossier-pane.ts"
 import { platformLayer, type PlatformPorts } from "./platform.ts"
 import type { RunView } from "./strip.ts"
 
@@ -44,8 +43,6 @@ export type { PaneElements, RunView } from "./strip.ts"
 export { reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
 export { BUILD_FILE, createSession, recoverLostRun } from "./session.ts"
 export { DEMO_SCENARIOS } from "./demo.ts"
-export { explainPrompt, renderDossierPane } from "./dossier-pane.ts"
-export type { DossierElements, DossierPane, PaneFinding } from "./dossier-pane.ts"
 export type { Session } from "./session.ts"
 export type { Json } from "effect/Schema"
 
@@ -459,17 +456,12 @@ export const createEngine = (ports: EnginePorts, build: BuildInfo) => {
       return { path, exists }
     }).pipe(Effect.withSpan("Standards.manifestStatus"), Effect.provide(platformLayer(ports)), Effect.runPromise)
 
-  // A run's Dossier as the pane reads it, from its run directory.
-  const dossierPane = (runDirectory: string) =>
-    loadDossierPane(runDirectory).pipe(Effect.provide(platformLayer(ports)), Effect.runPromise)
-
   return {
     start,
     cancel,
     recipes,
     config,
     standardsManifest,
-    dossierPane,
     running: () =>
       current === undefined
         ? undefined
