@@ -9,7 +9,6 @@ import { Dossier } from "../domain/dossier.ts"
 import { briefReferences, sourceKey } from "../render/brief.ts"
 import {
   DossierPageData,
-  pageDataText,
   renderDossierPage,
 } from "../render/dossier-page.ts"
 import { runGit } from "../target/git.ts"
@@ -30,9 +29,9 @@ const unreadable = (what: string) => (cause: { readonly message: string }) =>
   new PageError({ reason: `${what}: ${cause.message.replace(/\s+/g, " ")}`, cause })
 
 // Redraws a Run's dossier.html with the briefs in its briefs/ directory. The
-// exhibits come from the data the page carries, so they stay what the Run
-// saw; a brief's code that the page doesn't carry is read from git, at the
-// reviewed head or at the commit the brief names.
+// exhibits come from page-data.json, so they stay what the Run saw; a
+// brief's code that it doesn't carry is read from git, at the reviewed head
+// or at the commit the brief names.
 export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
   { paths, plan }: LoadedRun,
 ) {
@@ -42,25 +41,19 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
     Effect.mapError(unreadable(`could not read ${paths.dossier}`)),
   )
-  const page = yield* fs.readFileString(paths.dossierPage).pipe(
+  const dataText = yield* fs.readFileString(paths.pageData).pipe(
     Effect.mapError((cause) =>
       new PageError({
         reason: Predicate.isTagged("NotFound")(cause.reason)
-          ? `run ${plan.runId} has no dossier.html; it predates the page`
-          : `could not read ${paths.dossierPage}: ${cause.message}`,
+          ? `run ${plan.runId} has no page-data.json; it predates the page`
+          : `could not read ${paths.pageData}: ${cause.message}`,
         cause,
       })
     ),
   )
-  const dataText = pageDataText(page)
-  if (dataText === undefined) {
-    return yield* new PageError({
-      reason: `${paths.dossierPage} carries no page data; it predates briefs`,
-    })
-  }
   const data = yield* Schema.decodeEffect(Schema.fromJsonString(DossierPageData))(
     dataText,
-  ).pipe(Effect.mapError(unreadable(`the data in ${paths.dossierPage} is corrupt`)))
+  ).pipe(Effect.mapError(unreadable(`${paths.pageData} is corrupt`)))
 
   const directory = path.join(paths.root, "briefs")
   const listed = yield* fs.readDirectory(directory, { recursive: true }).pipe(

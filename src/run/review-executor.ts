@@ -12,6 +12,7 @@ import { renderDigest } from "../render/digest.ts"
 import { viewDossier } from "../render/dossier-view.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import {
+  DossierPageData,
   dossierPageData,
   dossierPageFiles,
   renderDossierPage,
@@ -142,14 +143,11 @@ export const executeReviewPlan = Effect.fn(
           reviewWorkingDirectory,
           dossierPageFiles(plan, dossier),
         )
+        const data = dossierPageData(accounting, sources)
+        yield* writeArtifactJson(paths.pageData, DossierPageData, data)
         yield* writeArtifactText(
           paths.dossierPage,
-          renderDossierPage({
-            plan,
-            dossier,
-            data: dossierPageData(accounting, sources),
-            runDirectory: paths.root,
-          }).html,
+          renderDossierPage({ plan, dossier, data, runDirectory: paths.root }).html,
         )
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)

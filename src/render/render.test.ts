@@ -197,6 +197,7 @@ const paths: RunPaths = {
   dossier: "/runs/run-fixture/dossier.json",
   dossierMarkdown: "/runs/run-fixture/dossier.md",
   dossierPage: "/runs/run-fixture/dossier.html",
+  pageData: "/runs/run-fixture/page-data.json",
   receipt: "/runs/run-fixture/receipt.json",
   runLog: "/runs/run-fixture/run.log",
 }

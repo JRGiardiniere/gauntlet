@@ -61,12 +61,6 @@ export const dossierPageData = (
   sources: Object.fromEntries(sources),
 })
 
-const DATA_ELEMENT = /<script type="application\/json" id="dossier-page-data">(.*?)<\/script>/s
-
-// The data a page was drawn from, as its JSON text.
-export const pageDataText = (page: string): string | undefined =>
-  DATA_ELEMENT.exec(page)?.[1]
-
 export interface DossierPageInput {
   readonly plan: ReviewPlan
   readonly dossier: Dossier
@@ -537,7 +531,6 @@ ${spine}
   </details>
   <footer class="colophon"><code>dossier.md</code> is the Dossier; this page is a reading of it. Code as reviewed at <code>${escapeHtml(shortCommit(target.headCommit))}</code>.</footer>
 </main>
-<script type="application/json" id="dossier-page-data">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>
 <script>${DOSSIER_PAGE_SCRIPT}</script>
 </body>
 </html>

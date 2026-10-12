@@ -91,6 +91,7 @@ describe("gauntlet review", () => {
         "dossier.json",
         "dossier.md",
         "finder-stage.json",
+        "page-data.json",
         "plan.json",
         "run.log",
         "workspace-overlay.patch",

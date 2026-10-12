@@ -16,6 +16,7 @@ export interface RunPaths {
   readonly dossier: string
   readonly dossierMarkdown: string
   readonly dossierPage: string
+  readonly pageData: string
   readonly receipt: string
   readonly runLog: string
 }
@@ -48,6 +49,7 @@ export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunP
     dossier: path.join(root, "dossier.json"),
     dossierMarkdown: path.join(root, "dossier.md"),
     dossierPage: path.join(root, "dossier.html"),
+    pageData: path.join(root, "page-data.json"),
     receipt: path.join(root, "receipt.json"),
     runLog: path.join(root, "run.log"),
   }
