@@ -16,6 +16,9 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
   finder-stage.json        # every Finder outcome, in plan order
   dossier.json             # machine-readable Dossier side artifact
   dossier.md               # human-readable Dossier
+  dossier.html             # the Dossier page: a reading of it for a person
+  page-data.json           # what the page is drawn from beyond the Dossier
+  briefs/                  # agent-written briefs, one per finding, when asked for
   receipt.json             # DeliveryReceipt, when delivery was attempted
   run.log                  # in-flight Effect log; full transcripts at debug level
   transcripts/             # Mod runs: each claude -p child's own Claude transcript
@@ -48,6 +51,18 @@ retained.
 
 `dossier.md` is written last: a run directory without it is a Run that never
 finished. `dossier.json` is an additive machine-readable artifact.
+
+Amended for the Dossier page: `dossier.html` is written just before
+`dossier.md`, from the same plan, Dossier and accounting. It shows each finding
+beside the reviewed code, so the files its exhibits cite are read from the
+review worktree and kept, with the accounting, in `page-data.json`, written
+before the page. That lets
+`gauntlet page <run-id>` redraw it later with the briefs agents write into
+`briefs/<finding id>.md` (markdown, drawn on the finding's exhibit) without
+reading the live checkout. The page is a presentation like `dossier.md`; the
+diff is still stored once, in the plan. The page and its data are the run
+directory's largest files (about 250KB and 170KB for a 23-finding Run, most of
+it reviewed code).
 
 ## No aggregate store
 

@@ -2,7 +2,6 @@ import { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import { TargetIdentity } from "../domain/review-target.ts"
 import {
   describeFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
@@ -13,20 +12,7 @@ import {
   type DossierEntryView,
   viewDossier,
 } from "./dossier-view.ts"
-
-const shortCommit = (commit: string) => commit.slice(0, 7)
-
-export const describeTargetIdentity = (target: TargetIdentity): string =>
-  TargetIdentity.match(target, {
-    WorkingTree: ({ baseCommit, headCommit, repoRoot }) =>
-      `working tree at ${repoRoot} (HEAD ${shortCommit(headCommit)}${
-        baseCommit === undefined ? "" : `, since ${shortCommit(baseCommit)}`
-      })`,
-    Commits: ({ baseCommit, headCommit, repoRoot }) =>
-      `commits ${shortCommit(baseCommit)}..${shortCommit(headCommit)} at ${repoRoot}`,
-    PullRequest: ({ headCommit, number }) =>
-      `PR #${number} (head ${shortCommit(headCommit)})`,
-  })
+import { describeTargetIdentity } from "./target-text.ts"
 
 // File paths, summaries, reasons, evidence, and failure scenarios are
 // model-authored. One finding must stay one list item, so line breaks
@@ -73,6 +59,28 @@ const renderEntries = (
   empty: string,
 ): string => entries.length === 0 ? empty : entries.map(findingLine).join("\n")
 
+export const describeRecipe = (plan: ReviewPlan): string => {
+  const seatList = Object.entries(plan.seats)
+    .map(([stage, seat]) => `${stage}: ${seat}`)
+    .join(", ")
+  return plan.recipeName === undefined
+    ? seatList === ""
+      ? "none — no seats resolved"
+      : `none (${seatList})`
+    : `${plan.recipeName} (${seatList})`
+}
+
+export const describeRunNotes = (
+  accounting: RunAccounting,
+): ReadonlyArray<string> => [
+  ...(accounting.finderCacheHealth === undefined ? [] : [
+    `Finder cache ${describeFinderCacheHealth(accounting.finderCacheHealth)}.`,
+  ]),
+  ...(accounting.finderToolHealth === undefined ? [] : [
+    `Finder tools: ${describeFinderToolHealth(accounting.finderToolHealth)}.`,
+  ]),
+]
+
 // Rendered from the Dossier alone plus the frozen plan's header facts —
 // deterministic presentation, no model calls (ADR 0006).
 export const renderDossierMarkdown = (
@@ -87,14 +95,6 @@ export const renderDossierMarkdown = (
     : finderSelection.runnable
       .map((lens) => `${lens.name} (${lens.seat})`)
       .join(", ")
-  const seatList = Object.entries(plan.seats)
-    .map(([stage, seat]) => `${stage}: ${seat}`)
-    .join(", ")
-  const recipeLine = plan.recipeName === undefined
-    ? seatList === ""
-      ? "none — no seats resolved"
-      : `none (${seatList})`
-    : `${plan.recipeName} (${seatList})`
   const coverageGaps = dossier.coverageGaps.length === 0
     ? "none"
     : dossier.coverageGaps
@@ -112,7 +112,7 @@ export const renderDossierMarkdown = (
 
   const headerFacts = [
     `- Target: ${describeTargetIdentity(dossier.target)}`,
-    `- Recipe: ${recipeLine}`,
+    `- Recipe: ${describeRecipe(plan)}`,
     `- Lenses: ${lensList}`,
     `- Cost: $${accounting.costUsd.toFixed(2)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
     `- Coverage gaps: ${coverageGaps}`,
@@ -136,17 +136,10 @@ export const renderDossierMarkdown = (
     )
   }
 
-  const runNotes = [
-    ...(accounting.finderCacheHealth === undefined ? [] : [
-      `- Finder cache ${describeFinderCacheHealth(accounting.finderCacheHealth)}.`,
-    ]),
-    ...(accounting.finderToolHealth === undefined ? [] : [
-      `- Finder tools: ${describeFinderToolHealth(accounting.finderToolHealth)}.`,
-    ]),
-  ]
+  const runNotes = describeRunNotes(accounting)
   const runNotesSection = runNotes.length === 0
     ? []
-    : ["", "## Run notes", "", ...runNotes]
+    : ["", "## Run notes", "", ...runNotes.map((note) => `- ${note}`)]
 
   return [
     `# Gauntlet review ${dossier.runId}`,

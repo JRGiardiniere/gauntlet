@@ -13,8 +13,11 @@ import { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
+import { renderBrief } from "./brief.ts"
+import { parseDiffHunks } from "./code-text.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
+import { dossierPageData, dossierPageFiles, renderDossierPage } from "./dossier-page.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (
@@ -193,6 +196,8 @@ const paths: RunPaths = {
   finderStage: "/runs/run-fixture/finder-stage.json",
   dossier: "/runs/run-fixture/dossier.json",
   dossierMarkdown: "/runs/run-fixture/dossier.md",
+  dossierPage: "/runs/run-fixture/dossier.html",
+  pageData: "/runs/run-fixture/page-data.json",
   receipt: "/runs/run-fixture/receipt.json",
   runLog: "/runs/run-fixture/run.log",
 }
@@ -455,5 +460,82 @@ describe("digest rendering", () => {
     expect(cascade.split("\n")[1]).toBe(
       "tool health: 24/24 finder tool calls errored",
     )
+  })
+})
+
+describe("dossier page rendering", () => {
+  const source = ["export const alpha = (input: string) => {", "  let i = 0", "  while (i < input.length) i += step(input)", "  return i", "}"]
+  const page = renderDossierPage({
+    plan,
+    dossier: Dossier.make({
+      ...dossier,
+      findings: [
+        ...dossier.findings,
+        DossierFinding.cases.Judgment.make({
+          candidate: observation("fixture-lens/8", "<script>alert(1)</script> renders as text"),
+          judgment: Judgment.cases.Kept.make({
+            reviewPriority: "P3",
+            reason: "see alpha.ts:3",
+            goodFind: true,
+            cleanlyExplained: true,
+            mergedCandidateIds: [],
+          }),
+        }),
+      ],
+    }),
+    data: dossierPageData(accounting, new Map([["src/alpha.ts", source]])),
+    runDirectory: paths.root,
+  }).html
+
+  it("files every finding and unresolved entry as an exhibit, with model text as text", () => {
+    expect(page.match(/<article class="exhibit/g)).toHaveLength(6)
+    expect(page).toContain("&lt;script&gt;alert(1)&lt;/script&gt; renders as text")
+    expect(page).not.toContain("<script>alert(1)")
+  })
+
+  it("shows the reviewed lines a finding cites, pinned to its exhibit", () => {
+    expect(page).toMatch(/<span class="no">3<\/span><span class="src">.*?while.*?<span class="pin">E-03<\/span>/)
+  })
+
+  it("asks for each finding's file and the files its evaluator cites", () => {
+    expect(dossierPageFiles(plan, Dossier.make({
+      ...dossier,
+      findings: [DossierFinding.cases.Judgment.make({
+        candidate: observation("fixture-lens/8", "a claim"),
+        judgment: Judgment.cases.Kept.make({
+          reviewPriority: "P3",
+          reason: "see alpha.ts:3 and gamma.ts:9",
+          goodFind: true,
+          cleanlyExplained: true,
+          mergedCandidateIds: [],
+        }),
+      })],
+      unresolved: [],
+    }))).toEqual(["src/beta.ts", "src/alpha.ts"])
+  })
+})
+
+describe("page text parsing", () => {
+  it("keeps an added line that reads like a file header inside its hunk", () => {
+    const diff = [
+      "diff --git a/src/a.ts b/src/a.ts",
+      "--- a/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -1,1 +1,2 @@",
+      " keep",
+      "+++ counter",
+      "@@ -9,1 +10,1 @@",
+      "-old",
+      "+new",
+    ].join("\n")
+    const hunks = parseDiffHunks(diff).get("src/a.ts") ?? []
+    expect(hunks.map((hunk) => hunk.rows.length)).toEqual([2, 2])
+    expect(hunks[0]?.rows[1]).toEqual({ kind: "added", newLine: 2, text: "++ counter" })
+  })
+
+  it("keeps the first character of a sketch line written without a sign", () => {
+    const { html } = renderBrief("```sketch\nrenderStrip\n+ track()\n```\n", "E-01", () => undefined)
+    expect(html).toContain(`<span class="src">renderStrip</span>`)
+    expect(html).toContain(`<span class="src"> track()</span>`)
   })
 })

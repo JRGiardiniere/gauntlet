@@ -150,8 +150,12 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
   inputSchema: { ...reviewToolInputSchema },
 })
 
+// The run's page when it has one (a demo writes only dossier.md).
 async function openDossier($: Engines, path: string) {
-  const opened = await $.process.run(["open", path]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
+  const open = (file: string) =>
+    $.process.run(["open", file]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
+  const page = await open(path.replace(/dossier\.md$/, "dossier.html"))
+  const opened = page.exitCode === 0 ? page : await open(path)
   if (opened.exitCode !== 0) {
     log($, `open ${path} failed: ${opened.stderr.trim()}`)
     $.ui.toast(`gauntlet: could not open ${path}`)

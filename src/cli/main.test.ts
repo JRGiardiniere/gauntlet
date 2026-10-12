@@ -87,9 +87,11 @@ describe("gauntlet review", () => {
 
       const entries = yield* fs.readDirectory(runDir)
       expect([...entries].sort()).toEqual([
+        "dossier.html",
         "dossier.json",
         "dossier.md",
         "finder-stage.json",
+        "page-data.json",
         "plan.json",
         "run.log",
         "workspace-overlay.patch",
@@ -219,6 +221,32 @@ describe("gauntlet review", () => {
       expect(stdout).toContain(`dossier.md: ${fixture.runsRoot}`)
       expect(stdout).toContain("dossier.json")
       expect(stdout).not.toContain("gauntlet:")
+
+      // An agent asked for a brief gets its instructions from the CLI.
+      const asked = yield* runCommand(fixture, ["brief", plan.runId, "fixture-review/2"], makeScripted({ sessions: [] })).effect
+      expect(asked).toBe(0)
+      expect((yield* TestConsole.logLines).join("\n")).toContain(
+        `Write \`${path.join(runDir, "briefs", "fixture-review/2.md")}\``,
+      )
+
+      // A brief written into the run directory is drawn on its finding's
+      // exhibit when the page is redrawn; one the page can't draw whole is
+      // named on stderr for the agent that wrote it.
+      yield* fs.makeDirectory(path.join(runDir, "briefs", "fixture-review"), { recursive: true })
+      yield* fs.writeFileString(
+        path.join(runDir, "briefs", "fixture-review", "2.md"),
+        "# Name the value for its role\n\nThe reader has to trace it.\n\n```code alpha.txt:1-2 mark=2\n```\n\n```code alpha.txt:90\n```\n",
+      )
+      const redrawn = yield* runCommand(fixture, ["page", plan.runId], makeScripted({ sessions: [] })).effect
+      expect(redrawn).toBe(0)
+      expect((yield* TestConsole.logLines).at(-1)).toBe(path.join(runDir, "dossier.html"))
+      expect(yield* TestConsole.errorLines).toContain(
+        "gauntlet: briefs/fixture-review/2.md: alpha.txt:90 is outside the file's 2 lines",
+      )
+      const page = yield* fs.readFileString(path.join(runDir, "dossier.html"))
+      expect(page).toContain(`<p class="takeaway">Name the value for its role</p>`)
+      expect(page).toContain(`data-view="briefs">Briefs <b>1</b>`)
+      expect(page).toContain("needle-added-line")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("renders a refusal as one stderr line and exits 1", () =>
