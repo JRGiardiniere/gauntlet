@@ -35,6 +35,20 @@ person:
   `/gauntlet main` for the commits since `main`, `--recipe high` for more
   effort, `/gauntlet deliver <run-id>` to post a finished pull-request review).
 
+### Coming from a checkout install
+
+An install from before the marketplace loaded the Mod from a clone. Undo
+that too, or Claude Code loads two copies:
+
+1. Remove the `<clone>/mod/dist/gauntlet` path, and
+   `<clone>/mod/dist/gauntlet-tools` from an install before #181, from
+   `env.CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json`, keeping any
+   other paths; drop the key once it is empty. Show the diff and wait for
+   approval before writing.
+2. Remove the `~/.claude/skills/gauntlet-code-review` link: the plugin ships
+   that skill now.
+3. The Mod no longer needs `<clone>`; ask before deleting it.
+
 ## Update
 
 ```sh
