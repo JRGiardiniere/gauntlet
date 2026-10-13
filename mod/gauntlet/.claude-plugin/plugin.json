@@ -4,5 +4,14 @@
   "description": "Gauntlet code review, run in process in Claude Code: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>]",
   "author": { "name": "John Giardiniere" },
   "repository": "https://github.com/JRGiardiniere/gauntlet",
-  "types": "./types/gauntlet.d.ts"
+  "types": "./types/gauntlet.d.ts",
+  "userConfig": {
+    "linear_api_key": {
+      "type": "string",
+      "title": "Linear API key",
+      "description": "Lets a review read the Linear issue its branch names (CM-123-…) as the change's requirements. Unset, the Mod uses LINEAR_API_KEY from Claude Code's environment, or skips Linear.",
+      "sensitive": true,
+      "default": ""
+    }
+  }
 }

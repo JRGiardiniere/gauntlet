@@ -42,6 +42,7 @@ import type { RunView } from "./strip.ts"
 
 export { renderStrip } from "./strip.ts"
 export type { PaneElements, RunView } from "./strip.ts"
+export { linearApiKeyOption } from "./plugin-options.ts"
 export { reviewToolArgs, reviewToolInputSchema } from "./review-argv.ts"
 export { createSession, recoverLostRun } from "./session.ts"
 export { DEMO_SCENARIOS } from "./demo.ts"
