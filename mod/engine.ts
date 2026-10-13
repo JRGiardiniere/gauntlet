@@ -111,12 +111,14 @@ const defectText = (cause: Cause.Cause<unknown>) => {
 }
 
 // A refusal as the Mod words it: a post that may have landed names the
-// command that delivers the Run again.
+// command that delivers the Run again. A missing configuration's reason
+// already says what is missing (the settings or every recipe), so its hint
+// points at the folder that holds both.
 const refusalText = (refusal: Run.RunRefusal) =>
   refusal.unconfirmedPost !== undefined
     ? `${refusal.reason}; check the pull request for the comment before /gauntlet deliver ${refusal.unconfirmedPost}`
     : refusal.unconfigured === true
-    ? `${refusal.reason}; add a recipe to ~/.gauntlet/mod/recipes/, and /gauntlet config lists them`
+    ? `${refusal.reason}; the Mod's settings.json and recipes/ are in ~/.gauntlet/mod/, and /gauntlet config shows what is there`
     : refusal.reason
 
 // The mod has no global fetch; Linear's FetchHttpClient gets this one over
