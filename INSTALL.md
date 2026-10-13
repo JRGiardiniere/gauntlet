@@ -20,6 +20,13 @@ claude plugin marketplace add JRGiardiniere/gauntlet
 claude plugin install gauntlet@gauntlet
 ```
 
+A Linear API key is optional: with one, a review of a branch named for a
+Linear issue (`CM-123-…`) reads that issue as the change's requirements. The
+person sets it themselves, kept in secure storage, with
+`/plugin configure gauntlet@gauntlet` in Claude Code (or
+`--config linear_api_key=<key>` on the install command). Without it the Mod
+uses `LINEAR_API_KEY` from Claude Code's environment, if set.
+
 Done when `claude plugin list` shows `gauntlet@gauntlet` enabled. Then tell the
 person:
 

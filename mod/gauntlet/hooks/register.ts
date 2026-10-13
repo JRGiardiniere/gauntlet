@@ -6,6 +6,7 @@ import {
   type Engine,
   type EnginePorts,
   type Json,
+  linearApiKeyFromOptions,
   recoverLostRun,
   renderStrip,
   reviewToolArgs,
@@ -162,7 +163,10 @@ async function openDossier($: Engines, path: string) {
 
 const UNLOADED = "the engine did not load; see ~/.gauntlet/mod/mod.log"
 
-export const register: Register = (on) => {
+export const register: Register = (on, options) => {
+  // The Linear key `/plugin configure` set, else the environment's, as the
+  // CLI reads it.
+  const linearApiKey = linearApiKeyFromOptions(options)
   on("session.start", async ($, e, next) => {
     const started = await next(e)
     home = (await $.env.get("HOME")) ?? ""
@@ -170,7 +174,7 @@ export const register: Register = (on) => {
       [
         ["HOME", home],
         ["TMPDIR", await $.env.get("TMPDIR")],
-        ["LINEAR_API_KEY", await $.env.get("LINEAR_API_KEY")],
+        ["LINEAR_API_KEY", linearApiKey ?? (await $.env.get("LINEAR_API_KEY"))],
       ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
     )
     const ports = portsOf($, env)

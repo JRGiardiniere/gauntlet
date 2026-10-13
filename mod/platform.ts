@@ -66,7 +66,8 @@ export interface PlatformPorts {
   // Leaving the loop (`return()`) kills the child.
   readonly spawnProcess: (request: ProcessSpawnRequest) => AsyncIterable<ProcessSpawnChunk, ProcessSpawnResult>
   // The variables the review program reads (HOME, LINEAR_API_KEY) and
-  // TMPDIR, as `$.env.get` answered them.
+  // TMPDIR, as `$.env.get` answered them, but for a LINEAR_API_KEY the
+  // plugin's options set.
   readonly env: Readonly<Record<string, string>>
   // Where the program's stdout and stderr go: the digest and the progress
   // lines.
