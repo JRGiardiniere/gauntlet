@@ -1,0 +1,15 @@
+{
+  "name": "gauntlet",
+  "description": "Gauntlet, a multi-agent code review, as a Claude Code plugin",
+  "owner": { "name": "John Giardiniere", "url": "https://github.com/JRGiardiniere" },
+  "plugins": [
+    {
+      "name": "gauntlet",
+      "description": "Gauntlet code review, run in process in Claude Code: /gauntlet [target]",
+      "source": {
+        "source": "archive",
+        "url": "https://github.com/JRGiardiniere/gauntlet/releases/latest/download/gauntlet-mod.zip"
+      }
+    }
+  ]
+}

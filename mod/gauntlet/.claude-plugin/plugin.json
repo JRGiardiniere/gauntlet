@@ -1,6 +1,8 @@
 {
   "name": "gauntlet",
-  "version": "0.1.0",
-  "description": "Gauntlet review run in process inside Claude Code (#134 Idea 3): /gauntlet [target] [--recipe=\u2026] [--lenses=\u2026] [--spec=\u2026]",
+  "version": "0.0.0-dev",
+  "description": "Gauntlet code review, run in process in Claude Code: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>]",
+  "author": { "name": "John Giardiniere" },
+  "repository": "https://github.com/JRGiardiniere/gauntlet",
   "types": "./types/gauntlet.d.ts"
 }

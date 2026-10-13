@@ -4,14 +4,17 @@ import * as Schema from "effect/Schema"
 
 // The words typed after /gauntlet (or passed as the review tool's `args`):
 // `deliver <run-id>` or a review, whose `review` may be left out, as the shared
-// syntax (src/syntax/syntax.ts) parses them, or the Mod's own `config …` and
+// syntax (src/syntax/syntax.ts) parses them, the CLI's `page <run-id>` and
+// `brief <run-id> <finding-id>`, or the Mod's own `config …` and
 // `demo [scenario]`. Words split at whitespace
 // outside quotes: a quoted part, even one inside a word
 // (`--repo="~/My Projects/x"`), keeps its spaces and loses its quotes. A
 // backslash escapes nothing, so a path with spaces is quoted.
+const VERBS = new Set(["review", "deliver", "page", "brief", "config", "demo"])
+
 export const commandWords = (args: string): ReadonlyArray<string> => {
   const words = args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((word) => word.replace(/(["'])(.*?)\1/g, "$2")) ?? []
-  return words[0] === "review" || words[0] === "deliver" || words[0] === "config" || words[0] === "demo" ? words : ["review", ...words]
+  return VERBS.has(words[0] ?? "") ? words : ["review", ...words]
 }
 
 // The review tool's `args`, decoded where the call arrives; undefined when
