@@ -162,7 +162,7 @@ export type InvocationSetupOperation =
   | "open"
   | "prompt"
 
-// "No outcome can exist" — session construction failed (CONTEXT.md: Failure).
+// "No outcome can exist" — session construction failed (GLOSSARY.md: Failure).
 // `cause` retains the original thrown value for diagnosis at this multi-step
 // external boundary; `reason` is the human-readable rendering.
 export class InvocationSetupError extends Data.TaggedError(

@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
 
-// ReviewWorkspace (CONTEXT.md): the confined repository view exposed to
+// ReviewWorkspace (GLOSSARY.md): the confined repository view exposed to
 // filesystem-capable AgentInvocations. This module is the one seam the review
 // pipeline depends on — it owns the virtual root and both filesystem-facing
 // model tools, so a future hosted sandbox is a different adapter with the

@@ -10,7 +10,7 @@ editing every preset. We decided none of that is lens anatomy:
 - **Routing** belongs to the candidate. Each emitted finding self-classifies
   by whether it asserts a failure scenario — with one, it is a BugClaim bound
   for Pool→verification; without one, an Observation bound for judgment
-  (ADR 0001, CONTEXT.md). Any lens may emit both kinds; prompts shape what a
+  (ADR 0001, GLOSSARY.md). Any lens may emit both kinds; prompts shape what a
   lens *tends* to produce, the type tag decides where each candidate *goes*.
   `Candidate.path` and the subjective-lens allowlist do not exist in Gauntlet.
 - **Spend policy** (caps) belongs to the ReviewPlan (#7).

@@ -82,11 +82,11 @@ Deliberate changes made during the port:
   cleanup + absence reproduces cleanup-v2 exactly. Its stale reference to "the
   PR description above" (finder prompts never included one) now says "when one
   is provided".
-- **Verdict ladder renamed** to CONTEXT.md canon: CONFIRMED / UNVERIFIED /
+- **Verdict ladder renamed** to GLOSSARY.md canon: CONFIRMED / UNVERIFIED /
   REFUTED. The old middle rung PLAUSIBLE ("mechanism real, trigger uncertain")
   is exactly what Unverified means as a first-class Verdict; the
   don't-refute-realistic-state guidance is kept word for word.
-  *Renamed back to PLAUSIBLE 2026-08-22* (CONTEXT.md canon amended): a run
+  *Renamed back to PLAUSIBLE 2026-08-22* (GLOSSARY.md canon amended): a run
   confirmed an external-tool claim by plausible reasoning alone, and
   "unverified" read as a process failure where "plausible" states the actual
   claim strength. Same rename, opposite direction, same first-class semantics.
@@ -103,7 +103,7 @@ Deliberate changes made during the port:
   `goodFind`/`cleanlyExplained` ratings are kept — per-run data in the
   Dossier, the Observation path's only quality record.
 - **Terminology**: preset → recipe, bug path → BugClaim path, subjective
-  path → Observation path / Judgment, per CONTEXT.md.
+  path → Observation path / Judgment, per GLOSSARY.md.
 
 Post-port additions (gap-fill after comparing against an external two-axis
 review skill):
@@ -118,7 +118,7 @@ review skill):
   CLAUDE.md files, and skips anything tooling already enforces.
 - **`category` frontmatter** — every shipped lens carries a display-only
   category (`correctness` / `cleanup` / `judgment`); ADR 0004 and
-  CONTEXT.md amended accordingly. It is live catalog metadata, not a
+  GLOSSARY.md amended accordingly. It is live catalog metadata, not a
   FrozenLens field (#52).
 - **`spec-conformance` restored** (#76) — now an Interpretive Finder backed by
   the frozen ReviewSpecification ingress and a member of the initial Default

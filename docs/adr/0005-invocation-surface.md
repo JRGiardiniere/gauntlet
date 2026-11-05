@@ -302,7 +302,7 @@ target for the working tree, or the combined form), choose the destination (#8's
 - Jettisoned: `start`/`execute`/`status`/`wait` verbs, target autodetect,
   the config overlay file, seat-override flags, `--runs-root` and
   `$CODE_REVIEW_DIR`, the speed axis, and a two-tier preset/recipe split.
-- "Preset" leaves the vocabulary; **Recipe** enters CONTEXT.md.
+- "Preset" leaves the vocabulary; **Recipe** enters GLOSSARY.md.
 - Paths: the Recipe Catalog and settings in `~/.gauntlet/`; runs under
   `~/.gauntlet/runs/` unless `runs-root` says otherwise; project-local lenses
   in `.gauntlet/lenses/` (#9's loader). `runs-root` accepts an absolute path or

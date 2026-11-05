@@ -33,7 +33,7 @@ export const SpecificationComment = Schema.Struct({
 export type SpecificationComment = typeof SpecificationComment.Type
 
 // Recorded when admitted comments exceeded the aggregate bound: what was
-// dropped, how much, and the cutoff (CONTEXT.md).
+// dropped, how much, and the cutoff (GLOSSARY.md).
 export const CommentOmission = Schema.Struct({
   droppedCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
   droppedCharacters: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
@@ -42,7 +42,7 @@ export const CommentOmission = Schema.Struct({
 export type CommentOmission = typeof CommentOmission.Type
 
 // The source-neutral requirement material used to judge one ReviewTarget,
-// frozen in the ReviewPlan exactly once at submission (CONTEXT.md). Later
+// frozen in the ReviewPlan exactly once at submission (GLOSSARY.md). Later
 // stages consume the frozen value and never re-read issues, comments, or
 // files.
 export const ReviewSpecification = Schema.Struct({

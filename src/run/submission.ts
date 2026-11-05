@@ -44,7 +44,7 @@ import {
 } from "./run-record.ts"
 
 // Submission turns a caller's review request into a persisted Run
-// (CONTEXT.md): one entry point, a parsed SubmissionRequest in, the loaded
+// (GLOSSARY.md): one entry point, a parsed SubmissionRequest in, the loaded
 // Run out. Submission ends when the Run is persisted — execution and
 // delivery stay with the caller.
 

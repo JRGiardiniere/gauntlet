@@ -5,7 +5,7 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 
 ## Read first
 
-- `CONTEXT.md` — the domain terms and their avoid-lists are **binding on naming**
+- `GLOSSARY.md` — the domain terms and their avoid-lists are **binding on naming**
 - Spec: issue #15. Rationale: `docs/adr/` (binding)
 - `docs/spec/pipeline-shape.md`, `docs/spec/emit-tools.md` — normative specs
 - The `effect` skill for Effect code, with the House rules below
@@ -56,7 +56,7 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
   are bridged in its adapters (`src/harness/pi-live.ts`), whose mutable cells
   belong to that contract.
 - Expected invocation endings (provider endings, timeouts, missing emits) are
-  `AgentOutcome.termination` data, as `CONTEXT.md` defines, not errors.
+  `AgentOutcome.termination` data, as `GLOSSARY.md` defines, not errors.
   `invoke.ts` keeps usage and available output beside an unsuccessful
   termination, and relies on `Effect.raceFirst` for its watchdogs.
 - Finder partitions and evaluation scheduling are deliberate, and Pi owns

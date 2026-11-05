@@ -6,7 +6,7 @@ import { StageName } from "./stage.ts"
 import { Verdict } from "./verdict.ts"
 
 // A lens or stage whose work is missing from the Dossier — visible data,
-// distinct from diagnostics and from failure (CONTEXT.md).
+// distinct from diagnostics and from failure (GLOSSARY.md).
 export const CoverageGap = Schema.Struct({
   stage: StageName,
   lens: Schema.optionalKey(Schema.NonEmptyString),
@@ -31,7 +31,7 @@ export const JudgedObservation = Schema.Struct({
 export type JudgedObservation = typeof JudgedObservation.Type
 
 // Verification's optional advice to run named existing repository tests
-// (CONTEXT.md). One per recommending Pool cluster, associated with the stable
+// (GLOSSARY.md). One per recommending Pool cluster, associated with the stable
 // id of every cluster-mate — never once per duplicate claim. Downstream
 // advice only: it never changes a Verdict, and Gauntlet never runs the tests.
 export const TestSuggestion = Schema.Struct({
@@ -89,7 +89,7 @@ export const DroppedObservation = Schema.TaggedStruct("Dropped", {
 })
 export type DroppedObservation = typeof DroppedObservation.Type
 
-// The canonical, complete semantic result of one review (CONTEXT.md).
+// The canonical, complete semantic result of one review (GLOSSARY.md).
 // Every evaluated cluster and judged observation is accounted for exactly
 // once in the hierarchy. Operational run notes deliberately live elsewhere.
 export const Dossier = Schema.Struct({

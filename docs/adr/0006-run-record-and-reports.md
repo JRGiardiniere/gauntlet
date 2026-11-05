@@ -76,7 +76,7 @@ a reader actually exists.
 ## No cost governance
 
 Cost is an output read afterward, never an input constrained proactively.
-This amends ADR 0005 and CONTEXT.md: **a Recipe has no cost governance** — no
+This amends ADR 0005 and GLOSSARY.md: **a Recipe has no cost governance** — no
 budget fields, no dollar ceilings, no token budgets, no spend warnings, and
 "budgets" leaves the ReviewPlan's field list. Seat assignment and Lens
 selection remain review policy, not cost governance. What survives is not cost
@@ -155,7 +155,7 @@ if it ever annoys. No pruning code, no compression, no TTL.
 - Jettisoned: aggregate JSONL logs, the subjective corpus, any SQLite/index,
   retention machinery, default or dedicated transcript persistence, per-stage
   log files, budget fields and all proactive cost constraints.
-- ADR 0005 and CONTEXT.md (Recipe, ReviewPlan) amended: seats only, no
+- ADR 0005 and GLOSSARY.md (Recipe, ReviewPlan) amended: seats only, no
   budgets.
 - Retrospective model assessment is a deferred reader over run dirs, never a
   live writer obligation.
