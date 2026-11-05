@@ -41,7 +41,7 @@ export type FrozenLens = typeof FrozenLens.Type
 // The fully resolved instructions governing one review — semantics-and-spend
 // fields only — persisted once at submission. A Run owns these frozen inputs:
 // every stage reads them from the plan, and delivery reads the target from
-// it (CONTEXT.md). Delivery destination is not part of the plan, and neither
+// it (GLOSSARY.md). Delivery destination is not part of the plan, and neither
 // is any budget or cost field (ADR 0006).
 export const ReviewPlan = Schema.Struct({
   runId: Schema.NonEmptyString,

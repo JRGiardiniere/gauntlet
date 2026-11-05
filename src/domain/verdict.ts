@@ -3,7 +3,7 @@ import * as Schema from "effect/Schema"
 export const ReviewPriority = Schema.Literals(["P1", "P2", "P3"])
 export type ReviewPriority = typeof ReviewPriority.Type
 
-// What Verification attaches to a BugClaim (CONTEXT.md). Plausible is a
+// What Verification attaches to a BugClaim (GLOSSARY.md). Plausible is a
 // first-class verdict — a BugClaim whose verifier never returned lands here
 // with no reviewPriority or evidence, never as an absence.
 export const Verdict = Schema.TaggedUnion({

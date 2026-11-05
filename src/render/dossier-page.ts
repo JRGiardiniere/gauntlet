@@ -280,7 +280,7 @@ const stamp = (entry: DossierEntryView, small = false) => {
 const needsThought = (entry: DossierEntryView) =>
   entry.tag === "judgment" || entry.tag === "plausible" || entry.tag === "undecided"
 
-// What survived evaluation is a finding (CONTEXT.md); what nobody settled
+// What survived evaluation is a finding (GLOSSARY.md); what nobody settled
 // stays an unresolved Candidate.
 export const noun = (entry: DossierEntryView) =>
   entry.tag === "plausible" || entry.tag === "undecided" ? "unresolved Candidate" : "finding"

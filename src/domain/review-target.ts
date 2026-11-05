@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema"
 
 // The exact change under review, carrying its frozen diff and any
-// scope-degradation warnings acquired with it (CONTEXT.md). The diff is
+// scope-degradation warnings acquired with it (GLOSSARY.md). The diff is
 // stored exactly once — here, inside the frozen plan (ADR 0006).
 
 export const ReviewTarget = Schema.TaggedUnion({
@@ -44,7 +44,7 @@ export const ReviewTarget = Schema.TaggedUnion({
 })
 export type ReviewTarget = typeof ReviewTarget.Type
 
-// Target identity without the diff — what the Dossier carries (CONTEXT.md:
+// Target identity without the diff — what the Dossier carries (GLOSSARY.md:
 // the Dossier records target identity; the diff lives only in the plan).
 export const TargetIdentity = Schema.TaggedUnion({
   WorkingTree: {

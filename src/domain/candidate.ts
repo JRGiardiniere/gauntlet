@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema"
 
 // Shared core of every Candidate: identity, lens, location, summary, optional source citations
-// (CONTEXT.md). `line` may be absent on whole-change findings; when present
+// (GLOSSARY.md). `line` may be absent on whole-change findings; when present
 // it is 1-indexed (docs/spec/emit-tools.md).
 const candidateCore = {
   id: Schema.NonEmptyString,

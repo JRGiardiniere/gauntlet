@@ -1,7 +1,7 @@
 import * as Schema from "effect/Schema"
 
 // How an invocation ended — a mode on an AgentOutcome, not a failure
-// (CONTEXT.md, ADR 0001). Every expected bad ending is data here; the Effect
+// (GLOSSARY.md, ADR 0001). Every expected bad ending is data here; the Effect
 // error channel is reserved for "no outcome can exist at all".
 export const Termination = Schema.TaggedUnion({
   Completed: {},

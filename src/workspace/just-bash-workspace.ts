@@ -38,7 +38,7 @@ export const WORKSPACE_EXECUTION_LIMITS: NonNullable<
   maxOutputSize: WORKSPACE_EXECUTION_MAX_BYTES,
 }
 
-// Ordinary tool errors (CONTEXT.md: Termination, not Failure): limit
+// Ordinary tool errors (GLOSSARY.md: Termination, not Failure): limit
 // exhaustion, a nonzero exit, an unsupported construct in the beta
 // interpreter. They reject at the Pi Promise seam, surface as isError tool
 // results, and the invocation continues — same recovery path as a bad flag
