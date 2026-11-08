@@ -316,10 +316,13 @@ const logDebugTranscript = (
 ) =>
   Effect.gen(function* () {
     if (!(yield* LogLevel.isEnabled("Debug"))) return
-    const entries = yield* Effect.try({
-      try: () => Array.map(session.transcriptEntries(), jsonSafeValue),
+    const transcript = yield* Effect.try({
+      try: () => session.transcriptEntries(),
       catch: (cause) => String(cause),
     })
+    const entries = yield* Effect.forEach(transcript, jsonSafeValue).pipe(
+      Effect.mapError((cause) => String(cause)),
+    )
     yield* Effect.forEach(
       entries,
       (entry, index) =>
@@ -410,17 +413,24 @@ const openCapturedSession = Effect.fn(
     ),
     (opened) =>
       settleAbort(aborting, capture).pipe(
-        Effect.andThen(Effect.sync(() => {
-          try {
-            const rows = Array.map(opened.usageRows(), jsonSafeRow)
-            capture.dispatch({ type: "usage_rows", rows })
-          } catch (cause) {
-            capture.dispatch({
-              type: "usage_sweep_error",
-              reason: String(cause),
-            })
-          }
-        })),
+        Effect.andThen(
+          Effect.try({
+            try: () => opened.usageRows(),
+            catch: (cause) => String(cause),
+          }).pipe(
+            Effect.flatMap((rows) =>
+              Effect.forEach(rows, jsonSafeRow).pipe(
+                Effect.mapError((cause) => String(cause)),
+              )
+            ),
+            Effect.match({
+              onFailure: (reason) =>
+                capture.dispatch({ type: "usage_sweep_error", reason }),
+              onSuccess: (rows) =>
+                capture.dispatch({ type: "usage_rows", rows }),
+            }),
+          ),
+        ),
         Effect.andThen(
           logDebugTranscript(opened, input.invocationId, capture),
         ),
@@ -715,17 +725,17 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   })
 
 const decodeUsageRow = Schema.decodeUnknownEffect(UsageRow)
-const encodeJsonString = Schema.encodeUnknownSync(
+const encodeJsonString = Schema.encodeUnknownEffect(
   Schema.fromJsonString(Schema.Unknown),
 )
-const decodeJsonValue = Schema.decodeUnknownSync(
+const decodeJsonValue = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Json),
 )
 
 // Normalizes a raw usage row into the usage-accounting JSON contract. The
 // stringify/parse round-trip drops undefined fields (as JSON.stringify
-// would) and throws on non-serializable rows.
-const jsonSafeValue = Function.compose(encodeJsonString, decodeJsonValue)
+// would) and fails with a SchemaError on non-serializable rows.
+const jsonSafeValue = Function.compose(encodeJsonString, Effect.flatMap(decodeJsonValue))
 const jsonSafeRow = jsonSafeValue
 
 const usageFrom = (states: ReadonlyArray<CaptureState>) =>
