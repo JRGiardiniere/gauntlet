@@ -361,7 +361,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
             ? Effect.void
             : refuse(`${pipe(help.errors, Array.map((error) => error.message), Array.join("; "))}; /gauntlet --help shows the syntax`),
         ReviewCommandError: (failure) => refuse(`could not review — ${failure.reason}`),
-        RunRefusal: (refusal) => refuse(refusalText(refusal)),
+        RunRefusal: (refusal) => pipe(refusal, refusalText, refuse),
       }),
       // The CLI's other global flags (--version, --wizard, --completions,
       // --log-level) mean nothing in Claude Code: the Mod keeps only --help.
@@ -412,7 +412,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
   // worktree is removed and every invocation's child is killed.
   const cancel = () => {
     if (current === undefined) return Promise.resolve(false)
-    return Effect.runPromise(Fiber.interrupt(current.fiber)).then(() => true)
+    return current.fiber.pipe(Fiber.interrupt, Effect.runPromise).then(() => true)
   }
 
   // The names of the Mod's valid Recipes, its configuration written first

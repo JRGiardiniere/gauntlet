@@ -59,8 +59,8 @@ const EXIT_GRACE = Duration.seconds(5)
 const Usage = Schema.Struct({
   input_tokens: Schema.Finite,
   output_tokens: Schema.Finite,
-  cache_read_input_tokens: Schema.optional(Schema.NullOr(Schema.Finite)),
-  cache_creation_input_tokens: Schema.optional(Schema.NullOr(Schema.Finite)),
+  cache_read_input_tokens: Schema.Finite.pipe(Schema.NullOr, Schema.optional),
+  cache_creation_input_tokens: Schema.Finite.pipe(Schema.NullOr, Schema.optional),
 })
 
 const SystemInit = Schema.Struct({
@@ -102,8 +102,8 @@ const Result = Schema.Struct({
   is_error: Schema.Boolean,
   total_cost_usd: Schema.Finite,
   result: Schema.optional(Schema.String),
-  errors: Schema.optional(Schema.Array(Schema.String)),
-  structured_output: Schema.optional(Schema.NullOr(Schema.Json)),
+  errors: Schema.String.pipe(Schema.Array, Schema.optional),
+  structured_output: Schema.Json.pipe(Schema.NullOr, Schema.optional),
 })
 
 const ToolUse = Schema.Struct({
@@ -370,11 +370,16 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
                   stdin: Stream.make(new TextEncoder().encode(text)),
                 }),
               )
-              const stderr = yield* Effect.forkScoped(
-                Stream.runFold(Stream.decodeText(handle.stderr), () => "", (tail, text) => `${tail}${text}`.slice(-STDERR_TAIL)),
+              const stderr = yield* handle.stderr.pipe(
+                Stream.decodeText(),
+                Stream.runFold(() => "", (tail, text) => `${tail}${text}`.slice(-STDERR_TAIL)),
+                Effect.forkScoped,
               )
-              yield* Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (raw) =>
-                Effect.sync(() => onLine(raw)))
+              yield* handle.stdout.pipe(
+                Stream.decodeText(),
+                Stream.splitLines,
+                Stream.runForEach((raw) => Effect.sync(() => onLine(raw))),
+              )
               const exit = yield* Effect.exit(handle.exitCode)
               const errorText = (yield* Fiber.join(stderr)).trim()
               if (state.resulted || abortRequested) return
@@ -396,7 +401,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
 
         // The previous turn's process finishes writing its transcript before
         // the next one resumes it, or before the transcript moves.
-        const settled = () => (current === undefined ? Effect.void : Effect.asVoid(Fiber.await(current.fiber)))
+        const settled = () => (current === undefined ? Effect.void : current.fiber.pipe(Fiber.await, Effect.asVoid))
 
         // The child's transcript is `<session_id>.jsonl` in one of Claude
         // Code's project folders, the folder init's auto-memory path sits two
@@ -446,7 +451,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             abortRequested = true
             const turn = current
             if (turn === undefined || turn.state.resulted) return Promise.resolve()
-            return Effect.runPromiseWith(services)(Fiber.interrupt(turn.fiber))
+            return turn.fiber.pipe(Fiber.interrupt, Effect.runPromiseWith(services))
           },
           // A child still in its turn is killed; one whose result arrived gets
           // a moment to exit on its own first.

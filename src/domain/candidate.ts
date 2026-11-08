@@ -9,7 +9,7 @@ const candidateCore = {
   file: Schema.NonEmptyString,
   line: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(1))),
   summary: Schema.NonEmptyString,
-  sourceReferences: Schema.optionalKey(Schema.Array(Schema.NonEmptyString)),
+  sourceReferences: Schema.NonEmptyString.pipe(Schema.Array, Schema.optionalKey),
 }
 
 // A Candidate self-classifies at emit time by the presence of a

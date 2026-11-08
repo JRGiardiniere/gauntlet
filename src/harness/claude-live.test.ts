@@ -49,7 +49,7 @@ interface Spawned {
 const stdinOf = (command: ChildProcess.StandardCommand) => {
   const input = command.options.stdin
   return Stream.isStream(input)
-    ? Stream.mkString(Stream.decodeText(input))
+    ? input.pipe(Stream.decodeText(), Stream.mkString)
     : Effect.succeed("")
 }
 

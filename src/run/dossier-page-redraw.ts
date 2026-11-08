@@ -63,7 +63,7 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     Effect.catch((cause) =>
       Predicate.isTagged(cause.reason, "NotFound")
         ? Effect.succeed<ReadonlyArray<string>>([])
-        : Effect.fail(unreadable(`could not list ${directory}`)(cause))
+        : pipe(cause, unreadable(`could not list ${directory}`), Effect.fail)
     ),
   )
   const briefs = new Map<string, string>()

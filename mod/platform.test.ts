@@ -58,7 +58,7 @@ describe("the mod's child processes", () => {
     )
     await child.started.promise
 
-    await Effect.runPromise(Fiber.interrupt(fiber))
+    await fiber.pipe(Fiber.interrupt, Effect.runPromise)
 
     expect(child.killed).toBe(true)
   })

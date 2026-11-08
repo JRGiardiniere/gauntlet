@@ -19,10 +19,10 @@ export interface AgentActivity {
 
 // An accepted emit's items, under its contract's one list field.
 const EmitItems = Schema.Struct({
-  findings: Schema.optional(Schema.Array(Schema.Unknown)),
-  clusters: Schema.optional(Schema.Array(Schema.Unknown)),
-  verdicts: Schema.optional(Schema.Array(Schema.Unknown)),
-  decisions: Schema.optional(Schema.Array(Schema.Unknown)),
+  findings: Schema.Unknown.pipe(Schema.Array, Schema.optional),
+  clusters: Schema.Unknown.pipe(Schema.Array, Schema.optional),
+  verdicts: Schema.Unknown.pipe(Schema.Array, Schema.optional),
+  decisions: Schema.Unknown.pipe(Schema.Array, Schema.optional),
 })
 
 const itemCount = (args: Schema.Json) =>

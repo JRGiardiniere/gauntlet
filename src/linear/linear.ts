@@ -100,34 +100,28 @@ const GraphQlError = Schema.Struct({
 })
 
 const IssueEnvelope = Schema.Struct({
-  data: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({
-      issue: Schema.NullOr(
-        WireIssueSummary.pipe(
-          Schema.fieldsAssign({ parent: Schema.NullOr(WireIssueSummary) }),
-        ),
+  data: Schema.Struct({
+    issue: Schema.NullOr(
+      WireIssueSummary.pipe(
+        Schema.fieldsAssign({ parent: Schema.NullOr(WireIssueSummary) }),
       ),
-    })),
-  ),
-  errors: Schema.optionalKey(Schema.Array(GraphQlError)),
+    ),
+  }).pipe(Schema.NullOr, Schema.optionalKey),
+  errors: GraphQlError.pipe(Schema.Array, Schema.optionalKey),
 })
 
 const CommentsEnvelope = Schema.Struct({
-  data: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({
-      issue: Schema.NullOr(Schema.Struct({ comments: CommentConnection })),
-    })),
-  ),
-  errors: Schema.optionalKey(Schema.Array(GraphQlError)),
+  data: Schema.Struct({
+    issue: Schema.NullOr(Schema.Struct({ comments: CommentConnection })),
+  }).pipe(Schema.NullOr, Schema.optionalKey),
+  errors: GraphQlError.pipe(Schema.Array, Schema.optionalKey),
 })
 
 const ChildrenEnvelope = Schema.Struct({
-  data: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({
-      issue: Schema.NullOr(Schema.Struct({ children: IssueConnection })),
-    })),
-  ),
-  errors: Schema.optionalKey(Schema.Array(GraphQlError)),
+  data: Schema.Struct({
+    issue: Schema.NullOr(Schema.Struct({ children: IssueConnection })),
+  }).pipe(Schema.NullOr, Schema.optionalKey),
+  errors: GraphQlError.pipe(Schema.Array, Schema.optionalKey),
 })
 
 const decodeIssueEnvelope = Schema.decodeUnknownEffect(IssueEnvelope)

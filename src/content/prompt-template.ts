@@ -1,6 +1,7 @@
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
@@ -32,7 +33,7 @@ export const renderPromptTemplate = Effect.fn(
   substitutions: ReadonlyArray<readonly [string, string]>,
 ) {
   const values = HashMap.fromIterable(substitutions)
-  let missing = HashSet.fromIterable(HashMap.keys(values))
+  let missing = pipe(values, HashMap.keys, HashSet.fromIterable)
   const parts: Array<string> = []
   let cursor = 0
 

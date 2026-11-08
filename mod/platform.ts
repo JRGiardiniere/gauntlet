@@ -287,7 +287,7 @@ const spawnFailure = (description: string) =>
 // `$.process.spawn` takes stdin as one string, written whole and then closed.
 const stdinText = (input: ChildProcess.CommandOptions["stdin"]) => {
   const stream = input !== undefined && !Predicate.isString(input) && !Stream.isStream(input) ? input.stream : input
-  return Stream.isStream(stream) ? Effect.asSome(Stream.mkString(Stream.decodeText(stream))) : Effect.succeedNone
+  return Stream.isStream(stream) ? stream.pipe(Stream.decodeText(), Stream.mkString, Effect.asSome) : Effect.succeedNone
 }
 
 // The child's output streams as it comes, stdout and stderr each in its own
