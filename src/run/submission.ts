@@ -144,13 +144,14 @@ const resolveSpecificationBranch = Effect.fn(
   "gauntlet.submission.resolve_specification_branch",
 )(function* (repoRoot: string) {
   return yield* runGit(repoRoot, ["branch", "--show-current"]).pipe(
-    Effect.map(chompLine),
-    Effect.mapError((cause) =>
-      TargetUnresolvable.make({
-        reason: describeGitFailure("could not resolve the current branch", cause),
-        cause,
-      })
-    ),
+    Effect.mapBoth({
+      onSuccess: chompLine,
+      onFailure: (cause) =>
+        TargetUnresolvable.make({
+          reason: describeGitFailure("could not resolve the current branch", cause),
+          cause,
+        }),
+    }),
   )
 })
 
@@ -226,19 +227,18 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(request.recipeName)
   yield* progress(`using recipe ${selected.name}`)
-  const defaultLensNames = request.selectedLensNames === undefined
-    ? yield* Effect.gen(function* () {
-        const settings = yield* loadSettings()
-        if (Option.isNone(settings)) {
-          return yield* SubmissionError.make({
-            reason:
-              "no Default Lenses are configured and the review names no Lenses",
-            unconfigured: true,
-          })
-        }
-        return settings.value["default-lenses"]
+  let defaultLensNames: ReadonlyArray<string> = []
+  if (request.selectedLensNames === undefined) {
+    const settings = yield* loadSettings()
+    if (Option.isNone(settings)) {
+      return yield* SubmissionError.make({
+        reason:
+          "no Default Lenses are configured and the review names no Lenses",
+        unconfigured: true,
       })
-    : []
+    }
+    defaultLensNames = settings.value["default-lenses"]
+  }
   const target = yield* resolveTarget(request.target)
   // Scope degradation is never silent (spec #16): each warning is narrated
   // as it is discovered, in addition to landing on the plan and report.

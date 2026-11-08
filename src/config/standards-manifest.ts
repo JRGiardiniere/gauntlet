@@ -36,16 +36,18 @@ const resolveRepoIdentity = Effect.fn(
     "--path-format=absolute",
     "--git-common-dir",
   ]).pipe(
-    Effect.map(chompLine),
-    Effect.mapError((cause) =>
-      StandardsManifestError.make({
-        path: repoRoot,
-        reason: describeGitFailure(
-          "could not resolve the repository identity for the Standards Manifest",
+    Effect.mapBoth({
+      onSuccess: chompLine,
+      onFailure: (cause) =>
+        StandardsManifestError.make({
+          path: repoRoot,
+          reason: describeGitFailure(
+            "could not resolve the repository identity for the Standards Manifest",
+            cause,
+          ),
           cause,
-        ),
-        cause,
-      })),
+        }),
+    }),
   )
 })
 
