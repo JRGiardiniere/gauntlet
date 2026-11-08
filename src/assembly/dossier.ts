@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import {
   Dossier,
   DossierFinding,
@@ -40,7 +41,7 @@ const suggestionFor = (
   testSuggestions: ReadonlyArray<TestSuggestion>,
 ): TestSuggestion | undefined =>
   testSuggestions.find(({ bugClaimIds: suggestedIds }) =>
-    suggestedIds.some((id) => bugClaimIds.has(id))
+    Array.some(suggestedIds, (id) => bugClaimIds.has(id))
   )
 
 const priorityRank = {
@@ -86,7 +87,7 @@ export const assembleDossier = ({
   )) {
     const clusterCore = { bugClaims, cluster }
     const testSuggestion = suggestionFor(
-      new Set(bugClaims.map(({ id }) => id)),
+      new Set(Array.map(bugClaims, ({ id }) => id)),
       bugClaimPath.testSuggestions,
     )
     const suggestedCore = testSuggestion === undefined

@@ -30,6 +30,7 @@ import type {
   ProcessSpawnRequest,
   ProcessSpawnResult,
 } from "claude-code"
+import * as Array from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Cause from "effect/Cause"
 import * as Channel from "effect/Channel"
@@ -40,6 +41,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
@@ -207,7 +209,7 @@ const fileSystemOver = (ports: PlatformPorts) =>
       ),
     readDirectory: (path) =>
       hostCall(ports, "readDirectory", path, () => ports.list(path)).pipe(
-        Effect.map((entries) => entries.map((entry) => entry.name)),
+        Effect.map((entries) => Array.map(entries, (entry) => entry.name)),
       ),
     readFileString: (path) => hostCall(ports, "readFileString", path, () => ports.read(path)),
     readFile: (path) =>
@@ -266,18 +268,18 @@ const fileSystemOver = (ports: PlatformPorts) =>
 // unset one, so a variable the command unsets (the CLI's Git scrub: an
 // `undefined` value) is unset by running the command under `env -u`.
 const commandArgv = (command: ChildProcess.StandardCommand) => {
-  const unset = Object.entries(command.options.env ?? {}).flatMap(([key, value]) => (value === undefined ? [key] : []))
-  const args = command.args.map(unwrap)
+  const unset = Array.flatMap(Object.entries(command.options.env ?? {}), ([key, value]) => (value === undefined ? [key] : []))
+  const args = Array.map(command.args, unwrap)
   return unset.length === 0
     ? [command.command, ...args]
-    : ["env", ...unset.flatMap((key) => ["-u", key]), command.command, ...args]
+    : ["env", ...Array.flatMap(unset, (key) => ["-u", key]), command.command, ...args]
 }
 
 const unwrap = (word: string | Redacted.Redacted<string>) => (Redacted.isRedacted(word) ? Redacted.value(word) : word)
 
 const definedEnv = (env: ChildProcess.CommandOptions["env"]) =>
   Object.fromEntries(
-    Object.entries(env ?? {}).flatMap(([key, value]) => (value === undefined ? [] : [[key, unwrap(value)]])),
+    Array.flatMap(Object.entries(env ?? {}), ([key, value]) => (value === undefined ? [] : [[key, unwrap(value)]])),
   )
 
 const spawnFailure = (description: string) =>
@@ -352,7 +354,7 @@ const spawnOver = (ports: PlatformPorts) => (command: ChildProcess.Command) =>
     })
   })
 
-const text = (args: ReadonlyArray<unknown>) => args.map(String).join(" ")
+const text = (args: ReadonlyArray<unknown>) => pipe(args, Array.map(String), Array.join(" "))
 
 // stdout carries the digest, stderr the progress lines, as in a terminal.
 const consoleOver = (ports: PlatformPorts): Console.Console => {

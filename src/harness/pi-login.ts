@@ -1,8 +1,10 @@
 import { createInterface } from "node:readline/promises"
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai"
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 
 export class LoginError extends Data.TaggedError("LoginError")<{
   readonly reason: string
@@ -40,9 +42,11 @@ const terminalInteraction = (signal: AbortSignal): AuthInteraction & { readonly 
     },
     prompt: (prompt) => {
       if (prompt.type !== "select") return ask(prompt.message, prompt).then((answer) => answer.trim())
-      const listing = prompt.options
-        .map((option, index) => `  ${String(index + 1)}. ${option.label}`)
-        .join("\n")
+      const listing = pipe(
+        prompt.options,
+        Array.map((option, index) => `  ${String(index + 1)}. ${option.label}`),
+        Array.join("\n"),
+      )
       return ask(`${prompt.message}\n${listing}\n>`, prompt).then((answer) =>
         prompt.options[Number(answer.trim()) - 1]?.id ?? answer.trim()
       )

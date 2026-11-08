@@ -1,4 +1,5 @@
 import type { EngineInterface, Register } from "claude-code"
+import * as Array from "effect/Array"
 import {
   createEngine,
   createSession,
@@ -53,7 +54,7 @@ function log($: Engines, line: string) {
   pendingLog.push(`${new Date().toISOString()} [+${((Date.now() - loadedAt) / 1000).toFixed(1)}s] ${line}`)
   logWriting = logWriting.then(async () => {
     if (pendingLog.length === 0 || home === "") return
-    const text = `${pendingLog.join("\n")}\n`
+    const text = `${Array.join(pendingLog, "\n")}\n`
     pendingLog = []
     await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${modDir()}/mod.log`], { stdin: text })
   }).catch(() => undefined)
@@ -145,7 +146,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "`config` answers at once with the Mod's settings and recipes (~/.gauntlet/mod), each invalid recipe with why. " +
     (recipes.length === 0
       ? "No recipes are installed."
-      : `Recipes: ${recipes.join(", ")}; when the person names an effort ("gauntlet high"), pass the recipe here that matches it.`),
+      : `Recipes: ${Array.join(recipes, ", ")}; when the person names an effort ("gauntlet high"), pass the recipe here that matches it.`),
   inputSchema: { ...reviewToolInputSchema },
 })
 
@@ -171,11 +172,11 @@ export const register: Register = (on, options) => {
     const started = await next(e)
     home = (await $.env.get("HOME")) ?? ""
     const env = Object.fromEntries(
-      [
+      Array.flatMap([
         ["HOME", home],
         ["TMPDIR", await $.env.get("TMPDIR")],
         ["LINEAR_API_KEY", linearApiKey ?? (await $.env.get("LINEAR_API_KEY"))],
-      ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
+      ], ([name, value]) => (value === undefined ? [] : [[name, value]])),
     )
     const ports = portsOf($, env)
     const sessionId = await $.session.id()
@@ -196,7 +197,7 @@ export const register: Register = (on, options) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${DEMO_SCENARIOS.join("|")}] for a scripted review that runs no agents; --help for the rest`,
+      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${Array.join(DEMO_SCENARIOS, "|")}] for a scripted review that runs no agents; --help for the rest`,
     })
     await recoverLostRun(ports, sessionId)
     startClock($)

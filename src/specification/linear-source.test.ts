@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import {
   LinearError,
@@ -91,7 +92,7 @@ describe("reviewSpecificationFromLinearIssue", () => {
     const specification = reviewSpecificationFromLinearIssue(branchIssue())
 
     expect(
-      specification.documents.map((document) => ({
+      Array.map(specification.documents, (document) => ({
         role: document.role,
         title: document.title,
         state: document.state,
@@ -123,7 +124,7 @@ describe("reviewSpecificationFromLinearIssue", () => {
         text: "",
       },
     ])
-    expect(specification.comments.map(({ text }) => text)).toEqual([
+    expect(Array.map(specification.comments, ({ text }) => text)).toEqual([
       "older human",
       "newer human",
     ])

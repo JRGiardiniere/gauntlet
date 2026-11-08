@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import { Termination } from "../domain/agent-outcome.ts"
 import { FrozenLens } from "../domain/review-plan.ts"
 import { enforceCandidateCap, routeFinderResults } from "./finders.ts"
@@ -36,7 +37,7 @@ describe("enforceCandidateCap", () => {
       diagnostics: ["prior diagnostic"],
     })
 
-    expect(capped.output?.findings.map(({ summary }) => summary)).toEqual([
+    expect(Array.map(capped.output?.findings ?? [], ({ summary }) => summary)).toEqual([
       "candidate 1", "candidate 2", "candidate 3",
       "candidate 4", "candidate 5", "candidate 6",
     ])

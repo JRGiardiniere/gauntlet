@@ -58,7 +58,7 @@ export const assembleStageScope = (
       ],
       [
         "CHANGED_FILES",
-        Array.map(target.changedFiles, (file) => `- ${file}`).join("\n"),
+        Array.join(Array.map(target.changedFiles, (file) => `- ${file}`), "\n"),
       ],
       [
         "DIFF_SECTION",

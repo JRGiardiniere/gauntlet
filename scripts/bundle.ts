@@ -10,11 +10,13 @@
 // the loaders resolve against the bundle root.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import * as ChildProcess from "effect/process/ChildProcess"
@@ -74,22 +76,24 @@ const program = Effect.gen(function* () {
 
   // Stage-owned prompt templates (markdown living with its Stage module,
   // e.g. src/stages/judgment/judge.md).
-  const stageTemplateImports = (yield* fs.readDirectory("src", { recursive: true }))
-    .filter((entry) => entry.endsWith(".md"))
-    .map((entry) => `src/${entry}`)
+  const stageTemplateImports = pipe(
+    yield* fs.readDirectory("src", { recursive: true }),
+    Array.filter((entry) => entry.endsWith(".md")),
+    Array.map((entry) => `src/${entry}`),
+  )
 
-  const entrySource = [
+  const entrySource = Array.join([
     // Pi loads OAuth flow modules through variable dynamic imports the
     // bundler cannot follow; a standalone binary registers them statically
     // instead — the same wiring as Pi's own compiled CLI entry.
     `import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth"`,
     `registerBunOAuthFlows()`,
-    ...stageTemplateImports.map((file, index) =>
+    ...Array.map(stageTemplateImports, (file, index) =>
       `import asset${String(index)} from "./${file}" with { type: "file" }`),
-    `export const embeddedStageTemplates = [${stageTemplateImports.map((_, index) => `asset${String(index)}`).join(", ")}]`,
+    `export const embeddedStageTemplates = [${pipe(stageTemplateImports, Array.map((_, index) => `asset${String(index)}`), Array.join(", "))}]`,
     `import "./bin/gauntlet.ts"`,
     "",
-  ].join("\n")
+  ], "\n")
 
   yield* fs.makeDirectory("dist", { recursive: true })
   const compileBase = { outfile, assets: ["content"], autoloadBunfig: false }

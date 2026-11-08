@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { Recipe, type RecipeName, type Seat } from "../domain/recipe.ts"
@@ -22,7 +23,7 @@ const parseFamilyModel = (modelId: string) => {
   const match = familyModel.exec(modelId)
   return match === null
     ? Option.none<{ readonly version: ReadonlyArray<number>; readonly family: string }>()
-    : Option.some({ version: (match[1] ?? "").split(".").map(Number), family: match[2] ?? "" })
+    : Option.some({ version: Array.map((match[1] ?? "").split("."), Number), family: match[2] ?? "" })
 }
 
 const compareVersions = (
@@ -96,7 +97,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
         skipped.push(entry.name)
         continue
       }
-      const upgradedSeats = seatFields.flatMap((field) => {
+      const upgradedSeats = Array.flatMap(seatFields, (field) => {
         const seat = entry.recipe[field]
         const next = seat === undefined ? Option.none() : newerSeat(seat, providerModelIds)
         if (seat === undefined || Option.isNone(next)) return []

@@ -2,6 +2,7 @@ import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
@@ -115,7 +116,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
           )),
     )
     const fileNames = Array.sort(
-      entries.filter((entry) => path.extname(entry) === ".json"),
+      Array.filter(entries, (entry) => path.extname(entry) === ".json"),
       Order.String,
     )
     return yield* Effect.forEach(
@@ -129,9 +130,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
 export const availableRecipeNames = (
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<RecipeName> =>
-  entries.filter((entry) => entry._tag === "ValidRecipe").map(
-    (entry) => entry.name,
-  )
+  pipe(entries, Array.filter((entry) => entry._tag === "ValidRecipe"), Array.map((entry) => entry.name))
 
 // Select one named recipe from an already listed catalog: an absent or
 // invalid recipe fails and names what is available instead. Callers
@@ -210,4 +209,4 @@ export const renderAvailable = (
 ): string =>
   available.length === 0
     ? "; the recipe catalog is empty"
-    : `; available recipes: ${available.join(", ")}`
+    : `; available recipes: ${Array.join(available, ", ")}`

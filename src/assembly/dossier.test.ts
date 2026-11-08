@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import { Candidate } from "../domain/candidate.ts"
 import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
@@ -93,7 +94,7 @@ describe("Dossier Assembly", () => {
       candidate: observation,
       judgment: Judgment.cases.Dropped.make({ reason: "taste, not cost" }),
     }])
-    expect(dossier.coverageGaps.map(({ stage }) => stage)).toEqual([
+    expect(Array.map(dossier.coverageGaps, ({ stage }) => stage)).toEqual([
       "finders",
       "verification",
       "judgment",
@@ -102,7 +103,7 @@ describe("Dossier Assembly", () => {
 
   it("orders the actionable queue by priority and Confirmed before Judgment", () => {
     const priorities = ["P3", "P1", "P2"] as const
-    const bugClaims = priorities.map((reviewPriority, index) => ({
+    const bugClaims = Array.map(priorities, (reviewPriority, index) => ({
       candidate: Candidate.cases.BugClaim.make({
         id: `fixture/claim-${String(index + 1)}`,
         lens: "fixture",
@@ -116,7 +117,7 @@ describe("Dossier Assembly", () => {
         evidence: "reproduced",
       }),
     }))
-    const observations = priorities.map((reviewPriority, index) => ({
+    const observations = Array.map(priorities, (reviewPriority, index) => ({
       candidate: Candidate.cases.Observation.make({
         id: `fixture/observation-${String(index + 1)}`,
         lens: "fixture",
@@ -143,7 +144,7 @@ describe("Dossier Assembly", () => {
       judgmentPath: { observations, coverageGaps: [] },
     })
 
-    expect(dossier.findings.map((entry) => [
+    expect(Array.map(dossier.findings, (entry) => [
       entry._tag,
       entry._tag === "Confirmed"
         ? entry.verdict.reviewPriority

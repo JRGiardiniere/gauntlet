@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
@@ -35,11 +36,8 @@ export const counted =(count: number, singular: string): string =>
 export const cacheShare = (
   usages: ReadonlyArray<Pick<AgentUsage, "input" | "cacheRead" | "cacheWrite">>,
 ): string | undefined => {
-  const read = usages.reduce((total, usage) => total + usage.cacheRead, 0)
-  const prompted = usages.reduce(
-    (total, usage) => total + usage.input + usage.cacheRead + usage.cacheWrite,
-    0,
-  )
+  const read = Array.reduce(usages, 0, (total, usage) => total + usage.cacheRead)
+  const prompted = Array.reduce(usages, 0, (total, usage) => total + usage.input + usage.cacheRead + usage.cacheWrite)
   return prompted === 0
     ? undefined
     : `cache ${String(Math.round((read / prompted) * 100))}%`
@@ -50,12 +48,12 @@ export const invocationTrail = (outcome: {
   readonly usage: AgentUsage
   readonly termination: Termination
 }): string =>
-  [
+  Array.join([
     `${String(Math.round(outcome.durationMillis / 1000))}s`,
     ...(Termination.guards.Completed(outcome.termination)
       ? []
       : [outcome.termination._tag]),
-  ].join(" · ")
+  ], " · ")
 
 export const coverageGapLine = (gap: {
   readonly reason: string

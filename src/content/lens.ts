@@ -4,6 +4,7 @@ import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -38,7 +39,7 @@ export class ContentLoadError extends Data.TaggedError("ContentLoadError")<{
 // bundle root ($bunfs; ~BUN/%7EBUN on Windows) and the shipped content is an
 // embedded asset tree next to the bundled entry, served through ordinary
 // node:fs reads and directory listings (Bun >= 1.4).
-export const isCompiledBinary = ["$bunfs", "~BUN", "%7EBUN"].some((marker) =>
+export const isCompiledBinary = Array.some(["$bunfs", "~BUN", "%7EBUN"], (marker) =>
   import.meta.url.includes(marker))
 
 // The packaged content lives outside src/: next to the bundled entry in a
@@ -138,7 +139,7 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const entries = yield* fs.readDirectory(lensesDirectory).pipe(
+  const entries: ReadonlyArray<string> = yield* fs.readDirectory(lensesDirectory).pipe(
     Effect.catchTag("PlatformError", (failure) =>
       optionalDirectory && Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed([])
@@ -151,9 +152,11 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
         )),
   )
   return Array.sort(
-    entries
-      .filter((entry) => path.extname(entry) === ".md")
-      .map((entry) => path.basename(entry, ".md")),
+    pipe(
+      entries,
+      Array.filter((entry) => path.extname(entry) === ".md"),
+      Array.map((entry) => path.basename(entry, ".md")),
+    ),
     Order.String,
   )
 })

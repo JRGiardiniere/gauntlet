@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import {
@@ -84,7 +85,7 @@ describe("EmitVerdicts contract", () => {
           },
         ],
       })
-      expect(suggested.verdicts.map(({ test_suggestion }) => test_suggestion)).toEqual([
+      expect(Array.map(suggested.verdicts, ({ test_suggestion }) => test_suggestion)).toEqual([
         { tests: ["src/a.test.ts"], reason: "covers the boundary" },
         { tests: [], reason: "" },
         {},

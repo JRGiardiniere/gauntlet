@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -208,7 +209,8 @@ describe("gauntlet review", () => {
       const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
 
-      const stdout = (yield* TestConsole.logLines).join("\n")
+      const logLines = yield* TestConsole.logLines
+      const stdout = Array.join(Array.map(logLines, String), "\n")
       const [tally = ""] = stdout.split("\n")
       expect(tally).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
       expect(tally).toContain("working tree @")
@@ -225,7 +227,8 @@ describe("gauntlet review", () => {
       // An agent asked for a brief gets its instructions from the CLI.
       const asked = yield* runCommand(fixture, ["brief", plan.runId, "fixture-review/2"], makeScripted({ sessions: [] })).effect
       expect(asked).toBe(0)
-      expect((yield* TestConsole.logLines).join("\n")).toContain(
+      const logLinesAfterBrief = yield* TestConsole.logLines
+      expect(Array.join(Array.map(logLinesAfterBrief, String), "\n")).toContain(
         `Write \`${path.join(runDir, "briefs", "fixture-review/2.md")}\``,
       )
 
@@ -293,7 +296,7 @@ describe("gauntlet deliver", () => {
               ? Effect.succeed({ url })
               : TestConsole.logLines.pipe(
                 Effect.flatMap((lines) => {
-                  stdoutAtPost = lines.join("\n")
+                  stdoutAtPost = Array.join(Array.map(lines, String), "\n")
                   return Effect.fail(
                     new GitHubError({ operation: "post", reason: "gh timed out" }),
                   )

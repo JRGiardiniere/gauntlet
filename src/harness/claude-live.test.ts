@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -59,12 +60,12 @@ const scriptedSpawner = (children: Array<Child>, spawned: Array<Spawned>) =>
       if (child === undefined) return yield* Effect.die("no scripted child left")
       spawned.push({
         command: command.command,
-        args: command.args.map(unwrap),
+        args: Array.map(command.args, unwrap),
         cwd: command.options.cwd,
         env: command.options.env === undefined
           ? undefined
           : Object.fromEntries(
-            Object.entries(command.options.env).map(([key, value]) => [key, value === undefined ? undefined : unwrap(value)]),
+            Array.map(Object.entries(command.options.env), ([key, value]) => [key, value === undefined ? undefined : unwrap(value)]),
           ),
         stdin: yield* stdinOf(command),
       })
@@ -127,7 +128,7 @@ const FENCE = [
 ] as const
 
 const hasPair = (args: ReadonlyArray<string>, [flag, value]: readonly [string, string]) =>
-  args.some((arg, at) => arg === flag && args[at + 1] === value)
+  Array.some(args, (arg, at) => arg === flag && args[at + 1] === value)
 
 describe("the Claude Code Host's claude -p adapter", () => {
   it.effect("completes on the result's structured output, counting its tool calls and the turn's cost", () =>
@@ -151,7 +152,7 @@ describe("the Claude Code Host's claude -p adapter", () => {
       const [first, second] = spawned
       expect(second?.stdin).toContain("Call StructuredOutput now")
       const sessionId = first?.args[first.args.indexOf("--session-id") + 1]
-      expect(second?.args).toEqual(first?.args.map((arg) => (arg === "--session-id" ? "--resume" : arg)))
+      expect(second?.args).toEqual(Array.map(first?.args, (arg) => (arg === "--session-id" ? "--resume" : arg)))
       expect(second?.args).toContain(sessionId)
       for (const turn of [first, second]) {
         for (const pair of FENCE) expect(hasPair(turn?.args ?? [], pair)).toBe(true)

@@ -2,6 +2,7 @@ import * as Arr from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
@@ -64,7 +65,7 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     ),
   )
   const briefs = new Map<string, string>()
-  for (const file of listed.filter((name) => name.endsWith(".md")).sort()) {
+  for (const file of Arr.filter(listed, (name) => name.endsWith(".md")).sort()) {
     const text = yield* fs.readFileString(path.join(directory, file)).pipe(
       Effect.mapError(unreadable(`could not read briefs/${file}`)),
     )
@@ -77,11 +78,13 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     plan.target._tag === "WorkingTree" ? [...plan.target.changedFiles, ...plan.target.untrackedFiles] : [],
   )
   const wanted = new Map(
-    [...briefs.values()].flatMap(briefReferences)
-      .filter(({ file, revision }) =>
-        revision !== undefined || (data.sources[file] === undefined && !uncommitted.has(file))
-      )
-      .map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
+    pipe(
+      [...briefs.values()],
+      Arr.flatMap(briefReferences),
+      Arr.filter(({ file, revision }) =>
+          revision !== undefined || (data.sources[file] === undefined && !uncommitted.has(file))),
+      Arr.map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
+    ),
   )
   const read = yield* Effect.forEach(wanted, ([key, { file, revision }]) =>
     runGit(dossier.target.repoRoot, ["show", `${revision ?? dossier.target.headCommit}:${file}`]).pipe(

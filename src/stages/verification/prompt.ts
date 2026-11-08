@@ -1,5 +1,6 @@
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
 import * as Result from "effect/Result"
 import { formatCandidateLine } from "../../content/candidate-line.ts"
@@ -50,15 +51,20 @@ const verifierClaims = (
   const byIndex = HashMap.fromIterable(
     Array.map(claims, (claim) => [claim.index, claim] as const),
   )
-  return bundle.map((cluster) => {
-    const members = Array.filterMap(cluster.indexes, (index) =>
-      Result.fromOption(HashMap.get(byIndex, index), () => undefined))
-      .map((claim) =>
-        formatCandidateLine(claim).split("\n").map((line) => `  ${line}`).join("\n")
+  return pipe(
+    bundle,
+    Array.map((cluster) => {
+      const members = pipe(
+        Array.filterMap(cluster.indexes, (index) =>
+          Result.fromOption(HashMap.get(byIndex, index), () => undefined)),
+        Array.map((claim) =>
+          pipe(formatCandidateLine(claim).split("\n"), Array.map((line) => `  ${line}`), Array.join("\n"))),
+        Array.join("\n"),
       )
-      .join("\n")
-    return `### [c${String(cluster.number)}] ${cluster.summary}\n${members}`
-  }).join("\n\n")
+      return `### [c${String(cluster.number)}] ${cluster.summary}\n${members}`
+    }),
+    Array.join("\n\n"),
+  )
 }
 
 export const assembleVerifierPrompt = (

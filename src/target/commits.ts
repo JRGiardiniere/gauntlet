@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
@@ -56,7 +57,7 @@ export const resolveCommitsTarget = Effect.fn(
         headCommit,
       ]).pipe(
         explainGit(`could not list changed files for ${spec}`),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-tree", "-r", "-z", headCommit]).pipe(
         explainGit(`could not list the tree of ${spec}`),
@@ -72,7 +73,7 @@ export const resolveCommitsTarget = Effect.fn(
         "-z",
       ]).pipe(
         explainGit("could not inspect the working tree"),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
     ],
     { concurrency: 2 },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -22,7 +23,7 @@ const relatedTo = (
     }
     yield* commitAll(repo, "fixture")
     const { related } = yield* gatherRelatedFiles(repo, changed)
-    return related.map(({ file }) => file)
+    return Array.map(related, ({ file }) => file)
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
 describe("gatherRelatedFiles", () => {
@@ -80,8 +81,8 @@ describe("gatherRelatedFiles", () => {
     Effect.gen(function* () {
       const related = yield* relatedTo({
         "app/main.py": "from models.user import load\nfrom models.account import open\n",
-        ...Object.fromEntries(["a", "b", "c", "d"].map((dir) => [`${dir}/models/user.py`, "x = 1\n"])),
-        ...Object.fromEntries(["a", "b", "c"].map((dir) => [`${dir}/models/account.py`, "x = 1\n"])),
+        ...Object.fromEntries(Array.map(["a", "b", "c", "d"], (dir) => [`${dir}/models/user.py`, "x = 1\n"])),
+        ...Object.fromEntries(Array.map(["a", "b", "c"], (dir) => [`${dir}/models/account.py`, "x = 1\n"])),
       }, ["app/main.py"])
       expect(related).toEqual(["a/models/account.py", "b/models/account.py", "c/models/account.py"])
     }))
@@ -96,7 +97,7 @@ describe("gatherRelatedFiles", () => {
         "w.ts": filler,
         // Linked to both touched files, so ranked ahead of the other referrers.
         "e.ts": `import "./hub.ts"\nimport "./other.ts"\n${filler}`,
-        ...Object.fromEntries(["a", "b", "c"].map((name) => [`${name}.ts`, `import "./hub.ts"\n${filler}`])),
+        ...Object.fromEntries(Array.map(["a", "b", "c"], (name) => [`${name}.ts`, `import "./hub.ts"\n${filler}`])),
         // Smaller, so ranked ahead of the same-linked referrers.
         "d.ts": `import "./hub.ts"\n${"x".repeat(20_000)}`,
         // Over a quarter of the budget: skipped, and the fill goes on.

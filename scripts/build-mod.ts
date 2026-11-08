@@ -19,6 +19,7 @@
 // import.meta.url (Claude Code's mod loader gives modules no dirname).
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
@@ -138,7 +139,7 @@ const program = Effect.gen(function* () {
   })
   if (!built.success) return yield* new ModBuildFailed({ step: plugin.name, cause: built.logs })
   if (refused.length > 0) {
-    return yield* new ModBuildFailed({ step: plugin.name, cause: `imports that cannot run in the mod: ${refused.join(", ")}` })
+    return yield* new ModBuildFailed({ step: plugin.name, cause: `imports that cannot run in the mod: ${Array.join(refused, ", ")}` })
   }
   yield* fs.makeDirectory(`${staging}/.claude-plugin`, { recursive: true })
   yield* fs.makeDirectory(`${staging}/types`, { recursive: true })
@@ -153,7 +154,7 @@ const program = Effect.gen(function* () {
   )
   // The content the bundle reads, where its rewritten paths look.
   yield* fs.copy(`${root}/content`, `${staging}/hooks/vendor/content`)
-  for (const template of (yield* fs.readDirectory(`${root}/src`, { recursive: true })).filter((entry) => entry.endsWith(".md"))) {
+  for (const template of Array.filter((yield* fs.readDirectory(`${root}/src`, { recursive: true })), (entry) => entry.endsWith(".md"))) {
     yield* fs.makeDirectory(path.dirname(`${staging}/hooks/vendor/src/${template}`), { recursive: true })
     yield* fs.copyFile(`${root}/src/${template}`, `${staging}/hooks/vendor/src/${template}`)
   }

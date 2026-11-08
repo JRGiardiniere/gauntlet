@@ -1,6 +1,7 @@
 // The pieces every page block is drawn from: inline prose, the evidence
 // frame, and an excerpt of reviewed lines with its pinned marks.
 import MarkdownIt from "markdown-it"
+import * as Array from "effect/Array"
 import { escapeHtml, lineHighlighter } from "./code-text.ts"
 import { shortCommit } from "./target-text.ts"
 
@@ -31,7 +32,7 @@ export const frame = (head: string, body: string, caption?: string) =>
   }</figure>`
 
 export const code = (rows: ReadonlyArray<string>, kind = "") =>
-  `<div class="code${kind}"><div class="code-inner">${rows.join("")}</div></div>`
+  `<div class="code${kind}"><div class="code-inner">${Array.join(rows, "")}</div></div>`
 
 export const CONTEXT = 6
 

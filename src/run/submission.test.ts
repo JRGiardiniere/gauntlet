@@ -1,8 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
@@ -118,7 +120,7 @@ describe("submission", () => {
       const { plan, raw } = yield* persistedPlan(fixture, loaded.plan.runId)
       expect(plan).toEqual(loaded.plan)
       expect(loaded.plan.recipeName).toBe("fixture-recipe")
-      expect(loaded.plan.lenses.map(({ name, seat }) => ({ name, seat })))
+      expect(Array.map(loaded.plan.lenses, ({ name, seat }) => ({ name, seat })))
         .toEqual([{ name: "fixture-review", seat: FIXTURE_SEAT }])
 
       expect(ReviewTarget.guards.WorkingTree(loaded.plan.target)).toBe(true)
@@ -148,9 +150,8 @@ describe("submission", () => {
         ? encoded["lenses"]
         : []
       expect(
-        encodedLenses.some((lens) =>
-          Predicate.isObject(lens) && "finderClass" in lens
-        ),
+        Array.some(encodedLenses, (lens) =>
+          Predicate.isObject(lens) && "finderClass" in lens),
       ).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -270,17 +271,17 @@ describe("submission", () => {
         addendum: undefined,
       })
 
-      expect(loaded.plan.lenses.map((lens) => lens.name)).toEqual([
+      expect(Array.map(loaded.plan.lenses, (lens) => lens.name)).toEqual([
         "fixture-review",
         "fixture-local",
       ])
       const seatByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.seat]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.seat]),
       )
       expect(seatByLens.get("fixture-review")).toBe(FIXTURE_SEAT)
       expect(seatByLens.get("fixture-local")).toBe("fixture/local-model:medium")
       const classByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.finderClass]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.finderClass]),
       )
       expect(classByLens.get("fixture-review")).toBeUndefined()
       expect(classByLens.get("fixture-local")).toBe("interpretive")
@@ -302,7 +303,7 @@ describe("submission", () => {
           addendum: undefined,
         },
       )
-      expect(loaded.plan.lenses.map(({ name }) => name)).toEqual([
+      expect(Array.map(loaded.plan.lenses, ({ name }) => name)).toEqual([
         "fixture-review",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
@@ -381,7 +382,7 @@ describe("submission", () => {
         judgment: "fixture/judge-model:low",
       })
       const seatByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.seat]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.seat]),
       )
       expect(seatByLens.get("fixture-review")).toBe("fixture/finder-model:low")
       expect(seatByLens.get("fixture-interpretive")).toBe(
@@ -433,7 +434,7 @@ describe("submission", () => {
 
       const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
       expect(plan).toEqual(loaded.plan)
-      expect(plan.specification?.documents.map(({ text }) => text))
+      expect(Array.map(plan.specification?.documents ?? [], ({ text }) => text))
         .toContain("LINEAR-SLICE-BODY")
       expect(plan.specification?.comments.length).toBeGreaterThan(0)
       expect(plan.specificationSourceDiagnostic).toBeUndefined()
@@ -484,7 +485,7 @@ describe("submission", () => {
       )
       const fallbackPlan =
         (yield* persistedPlan(fixture, fallback.plan.runId)).plan
-      expect(fallbackPlan.specification?.documents.map(({ text }) => text))
+      expect(Array.map(fallbackPlan.specification?.documents ?? [], ({ text }) => text))
         .toContain("GITHUB-SLICE-BODY")
       expect(fallbackPlan.specificationSourceDiagnostic?.reason).toBe(
         "missing-api-key",
@@ -535,14 +536,16 @@ describe("submission", () => {
 
       expect(linearCalls).toBe(0)
       const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
-      expect(plan.specification?.documents.map(({ role }) => role)).toEqual([
+      expect(Array.map(plan.specification?.documents ?? [], ({ role }) => role)).toEqual([
         "parent",
         "slice",
         "caller-addendum",
       ])
-      const specification = plan.specification?.documents
-        .map(({ text }) => text)
-        .join("\n") ?? ""
+      const specification = pipe(
+        plan.specification?.documents ?? [],
+        Array.map(({ text }) => text),
+        Array.join("\n"),
+      )
       expect(specification).not.toContain("LINEAR-SLICE-BODY")
       expect(specification).toContain("ADDENDUM-REQUIREMENT: keep the caller note")
       expect(plan.specification?.commentOmission).toBeDefined()
@@ -638,7 +641,7 @@ describe("submission", () => {
       )
 
       const promptByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.promptText]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.promptText]),
       )
       const standardsPrompt = promptByLens.get("standards") ?? ""
       expect(standardsPrompt).toContain("standards fixture tail")
@@ -713,7 +716,7 @@ const writeStandardsManifest = (
     const path = yield* Path.Path
     const manifest = yield* standardsManifestPath(fixture.repo)
     yield* fs.makeDirectory(path.dirname(manifest), { recursive: true })
-    yield* fs.writeFileString(manifest, `${entries.join("\n")}\n`)
+    yield* fs.writeFileString(manifest, `${Array.join(entries, "\n")}\n`)
   }).pipe(
     Effect.provide(
       Layer.mergeAll(

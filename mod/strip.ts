@@ -10,6 +10,8 @@
 // wrapped: posting, then where it landed or why it did not. Counts come from
 // the Run's milestones and the invocations' activity (mod/activity.ts), never
 // from progress text; no dollar or cache figure shows.
+import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
 import type { AgentActivity } from "./activity.ts"
 import { type MarkState, type TrackStage, trackSvg } from "./strip-svg.ts"
@@ -128,7 +130,7 @@ export const stageOf = (invocationId: string): { readonly stage: Stage; readonly
 const hasEnded = (state: AgentActivity["state"]) => state === "answered" || state === "failed" || state === "stopped"
 
 const stageRuns = (view: RunView, stage: Stage) =>
-  view.activity.filter((each) => stageOf(each.invocationId)?.stage === stage)
+  Array.filter(view.activity, (each) => stageOf(each.invocationId)?.stage === stage)
 
 // A stage has started once one of its agents opened, and finished once every
 // one has ended. The Finders finish with their stage, whether or not one
@@ -136,7 +138,7 @@ const stageRuns = (view: RunView, stage: Stage) =>
 const stageState = (view: RunView, stage: Stage) => {
   const ran = stageRuns(view, stage)
   const started = ran.length > 0
-  const ended = ran.every((each) => hasEnded(each.state))
+  const ended = Array.every(ran, (each) => hasEnded(each.state))
   const finished = stage === "Finders"
     ? ended && (view.findersFinished || view.exitCode !== undefined)
     : started && ended
@@ -151,7 +153,7 @@ const clock = (millis: number) => {
 const plural = (count: number, one: string, many: string) => `${String(count)} ${count === 1 ? one : many}`
 
 // The Finders' candidates so far.
-const leads = (view: RunView) => stageRuns(view, "Finders").reduce((sum, each) => sum + (each.items ?? 0), 0)
+const leads = (view: RunView) => Array.reduce(stageRuns(view, "Finders"), 0, (sum, each) => sum + (each.items ?? 0))
 
 const markOf = (state: AgentActivity["state"] | undefined): MarkState =>
   state === undefined || state === "opening" ? "waiting" : state === "stopped" ? "failed" : state
@@ -163,13 +165,13 @@ const markOrder = (state: MarkState) => (state === "answered" || state === "fail
 // as one to start, by its latest attempt once it has one; a skipped lens never
 // runs, so it is drawn after the rest.
 const stageMarks = (view: RunView): ReadonlyArray<TrackStage> =>
-  STAGES.map((stage) => {
+  Array.map(STAGES, (stage) => {
     const ran = stageRuns(view, stage)
     const states = stage === "Finders"
-      ? view.lenses.map((lens) => ran.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state)
-      : ran.map((each) => each.state)
-    const marks = states.map(markOf).sort((a, b) => markOrder(a) - markOrder(b))
-    const notRun: ReadonlyArray<MarkState> = stage === "Finders" ? view.skipped.map(() => "skipped") : []
+      ? Array.map(view.lenses, (lens) => ran.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state)
+      : Array.map(ran, (each) => each.state)
+    const marks = Array.map(states, markOf).sort((a, b) => markOrder(a) - markOrder(b))
+    const notRun: ReadonlyArray<MarkState> = stage === "Finders" ? Array.map(view.skipped, () => "skipped") : []
     return { name: SHORT[stage], color: STAGE_COLOR[stage], ...stageState(view, stage), marks: [...marks, ...notRun] }
   })
 
@@ -181,7 +183,7 @@ export const doing = (view: RunView): string => {
     if (finders.length === 1 && !hasEnded(finders[0]?.state ?? "opening")) return "Sending the first finder to set the cache"
     // A lens whose Finder has not opened yet is still to look; a retried
     // Finder counts by its latest attempt.
-    const ended = view.lenses.filter((lens) => {
+    const ended = Array.filter(view.lenses, (lens) => {
       const state = finders.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state
       return state !== undefined && hasEnded(state)
     }).length
@@ -198,10 +200,10 @@ export const doing = (view: RunView): string => {
   const grouped = view.routed !== undefined &&
     ((claims === 0 && notes === 0) || pool.finished || verification.started || judgment.started)
   if (!grouped) {
-    return [
+    return Array.join([
       ...(claims === 0 ? [] : [`Grouping ${plural(claims, "possible bug", "possible bugs")} for checking`]),
       ...(notes === 0 ? [] : [`${plural(notes, "note", "notes")} to weigh`]),
-    ].join(" · ") || "Grouping the leads"
+    ], " · ") || "Grouping the leads"
   }
   const weighing = notes > 0 && !judgment.finished
   if (claims > 0 && !verification.finished) {
@@ -216,9 +218,12 @@ export const doing = (view: RunView): string => {
 const gapText = (gaps: NonNullable<RunView["result"]>["coverageGaps"]) => {
   const counts = new Map<string, number>()
   for (const gap of gaps) counts.set(gap.stage, (counts.get(gap.stage) ?? 0) + 1)
-  return [...counts].map(([stage, count]) =>
-    stage === "finders" ? `${plural(count, "finder", "finders")} failed` : plural(count, `${stage} gap`, `${stage} gaps`)
-  ).join(" · ")
+  return pipe(
+    [...counts],
+    Array.map(([stage, count]) =>
+      stage === "finders" ? `${plural(count, "finder", "finders")} failed` : plural(count, `${stage} gap`, `${stage} gaps`)),
+    Array.join(" · "),
+  )
 }
 
 interface Tally {
@@ -247,10 +252,10 @@ const stripState = (view: RunView, actions: StripActions): StripState => {
     const { coverageGaps, dossierMarkdown, entries } = view.result
     const tallies: Array<Tally> = []
     for (const priority of ["P1", "P2", "P3"] as const) {
-      const count = entries.filter((entry) => entry.reviewPriority === priority).length
+      const count = Array.filter(entries, (entry) => entry.reviewPriority === priority).length
       if (count > 0) tallies.push({ text: `${priority} ${String(count)}`, kind: priority })
     }
-    const unranked = entries.filter((entry) => entry.reviewPriority === undefined).length
+    const unranked = Array.filter(entries, (entry) => entry.reviewPriority === undefined).length
     if (unranked > 0) tallies.push({ text: `${String(unranked)} unranked`, kind: "unranked" })
     if (entries.length === 0) tallies.push({ text: "no findings", kind: "clean" })
     const found = plural(entries.length, "finding", "findings")
@@ -283,7 +288,7 @@ const stripState = (view: RunView, actions: StripActions): StripState => {
   return {
     tallies: [],
     verdict: undefined,
-    status: view.skipped.length === 0 ? brief : `${brief} · not run: ${view.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`,
+    status: view.skipped.length === 0 ? brief : `${brief} · not run: ${pipe(view.skipped, Array.map(({ lens, reason }) => `${lens} (${reason})`), Array.join(", "))}`,
     brief,
     gaps: "",
     buttons: [{ key: "stop", label: "Stop", hotkey: "s", onPress: actions.stop }],
@@ -299,7 +304,7 @@ const postLine = <N>(view: RunView, el: PaneElements<N>) =>
 const terminalStrip = <N>(view: RunView, el: PaneElements<N>, width: number | string, now: number, state: StripState): N => {
   const { Box, Text } = el
   const cells: Array<N> = [Text({ color: "#d7875f", bold: true, children: "◆ Gauntlet  " })]
-  state.tallies.forEach((tally, at) => {
+  Array.forEach(state.tallies, (tally, at) => {
     if (at > 0) cells.push(Text({ dimColor: true, children: " · " }))
     cells.push(Text({ ...TALLY[tally.kind].terminal, children: tally.text }))
   })
@@ -321,10 +326,10 @@ const terminalStrip = <N>(view: RunView, el: PaneElements<N>, width: number | st
           return Text({ dimColor: true, children: "○" })
       }
     }
-    stageMarks(view).forEach(({ color, finished, marks, name, started }, at) => {
+    Array.forEach(stageMarks(view), ({ color, finished, marks, name, started }, at) => {
       if (at > 0) cells.push(Text({ children: "  " }))
       cells.push(Text(started ? { color, bold: !finished, children: `${name} ` } : { dimColor: true, children: `${name} ` }))
-      cells.push(...(marks.length === 0 ? [Text({ dimColor: true, children: "○" })] : marks.map((mark) => glyph(mark, color))))
+      cells.push(...(marks.length === 0 ? [Text({ dimColor: true, children: "○" })] : Array.map(marks, (mark) => glyph(mark, color))))
     })
   }
   return Box({
@@ -335,7 +340,7 @@ const terminalStrip = <N>(view: RunView, el: PaneElements<N>, width: number | st
         flexDirection: "row",
         width,
         alignItems: "center",
-        children: [Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", children: cells }), ...state.buttons.map(el.Button)],
+        children: [Box({ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", alignItems: "center", children: cells }), ...Array.map(state.buttons, el.Button)],
       }),
       Box({
         flexDirection: "row",
@@ -358,7 +363,7 @@ const terminalStrip = <N>(view: RunView, el: PaneElements<N>, width: number | st
 const drawnStrip = <N>(view: RunView, el: PaneElements<N>, svg: (props: StripSvg) => N, now: number, state: StripState): N => {
   const { Box, Text } = el
   const age = { now, seconds: Math.max(0, ((view.endedAt ?? now) - view.startedAt) / 1000), running: view.exitCode === undefined }
-  const pills = state.tallies.map((tally) => ({ text: tally.text, color: TALLY[tally.kind].pill }))
+  const pills = Array.map(state.tallies, (tally) => ({ text: tally.text, color: TALLY[tally.kind].pill }))
   return Box({
     flexDirection: "column",
     width: "100%",
@@ -382,7 +387,7 @@ const drawnStrip = <N>(view: RunView, el: PaneElements<N>, svg: (props: StripSvg
               ...(state.gaps === "" ? [] : [Text({ color: "yellow", wrap: "truncate-end", children: ` · ${state.gaps}` })]),
             ],
           }),
-          ...state.buttons.map(el.Button),
+          ...Array.map(state.buttons, el.Button),
         ],
       }),
       // An image, not a frame: a frame blanks while each redraw's copy loads.

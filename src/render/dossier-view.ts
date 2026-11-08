@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import {
   type BugClaimCluster,
   projectBugClaimCluster,
@@ -57,7 +58,7 @@ const claimEntry = (
 }
 
 export const viewDossier = (dossier: Dossier): DossierView => ({
-  findings: dossier.findings.map((entry) =>
+  findings: Array.map(dossier.findings, (entry) =>
     DossierFinding.guards.Confirmed(entry)
       ? claimEntry(
         entry,
@@ -71,9 +72,8 @@ export const viewDossier = (dossier: Dossier): DossierView => ({
         tag: "judgment",
         reviewPriority: entry.judgment.reviewPriority,
         detail: entry.judgment.reason,
-      }
-  ),
-  unresolved: dossier.unresolved.map((entry) =>
+      }),
+  unresolved: Array.map(dossier.unresolved, (entry) =>
     DossierUnresolved.guards.Plausible(entry)
       ? claimEntry(
         entry,
@@ -85,12 +85,10 @@ export const viewDossier = (dossier: Dossier): DossierView => ({
         candidate: entry.candidate,
         lenses: [entry.candidate.lens],
         tag: "undecided",
-      }
-  ),
-  refutedClaims: dossier.rejected.refutedClaims.map((entry) =>
-    claimEntry(entry, "refuted", undefined, entry.verdict.evidence)
-  ),
-  droppedObservations: dossier.rejected.droppedObservations.map((entry) => ({
+      }),
+  refutedClaims: Array.map(dossier.rejected.refutedClaims, (entry) =>
+    claimEntry(entry, "refuted", undefined, entry.verdict.evidence)),
+  droppedObservations: Array.map(dossier.rejected.droppedObservations, (entry) => ({
     candidate: entry.candidate,
     lenses: [entry.candidate.lens],
     tag: "dropped",

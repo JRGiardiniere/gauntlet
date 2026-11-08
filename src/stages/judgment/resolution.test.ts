@@ -39,7 +39,7 @@ const merge = (index: number, into: number) => ({
 const accountedIds = (
   resolved: ReturnType<typeof resolveJudgment>["observations"],
 ) =>
-  resolved.flatMap(({ candidate, judgment }) => [
+  Array.flatMap(resolved, ({ candidate, judgment }) => [
     candidate.id,
     ...(Judgment.guards.Kept(judgment)
       ? judgment.mergedCandidateIds
@@ -50,7 +50,7 @@ const expectFullAccounting = (
   resolved: ReturnType<typeof resolveJudgment>,
 ) => {
   expect(accountedIds(resolved.observations).sort()).toEqual(
-    observations.map(({ candidate }) => candidate.id).sort(),
+    Array.map(observations, ({ candidate }) => candidate.id).sort(),
   )
 }
 
@@ -60,7 +60,7 @@ describe("Judgment resolution and Assembly accounting", () => {
       decisions: [merge(2, 1), keep(1), drop(3), merge(4, 1)],
     })
 
-    expect(resolved.observations.map(({ candidate }) => candidate.id)).toEqual([
+    expect(Array.map(resolved.observations, ({ candidate }) => candidate.id)).toEqual([
       "fixture/1",
       "fixture/3",
     ])
@@ -89,7 +89,7 @@ describe("Judgment resolution and Assembly accounting", () => {
       decisions: [merge(1, 1), merge(2, 998), merge(3, 1), keep(4), keep(999)],
     })
 
-    expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
+    expect(Array.map(resolved.observations, ({ judgment }) => judgment._tag)).toEqual([
       "Undecided",
       "Undecided",
       "Undecided",
@@ -109,7 +109,7 @@ describe("Judgment resolution and Assembly accounting", () => {
       decisions: [keep(1), merge(1, 3), drop(2), keep(3), merge(4, 1)],
     })
 
-    expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
+    expect(Array.map(resolved.observations, ({ judgment }) => judgment._tag)).toEqual([
       "Undecided",
       "Dropped",
       "Kept",
@@ -127,7 +127,7 @@ describe("Judgment resolution and Assembly accounting", () => {
       decisions: [keep(1), merge(2, 1), drop(3)],
     })
 
-    expect(resolved.observations.map(({ judgment }) => judgment._tag)).toEqual([
+    expect(Array.map(resolved.observations, ({ judgment }) => judgment._tag)).toEqual([
       "Kept",
       "Dropped",
       "Undecided",

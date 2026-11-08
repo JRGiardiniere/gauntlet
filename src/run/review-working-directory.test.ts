@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -36,7 +37,7 @@ const freezeOverlay = Effect.fn("test.freeze_overlay")(function* (
 })
 
 const worktreeCount = (porcelain: string): number =>
-  porcelain.split("\n").filter((line) => line.startsWith("worktree ")).length
+  Array.filter(porcelain.split("\n"), (line) => line.startsWith("worktree ")).length
 
 const countWorktrees = (repo: string) =>
   runGit(repo, ["worktree", "list", "--porcelain"]).pipe(
@@ -112,9 +113,8 @@ describe("PR review working directory", () => {
       expect(yield* countWorktrees(repo)).toBe(1)
       // A Host that loses the Run removes the one directory reported, which
       // holds the snapshot; the Run removed it as it ended.
-      const [made, ...others] = reported.flatMap((milestone) =>
-        milestone._tag === "SnapshotDirectoryMade" ? [milestone.directory] : []
-      )
+      const [made, ...others] = Array.flatMap(reported, (milestone) =>
+        milestone._tag === "SnapshotDirectoryMade" ? [milestone.directory] : [])
       expect(others).toEqual([])
       expect(reviewDirectory.startsWith(`${made}${path.sep}`)).toBe(true)
       expect(yield* fs.exists(made)).toBe(false)
@@ -152,7 +152,8 @@ describe("PR review working directory", () => {
       )
 
       expect(result).toBe("reviewed")
-      expect((yield* TestConsole.errorLines).join("\n")).toContain(
+      const errorLines = yield* TestConsole.errorLines
+      expect(Array.join(Array.map(errorLines, String), "\n")).toContain(
         "gauntlet: warning — could not remove the review worktree",
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
@@ -245,7 +246,8 @@ describe("working-tree review working directory", () => {
           expect(yield* fs.readFileString(inSnapshot("new-name.txt"))).toBe(
             "renamed content\n",
           )
-          expect(Array.from(yield* fs.readFile(inSnapshot("bin.dat")))).toEqual(
+          const snapshotBytes = yield* fs.readFile(inSnapshot("bin.dat"))
+          expect(Array.fromIterable(snapshotBytes)).toEqual(
             [9, 8, 7, 0],
           )
           const script = yield* fs.stat(inSnapshot("script.sh"))

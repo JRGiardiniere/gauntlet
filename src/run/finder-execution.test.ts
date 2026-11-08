@@ -1,9 +1,11 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
@@ -198,7 +200,7 @@ describe("Finder stage interface", () => {
       expect(touched).toContain("ADDED-BODY")
       expect(touched).not.toContain("### gone.ts")
       expect(touched).not.toContain("### locked.ts")
-      expect([...related.matchAll(/^### (\S+)$/gm)].map(([, file]) => file))
+      expect(Array.map([...related.matchAll(/^### (\S+)$/gm)], ([, file]) => file))
         .toEqual(["added-dep.ts", "helper.ts", "touched.test.ts", "uses-gone.ts"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -228,16 +230,14 @@ describe("Finder stage interface", () => {
       const result = yield* fixture.effect
 
       expect(result.finders).toHaveLength(5)
-      expect(new Set(scripted.configs.map(({ cacheGroupId }) => cacheGroupId)).size).toBe(3)
+      expect(new Set(Array.map(scripted.configs, ({ cacheGroupId }) => cacheGroupId)).size).toBe(3)
       for (const selectedLens of fixture.plan.lenses) {
         const prompt = scripted.prompts.find(({ invocationId }) =>
           invocationId.endsWith(`-finder-${selectedLens.name}`))
         expect(prompt?.text.endsWith(`\n\n${selectedLens.promptText}`)).toBe(true)
       }
       for (const suffix of ["-finders-1", "-finders-2"]) {
-        const configs = scripted.configs.filter(
-          ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false,
-        )
+        const configs = Array.filter(scripted.configs, ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false)
         expect(configs).toHaveLength(2)
         expect(configs[1]?.systemPrompt).toBe(configs[0]?.systemPrompt)
         expect(configs[1]?.tools).toEqual(configs[0]?.tools)
@@ -250,9 +250,11 @@ describe("Finder stage interface", () => {
       // The shared block lives in the system prompt (provider instructions);
       // the user message is only the lens tail.
       const systemPromptFor = (fragment: string) =>
-        scripted.prompts
-          .filter(({ invocationId }) => invocationId.includes(fragment))
-          .map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt)
+        pipe(
+          scripted.prompts,
+          Array.filter(({ invocationId }) => invocationId.includes(fragment)),
+          Array.map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt),
+        )
       const standardSystemPrompts = systemPromptFor("standard-")
       const interpretiveSystemPrompts = systemPromptFor("interpretive-")
       expect(standardSystemPrompts).toHaveLength(2)
@@ -278,7 +280,7 @@ describe("Finder stage interface", () => {
           Schema.decodeEffect(Schema.fromJsonString(FinderStageArtifact)),
         ),
       )
-      expect(artifact.finders.map(({ invocationKey }) => invocationKey)).toEqual([
+      expect(Array.map(artifact.finders, ({ invocationKey }) => invocationKey)).toEqual([
         "finder-standard-one",
         "finder-standard-two",
         "finder-interpretive-one",

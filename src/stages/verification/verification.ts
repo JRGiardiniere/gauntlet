@@ -116,12 +116,10 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   for (const gap of resolved.coverageGaps) {
     yield* runProgress(coverageGapLine(gap))
   }
-  const verdicts = clusterEvaluatedBugClaims(resolved.bugClaims).map(
-    ({ verdict }) => verdict,
-  )
-  const confirmed = verdicts.filter(Verdict.guards.Confirmed).length
-  const refuted = verdicts.filter(Verdict.guards.Refuted).length
-  const plausible = verdicts.filter(Verdict.guards.Plausible).length
+  const verdicts = Array.map(clusterEvaluatedBugClaims(resolved.bugClaims), ({ verdict }) => verdict)
+  const confirmed = Array.filter(verdicts, Verdict.guards.Confirmed).length
+  const refuted = Array.filter(verdicts, Verdict.guards.Refuted).length
+  const plausible = Array.filter(verdicts, Verdict.guards.Plausible).length
   yield* runProgress(
     `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(plausible)} plausible · ${String(yield* wallSeconds(verificationStartedAt))}s`,
   )

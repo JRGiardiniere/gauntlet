@@ -1,8 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import type { ReadToolInput } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Path from "effect/Path"
 import { withToolCallDeadline } from "../harness/tool-deadline.ts"
 import { chompLine, runGit } from "../target/git.ts"
@@ -55,13 +57,14 @@ const asOutcome = (promise: Promise<WorkspaceToolResult>) =>
   promise.then(
     (result) => ({
       isError: false,
-      text: result.content
-        .flatMap((entry) =>
-          entry.type === "text" && entry.text !== undefined
-            ? [entry.text]
-            : [],
-        )
-        .join("\n"),
+      text: pipe(
+        result.content,
+        Array.flatMap((entry) =>
+            entry.type === "text" && entry.text !== undefined
+              ? [entry.text]
+              : []),
+        Array.join("\n"),
+      ),
     }),
     (cause: unknown) => ({
       isError: true,
@@ -241,7 +244,7 @@ describe("ReviewWorkspace", () => {
       // Image reads keep Pi's attachment contract through the overlay.
       const image = yield* Effect.promise(() =>
         callOnSeam(workspace.readTool, { path: "data/pixel.png" })
-          .then((result) => result.content.map((entry) => entry.type)),
+          .then((result) => Array.map(result.content, (entry) => entry.type)),
       )
       expect(image).toEqual(["text", "image"])
     }).pipe(Effect.scoped, Effect.provide(layer)))

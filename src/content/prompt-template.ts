@@ -54,7 +54,7 @@ export const renderPromptTemplate = Effect.fn(
     })
   }
   parts.push(template.slice(cursor))
-  return parts.join("").trimEnd()
+  return Array.join(parts, "").trimEnd()
 })
 
 // The host's own tool wording, filled into a template's {{WORKSPACE_TOOLS}}.

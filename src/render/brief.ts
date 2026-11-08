@@ -11,6 +11,7 @@
 //
 // A first-level heading is the brief's takeaway. Raw HTML stays text.
 import MarkdownIt from "markdown-it"
+import * as Array from "effect/Array"
 import { escapeHtml, lineHighlighter } from "./code-text.ts"
 import { code, excerpt, frame, markdown } from "./page-frames.ts"
 
@@ -30,11 +31,11 @@ const CODE_FENCE =
   /^code\s+(\S+?):(\d+)(?:[-–](\d+))?(?:\s+@([0-9A-Za-z._/~^-]+))?(?:\s+mark=([\d,\s-]+))?\s*$/
 
 const lineNumbers = (spec: string): ReadonlyArray<number> =>
-  spec.split(",").flatMap((part) => {
-    const [from, to] = part.trim().split("-").map(Number)
+  Array.flatMap(spec.split(","), (part) => {
+    const [from, to] = Array.map(part.trim().split("-"), Number)
     if (from === undefined || Number.isNaN(from)) return []
     const last = to === undefined || Number.isNaN(to) ? from : to
-    return Array.from({ length: Math.max(0, last - from + 1) }, (_, i) => from + i)
+    return globalThis.Array.from({ length: Math.max(0, last - from + 1) }, (_, i) => from + i)
   })
 
 const codeReference = (info: string): CodeReference | undefined => {
@@ -52,11 +53,11 @@ const codeReference = (info: string): CodeReference | undefined => {
 }
 
 const fences = (text: string) =>
-  markdown.parse(text, {}).filter((token) => token.type === "fence")
+  Array.filter(markdown.parse(text, {}), (token) => token.type === "fence")
 
 // The code a brief shows, for its caller to read before drawing it.
 export const briefReferences = (text: string): ReadonlyArray<CodeReference> =>
-  fences(text).flatMap((token) => {
+  Array.flatMap(fences(text), (token) => {
     const reference = codeReference(token.info)
     return reference === undefined ? [] : [reference]
   })
@@ -71,8 +72,8 @@ export interface RenderedBrief {
 
 const sketch = (body: string) => {
   const lines = body.replace(/\n$/, "").split("\n")
-  const change = lines.some((line) => /^[+-]/.test(line))
-  const rows = lines.map((line) => {
+  const change = Array.some(lines, (line) => /^[+-]/.test(line))
+  const rows = Array.map(lines, (line) => {
     const kind = !change ? "" : line.startsWith("+") ? " add" : line.startsWith("-") ? " del" : " ctx"
     // A context line keeps its first character unless it is the space
     // that lines it up with the signs.
@@ -89,9 +90,8 @@ const sketch = (body: string) => {
 
 const illustration = (language: string, body: string) => {
   const highlight = lineHighlighter(`illustration.${language || "txt"}`)
-  const rows = body.replace(/\n$/, "").split("\n").map((line) =>
-    `<div class="row"><span class="src">${highlight(line) || " "}</span></div>`
-  )
+  const rows = Array.map(body.replace(/\n$/, "").split("\n"), (line) =>
+    `<div class="row"><span class="src">${highlight(line) || " "}</span></div>`)
   return frame(
     `<span class="ev-kind">Illustration</span><span class="ev-rev">not from the repository</span>`,
     code(rows, " snippet"),

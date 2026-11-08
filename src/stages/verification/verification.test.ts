@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import { Candidate } from "../../domain/candidate.ts"
@@ -32,7 +33,7 @@ const target = ReviewTarget.cases.PullRequest.make({
 })
 
 const claims = indexBugClaims(
-  ["one", "two", "three", "four", "five", "six"].map((id) =>
+  Array.map(["one", "two", "three", "four", "five", "six"], (id) =>
     Candidate.cases.BugClaim.make({
       id,
       lens: "fixture",
@@ -142,7 +143,7 @@ describe("Verification stage interface", () => {
       const result = yield* runVerification(scripted)
 
       expect(
-        result.bugClaims.map(({ cluster, verdict }) => [cluster, verdict._tag]),
+        Array.map(result.bugClaims, ({ cluster, verdict }) => [cluster, verdict._tag]),
       ).toEqual([
         [1, "Confirmed"],
         [1, "Confirmed"],
@@ -201,7 +202,7 @@ describe("Verification stage interface", () => {
       const result = yield* runVerification(scripted, true)
 
       expect(
-        result.bugClaims.map(({ verdict }) => verdict._tag),
+        Array.map(result.bugClaims, ({ verdict }) => verdict._tag),
       ).toEqual(globalThis.Array.from({ length: 6 }, () => "Plausible"))
       expect(result.coverageGaps).toEqual([
         {

@@ -10,6 +10,8 @@ import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
+import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
 import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderBrief, type RenderedBrief } from "./brief.ts"
@@ -94,10 +96,10 @@ const resolveCited = (
   known: ReadonlyArray<string>,
 ): string | undefined => {
   if (known.includes(name)) return name
-  const hits = known.filter((path) => path.endsWith(`/${name}`))
+  const hits = Array.filter(known, (path) => path.endsWith(`/${name}`))
   if (hits.length === 1) return hits[0]
   const directory = near.slice(0, near.lastIndexOf("/") + 1)
-  const local = hits.filter((path) => path.startsWith(directory))
+  const local = Array.filter(hits, (path) => path.startsWith(directory))
   return local.length === 1 ? local[0] : undefined
 }
 
@@ -117,7 +119,7 @@ const prose = (entry: DossierEntryView): ReadonlyArray<string> => [
 const citablePaths = (plan: ReviewPlan, dossier: Dossier): ReadonlyArray<string> => [
   ...new Set([
     ...plan.target.changedFiles,
-    ...pageEntries(dossier).flatMap(({ candidate }) => [
+    ...Array.flatMap(pageEntries(dossier), ({ candidate }) => [
       candidate.file,
       ...(candidate.sourceReferences ?? []),
     ]),
@@ -132,7 +134,7 @@ export const dossierPageFiles = (
 ): ReadonlyArray<string> => {
   const entries = pageEntries(dossier)
   const known = citablePaths(plan, dossier)
-  const files = new Set(entries.map(({ candidate }) => candidate.file))
+  const files = new Set(Array.map(entries, ({ candidate }) => candidate.file))
   for (const entry of entries) {
     for (const text of prose(entry)) {
       for (const match of text.matchAll(CITATION)) {
@@ -228,7 +230,7 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
       const pathLines = path === undefined ? undefined : sources.files.get(path)
       if (path === undefined || pathLines === undefined || nearOwn || seen.has(key) || seen.size >= 3) continue
       seen.add(key)
-      const marked = new Set(Array.from({ length: to - from + 1 }, (_, i) => from + i))
+      const marked = new Set(globalThis.Array.from({ length: to - from + 1 }, (_, i) => from + i))
       cited.push(excerpt({
         file: path,
         lines: pathLines,
@@ -240,7 +242,7 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
       }))
     }
   }
-  return [own, ...cited].join("")
+  return Array.join([own, ...cited], "")
 }
 
 // ---------------------------------------------------------------------------
@@ -313,7 +315,7 @@ const exhibit = (
     ? ""
     : field(
       "Tests to run",
-      `<p>${entry.testSuggestion.tests.map((test) => `<code>${escapeHtml(test)}</code>`).join(", ")} — ${
+      `<p>${pipe(entry.testSuggestion.tests, Array.map((test) => `<code>${escapeHtml(test)}</code>`), Array.join(", "))} — ${
         inline(entry.testSuggestion.reason)
       }</p>`,
     )
@@ -334,7 +336,7 @@ const exhibit = (
     <header class="ex-head">
       <span class="tag"><i class="hole" aria-hidden="true"></i>Exhibit ${number}</span>
       <code class="ex-loc">${escapeHtml(location(candidate))}</code>
-      <span class="ex-lens">raised by ${entry.lenses.map(escapeHtml).join(", ")}</span>
+      <span class="ex-lens">raised by ${pipe(entry.lenses, Array.map(escapeHtml), Array.join(", "))}</span>
       <span class="ex-marks"><span class="reviewed" aria-hidden="true">${ICON.check}<span>Reviewed</span></span>${stamp(entry)}</span>
     </header>
     <div class="ex-body">
@@ -389,20 +391,20 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
     const text = briefs.get(entry.candidate.id)
     if (text === undefined) return { entry, number }
     const brief = renderBrief(text, number, lookup)
-    problems.push(...brief.problems.map((problem) => `briefs/${entry.candidate.id}.md: ${problem}`))
+    problems.push(...Array.map(brief.problems, (problem) => `briefs/${entry.candidate.id}.md: ${problem}`))
     return { entry, number, brief }
   }
-  const findings = view.findings.map(numbered("E"))
-  const unresolved = view.unresolved.map(numbered("U"))
+  const findings = Array.map(view.findings, numbered("E"))
+  const unresolved = Array.map(view.unresolved, numbered("U"))
   for (const id of briefs.keys()) {
-    if (![...findings, ...unresolved].some(({ entry }) => entry.candidate.id === id)) {
+    if (!Array.some([...findings, ...unresolved], ({ entry }) => entry.candidate.id === id)) {
       problems.push(`briefs/${id}.md: no finding or unresolved entry has the id ${id}`)
     }
   }
   const filed = [...findings, ...unresolved]
   const setAside = [...view.refutedClaims, ...view.droppedObservations]
   const ranked = (priority: ReviewPriority | undefined) =>
-    findings.filter(({ entry }) => entry.reviewPriority === priority)
+    Array.filter(findings, ({ entry }) => entry.reviewPriority === priority)
 
   const { kind, range, subject } = describeTargetForPage(target)
 
@@ -412,16 +414,16 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
     }</span>${brief === undefined ? "" : `<span class="sp-brief" title="Has a brief">${ICON.clip}</span>`}<span class="sp-check" aria-label="reviewed">${ICON.check}</span><span class="sp-flag" aria-label="you stopped here">${ICON.flag}</span></a></li>`
   const tabGroup = (label: string, style: string, items: ReadonlyArray<Filed>) =>
     `<div class="sp-group ${style}${items.length === 0 ? " empty" : ""}"><div class="sp-tab"><span>${label}</span><b>${items.length}</b></div>${
-      items.length === 0 ? "" : `<ol>${items.map(spineItem).join("")}</ol>`
+      items.length === 0 ? "" : `<ol>${pipe(items, Array.map(spineItem), Array.join(""))}</ol>`
     }</div>`
   const unranked = ranked(undefined)
-  const briefed = filed.filter(({ brief }) => brief !== undefined).length
+  const briefed = Array.filter(filed, ({ brief }) => brief !== undefined).length
   const spine = `<nav class="spine" aria-label="Exhibits">
     <div class="sp-mark"><span class="diamond">◆</span> Gauntlet</div>
     <div class="sp-view" role="radiogroup" aria-label="Which exhibits">
       <button type="button" role="radio" aria-checked="true" data-view="all">All exhibits</button>
       <button type="button" role="radio" aria-checked="false" data-view="thought">Needs thought <b>${
-    filed.filter(({ entry }) => needsThought(entry)).length
+    Array.filter(filed, ({ entry }) => needsThought(entry)).length
   }</b></button>${
     briefed === 0
       ? ""
@@ -448,10 +450,10 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
       <h1><span class="diamond h-mark" aria-hidden="true">◆</span><span class="h-subject">${escapeHtml(subject)}</span> <span class="h-range">${escapeHtml(range)}</span></h1>
       <p class="ix-docket">
         ${
-    (["P1", "P2", "P3"] as const).map((priority) => {
+    pipe((["P1", "P2", "P3"] as const), Array.map((priority) => {
       const count = ranked(priority).length
       return `<span class="dk dk-${priority.toLowerCase()}${count === 0 ? " zero" : ""}"><b>${count}</b> ${priority}</span>`
-    }).join("")
+    }), Array.join(""))
   }
         <span class="dk"><b>${unresolved.length}</b> unresolved</span>
         <span class="dk"><b>${setAside.length}</b> set aside</span>
@@ -469,24 +471,24 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
       "Not run",
       finders.skipped.length === 0
         ? "none"
-        : finders.skipped.map(({ lens, reason }) => `${escapeHtml(lens.name)} ${muted(reason)}`).join("; "),
+        : pipe(finders.skipped, Array.map(({ lens, reason }) => `${escapeHtml(lens.name)} ${muted(reason)}`), Array.join("; ")),
       "w3",
     )
   }
       <details class="ix-more" open><summary class="field-label">Tribunal, lenses and notes</summary><div class="ix-grid">
       ${indexField("Tribunal", escapeHtml(describeRecipe(plan)), "w6")}
-      ${indexField("Lenses", finders.runnable.map((lens) => escapeHtml(lens.name)).join(", ") || "none", "w4")}
+      ${indexField("Lenses", pipe(finders.runnable, Array.map((lens) => escapeHtml(lens.name)), Array.join(", ")) || "none", "w4")}
       ${
     indexField(
       "Coverage gaps",
       dossier.coverageGaps.length === 0
         ? "none"
-        : dossier.coverageGaps.map((gap) => `${escapeHtml(gap.lens ?? gap.stage)} ${muted(gap.reason)}`).join("; "),
+        : pipe(dossier.coverageGaps, Array.map((gap) => `${escapeHtml(gap.lens ?? gap.stage)} ${muted(gap.reason)}`), Array.join("; ")),
       dossier.coverageGaps.length === 0 ? "w2" : "w2 warn",
     )
   }
-      ${plan.target.warnings.length === 0 ? "" : indexField("Warnings", plan.target.warnings.map(escapeHtml).join("; "), "w6")}
-      ${runNotes.length === 0 ? "" : indexField("Run notes", runNotes.map(escapeHtml).join(" "), "w6")}
+      ${plan.target.warnings.length === 0 ? "" : indexField("Warnings", pipe(plan.target.warnings, Array.map(escapeHtml), Array.join("; ")), "w6")}
+      ${runNotes.length === 0 ? "" : indexField("Run notes", pipe(runNotes, Array.map(escapeHtml), Array.join(" ")), "w6")}
       </div></details>
     </div>
   </header>`
@@ -495,12 +497,12 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
     `<h2 class="sec-head"><span>${title}</span><small>${note}</small></h2>`
   const asideRow = (entry: DossierEntryView) =>
     `<li class="aside-row"><div class="aside-top">${stamp(entry, true)}<code>${escapeHtml(location(entry.candidate))}</code><span class="ex-lens">raised by ${
-      entry.lenses.map(escapeHtml).join(", ")
+      pipe(entry.lenses, Array.map(escapeHtml), Array.join(", "))
     }</span></div><p class="aside-claim">${inline(entry.candidate.summary)}</p>${
       entry.detail === undefined ? "" : `<p class="aside-why"><span class="field-label">Why</span> ${inline(entry.detail)}</p>`
     }</li>`
   const exhibits = (items: ReadonlyArray<Filed>) =>
-    items.map((item) => exhibit(sources, item, dossier.runId, runDirectory)).join("")
+    pipe(items, Array.map((item) => exhibit(sources, item, dossier.runId, runDirectory)), Array.join(""))
 
   const html = `<!doctype html>
 <html lang="en">
@@ -527,7 +529,7 @@ ${spine}
   ${exhibits(unresolved)}
   <details class="sheet sleeve" id="set-aside">
     <summary><span class="sleeve-title">Set aside</span><span class="muted">${view.refutedClaims.length} refuted by Verification · ${view.droppedObservations.length} dropped by Judgment</span></summary>
-    <ol class="aside">${setAside.map(asideRow).join("")}</ol>
+    <ol class="aside">${pipe(setAside, Array.map(asideRow), Array.join(""))}</ol>
   </details>
   <footer class="colophon"><code>dossier.md</code> is the Dossier; this page is a reading of it. Code as reviewed at <code>${escapeHtml(shortCommit(target.headCommit))}</code>.</footer>
 </main>

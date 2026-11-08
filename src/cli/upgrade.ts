@@ -3,6 +3,7 @@
 // Settings, runs (~/.gauntlet) and project lenses (.gauntlet/lenses) survive
 // by construction — the shipped lens catalog is embedded in the binary, so
 // swapping the file swaps the catalog atomically (ADR 0004).
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
@@ -43,11 +44,10 @@ export const renderSeatUpgrade = (
     group.from.add(change.from)
     grouped.set(change.to, group)
   }
-  const lines = [...grouped].map(([to, group]) =>
-    `recipes ${[...group.recipes].join(", ")} → ${to} (was ${[...group.from].join(", ")})`
-  )
+  const lines = Array.map([...grouped], ([to, group]) =>
+    `recipes ${Array.join([...group.recipes], ", ")} → ${to} (was ${Array.join([...group.from], ", ")})`)
   if (upgrade.skipped.length > 0) {
-    lines.push(`skipped invalid recipes ${upgrade.skipped.join(", ")} — run \`gauntlet config\``)
+    lines.push(`skipped invalid recipes ${Array.join(upgrade.skipped, ", ")} — run \`gauntlet config\``)
   }
   return lines.length === 0 ? ["recipe seats are current"] : lines
 }
@@ -58,7 +58,7 @@ export const renderSeatUpgrade = (
 const upgradeSeats = Effect.fn("gauntlet.cli.upgrade_seats")(function* () {
   const catalog = yield* refreshedModelCatalog()
   const upgrade = yield* upgradeRecipeSeats(catalog)
-  yield* Console.log(renderSeatUpgrade(upgrade).join("\n"))
+  yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
 }, (effect) =>
   effect.pipe(
     Effect.catchTags({

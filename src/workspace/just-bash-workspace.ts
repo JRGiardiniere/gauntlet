@@ -7,6 +7,7 @@ import {
   type ToolDefinition,
   truncateTail,
 } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import { Bash, type BashOptions, OverlayFs, type OverlayFsOptions } from "just-bash"
 import { type Static, Type } from "typebox"
@@ -179,9 +180,7 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
         // Rounded: AbortSignal.timeout rejects non-integer delays.
         timeoutSignal = AbortSignal.timeout(Math.round(timeout * 1000))
       }
-      const signals = [signal, timeoutSignal].filter(
-        (candidate) => candidate !== undefined,
-      )
+      const signals = Array.filter([signal, timeoutSignal], (candidate) => candidate !== undefined)
       const result = await bash
         .exec(command, signals.length === 0 ? {} : {
           signal: AbortSignal.any(signals),

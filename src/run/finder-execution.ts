@@ -2,6 +2,7 @@ import * as Array from "effect/Array"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -233,27 +234,29 @@ export const executeFinders = Effect.fn(
     { concurrency: "unbounded" },
   )
 
-  const failures = groupResults.flatMap(({ failed }) => failed)
+  const failures = Array.flatMap(groupResults, ({ failed }) => failed)
   const firstFailure = failures[0]
   if (firstFailure !== undefined) return yield* firstFailure.error
 
   const completedByKey = HashMap.fromIterable(
-    groupResults
-      .flatMap(({ completed }) => completed)
-      .map((result) => [result.invocation.invocationKey, result] as const),
+    pipe(
+      groupResults,
+      Array.flatMap(({ completed }) => completed),
+      Array.map((result) => [result.invocation.invocationKey, result] as const),
+    ),
   )
   const ordered = Array.filterMap(invocations, (invocation) =>
     HashMap.get(completedByKey, invocation.invocationKey).pipe(
       Result.fromOption(() => undefined),
       Result.map((result) => ({ invocation, outcome: result.outcome })),
     ))
-  const finders = ordered.map(({ invocation, outcome }): FinderResult => ({
+  const finders = Array.map(ordered, ({ invocation, outcome }): FinderResult => ({
     lens: invocation.lens,
     outcome,
   }))
   yield* writeArtifactJson(paths.finderStage, FinderStageArtifact, {
     runId: plan.runId,
-    finders: ordered.map(({ invocation, outcome }) => ({
+    finders: Array.map(ordered, ({ invocation, outcome }) => ({
       invocationKey: invocation.invocationKey,
       outcome,
     })),

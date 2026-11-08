@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -27,7 +28,7 @@ describe("the Mod's configuration", () => {
       yield* asMod(home, writeInitialConfig())
 
       const entries = yield* asMod(home, listRecipes())
-      expect(entries.map((entry) => [entry.name, entry._tag])).toEqual([
+      expect(Array.map(entries, (entry) => [entry.name, entry._tag])).toEqual([
         ["high", "ValidRecipe"],
         ["low", "ValidRecipe"],
         ["medium", "ValidRecipe"],

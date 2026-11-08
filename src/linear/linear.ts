@@ -1,7 +1,9 @@
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Redacted from "effect/Redacted"
@@ -190,15 +192,13 @@ const checkGraphQlErrors = (
   errors: ReadonlyArray<typeof GraphQlError.Type> | undefined,
 ): Effect.Effect<void, LinearError> => {
   if (errors === undefined || errors.length === 0) return Effect.void
-  const detail = errors.map((error) => error.message).join("; ")
-  const invalidKey = errors.some((error) =>
+  const detail = pipe(errors, Array.map((error) => error.message), Array.join("; "))
+  const invalidKey = Array.some(errors, (error) =>
     error.extensions?.code === "AUTHENTICATION_ERROR" ||
-    /api key|authenticat|unauthoriz/i.test(error.message)
-  )
-  const unresolvableIssue = errors.some((error) =>
+    /api key|authenticat|unauthoriz/i.test(error.message))
+  const unresolvableIssue = Array.some(errors, (error) =>
     error.extensions?.code === "ENTITY_NOT_FOUND" ||
-    /issue.*not found|not found.*issue/i.test(error.message)
-  )
+    /issue.*not found|not found.*issue/i.test(error.message))
   return Effect.fail(
     new LinearError({
       reason: invalidKey
@@ -384,7 +384,7 @@ const makeLive = Effect.gen(function* () {
             : connection
         }),
     )
-    return comments.map((comment) => ({
+    return Array.map(comments, (comment) => ({
         url: comment.url,
         body: comment.body,
         createdAt: comment.createdAt,
@@ -450,9 +450,11 @@ const makeLive = Effect.gen(function* () {
     return {
       ...flattenIssue(issue, sliceComments),
       parent: parent === null ? undefined : flattenIssue(parent, parentComments),
-      siblings: children
-        .filter((child) => child.id !== issue.id)
-        .map((child) => flattenIssue(child)),
+      siblings: pipe(
+        children,
+        Array.filter((child) => child.id !== issue.id),
+        Array.map((child) => flattenIssue(child)),
+      ),
     } satisfies LinearBranchIssue
   })
 

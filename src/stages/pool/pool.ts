@@ -100,7 +100,7 @@ const note = (
   label: string,
   indexes: ReadonlyArray<number>,
 ): ReadonlyArray<string> =>
-  indexes.length === 0 ? [] : [`${label} ${indexes.join(", ")}`]
+  indexes.length === 0 ? [] : [`${label} ${Array.join(Array.map(indexes, String), ", ")}`]
 
 // Pool output is an execution plan, not domain truth. Preserve its first valid
 // placement for each claim, discard impossible placements, then restore every
@@ -155,7 +155,7 @@ export const repairPoolOutput = (
 const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
   notes.length === 0
     ? undefined
-    : `pool output required repair: ${notes.join("; ")}`
+    : `pool output required repair: ${Array.join(notes, "; ")}`
 
 // The Run learns Pool only through this interface. Pool clusters, never
 // deletes: every claim it leaves out comes back as a singleton.
@@ -194,7 +194,7 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   const prompt = yield* renderPromptTemplate(
     "pool",
     yield* readPromptTemplate(templatePath),
-    [["CANDIDATES", Array.map(claims, formatCandidateLine).join("\n")]],
+    [["CANDIDATES", Array.join(Array.map(claims, formatCandidateLine), "\n")]],
   )
   const outcome = yield* invokeStageAgent({
     label: "Pool",

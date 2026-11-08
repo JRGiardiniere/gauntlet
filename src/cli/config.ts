@@ -1,7 +1,9 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Config from "effect/Config"
@@ -47,12 +49,14 @@ const SETTINGS_KEYS = "default-recipe, default-lenses, favorites, runs-root"
 // One line per recipe: the default seat plus whichever overrides are present,
 // in the recipe's admitted field order.
 const summarizeRecipe = (recipe: Recipe): string =>
-  [
+  Array.join([
     `default ${recipe.default}`,
-    ...(["finders", "interpretive-finders", "pool", "verification", "judgment"] as const)
-      .filter((field) => recipe[field] !== undefined)
-      .map((field) => `${field} ${recipe[field]}`),
-  ].join(" · ")
+    ...pipe(
+      ["finders", "interpretive-finders", "pool", "verification", "judgment"] as const,
+      Array.filter((field) => recipe[field] !== undefined),
+      Array.map((field) => `${field} ${recipe[field]}`),
+    ),
+  ], " · ")
 
 const describeEntry = (
   entry: CatalogEntry,
@@ -111,8 +115,8 @@ export const printConfiguration = Effect.fn("gauntlet.cli.config_print")(functio
   })
   lines.push(`runs root: ${runsRoot ?? (yield* defaultRunsRoot())}`)
 
-  const byName = new Map(entries.map((entry) => [entry.name, entry]))
-  const availableLensNames = new Set(lenses.map(({ name }) => name))
+  const byName = new Map(Array.map(entries, (entry) => [entry.name, entry]))
+  const availableLensNames = new Set(Array.map(lenses, ({ name }) => name))
   const defaultLenses = Option.match(settings, {
     onNone: () => new Set<LensName>(),
     onSome: (value) => new Set(value["default-lenses"]),
@@ -128,25 +132,23 @@ export const printConfiguration = Effect.fn("gauntlet.cli.config_print")(functio
 
   if (Option.isSome(settings)) {
     const defaultRecipe = settings.value["default-recipe"]
-    const missingDefaultLenses = settings.value["default-lenses"].filter(
-      (name) => !availableLensNames.has(name),
-    )
+    const missingDefaultLenses = Array.filter(settings.value["default-lenses"], (name) => !availableLensNames.has(name))
     const favorites = settings.value.favorites
-    const missing = favorites.filter((name) => !byName.has(name))
+    const missing = Array.filter(favorites, (name) => !byName.has(name))
     if (byName.get(defaultRecipe)?._tag !== "ValidRecipe") {
       lines.push(
         `warning: default-recipe ${defaultRecipe} does not name an available valid recipe`,
       )
     }
     if (missing.length > 0) {
-      lines.push(`warning: favorites name missing recipes: ${missing.join(", ")}`)
+      lines.push(`warning: favorites name missing recipes: ${Array.join(missing, ", ")}`)
     }
     if (missingDefaultLenses.length > 0) {
       lines.push(
-        `warning: default-lenses names unavailable in this Lens Catalog: ${missingDefaultLenses.join(", ")}`,
+        `warning: default-lenses names unavailable in this Lens Catalog: ${Array.join(missingDefaultLenses, ", ")}`,
       )
     }
-    const present = favorites.flatMap((name) => {
+    const present = Array.flatMap(favorites, (name) => {
       const entry = byName.get(name)
       return entry === undefined ? [] : [entry]
     })
@@ -156,8 +158,8 @@ export const printConfiguration = Effect.fn("gauntlet.cli.config_print")(functio
         lines.push(describeEntry(entry, defaultRecipe))
       }
     }
-    const favoriteSet = new Set(present.map((entry) => entry.name))
-    const remaining = entries.filter((entry) => !favoriteSet.has(entry.name))
+    const favoriteSet = new Set(Array.map(present, (entry) => entry.name))
+    const remaining = Array.filter(entries, (entry) => !favoriteSet.has(entry.name))
     lines.push("", "recipes:")
     if (remaining.length === 0) lines.push("- none")
     for (const entry of remaining) {
@@ -172,7 +174,7 @@ export const printConfiguration = Effect.fn("gauntlet.cli.config_print")(functio
       lines.push(describeEntry(entry, undefined))
     }
   }
-  yield* Console.log(lines.join("\n"))
+  yield* Console.log(Array.join(lines, "\n"))
 })
 
 // `config init` is the one explicit creator of configuration: it seeds a
@@ -208,15 +210,15 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
           reason: `could not create ${catalogPath}: ${String(cause)}`,
         })),
     )
-    const names = initial.recipes.map(([name]) => name).join(", ")
+    const names = pipe(initial.recipes, Array.map(([name]) => name), Array.join(", "))
     yield* Console.log(
-      [
+      Array.join([
         `initialized ${catalogPath} with recipes ${names}`,
         `default-recipe: ${initial.defaultRecipe} · default-lenses: ${
-          INITIAL_DEFAULT_LENSES.join(", ")
+          Array.join(INITIAL_DEFAULT_LENSES, ", ")
         } · favorites: ${names}`,
         "the seeded files are yours to edit; init never touches them again",
-      ].join("\n"),
+      ], "\n"),
     )
     return
   }
@@ -369,10 +371,10 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
             repoRoot: yield* resolveInvocationProjectRoot(),
             names,
           }).pipe(Effect.catchTag("ContentLoadError", lensConfigError))
-      const defaultLenses = selected.map(({ name }) => name)
+      const defaultLenses = Array.map(selected, ({ name }) => name)
       yield* writeSettings({ ...settings, "default-lenses": defaultLenses })
       yield* Console.log(
-        `default-lenses = ${defaultLenses.join(", ") || "(none)"}`,
+        `default-lenses = ${Array.join(defaultLenses, ", ") || "(none)"}`,
       )
       return
     }
@@ -385,7 +387,7 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
       }
       if (new Set(values).size !== values.length) {
         return yield* new ConfigCommandError({
-          reason: `favorites must be distinct: ${values.join(", ")}`,
+          reason: `favorites must be distinct: ${Array.join(values, ", ")}`,
         })
       }
       const entries = yield* listRecipes()
@@ -399,7 +401,7 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
         { concurrency: 1 },
       )
       yield* writeSettings({ ...settings, favorites: names })
-      yield* Console.log(`favorites = ${names.join(", ")}`)
+      yield* Console.log(`favorites = ${Array.join(names, ", ")}`)
       return
     }
     case "runs-root": {

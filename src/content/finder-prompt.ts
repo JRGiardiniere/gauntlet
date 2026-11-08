@@ -1,5 +1,7 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Path from "effect/Path"
 import {
   DEFAULT_CANDIDATE_CAP,
@@ -121,7 +123,7 @@ export const assembleFinderContext = (
         ],
         [
           "CHANGED_FILES",
-          target.changedFiles.map((file) => `- ${file}`).join("\n"),
+          pipe(target.changedFiles, Array.map((file) => `- ${file}`), Array.join("\n")),
         ],
         [
           "DIFF_SECTION",
@@ -134,7 +136,7 @@ export const assembleFinderContext = (
     if (context.specification !== undefined) {
       sections.push(renderSpecificationSection(context.specification))
     }
-    return sections.join("\n\n")
+    return Array.join(sections, "\n\n")
   })
 
 // Read only for a ReviewPlan that froze the related-file context.
@@ -147,9 +149,12 @@ export const loadRelatedFilesTemplate = Effect.fn(
 const wholeFiles = (files: RelatedFiles["touched"]): string =>
   files.length === 0
     ? "(none)"
-    : files.map(({ file, text }) =>
-      `### ${file}\n\n${fenceMarkdownBlock("", text)}`
-    ).join("\n\n")
+    : pipe(
+      files,
+      Array.map(({ file, text }) =>
+        `### ${file}\n\n${fenceMarkdownBlock("", text)}`),
+      Array.join("\n\n"),
+    )
 
 // Appended to the shared block, so every Finder in a partition still shares
 // one byte-identical system prompt.
@@ -169,7 +174,7 @@ export const assembleFinderAssignment = (lens: FrozenLens): string => {
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
       )
     }
-  return sections.join("\n\n")
+  return Array.join(sections, "\n\n")
 }
 
 export const assembleFinderPrompt = (

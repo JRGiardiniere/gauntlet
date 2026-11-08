@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import * as Array from "effect/Array"
 import type { AgentActivity } from "./activity.ts"
 import { doing, type PaneElements, renderStrip, type RunView, type StripActions } from "./strip.ts"
 
@@ -45,7 +46,7 @@ const finished = (patch: Partial<NonNullable<RunView["result"]>>): RunView => ({
 
 // Draws the tree as text: a row's cells joined, a column's rows on lines.
 const text: PaneElements<string> = {
-  Box: ({ children, flexDirection }) => [children ?? []].flat().join(flexDirection === "column" ? "\n" : ""),
+  Box: ({ children, flexDirection }) => Array.join([children ?? []].flat(), flexDirection === "column" ? "\n" : ""),
   Text: ({ children }) => children ?? "",
   Button: ({ label }) => ` [ ${label} ]`,
 }
@@ -61,7 +62,7 @@ describe("strip", () => {
       ...view,
       activity: [...view.activity, ...more],
     })
-    expect([
+    expect(Array.map([
       running,
       withAgents(running, finder("lens-a", "running")),
       withAgents(running, finder("lens-a", "answered", 5), finder("lens-b", "running"), finder("lens-c", "opening")),
@@ -78,7 +79,7 @@ describe("strip", () => {
         findersFinished: true,
         routed: { bugClaims: 0, observations: 0 },
       },
-    ].map(doing)).toEqual([
+    ], doing)).toEqual([
       "Building the first prompt",
       "Sending the first finder to set the cache",
       "2 finders still looking · 5 leads so far",
@@ -177,7 +178,7 @@ describe("strip", () => {
   it("says where a pull-request review's post landed, or why it did not", () => {
     const posted = { ...finished({}), post: { state: "posted" as const, text: "posted https://github.com/o/r/pull/7#c" } }
     const failed = { ...finished({}), post: { state: "failed" as const, text: `fixture refusal; check the pull request for the comment before /gauntlet deliver ${RUN}` } }
-    expect([posted, failed].map((view) => draw(view).split("\n").slice(1))).toEqual([
+    expect(Array.map([posted, failed], (view) => draw(view).split("\n").slice(1))).toEqual([
       ["12:34 · 0 findings from 23 leads", "posted https://github.com/o/r/pull/7#c"],
       ["12:34 · 0 findings from 23 leads", `fixture refusal; check the pull request for the comment before /gauntlet deliver ${RUN}`],
     ])

@@ -9,11 +9,13 @@
 // worktree, invoke.ts deadlines and corrective turns, the Stages and the run
 // record exactly as the CLI's review does. Only the platform services, the
 // HarnessSession adapter and the wording of what comes back differ.
+import * as Array from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
 import type { Json } from "effect/Schema"
@@ -103,7 +105,7 @@ export interface StartedRun {
 // stderr on a GitCommandError) when it has none.
 const errorText = (error: Error) =>
   error.message === ""
-    ? `${error.name} ${JSON.stringify(Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause" && key !== "_tag")))}`
+    ? `${error.name} ${JSON.stringify(Object.fromEntries(Array.filter(Object.entries(error), ([key]) => key !== "cause" && key !== "_tag")))}`
     : `${error.name}: ${error.message}`
 
 const defectText = (cause: Cause.Cause<unknown>) => {
@@ -298,7 +300,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
                 onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)], state: "failed" as const }),
               }),
               Effect.map(({ verdict, notes, state }) => {
-                shown.post = { state, text: notes.join("; ") }
+                shown.post = { state, text: Array.join(notes, "; ") }
                 answer = { verdict, digest: "", notes }
               }),
             )
@@ -355,7 +357,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
         ShowHelp: (help) =>
           help.errors.length === 0
             ? Effect.void
-            : refuse(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet --help shows the syntax`),
+            : refuse(`${pipe(help.errors, Array.map((error) => error.message), Array.join("; "))}; /gauntlet --help shows the syntax`),
         ReviewCommandError: (failure) => refuse(`could not review — ${failure.reason}`),
         RunRefusal: (refusal) => refuse(refusalText(refusal)),
       }),
@@ -440,7 +442,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
         Effect.catchTags({
           ShowHelp: (help) =>
             Effect.sync(() => {
-              if (help.errors.length > 0) print(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet ${request.words[0] ?? ""} --help shows the syntax`)
+              if (help.errors.length > 0) print(`${pipe(help.errors, Array.map((error) => error.message), Array.join("; "))}; /gauntlet ${request.words[0] ?? ""} --help shows the syntax`)
             }),
           RunRefusal: (refusal) => Effect.sync(() => print(`gauntlet: ${refusal.reason}`)),
         }),

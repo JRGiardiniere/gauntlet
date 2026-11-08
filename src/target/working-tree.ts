@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -89,11 +90,11 @@ export const resolveWorkingTreeTarget = Effect.fn(
         diffBase,
       ]).pipe(
         explainGit("could not list changed files"),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "-z", "--others", "--exclude-standard"]).pipe(
         explainGit("could not list untracked files"),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "-z", "--stage"]).pipe(
         explainGit("could not list tracked files"),
@@ -120,23 +121,20 @@ export const resolveWorkingTreeTarget = Effect.fn(
     (relativePath) => inspectUntrackedFile(repoRoot, relativePath),
     { concurrency: 4 },
   )
-  const untrackedFiles = inspections.flatMap((file) =>
-    file.kind === "included" ? [file.path] : []
-  )
-  const named = inspections.flatMap((file) =>
-    file.kind === "oversized" ? [] : [file.path]
-  )
-  const oversized = inspections.flatMap((file) =>
-    file.kind === "oversized" ? [file.path] : []
-  )
+  const untrackedFiles = Array.flatMap(inspections, (file) =>
+    file.kind === "included" ? [file.path] : [])
+  const named = Array.flatMap(inspections, (file) =>
+    file.kind === "oversized" ? [] : [file.path])
+  const oversized = Array.flatMap(inspections, (file) =>
+    file.kind === "oversized" ? [file.path] : [])
 
   const warnings = [
     ...(named.length === 0 ? [] : [
-      `${named.length} untracked file(s) not included in the diff: ${named.join(", ")}`,
+      `${named.length} untracked file(s) not included in the diff: ${Array.join(named, ", ")}`,
     ]),
     ...(oversized.length === 0 ? [] : [
       `${oversized.length} untracked file(s) exceed 10MB and are excluded from the review: ${
-        oversized.join(", ")
+        Array.join(oversized, ", ")
       }`,
     ]),
     ...submoduleWarning(submodules),

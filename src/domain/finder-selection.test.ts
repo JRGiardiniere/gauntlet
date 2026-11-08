@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import {
   GOVERNING_STANDARDS_HEADING,
   selectRunnableFinders,
@@ -36,11 +37,11 @@ describe("finder selection", () => {
       lens("spec-conformance", "specification tail"),
       lens("standards", "standards tail with no governing block"),
     ]))
-    expect(selection.runnable.map(({ name }) => name)).toEqual([
+    expect(Array.map(selection.runnable, ({ name }) => name)).toEqual([
       "fixture-review",
     ])
     expect(
-      selection.skipped.map(({ lens, reason }) => [lens.name, reason]),
+      Array.map(selection.skipped, ({ lens, reason }) => [lens.name, reason]),
     ).toEqual([
       ["spec-conformance", "no ReviewSpecification"],
       ["standards", "no Standards Manifest"],
@@ -54,7 +55,7 @@ describe("finder selection", () => {
         `standards tail\n\n${GOVERNING_STANDARDS_HEADING}\n\n### CLAUDE.md\n\nrule text`,
       ),
     ]))
-    expect(selection.runnable.map(({ name }) => name)).toEqual(["standards"])
+    expect(Array.map(selection.runnable, ({ name }) => name)).toEqual(["standards"])
     expect(selection.skipped).toEqual([])
   })
 })

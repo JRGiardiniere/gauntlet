@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import {
@@ -34,13 +35,12 @@ export const linearIssueIdentifierFromBranch = (
   branch: string,
 ): string | undefined => {
   const identifiers = new Set(
-    [...branch.matchAll(ISSUE_IDENTIFIER)].flatMap((match) =>
+    Array.flatMap([...branch.matchAll(ISSUE_IDENTIFIER)], (match) =>
       match[1] === undefined
         ? []
         : GENERIC_BRANCH_KEYS.has(match[1].slice(0, match[1].lastIndexOf("-")).toUpperCase())
           ? []
-          : [match[1].toUpperCase()]
-    ),
+          : [match[1].toUpperCase()]),
   )
   return identifiers.size === 1 ? [...identifiers][0] : undefined
 }
@@ -59,22 +59,20 @@ const document = (
 const comments = (
   issue: LinearIssueSnapshot,
 ): ReadonlyArray<SpecificationComment> =>
-  issue.comments.flatMap((comment) =>
+  Array.flatMap(issue.comments, (comment) =>
     comment.isBot
       ? []
       : [{
           provenance: comment.url,
           createdAt: comment.createdAt,
           text: comment.body,
-        }]
-  )
+        }])
 
 export const reviewSpecificationFromLinearIssue = (
   issue: LinearBranchIssue,
 ): ReviewSpecification => {
-  const siblingDocuments = [...issue.siblings]
-    .sort((left, right) => left.identifier.localeCompare(right.identifier))
-    .map((sibling) => document("sibling", sibling))
+  const siblingDocuments = Array.map([...issue.siblings]
+    .sort((left, right) => left.identifier.localeCompare(right.identifier)), (sibling) => document("sibling", sibling))
   const documents: readonly [
     SpecificationDocument,
     ...Array<SpecificationDocument>,

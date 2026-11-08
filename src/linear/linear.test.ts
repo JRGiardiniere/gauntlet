@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import type * as Schema from "effect/Schema"
@@ -134,11 +135,11 @@ describe("Linear.Default", () => {
           state: "Todo",
         },
       })
-      expect(result.siblings.map(({ identifier }) => identifier)).toEqual([
+      expect(Array.map(result.siblings, ({ identifier }) => identifier)).toEqual([
         "ENG-76",
       ])
-      expect(result.parent?.comments.map(({ isBot }) => isBot)).toEqual([false])
-      expect(result.comments.map(({ isBot }) => isBot)).toEqual([false, true])
+      expect(Array.map(result.parent?.comments ?? [], ({ isBot }) => isBot)).toEqual([false])
+      expect(Array.map(result.comments, ({ isBot }) => isBot)).toEqual([false, true])
     }).pipe(
       Effect.provide(Linear.Default),
       Effect.provideService(FetchHttpClient.Fetch, fakeFetch),

@@ -18,12 +18,9 @@ const substance = (candidate: BugClaim): number =>
 export const projectBugClaimCluster = (
   bugClaims: BugClaimCluster,
 ): BugClaimClusterProjection => ({
-  candidate: bugClaims.slice(1).reduce(
-    (fullest, candidate) =>
-      substance(candidate) > substance(fullest) ? candidate : fullest,
-    bugClaims[0],
-  ),
-  lenses: Array.dedupe(bugClaims.map(({ lens }) => lens)),
+  candidate: Array.reduce(bugClaims.slice(1), bugClaims[0], (fullest, candidate) =>
+      substance(candidate) > substance(fullest) ? candidate : fullest),
+  lenses: Array.dedupe(Array.map(bugClaims, ({ lens }) => lens)),
 })
 
 export interface EvaluatedBugClaimCluster extends BugClaimClusterProjection {
@@ -35,12 +32,11 @@ export interface EvaluatedBugClaimCluster extends BugClaimClusterProjection {
 export const clusterEvaluatedBugClaims = (
   bugClaims: ReadonlyArray<EvaluatedBugClaim>,
 ): ReadonlyArray<EvaluatedBugClaimCluster> =>
-  Record.values(Array.groupBy(bugClaims, ({ cluster }) => String(cluster)))
-    .map((mates) => {
+  Array.map(Record.values(Array.groupBy(bugClaims, ({ cluster }) => String(cluster))), (mates) => {
       const first = Array.headNonEmpty(mates)
       const clustered: [BugClaim, ...Array<BugClaim>] = [
         first.candidate,
-        ...mates.slice(1).map(({ candidate }) => candidate),
+        ...Array.map(mates.slice(1), ({ candidate }) => candidate),
       ]
       return {
         cluster: first.cluster,

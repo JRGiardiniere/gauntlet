@@ -1,7 +1,9 @@
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
@@ -351,13 +353,13 @@ export const emittingSession = (
     {
       events: [
         { afterMillis: 0, kind: "message_start" },
-        ...(inspect.bash ?? []).map((command) => ({
+        ...Array.map((inspect.bash ?? []), (command) => ({
           afterMillis: 0,
           kind: "tool" as const,
           toolName: "bash" as const,
           args: { command },
         })),
-        ...(inspect.read ?? []).map((path) => ({
+        ...Array.map((inspect.read ?? []), (path) => ({
           afterMillis: 0,
           kind: "tool" as const,
           toolName: "read" as const,
@@ -408,21 +410,23 @@ export const JUDGMENT_OUTPUT = {
 // Concurrent sessions interleave their prompt calls, so prompts are asserted
 // by invocation identity, never by global order.
 export const promptTextsFor = (scripted: Scripted, suffix: string): Array<string> =>
-  scripted.prompts
-    .filter(({ invocationId }) => invocationId.includes(suffix))
-    .map(({ text }) => text)
+  pipe(
+    scripted.prompts,
+    Array.filter(({ invocationId }) => invocationId.includes(suffix)),
+    Array.map(({ text }) => text),
+  )
 
 // The finder shared block rides in the system prompt; the user message is
 // only the lens tail.
 export const systemPromptsFor = (scripted: Scripted, suffix: string): Array<string> =>
-  scripted.prompts
-    .filter(({ invocationId }) => invocationId.includes(suffix))
-    .map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt ?? "")
+  pipe(
+    scripted.prompts,
+    Array.filter(({ invocationId }) => invocationId.includes(suffix)),
+    Array.map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt ?? ""),
+  )
 
 export const inspectionsFor = (scripted: Scripted, suffix: string) =>
-  scripted.inspections.filter(
-    ({ invocationId }) => invocationId.includes(suffix),
-  )
+  Array.filter(scripted.inspections, ({ invocationId }) => invocationId.includes(suffix))
 
 // A Finder, a verifier and a judge that each emit their stage's fixture
 // output.

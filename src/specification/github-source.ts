@@ -1,4 +1,6 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import {
   ReviewSpecification,
   type SpecificationComment,
@@ -29,13 +31,15 @@ const issueDocument = (
 const admittedComments = (
   issue: GitHubIssueSnapshot,
 ): ReadonlyArray<SpecificationComment> =>
-  issue.comments
-    .filter((comment) => ADMITTED_ASSOCIATIONS.has(comment.authorAssociation))
-    .map((comment) => ({
-      provenance: comment.url,
-      createdAt: comment.createdAt,
-      text: comment.body,
-    }))
+  pipe(
+    issue.comments,
+    Array.filter((comment) => ADMITTED_ASSOCIATIONS.has(comment.authorAssociation)),
+    Array.map((comment) => ({
+        provenance: comment.url,
+        createdAt: comment.createdAt,
+        text: comment.body,
+      })),
+  )
 
 // Assemble a source-neutral ReviewSpecification from GitHub closing issues.
 // Native parent only — issue bodies are never parsed for `## Parent`.
@@ -45,7 +49,7 @@ export const reviewSpecificationFromGitHubIssues = (
   if (issues.length === 0) return undefined
 
   const slices = [...issues].sort(byIssueIdentity)
-  const sliceUrls = new Set(slices.map((slice) => slice.url))
+  const sliceUrls = new Set(Array.map(slices, (slice) => slice.url))
   const parentsByUrl = new Map<string, GitHubIssueSnapshot>()
   for (const slice of slices) {
     if (slice.parent !== undefined && !sliceUrls.has(slice.parent.url)) {
@@ -54,8 +58,8 @@ export const reviewSpecificationFromGitHubIssues = (
   }
   const parents = [...parentsByUrl.values()].sort(byIssueIdentity)
   const documents = [
-    ...parents.map((parent) => issueDocument("parent", parent)),
-    ...slices.map((slice) => issueDocument("slice", slice)),
+    ...Array.map(parents, (parent) => issueDocument("parent", parent)),
+    ...Array.map(slices, (slice) => issueDocument("slice", slice)),
   ]
   const [first, ...rest] = documents
   if (first === undefined) return undefined
@@ -65,7 +69,7 @@ export const reviewSpecificationFromGitHubIssues = (
   for (const slice of slices) uniqueIssues.set(slice.url, slice)
 
   const trimmed = trimCommentBudget(
-    [...uniqueIssues.values()].flatMap(admittedComments),
+    Array.flatMap([...uniqueIssues.values()], admittedComments),
   )
   return trimmed.commentOmission === undefined
     ? ReviewSpecification.make({

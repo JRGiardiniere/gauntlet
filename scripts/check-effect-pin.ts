@@ -4,6 +4,7 @@
 // check re-verifies the result.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -31,22 +32,22 @@ const program = Effect.gen(function* () {
   const source = yield* fs.readFileString(`${import.meta.dirname}/../package.json`)
   const manifest = yield* Schema.decodeEffect(Manifest)(source)
 
-  const effectPins = dependencyFields.flatMap((field) =>
-    Object.entries(manifest[field] ?? {}).flatMap(([name, version]) => {
+  const effectPins = Array.flatMap(dependencyFields, (field) =>
+    Array.flatMap(Object.entries(manifest[field] ?? {}), ([name, version]) => {
       if (name !== "effect" && !name.startsWith("@effect/")) return []
       if (independentlyVersionedEffectPackages.has(name)) return []
       return [{ name, version }]
     }))
 
-  const violations = effectPins.flatMap(({ name, version }) =>
+  const violations = Array.flatMap(effectPins, ({ name, version }) =>
     exactVersionPattern.test(version)
       ? []
       : [`${name} must be an exact version; found ${JSON.stringify(version)}`])
 
-  const distinctVersions = new Set(effectPins.map(({ version }) => version))
+  const distinctVersions = new Set(Array.map(effectPins, ({ version }) => version))
   if (violations.length === 0 && distinctVersions.size > 1) {
     violations.push(
-      `effect packages must share one version; found ${[...distinctVersions].join(", ")}`,
+      `effect packages must share one version; found ${Array.join([...distinctVersions], ", ")}`,
     )
   }
 

@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -86,7 +87,7 @@ export const writeInitialConfig = Effect.fn("InitialConfig.write")(function* () 
   yield* writeSettings({
     "default-recipe": initial.defaultRecipe,
     "default-lenses": INITIAL_DEFAULT_LENSES,
-    favorites: initial.recipes.map(([name]) => name),
+    favorites: Array.map(initial.recipes, ([name]) => name),
   })
   return initial
 })

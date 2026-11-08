@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
@@ -93,9 +94,8 @@ export interface SubmissionRequest {
 const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
   listRecipes().pipe(
     Effect.map((entries) =>
-      entries.some((entry) =>
-        entry._tag === "ValidRecipe" && entry.name === written
-      )
+      Array.some(entries, (entry) =>
+        entry._tag === "ValidRecipe" && entry.name === written)
     ),
     Effect.orElseSucceed(() => false),
     Effect.flatMap((named) =>
@@ -256,8 +256,8 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   )
   yield* progress(
     request.selectedLensNames === undefined
-      ? `loading Default Lenses ${resolvedLensNames.join(", ") || "(none)"}`
-      : `loading exact caller Lenses ${resolvedLensNames.join(", ") || "(none)"}`,
+      ? `loading Default Lenses ${Array.join(resolvedLensNames, ", ") || "(none)"}`
+      : `loading exact caller Lenses ${Array.join(resolvedLensNames, ", ") || "(none)"}`,
   )
   const lenses = yield* loadFinderLenses({
     repoRoot: target.repoRoot,
@@ -268,7 +268,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   // Governing standards block lands in the already-frozen prompt text — the
   // freeze point is the assembly point (#110). No manifest means no block;
   // selection then skips the lens.
-  const standardsBlock = lenses.some((lens) => lens.name === STANDARDS_LENS_NAME)
+  const standardsBlock = Array.some(lenses, (lens) => lens.name === STANDARDS_LENS_NAME)
     ? yield* loadGoverningStandardsBlock(target.repoRoot).pipe(
         Effect.mapError((failure) =>
           new SubmissionError({
@@ -281,7 +281,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   // lens's finder class to a seat.
   // optionalKey admits an absent key, never a present undefined one, so the
   // specific-by-omission convention holds in the persisted plan too.
-  const frozenLenses = lenses.map((lens) => {
+  const frozenLenses = Array.map(lenses, (lens) => {
     const promptText =
       lens.name === STANDARDS_LENS_NAME && standardsBlock !== undefined
         ? `${lens.promptText.trimEnd()}\n\n${standardsBlock}`

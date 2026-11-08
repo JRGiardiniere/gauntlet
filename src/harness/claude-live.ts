@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
@@ -5,6 +6,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -162,7 +164,7 @@ const seatParts = (seat: string) => {
 const toolResultText = (content: typeof ToolResult.Type["content"]) =>
   content === undefined || Predicate.isString(content)
     ? content
-    : content.flatMap((part) => (part.text === undefined ? [] : [part.text])).join("\n")
+    : pipe(content, Array.flatMap((part) => (part.text === undefined ? [] : [part.text])), Array.join("\n"))
 
 // One turn: its process's fiber, and whether its result arrived.
 interface Turn {

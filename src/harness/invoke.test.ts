@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -300,10 +301,10 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           Termination.guards.FirstResponseTimeout(outcome.termination),
         ).toBe(true)
         expect(
-          scripted.log.filter((entry) => entry.startsWith("open:")),
+          Array.filter(scripted.log, (entry) => entry.startsWith("open:")),
         ).toEqual(["open:1", "open:2"])
-        expect(outcome.diagnostics.join(" ")).toContain("retry unavailable")
-        expect(outcome.diagnostics.join(" ")).toContain(
+        expect(Array.join(outcome.diagnostics, " ")).toContain("retry unavailable")
+        expect(Array.join(outcome.diagnostics, " ")).toContain(
           "retained the first-response timeout outcome",
         )
 
@@ -329,7 +330,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           Termination.guards.FirstResponseTimeout(stalledOutcome.termination),
         ).toBe(true)
         expect(
-          twiceStalled.log.filter((entry) => entry.startsWith("open:")),
+          Array.filter(twiceStalled.log, (entry) => entry.startsWith("open:")),
         ).toEqual(["open:1", "open:2"])
       }),
   )
@@ -352,12 +353,12 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           true,
         )
         expect(
-          stalled.scripted.log.filter((entry) => entry.startsWith("open:")),
+          Array.filter(stalled.scripted.log, (entry) => entry.startsWith("open:")),
         ).toEqual(["open:1", "open:2"])
         expect(stalled.scripted.log).toContain("abort:1")
         expect(stalled.scripted.log).toContain("prompt:1.1")
         expect(stalled.scripted.log).toContain("prompt:2.1")
-        expect(stalled.outcome.diagnostics.join(" ")).toContain("fresh session")
+        expect(Array.join(stalled.outcome.diagnostics, " ")).toContain("fresh session")
 
         const startup = yield* run({
           sessions: [
@@ -370,7 +371,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           true,
         )
         expect(
-          startup.scripted.log.filter((entry) => entry.startsWith("open:")),
+          Array.filter(startup.scripted.log, (entry) => entry.startsWith("open:")),
         ).toEqual(["open:1", "open:2"])
         expect(startup.scripted.log).not.toContain("dispose:1")
       }),
@@ -382,17 +383,17 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         sessions: [{ prompts: [cleanStop(), completedPrompt()] }],
       })
       expect(Termination.guards.Completed(outcome.termination)).toBe(true)
-      expect(scripted.log.filter((entry) => entry.startsWith("open:"))).toEqual([
+      expect(Array.filter(scripted.log, (entry) => entry.startsWith("open:"))).toEqual([
         "open:1",
       ])
-      expect(scripted.log.filter((entry) => entry.startsWith("prompt:"))).toEqual([
+      expect(Array.filter(scripted.log, (entry) => entry.startsWith("prompt:"))).toEqual([
         "prompt:1.1",
         "prompt:1.2",
       ])
       expect(scripted.prompts[1]?.text).toContain(
         `You ended without calling ${scripted.factory.emitToolName(EmitFindings.toolName)}.`,
       )
-      expect(outcome.diagnostics.join(" ")).toContain("1 corrective turn")
+      expect(Array.join(outcome.diagnostics, " ")).toContain("1 corrective turn")
     }))
 
   it.effect("records missing emit after exactly two corrective turns", () =>
@@ -404,7 +405,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         _tag: "MissingEmit",
         correctiveTurns: 2,
       })
-      expect(scripted.log.filter((entry) => entry.startsWith("prompt:"))).toHaveLength(3)
+      expect(Array.filter(scripted.log, (entry) => entry.startsWith("prompt:"))).toHaveLength(3)
     }))
 
   it.effect("keeps output and usage beside provider failure", () =>
@@ -439,7 +440,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       expect(Termination.guards.ProviderFailed(outcome.termination)).toBe(true)
       expect(outcome.output).toEqual(GOOD_EMIT)
       expect(outcome.usage.costUsd).toBeCloseTo(0.01)
-      expect(outcome.diagnostics.join(" ")).toContain("upstream 529")
+      expect(Array.join(outcome.diagnostics, " ")).toContain("upstream 529")
     }))
 
   it.effect("keeps captured output when the absolute budget wins", () =>
@@ -553,13 +554,13 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         })
         expect(Termination.guards.ContextLimit(outcome.termination)).toBe(true)
         expect(outcome.output).toEqual(OTHER_EMIT)
-        expect(outcome.diagnostics.join(" ")).toContain("pre-validation")
+        expect(Array.join(outcome.diagnostics, " ")).toContain("pre-validation")
         // A context limit is never retried in a fresh session or corrected.
         expect(
-          scripted.log.filter((entry) => entry.startsWith("open:")),
+          Array.filter(scripted.log, (entry) => entry.startsWith("open:")),
         ).toHaveLength(1)
         expect(
-          scripted.log.filter((entry) => entry.startsWith("prompt:")),
+          Array.filter(scripted.log, (entry) => entry.startsWith("prompt:")),
         ).toHaveLength(1)
       }),
   )
@@ -585,7 +586,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         ],
       })
       expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(outcome.diagnostics.join(" ")).toContain("retained the first")
+      expect(Array.join(outcome.diagnostics, " ")).toContain("retained the first")
     }))
 
   it.effect("reports the exact validated-output issue and logs its raw payload", () =>
@@ -893,6 +894,6 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         ],
       })
       expect(outcome.toolCalls).toEqual({ total: 2, errored: 2 })
-      expect(outcome.diagnostics.join(" ")).toContain("tool read failed: no such file")
+      expect(Array.join(outcome.diagnostics, " ")).toContain("tool read failed: no such file")
     }))
 })

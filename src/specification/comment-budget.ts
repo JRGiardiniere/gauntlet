@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import type {
   CommentOmission,
   SpecificationComment,
@@ -29,7 +30,7 @@ export const trimCommentBudget = (
   comments: ReadonlyArray<SpecificationComment>,
 ): TrimmedComments => {
   const ordered = [...comments].sort(byChronology)
-  let total = ordered.reduce((sum, comment) => sum + comment.text.length, 0)
+  let total = Array.reduce(ordered, 0, (sum, comment) => sum + comment.text.length)
   if (total <= COMMENT_BUDGET_CHARACTERS) {
     return { comments: ordered, commentOmission: undefined }
   }

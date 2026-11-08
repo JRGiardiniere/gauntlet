@@ -1,7 +1,9 @@
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -112,10 +114,11 @@ export const loadGoverningStandardsBlock = Effect.fn(
         )),
   )
   if (Option.isNone(source)) return undefined
-  const entries = source.value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line !== "")
+  const entries = pipe(
+    source.value.split("\n"),
+    Array.map((line) => line.trim()),
+    Array.filter((line) => line !== ""),
+  )
   if (entries.length === 0) return undefined
 
   const sections = yield* Effect.forEach(entries, (entry) =>
@@ -132,9 +135,9 @@ export const loadGoverningStandardsBlock = Effect.fn(
       )
       return `### ${entry}\n\n${text.trim()}`
     }), { concurrency: 4 })
-  return [
+  return Array.join([
     GOVERNING_STANDARDS_HEADING,
     "The documents that govern how the changed code should be written, fed from the Standards Manifest. Judge each document's applicability from its own text.",
     ...sections,
-  ].join("\n\n")
+  ], "\n\n")
 })

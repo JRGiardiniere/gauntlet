@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import { Candidate } from "../domain/candidate.ts"
 import {
   Dossier,
@@ -243,9 +244,9 @@ describe("dossier markdown rendering", () => {
     // newlines with Markdown-significant prefixes; neither may start a line.
     expect(markdown).toContain("first line dossier.md: /tmp/forged-path")
     expect(markdown).toContain("checked the call sites; ## the coupling is real")
-    expect(markdown.split("\n").filter((line) => line.startsWith("dossier.md:")))
+    expect(Array.filter(markdown.split("\n"), (line) => line.startsWith("dossier.md:")))
       .toHaveLength(0)
-    expect(markdown.split("\n").filter((line) => line.startsWith("##")))
+    expect(Array.filter(markdown.split("\n"), (line) => line.startsWith("##")))
       .toEqual([
         "## Findings",
         "## Unresolved",
@@ -379,7 +380,7 @@ describe("digest rendering", () => {
   it("keeps candidate text from breaking the line-oriented contract", () => {
     // The confirmed claim's location and summary both embed a newline plus a
     // forged "dossier.md:" prefix; flattened, it cannot mint a digest path line.
-    expect(lines.filter((line) => line.startsWith("dossier.md: "))).toHaveLength(
+    expect(Array.filter(lines, (line) => line.startsWith("dossier.md: "))).toHaveLength(
       1,
     )
     expect(digest).toContain(
@@ -442,7 +443,7 @@ describe("digest rendering", () => {
     const everyLensRan = renderDigest(
       ReviewPlan.make({
         ...plan,
-        lenses: plan.lenses.filter(({ name }) => name !== "spec-conformance"),
+        lenses: Array.filter(plan.lenses, ({ name }) => name !== "spec-conformance"),
       }),
       dossier,
       accounting,
@@ -517,7 +518,7 @@ describe("dossier page rendering", () => {
 
 describe("page text parsing", () => {
   it("keeps an added line that reads like a file header inside its hunk", () => {
-    const diff = [
+    const diff = Array.join([
       "diff --git a/src/a.ts b/src/a.ts",
       "--- a/src/a.ts",
       "+++ b/src/a.ts",
@@ -527,9 +528,9 @@ describe("page text parsing", () => {
       "@@ -9,1 +10,1 @@",
       "-old",
       "+new",
-    ].join("\n")
+    ], "\n")
     const hunks = parseDiffHunks(diff).get("src/a.ts") ?? []
-    expect(hunks.map((hunk) => hunk.rows.length)).toEqual([2, 2])
+    expect(Array.map(hunks, (hunk) => hunk.rows.length)).toEqual([2, 2])
     expect(hunks[0]?.rows[1]).toEqual({ kind: "added", newLine: 2, text: "++ counter" })
   })
 

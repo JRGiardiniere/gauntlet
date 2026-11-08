@@ -9,6 +9,9 @@
 // redraw resumes the motion where it was instead of restarting it. An image
 // shows no tooltips, so a mark says only its state.
 
+import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
+
 export type MarkState = "waiting" | "running" | "answered" | "failed" | "skipped"
 
 export interface TrackStage {
@@ -128,9 +131,12 @@ const DIGIT_LINE = 14
 const wheelSvg = (x: number, glyphs: ReadonlyArray<string>, period: number, clock: TrackClock) => {
   const age = Math.floor(clock.seconds % period)
   const at = Math.floor(age / (period / glyphs.length))
-  const stack = glyphs.map((glyph, index) =>
-    `<text x="${num(x)}" y="${num(DOT_Y + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`
-  ).join("")
+  const stack = pipe(
+    glyphs,
+    Array.map((glyph, index) =>
+      `<text x="${num(x)}" y="${num(DOT_Y + 4 + index * DIGIT_LINE)}" class="clock">${glyph}</text>`),
+    Array.join(""),
+  )
   if (!clock.running) {
     return `<g transform="translate(0 ${String(-at * DIGIT_LINE)})">${stack}</g>`
   }
@@ -150,7 +156,7 @@ const clockSvg = (x: number, clock: TrackClock) => {
   ]
   return {
     width: DIGIT * 4 + 4,
-    source: `<g clip-path="url(#window)">${parts.join("")}</g>`,
+    source: `<g clip-path="url(#window)">${Array.join(parts, "")}</g>`,
   }
 }
 
@@ -159,12 +165,12 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
   const label = (x: number, text: string, fill: string, options: { readonly active?: boolean; readonly end?: boolean } = {}) =>
     `<text x="${num(x)}" y="${num(LABEL_Y)}"${options.end === true ? ' text-anchor="end"' : ""} class="label${options.active === true ? " active" : ""}" fill="${fill}">${escape(text.toUpperCase())}</text>`
   let x = MARGIN
-  stages.forEach((stage, at) => {
+  Array.forEach(stages, (stage, at) => {
     const marks: ReadonlyArray<MarkState> = stage.marks.length === 0 ? ["waiting"] : stage.marks
     const active = stage.started && !stage.finished
     parts.push(label(x, stage.name, stage.started ? stage.color : MUTED, { active }))
     let running = 0
-    marks.forEach((mark, index) => {
+    Array.forEach(marks, (mark, index) => {
       parts.push(markSvg(mark, x + RADIUS + 1 + index * PITCH, stage.color, mark === "running" ? running++ : 0, clock.now))
     })
     const dotsEnd = x + 2 + RADIUS * 2 + (marks.length - 1) * PITCH
@@ -182,7 +188,7 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
   if (pills.length > 0) {
     x += SECTION
     parts.push(label(x, "findings", MUTED))
-    pills.forEach((pill, at) => {
+    Array.forEach(pills, (pill, at) => {
       const drawn = pillSvg(pill, x + (at === 0 ? 0 : 6))
       parts.push(drawn.source)
       x += drawn.width + (at === 0 ? 0 : 6)
@@ -207,8 +213,12 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
     `.breathe{animation:breathe 1.6s ease-in-out infinite}.flow{animation:flow 0.7s linear infinite}` +
     `@keyframes ping{from{transform:scale(1);opacity:0.75}to{transform:scale(2.36);opacity:0}}` +
     `@keyframes breathe{50%{opacity:0.55}}@keyframes flow{from{stroke-dashoffset:20}to{stroke-dashoffset:0}}` +
-    [6, 10].map((glyphs) => `@keyframes wheel${String(glyphs)}{to{transform:translateY(${String(-glyphs * DIGIT_LINE)}px)}}`).join("") +
+    pipe(
+      [6, 10],
+      Array.map((glyphs) => `@keyframes wheel${String(glyphs)}{to{transform:translateY(${String(-glyphs * DIGIT_LINE)}px)}}`),
+      Array.join(""),
+    ) +
     `</style></defs>` +
-    `${parts.join("")}</svg>`
+    `${Array.join(parts, "")}</svg>`
   return { source, width, height: HEIGHT }
 }

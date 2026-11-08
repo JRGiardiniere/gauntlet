@@ -1,4 +1,5 @@
 import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
@@ -96,9 +97,11 @@ const validTestSuggestion = (
       `${where} attached a test suggestion to a refuted cluster; dropped it`,
     )
   }
-  const tests = (suggestion.tests ?? [])
-    .map((test) => test.replace(/\s+/g, " ").trim())
-    .filter((test) => test !== "")
+  const tests = pipe(
+    suggestion.tests ?? [],
+    Array.map((test) => test.replace(/\s+/g, " ").trim()),
+    Array.filter((test) => test !== ""),
+  )
   const reason = (suggestion.reason ?? "").replace(/\s+/g, " ").trim()
   if (!Array.isArrayNonEmpty(tests) || reason === "") {
     return Result.fail(

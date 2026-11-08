@@ -1,4 +1,5 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 
@@ -29,7 +30,7 @@ export const refreshedModelCatalog = Effect.fn("gauntlet.pi.refresh_catalog")(
       return yield* new ModelCatalogRefreshError({ reason: "refresh aborted" })
     }
     return (provider: string): ReadonlyArray<string> =>
-      runtime.getModels(provider).map((model) => model.id)
+      Array.map(runtime.getModels(provider), (model) => model.id)
   },
   Effect.timeoutOrElse({
     duration: "15 seconds",

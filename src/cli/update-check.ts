@@ -5,6 +5,7 @@
 // forked fiber for the whole command and is claimed briefly at exit, so a
 // slow or offline network never fails a command and delays one by at most
 // the one-second claim.
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
@@ -87,7 +88,7 @@ const parseVersion = (raw: string) => {
   const match = versionPattern.exec(raw)
   return match === null
     ? Option.none<ReadonlyArray<number>>()
-    : Option.some(match.slice(1).map(Number))
+    : Option.some(Array.map(match.slice(1), Number))
 }
 
 // False whenever either side is not a plain release version: the dev sentinel

@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { ReviewTarget } from "../domain/review-target.ts"
@@ -108,7 +109,7 @@ export const resolvePullRequestTarget = Effect.fn(
         headCommit,
       ]).pipe(
         explainGit(`could not list changed files for PR #${String(number)}`),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-tree", "-r", "-z", headCommit]).pipe(
         explainGit(`could not list the tree of PR #${String(number)}`),

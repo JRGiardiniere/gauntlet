@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Clock from "effect/Clock"
 import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
@@ -5,6 +6,7 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Function from "effect/Function"
+import { pipe } from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
@@ -314,7 +316,7 @@ const logDebugTranscript = (
   Effect.gen(function* () {
     if (!(yield* LogLevel.isEnabled("Debug"))) return
     const entries = yield* Effect.try({
-      try: () => session.transcriptEntries().map(jsonSafeValue),
+      try: () => Array.map(session.transcriptEntries(), jsonSafeValue),
       catch: (cause) => String(cause),
     })
     yield* Effect.forEach(
@@ -409,7 +411,7 @@ const openCapturedSession = Effect.fn(
       settleAbort(aborting, capture).pipe(
         Effect.andThen(Effect.sync(() => {
           try {
-            const rows = opened.usageRows().map(jsonSafeRow)
+            const rows = Array.map(opened.usageRows(), jsonSafeRow)
             capture.dispatch({ type: "usage_rows", rows })
           } catch (cause) {
             capture.dispatch({
@@ -591,7 +593,7 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
     if (ending.rejection !== undefined) {
       if (common.violations.length > 0) {
         return yield* new AdapterContractViolation({
-          reason: common.violations.join("; "),
+          reason: Array.join(common.violations, "; "),
         })
       }
       if (common.acceptedActivity) {
@@ -729,7 +731,7 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
       if (common.violations.length > 0) {
         return Effect.fail(
           new AdapterContractViolation({
-            reason: common.violations.join("; "),
+            reason: Array.join(common.violations, "; "),
           }),
         )
       }
@@ -751,7 +753,7 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
         ),
       )
     })
-    const rawRows = states.flatMap((state) => commonOf(state).rawUsageRows)
+    const rawRows = Array.flatMap(states, (state) => commonOf(state).rawUsageRows)
     let input = 0
     let output = 0
     let cacheRead = 0
@@ -785,7 +787,7 @@ const outputFrom = <O>(
 ) =>
   Effect.gen(function* () {
     const decode = decodeOutputContract(contract)
-    const validated = states.filter(isValidatedCapture)
+    const validated = Array.filter(states, isValidatedCapture)
     for (const state of validated) {
       if (state.duplicateCount > 0) {
         diagnostics.push(
@@ -814,9 +816,7 @@ const outputFrom = <O>(
       )
     }
 
-    const salvaged = states
-      .filter(isSalvagedCapture)
-      .flatMap((state) => state.raws)
+    const salvaged = pipe(states, Array.filter(isSalvagedCapture), Array.flatMap((state) => state.raws))
       .reverse()
     for (const [index, raw] of salvaged.entries()) {
       const decoded = yield* decode(raw).pipe(
@@ -846,10 +846,10 @@ const finalizeOutcome = <O>(
   durationMillis: number,
 ): Effect.Effect<AgentOutcome<O>, AdapterContractViolation> =>
   Effect.gen(function* () {
-    const states = captures.map((capture) => capture.snapshot())
+    const states = Array.map(captures, (capture) => capture.snapshot())
     const diagnostics = [
       ...globalDiagnostics,
-      ...states.flatMap((state) => commonOf(state).diagnostics),
+      ...Array.flatMap(states, (state) => commonOf(state).diagnostics),
     ]
     const usage = yield* usageFrom(states)
     const output = yield* outputFrom(

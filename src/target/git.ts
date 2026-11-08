@@ -1,5 +1,7 @@
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 
@@ -24,13 +26,14 @@ export const chompLine = (out: string) => out.replace(/\n$/, "")
 // Gitlink entries in NUL-separated `ls-files --stage` or `ls-tree -r` output.
 // Both formats lead with the mode and put the path after the first tab.
 export const gitlinkPaths = (out: string): ReadonlyArray<string> =>
-  out
-    .split("\0")
-    .filter((entry) => entry.startsWith("160000 "))
-    .flatMap((entry) => {
+  pipe(
+    out.split("\0"),
+    Array.filter((entry) => entry.startsWith("160000 ")),
+    Array.flatMap((entry) => {
       const tab = entry.indexOf("\t")
       return tab === -1 ? [] : [entry.slice(tab + 1)]
-    })
+    }),
+  )
 
 // The review snapshot never materializes submodule contents — agents see an
 // unpopulated gitlink directory, so the degraded scope must be named (#56).
@@ -39,7 +42,7 @@ export const submoduleWarning = (
 ): ReadonlyArray<string> =>
   paths.length === 0 ? [] : [
     `${String(paths.length)} submodule(s) whose contents are not included in the review: ${
-      paths.join(", ")
+      Array.join(paths, ", ")
     }`,
   ]
 

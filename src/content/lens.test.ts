@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { FrozenLens } from "../domain/review-plan.ts"
@@ -30,14 +31,14 @@ describe("lens content", () => {
     withFixtureDirectory((directory) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
-        const source = [
+        const source = Array.join([
           "---",
           "finder-class: interpretive",
           "category: fixture-category",
           "---",
           "fixture prompt body",
           "",
-        ].join("\n")
+        ], "\n")
         yield* fs.writeFileString(`${directory}/fixture-lens.md`, source)
 
         const lens = yield* loadLens(directory, "fixture-lens")

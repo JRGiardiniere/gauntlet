@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Option from "effect/Option"
 import type { Json } from "effect/Schema"
 import { describe, expect, it } from "vitest"
@@ -65,7 +66,7 @@ const makeEngine = () => {
       })
       return { request: parsed, reviewed, ended }
     },
-    answer: async (request: { readonly words: ReadonlyArray<string> }) => `answered ${request.words.join(" ")}`,
+    answer: async (request: { readonly words: ReadonlyArray<string> }) => `answered ${Array.join(request.words, " ")}`,
     running: () => running,
     standardsManifest: async () => ({ path: "/standards", exists: true }),
   }

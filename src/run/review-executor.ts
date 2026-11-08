@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as DateTime from "effect/DateTime"
 import * as Duration from "effect/Duration"
@@ -52,8 +53,8 @@ export const executeReviewPlan = Effect.fn(
   yield* reportMilestone(RunMilestone.Started({
     runId: plan.runId,
     directory: paths.root,
-    lenses: selection.runnable.map((lens) => lens.name),
-    skipped: selection.skipped.map(({ lens, reason }) => ({ lens: lens.name, reason })),
+    lenses: Array.map(selection.runnable, (lens) => lens.name),
+    skipped: Array.map(selection.skipped, ({ lens, reason }) => ({ lens: lens.name, reason })),
   }))
   return yield* Effect.scoped(
     Effect.gen(function* () {
@@ -75,7 +76,7 @@ export const executeReviewPlan = Effect.fn(
 
         yield* runProgress(
           `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
-          cacheShare(results.map(({ outcome }) => outcome.usage)),
+          cacheShare(Array.map(results, ({ outcome }) => outcome.usage)),
         )
         yield* reportMilestone(RunMilestone.FindersFinished())
         const routed = routeFinderResults(results)
@@ -124,10 +125,7 @@ export const executeReviewPlan = Effect.fn(
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
         const accounting = {
-          costUsd: results.reduce(
-            (total, result) => total + result.outcome.usage.costUsd,
-            0,
-          ) + pooled.costUsd + verification.costUsd + judgment.costUsd,
+          costUsd: Array.reduce(results, 0, (total, result) => total + result.outcome.usage.costUsd) + pooled.costUsd + verification.costUsd + judgment.costUsd,
           invocationCount:
             results.length +
             pooled.invocationCount +
@@ -155,9 +153,7 @@ export const executeReviewPlan = Effect.fn(
 
         const view = viewDossier(dossier)
         yield* reportMilestone(RunMilestone.Reviewed({
-          entries: [...view.findings, ...view.unresolved].map(
-            ({ reviewPriority, tag }) => ({ tag, reviewPriority }),
-          ),
+          entries: Array.map([...view.findings, ...view.unresolved], ({ reviewPriority, tag }) => ({ tag, reviewPriority })),
           coverageGaps: dossier.coverageGaps,
           dossierMarkdown: paths.dossierMarkdown,
         }))

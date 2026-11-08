@@ -9,7 +9,9 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -170,11 +172,12 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
     case "tool_execution_end": {
       return Result.match(decodeToolExecutionEnd(event), {
         onSuccess: (end): HarnessEvent => {
-          const detail = end.result.content
-            .flatMap((content) =>
-              content.text === undefined ? [] : [content.text],
-            )
-            .join("\n")
+          const detail = pipe(
+            end.result.content,
+            Array.flatMap((content) =>
+                content.text === undefined ? [] : [content.text]),
+            Array.join("\n"),
+          )
           const event = {
             type: "tool_execution_end" as const,
             toolName: end.toolName,
@@ -341,7 +344,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               : await makeReviewWorkspace(session.cwd)
             const workspaceTools = workspace === undefined
               ? []
-              : session.tools.map((tool) =>
+              : Array.map(session.tools, (tool) =>
                   tool === "read"
                     ? withToolCallDeadline(
                         workspace.readTool,
@@ -350,8 +353,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                     : withToolCallDeadline(
                         workspace.bashTool,
                         session.bashTimeoutMillis,
-                      ),
-                )
+                      ))
             const emitTool = withToolCallDeadline(
               emitToolDefinition,
               session.toolTimeoutMillis,
@@ -436,12 +438,11 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // and a renamed field fails loudly there instead of reading
               // as $0.
               usageRows: () =>
-                sessionManager.getEntries().flatMap((entry) =>
+                Array.flatMap(sessionManager.getEntries(), (entry) =>
                   entry.type === "message" &&
                   entry.message.role === "assistant"
                     ? [entry.message.usage]
-                    : [],
-                ),
+                    : []),
               transcriptEntries: () => sessionManager.getEntries(),
             } satisfies HarnessSession
           },

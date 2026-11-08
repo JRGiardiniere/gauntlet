@@ -1,4 +1,5 @@
 import { isUtf8 } from "node:buffer"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -78,24 +79,24 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
     )
   const readAll = (files: Iterable<string>) =>
     Effect.forEach(files, readText, { concurrency: 32 }).pipe(
-      Effect.map((read) => read.flatMap(Option.toArray)),
+      Effect.map((read) => Array.flatMap(read, Option.toArray)),
     )
 
   // Tracked plus untracked-but-not-ignored: a working-tree overlay adds its
   // new files to the snapshot without adding them to the index.
-  const listed = (yield* runGit(snapshotRoot, [
+  const listed = Array.filter((yield* runGit(snapshotRoot, [
     "ls-files",
     "-z",
     "--cached",
     "--others",
     "--exclude-standard",
-  ])).split("\0").filter((file) => file !== "")
+  ])).split("\0"), (file) => file !== "")
   const known = [...new Set([...listed, ...changedFiles])]
   const byPath = indexBy(known, (file) => [extensionless(file)])
   const byDirectory = indexBy(known, (file) => [path.dirname(file)])
   const bySuffix = indexBy(known, (file) => {
-    const parts = extensionless(file).split("/").map(segment)
-    return parts.slice(0, -1).map((_, start) => parts.slice(start).join("/"))
+    const parts = Array.map(extensionless(file).split("/"), segment)
+    return Array.map(parts.slice(0, -1), (_, start) => Array.join(parts.slice(start), "/"))
   })
 
   const referencesOf = ({ file, text }: SourceFile) => {
@@ -107,15 +108,14 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
       }
     }
     for (const [name] of text.matchAll(QUALIFIED_NAME)) {
-      const parts = name.split(SEPARATOR).map(segment)
+      const parts = Array.map(name.split(SEPARATOR), segment)
       // Up to two trailing member segments: `Foo\Bar::baz`, `mod.fn`.
       for (let drop = 0; drop <= 2 && parts.length - drop >= 2; drop++) {
         const head = parts.slice(0, parts.length - drop)
-        const named = head.slice(0, -1)
-          .map((_, start) => bySuffix.get(head.slice(start).join("/")))
+        const named = Array.map(head.slice(0, -1), (_, start) => bySuffix.get(Array.join(head.slice(start), "/")))
           .find(Predicate.isNotUndefined)
         if (named !== undefined && named.length <= AMBIGUOUS) {
-          named.forEach((each) => found.add(each))
+          Array.forEach(named, (each) => found.add(each))
           break
         }
       }
@@ -130,10 +130,10 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
     const words = [...new Set([stem(file), stem(file).replace(/[_-]/g, "")])]
     return runGit(snapshotRoot, [
       "grep", "-l", "-z", "-I", "-i", "-w", "-F", "--untracked",
-      ...words.flatMap((word) => ["-e", word]),
+      ...Array.flatMap(words, (word) => ["-e", word]),
     ]).pipe(
       Effect.catchIf((error) => error.exitCode === 1, () => Effect.succeed("")),
-      Effect.map((out) => out.split("\0").filter((hit) => hit !== "")),
+      Effect.map((out) => Array.filter(out.split("\0"), (hit) => hit !== "")),
     )
   }
 
@@ -141,15 +141,14 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   const touched = yield* readAll(changedFiles)
   const hits = yield* Effect.forEach(changedFiles, mentioning, { concurrency: 8 })
   const texts = new Map(
-    [...touched, ...(yield* readAll(new Set(hits.flat().filter((hit) => !touchedSet.has(hit)))))]
-      .map(({ file, text }) => [file, text]),
+    Array.map([...touched, ...(yield* readAll(new Set(Array.filter(hits.flat(), (hit) => !touchedSet.has(hit)))))], ({ file, text }) => [file, text]),
   )
   const links = new Map<string, Set<string>>()
   const dependencies = new Set<string>()
   const link = (file: string, to: string) => {
     if (!touchedSet.has(file)) links.set(file, (links.get(file) ?? new Set()).add(to))
   }
-  changedFiles.forEach((file, i) => {
+  Array.forEach(changedFiles, (file, i) => {
     const text = texts.get(file)
     if (text !== undefined) {
       referencesOf({ file, text }).forEach((named) => {
@@ -172,15 +171,14 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   // A touched file's own dependencies first, then referrers and siblings;
   // within each, most distinct touched files linked, then smallest, so more
   // files fit. Rendered in path order so the cached prompt prefix stays stable.
-  const unread = yield* readAll([...links.keys()].filter((file) => !texts.has(file)))
-  unread.forEach(({ file, text }) => texts.set(file, text))
+  const unread = yield* readAll(Array.filter([...links.keys()], (file) => !texts.has(file)))
+  Array.forEach(unread, ({ file, text }) => texts.set(file, text))
   const size = (file: string) => texts.get(file)?.length ?? 0
   const tier = (file: string) => (dependencies.has(file) ? 0 : 1)
-  const ranked = [...links]
+  const ranked = Array.map([...links]
     .sort(([a, x], [b, y]) =>
       tier(a) - tier(b) || y.size - x.size || size(a) - size(b) || a.localeCompare(b)
-    )
-    .map(([file]) => file)
+    ), ([file]) => file)
   const kept: Array<SourceFile> = []
   let chars = 0
   for (const file of ranked) {

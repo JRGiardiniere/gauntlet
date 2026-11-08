@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -35,7 +37,7 @@ const parse = (words: ReadonlyArray<string>, relatedFiles: boolean) => {
     Effect.catchTags({
       ReviewCommandError: (refusal) => Effect.succeed(refusal.reason),
       ShowHelp: (help) =>
-        Effect.succeed(help.errors.map((error) => error.message).join("; ")),
+        Effect.succeed(pipe(help.errors, Array.map((error) => error.message), Array.join("; "))),
     }),
     Effect.provideService(InvocationDirectory, "/work/repo"),
     Effect.provide(
@@ -104,8 +106,8 @@ describe("the shared review syntax", () => {
     Effect.gen(function* () {
       for (const { becomes, relatedFiles = false, words } of table) {
         const parsed = yield* parse(words, relatedFiles)
-        if (Predicate.isString(becomes)) expect(parsed, words.join(" ")).toBe(becomes)
-        else expect(parsed, words.join(" ")).toMatchObject(becomes)
+        if (Predicate.isString(becomes)) expect(parsed, Array.join(words, " ")).toBe(becomes)
+        else expect(parsed, Array.join(words, " ")).toMatchObject(becomes)
       }
     }))
 })

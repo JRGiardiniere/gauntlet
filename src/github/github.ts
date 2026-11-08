@@ -1,7 +1,9 @@
+import * as Array from "effect/Array"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -94,8 +96,11 @@ export const unusedGitHubLayer = gitHubLayer(unusedGitHubContract)
 const decodeView = Schema.decodeUnknownEffect(Schema.fromJsonString(PullRequestView))
 
 const lastNonEmptyLine = (text: string): string => {
-  const lines = text.split("\n").map((line) => line.trim()).filter((line) =>
-    line !== ""
+  const lines = pipe(
+    text.split("\n"),
+    Array.map((line) => line.trim()),
+    Array.filter((line) =>
+      line !== ""),
   )
   return lines[lines.length - 1] ?? ""
 }
@@ -126,7 +131,7 @@ const runGh = (
         return yield* new GitHubError({
           operation,
           reason: detail === ""
-            ? `gh ${args.join(" ")} exited ${String(exitCode)}`
+            ? `gh ${Array.join(args, " ")} exited ${String(exitCode)}`
             : detail,
         })
       }
@@ -364,14 +369,14 @@ const makeLive = Effect.gen(function* () {
         "graphql",
         "-f",
         `query=${query}`,
-        ...fields.flatMap(([flag, name, value]) => [flag, `${name}=${value}`]),
+        ...Array.flatMap(fields, ([flag, name, value]) => [flag, `${name}=${value}`]),
       ],
       "specification",
     )
 
   const remainingComments = Effect.fn("gauntlet.github.remaining_issue_comments")(
     function* (cwd: string, issueId: string, page: typeof CommentConnection.Type) {
-      const comments = page.nodes.map(flattenComment)
+      const comments = Array.map(page.nodes, flattenComment)
       let hasNextPage = page.pageInfo.hasNextPage
       let cursor = page.pageInfo.endCursor
       const collected: Array<GitHubIssueComment> = [...comments]
@@ -390,7 +395,7 @@ const makeLive = Effect.gen(function* () {
             reason: "GitHub GraphQL comment page was missing",
           })
         }
-        collected.push(...connection.nodes.map(flattenComment))
+        collected.push(...Array.map(connection.nodes, flattenComment))
         hasNextPage = connection.pageInfo.hasNextPage
         cursor = connection.pageInfo.endCursor
       }
@@ -451,7 +456,7 @@ const makeLive = Effect.gen(function* () {
           { concurrency: 2 },
         ),
       )
-      return collected.flatMap((issue) => {
+      return Array.flatMap(collected, (issue) => {
         const snapshot = completed.get(issue.id)
         if (snapshot === undefined) return []
         const parent = issue.parent === null

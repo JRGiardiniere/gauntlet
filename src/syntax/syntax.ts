@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
@@ -114,7 +115,7 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
     recipeName: input.recipe,
     selectedLensNames: Option.isNone(input.lenses)
       ? undefined
-      : input.lenses.value.split(",").map((name) => name.trim()),
+      : Array.map(input.lenses.value.split(","), (name) => name.trim()),
     specPath: Option.isSome(input.spec)
       ? yield* resolveWritten(input.spec.value)
       : undefined,

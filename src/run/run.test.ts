@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -74,7 +75,7 @@ describe("Run.review", () => {
       // The answer is data: a review prints no digest itself.
       expect(yield* TestConsole.logLines).toEqual([])
 
-      expect(reported.map((milestone) => milestone._tag)).toEqual([
+      expect(Array.map(reported, (milestone) => milestone._tag)).toEqual([
         "Started",
         "SnapshotDirectoryMade",
         "FindersFinished",
@@ -127,7 +128,7 @@ describe("Run.review", () => {
       expect(yield* fs.readFileString(reviewed.paths.runLog)).toContain(
         "529 overloaded: fixture provider body",
       )
-      expect(reviewed.coverageGaps.map(({ reason }) => reason)).toEqual([
+      expect(Array.map(reviewed.coverageGaps, ({ reason }) => reason)).toEqual([
         "judgment provider failed",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -101,9 +102,9 @@ const readSettings = (fixture: Fixture) =>
   })
 
 const stdout = () =>
-  Effect.map(TestConsole.logLines, (lines) => lines.join("\n"))
+  Effect.map(TestConsole.logLines, (lines) => Array.join(Array.map(lines, String), "\n"))
 const stderr = () =>
-  Effect.map(TestConsole.errorLines, (lines) => lines.join("\n"))
+  Effect.map(TestConsole.errorLines, (lines) => Array.join(Array.map(lines, String), "\n"))
 
 describe("gauntlet config init", () => {
   it.effect("seeds a fresh catalog and settings, then no-ops while valid", () =>

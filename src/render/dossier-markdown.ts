@@ -1,3 +1,5 @@
+import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
 import { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
@@ -28,7 +30,7 @@ const location = (candidate: Candidate): string =>
 
 // Cluster-mates render as one finding, so a finding can carry several lenses.
 const attribution = (lenses: ReadonlyArray<string>): string =>
-  lenses.length > 1 ? `found by: ${lenses.join(", ")}` : lenses.join(", ")
+  lenses.length > 1 ? `found by: ${Array.join(lenses, ", ")}` : Array.join(lenses, ", ")
 
 // One explanation per finding: the evaluated framing when a verdict or judgment
 // supplied one, otherwise the claim's own failure scenario. Both would restate
@@ -50,19 +52,21 @@ const findingLine = (entry: DossierEntryView): string => {
   // running a test remains visible with the finding's context.
   const suggestionLine = entry.testSuggestion === undefined
     ? ""
-    : `\n  - suggested tests: ${entry.testSuggestion.tests.map(oneLine).join(", ")} — ${oneLine(entry.testSuggestion.reason)}`
+    : `\n  - suggested tests: ${pipe(entry.testSuggestion.tests, Array.map(oneLine), Array.join(", "))} — ${oneLine(entry.testSuggestion.reason)}`
   return `- ${priorityLabel}\`[${entry.tag}]\` ${location(entry.candidate)} — ${oneLine(entry.candidate.summary)} _(${attribution(entry.lenses)})_${detailLine}${suggestionLine}`
 }
 
 const renderEntries = (
   entries: ReadonlyArray<DossierEntryView>,
   empty: string,
-): string => entries.length === 0 ? empty : entries.map(findingLine).join("\n")
+): string => entries.length === 0 ? empty : pipe(entries, Array.map(findingLine), Array.join("\n"))
 
 export const describeRecipe = (plan: ReviewPlan): string => {
-  const seatList = Object.entries(plan.seats)
-    .map(([stage, seat]) => `${stage}: ${seat}`)
-    .join(", ")
+  const seatList = pipe(
+    Object.entries(plan.seats),
+    Array.map(([stage, seat]) => `${stage}: ${seat}`),
+    Array.join(", "),
+  )
   return plan.recipeName === undefined
     ? seatList === ""
       ? "none — no seats resolved"
@@ -92,20 +96,20 @@ export const renderDossierMarkdown = (
   const finderSelection = selectRunnableFinders(plan)
   const lensList = finderSelection.runnable.length === 0
     ? "none"
-    : finderSelection.runnable
-      .map((lens) => `${lens.name} (${lens.seat})`)
-      .join(", ")
+    : pipe(finderSelection.runnable, Array.map((lens) => `${lens.name} (${lens.seat})`), Array.join(", "))
   const coverageGaps = dossier.coverageGaps.length === 0
     ? "none"
-    : dossier.coverageGaps
-      .map((gap) => `${gap.stage}${gap.lens === undefined ? "" : ` (${gap.lens})`}: ${gap.reason}`)
-      .join("; ")
+    : pipe(
+      dossier.coverageGaps,
+      Array.map((gap) => `${gap.stage}${gap.lens === undefined ? "" : ` (${gap.lens})`}: ${gap.reason}`),
+      Array.join("; "),
+    )
   // Scope-degradation warnings (e.g. untracked files outside the diff) must
   // reach the reader — a review that silently narrowed its scope would
   // otherwise present as complete.
   const warnings = plan.target.warnings.length === 0
     ? "none"
-    : plan.target.warnings.join("; ")
+    : Array.join(plan.target.warnings, "; ")
   const commentBudget = plan.specification?.commentOmission === undefined
     ? undefined
     : formatCommentOmission(plan.specification.commentOmission)
@@ -129,9 +133,7 @@ export const renderDossierMarkdown = (
   if (finderSelection.skipped.length > 0) {
     headerFacts.push(
       `- Skipped: ${
-        finderSelection.skipped
-          .map(({ lens, reason }) => `${lens.name} — ${reason}`)
-          .join("; ")
+        pipe(finderSelection.skipped, Array.map(({ lens, reason }) => `${lens.name} — ${reason}`), Array.join("; "))
       }`,
     )
   }
@@ -139,9 +141,9 @@ export const renderDossierMarkdown = (
   const runNotes = describeRunNotes(accounting)
   const runNotesSection = runNotes.length === 0
     ? []
-    : ["", "## Run notes", "", ...runNotes.map((note) => `- ${note}`)]
+    : ["", "## Run notes", "", ...Array.map(runNotes, (note) => `- ${note}`)]
 
-  return [
+  return Array.join([
     `# Gauntlet review ${dossier.runId}`,
     "",
     ...headerFacts,
@@ -165,5 +167,5 @@ export const renderDossierMarkdown = (
     "",
     renderEntries(view.droppedObservations, "None."),
     "",
-  ].join("\n")
+  ], "\n")
 }
