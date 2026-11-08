@@ -146,7 +146,10 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
         reason: `could not review — ${failure.reason}`,
         unconfigured: failure.unconfigured === true,
       })
-    default:
+    case "AdapterContractViolation":
+    case "PromptAssemblyError":
+    case "RunError":
+    case "TargetUnresolvable":
       return RunRefusal.make({ reason: `could not review — ${failure.reason}` })
   }
 }

@@ -122,8 +122,8 @@ const violation = (
   reason: `${context}: ${String(error)}`,
 })
 
-// Rename the consumed Pi events into seam events; everything else is
-// dropped. Events of a consumed type that no longer decode become
+// Rename the consumed Pi events into seam events; the rest, listed by name so
+// a new Pi event type has to be placed, are dropped. Events of a consumed type that no longer decode become
 // contract_violation events — never a silent coercion. The parameter is Pi's
 // own event union, so an SDK rename of a consumed type or field breaks the
 // build here before it can drift at runtime.
@@ -189,7 +189,25 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
           violation("tool_execution_end did not decode", error),
       })
     }
-    default: {
+    case "agent_start":
+    case "agent_end":
+    case "agent_settled":
+    case "turn_start":
+    case "turn_end":
+    case "message_update":
+    case "tool_execution_update":
+    case "bash_execution_update":
+    case "queue_update":
+    case "entry_appended":
+    case "session_info_changed":
+    case "thinking_level_changed":
+    case "auto_retry_start":
+    case "auto_retry_end":
+    case "compaction_start":
+    case "compaction_end":
+    case "summarization_retry_scheduled":
+    case "summarization_retry_attempt_start":
+    case "summarization_retry_finished": {
       return undefined
     }
   }

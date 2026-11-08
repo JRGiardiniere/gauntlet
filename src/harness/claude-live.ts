@@ -147,6 +147,8 @@ const stopReasonOf = (claude: string | null): StopReason => {
     case "model_context_window_exceeded": {
       return "length"
     }
+    // A final delta without a stop reason leaves the turn unexplained.
+    case null:
     default: {
       return "error"
     }
