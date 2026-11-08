@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { makeClaudeLiveFactory } from "../harness/claude-live.ts"
 import { assembleStageScope, loadStageScopeTemplates } from "./scope.ts"
@@ -45,5 +46,5 @@ describe("Stage scope block", () => {
       )
       expect(scope).toContain("`Grep`")
       expect(scope).not.toContain("`bash`")
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.provide([NodeServices.layer, SecureRandom.layerWebCrypto])))
 })

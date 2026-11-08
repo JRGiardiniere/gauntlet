@@ -21,6 +21,7 @@
           "@effect/vitest",
           "effect/ByteSize",
           "effect/cli",
+          "effect/crypto/SecureRandom",
           "effect/FileSystem",
           "effect/http",
           "effect/Logger#toFile",

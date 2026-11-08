@@ -8,6 +8,7 @@ import * as Record from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import type * as ChildProcess from "effect/process/ChildProcess"
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner"
 import { Termination } from "../domain/agent-outcome.ts"
@@ -117,7 +118,7 @@ const invokeOver = (...names: ReadonlyArray<readonly [string, number]>) =>
     )
     const outcome = yield* invoke(input(cwd)).pipe(Effect.provideService(HarnessSessionFactory, factory))
     return { outcome, spawned, cwd }
-  }).pipe(Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide([NodeServices.layer, SecureRandom.layerWebCrypto]))
 
 const FENCE = [
   ["--tools", "Read,Grep,Glob"],

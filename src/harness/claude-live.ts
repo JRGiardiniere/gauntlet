@@ -12,6 +12,7 @@ import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as ChildProcess from "effect/process/ChildProcess"
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner"
 import {
@@ -174,10 +175,13 @@ interface Turn {
 
 export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
   Effect.gen(function* () {
-    const platform = yield* Effect.context<ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path>()
+    const platform = yield* Effect.context<
+      ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom
+    >()
     const spawner = Context.get(platform, ChildProcessSpawner.ChildProcessSpawner)
     const fs = Context.get(platform, FileSystem.FileSystem)
     const path = Context.get(platform, Path.Path)
+    const random = Context.get(platform, SecureRandom.SecureRandom)
 
     const open = (config: SessionConfig) =>
       Effect.gen(function* () {
@@ -186,7 +190,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
         const openingServices = yield* Effect.context<never>()
         const services = Context.merge(openingServices, platform)
         const run = Effect.runForkWith(services)
-        const sessionId = globalThis.crypto.randomUUID()
+        const sessionId = yield* random.uuidV4()
         // The snapshot is the worktree folder of the Run's temp area, which
         // the Run removes as it ends.
         const systemPromptFile = path.join(path.dirname(config.cwd), `claude-system-${sessionId}.md`)
