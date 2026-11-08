@@ -16,12 +16,9 @@ import {
 // any committish (ADR 0005).
 const splitRange = (spec: string) => {
   const separator = spec.indexOf("..")
-  return separator === -1
-    ? { base: spec, head: "HEAD" }
-    : {
-      base: spec.slice(0, separator),
-      head: spec.slice(separator + 2) || "HEAD",
-    }
+  if (separator === -1) return { base: spec, head: "HEAD" }
+  const head = spec.slice(separator + 2)
+  return { base: spec.slice(0, separator), head: head === "" ? "HEAD" : head }
 }
 
 // Resolves `--commits <base>[..<head>]` to that committed range. It mirrors

@@ -13,7 +13,7 @@
 import MarkdownIt from "markdown-it"
 import * as Array from "effect/Array"
 import { escapeHtml, lineHighlighter } from "./code-text.ts"
-import { code, excerpt, frame, markdown } from "./page-frames.ts"
+import { code, codeLine, excerpt, frame, markdown } from "./page-frames.ts"
 
 export interface CodeReference {
   readonly file: string
@@ -80,7 +80,7 @@ const sketch = (body: string) => {
     const signed = /^[+\- ]/.test(line)
     const text = change && signed ? line.slice(1) : line
     const sign = change ? `<span class="sign">${line.startsWith("-") ? "−" : line.startsWith("+") ? "+" : ""}</span>` : ""
-    return `<div class="row${kind}">${sign}<span class="src">${escapeHtml(text) || " "}</span></div>`
+    return `<div class="row${kind}">${sign}<span class="src">${codeLine(escapeHtml(text))}</span></div>`
   })
   return frame(
     `<span class="ev-kind">Sketch</span>`,
@@ -89,9 +89,9 @@ const sketch = (body: string) => {
 }
 
 const illustration = (language: string, body: string) => {
-  const highlight = lineHighlighter(`illustration.${language || "txt"}`)
+  const highlight = lineHighlighter(`illustration.${language === "" ? "txt" : language}`)
   const rows = Array.map(body.replace(/\n$/, "").split("\n"), (line) =>
-    `<div class="row"><span class="src">${highlight(line) || " "}</span></div>`)
+    `<div class="row"><span class="src">${codeLine(highlight(line))}</span></div>`)
   return frame(
     `<span class="ev-kind">Illustration</span><span class="ev-rev">not from the repository</span>`,
     code(rows, " snippet"),

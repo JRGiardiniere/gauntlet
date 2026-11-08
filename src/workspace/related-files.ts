@@ -177,7 +177,13 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   const tier = (file: string) => (dependencies.has(file) ? 0 : 1)
   const ranked = Array.map([...links]
     .sort(([a, x], [b, y]) =>
-      tier(a) - tier(b) || y.size - x.size || size(a) - size(b) || a.localeCompare(b)
+      tier(a) !== tier(b)
+        ? tier(a) - tier(b)
+        : x.size !== y.size
+        ? y.size - x.size
+        : size(a) !== size(b)
+        ? size(a) - size(b)
+        : a.localeCompare(b)
     ), ([file]) => file)
   const kept: Array<SourceFile> = []
   let chars = 0

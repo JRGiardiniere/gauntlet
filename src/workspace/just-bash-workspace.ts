@@ -193,9 +193,8 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
               : failureMessage(cause),
           })
         })
-      const outputText = boundBashResponse(
-        combinedOutput(result.stdout, result.stderr) || "(no output)",
-      )
+      const output = combinedOutput(result.stdout, result.stderr)
+      const outputText = boundBashResponse(output === "" ? "(no output)" : output)
       if (result.exitCode !== 0) {
         // The interpreter may honor the abort by resolving with exit 124
         // instead of rejecting; report that as the timeout it is.

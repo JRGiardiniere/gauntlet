@@ -207,10 +207,11 @@ export const doing = (view: RunView): string => {
   const grouped = view.routed !== undefined &&
     ((claims === 0 && notes === 0) || pool.finished || verification.started || judgment.started)
   if (!grouped) {
-    return Array.join([
+    const waiting = [
       ...(claims === 0 ? [] : [`Grouping ${plural(claims, "possible bug", "possible bugs")} for checking`]),
       ...(notes === 0 ? [] : [`${plural(notes, "note", "notes")} to weigh`]),
-    ], " · ") || "Grouping the leads"
+    ]
+    return waiting.length === 0 ? "Grouping the leads" : Array.join(waiting, " · ")
   }
   const weighing = notes > 0 && !judgment.finished
   if (claims > 0 && !verification.finished) {

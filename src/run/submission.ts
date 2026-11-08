@@ -256,10 +256,12 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     request.selectedLensNames,
     defaultLensNames,
   )
+  const listedLenses = Array.join(resolvedLensNames, ", ")
+  const lensList = listedLenses === "" ? "(none)" : listedLenses
   yield* progress(
     request.selectedLensNames === undefined
-      ? `loading Default Lenses ${Array.join(resolvedLensNames, ", ") || "(none)"}`
-      : `loading exact caller Lenses ${Array.join(resolvedLensNames, ", ") || "(none)"}`,
+      ? `loading Default Lenses ${lensList}`
+      : `loading exact caller Lenses ${lensList}`,
   )
   const lenses = yield* loadFinderLenses({
     repoRoot: target.repoRoot,

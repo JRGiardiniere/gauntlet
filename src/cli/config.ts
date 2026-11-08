@@ -375,9 +375,8 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
           }).pipe(Effect.catchTag("ContentLoadError", lensConfigError))
       const defaultLenses = Array.map(selected, ({ name }) => name)
       yield* writeSettings({ ...settings, "default-lenses": defaultLenses })
-      yield* Console.log(
-        `default-lenses = ${Array.join(defaultLenses, ", ") || "(none)"}`,
-      )
+      const listed = Array.join(defaultLenses, ", ")
+      yield* Console.log(`default-lenses = ${listed === "" ? "(none)" : listed}`)
       return
     }
     case "favorites": {

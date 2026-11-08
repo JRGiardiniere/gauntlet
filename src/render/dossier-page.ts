@@ -28,6 +28,7 @@ import { DOSSIER_PAGE_CSS, DOSSIER_PAGE_SCRIPT } from "./dossier-page-assets.ts"
 import { describeTargetForPage, shortCommit } from "./target-text.ts"
 import {
   code,
+  codeLine,
   CONTEXT,
   excerpt,
   frame,
@@ -177,7 +178,7 @@ const change = (file: string, hunk: Hunk, line: number | undefined, pin: string)
     const mark = line !== undefined && row.newLine === line
     rows.push(
       `<div class="row ${ROW[row.kind]}${mark ? " mark" : ""}"><span class="no">${row.oldLine ?? ""}</span><span class="no">${row.newLine ?? ""}</span><span class="sign">${SIGN[row.kind]}</span><span class="src">${
-        highlight(row.text) || " "
+        codeLine(highlight(row.text))
       }</span>${mark ? pinTail(pin) : ""}</div>`,
     )
   }
@@ -442,6 +443,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
   </nav>`
 
   const finders = selectRunnableFinders(plan)
+  const runnableLenses = pipe(finders.runnable, Array.map((lens) => escapeHtml(lens.name)), Array.join(", "))
   const { runNotes } = data
   const indexField = (label: string, value: string, style = "") =>
     `<div class="ix-field ${style}"><span class="field-label">${label}</span><span class="ix-value">${value}</span></div>`
@@ -478,7 +480,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
   }
       <details class="ix-more" open><summary class="field-label">Tribunal, lenses and notes</summary><div class="ix-grid">
       ${indexField("Tribunal", escapeHtml(describeRecipe(plan)), "w6")}
-      ${indexField("Lenses", pipe(finders.runnable, Array.map((lens) => escapeHtml(lens.name)), Array.join(", ")) || "none", "w4")}
+      ${indexField("Lenses", runnableLenses === "" ? "none" : runnableLenses, "w4")}
       ${
     indexField(
       "Coverage gaps",

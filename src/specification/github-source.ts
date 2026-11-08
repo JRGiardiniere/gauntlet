@@ -15,7 +15,9 @@ const byIssueIdentity = (
   left: GitHubIssueSnapshot,
   right: GitHubIssueSnapshot,
 ): number =>
-  left.number - right.number || left.url.localeCompare(right.url)
+  left.number === right.number
+    ? left.url.localeCompare(right.url)
+    : left.number - right.number
 
 const issueDocument = (
   role: "parent" | "slice",
