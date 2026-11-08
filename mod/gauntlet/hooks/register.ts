@@ -17,6 +17,7 @@ import {
   renderStrip,
   reviewToolArgs,
   reviewToolInputSchema,
+  type RunView,
   type Session,
 } from "../../engine.ts"
 
@@ -36,40 +37,37 @@ import {
 
 type Engines = EngineInterface
 
-let engine: Engine | undefined
-let session: Session | undefined
-let home = ""
-// When the review whose strip was dismissed started: dismissing clears the
-// strip until the next review starts.
-let dismissed: number | undefined
-let drawn = ""
-let tickedAt = 0
-let ticks = 0
-let changes = 0
+// The log's lines not yet appended, and the append in flight. It belongs to
+// one activation (one `register`); it is passed rather than closed over
+// because only top-level functions may take `$`.
+interface ModLog {
+  // Where the log lives: nothing is appended until session.start reads it.
+  home: string
+  pending: Array<string>
+  writing: Promise<unknown>
+}
 
-let pendingLog: Array<string> = []
-let logWriting: Promise<unknown> = Promise.resolve()
 const loadedAt = Date.now()
 // The build writes plugin.json's version, the release's.
 const decodePluginManifest = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
 )
 
-const modDir = () => `${home}/.gauntlet/mod`
+const modDir = (home: string) => `${home}/.gauntlet/mod`
 
 // Appends in batches: every session running the mod, and every reload of
 // it, shares the one log, so none may rewrite it.
-function log($: Engines, line: string) {
-  pendingLog.push(`${new Date().toISOString()} [+${((Date.now() - loadedAt) / 1000).toFixed(1)}s] ${line}`)
-  logWriting = logWriting.then(async () => {
-    if (pendingLog.length === 0 || home === "") return
-    const text = `${Array.join(pendingLog, "\n")}\n`
-    pendingLog = []
-    await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${modDir()}/mod.log`], { stdin: text })
+function log($: Engines, modLog: ModLog, line: string) {
+  modLog.pending.push(`${new Date().toISOString()} [+${((Date.now() - loadedAt) / 1000).toFixed(1)}s] ${line}`)
+  modLog.writing = modLog.writing.then(async () => {
+    if (modLog.pending.length === 0 || modLog.home === "") return
+    const text = `${Array.join(modLog.pending, "\n")}\n`
+    modLog.pending = []
+    await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${modDir(modLog.home)}/mod.log`], { stdin: text })
   }).catch(() => undefined)
 }
 
-function portsOf($: Engines, env: Record.ReadonlyRecord<string, string>): EnginePorts {
+function portsOf($: Engines, modLog: ModLog, env: Record.ReadonlyRecord<string, string>): EnginePorts {
   return {
     read: (path) => $.fs.read(path),
     readBytes: (path) => $.fs.read(path, { as: "bytes" }).then((bytes) => bytes.base64),
@@ -83,7 +81,7 @@ function portsOf($: Engines, env: Record.ReadonlyRecord<string, string>): Engine
     stdout: () => undefined,
     stderr: () => undefined,
     fetch: (url, init) => $.http.fetch(url, init),
-    log: (line) => log($, line),
+    log: (line) => log($, modLog, line),
     store: {
       // SAFETY: the store takes JSON data only, and reads it back as set.
       get: async (key) => (await $.store.get(key)) as Json | undefined,
@@ -116,14 +114,24 @@ function portsOf($: Engines, env: Record.ReadonlyRecord<string, string>): Engine
 // band on the next tick. Each band subscribes to its own value (the plugin's
 // types/gauntlet.d.ts): the other surfaces reload the strip's drawing on
 // every redraw, restarting its animations, so they skip the half-second ones.
-function startClock($: Engines) {
+// `tick` is the session's; `shownView` is the strip's view unless dismissed.
+function startClock(
+  $: Engines,
+  modLog: ModLog,
+  tick: () => Promise<boolean>,
+  shownView: () => RunView | undefined,
+) {
+  let drawn = ""
+  let tickedAt = 0
+  let ticks = 0
+  let changes = 0
   $.clock.every(250, async () => {
-    const live = await (session?.tick() ?? Promise.resolve(false)).catch((error) => {
-      log($, `tick failed: ${String(error)}`)
+    const live = await tick().catch((error) => {
+      log($, modLog, `tick failed: ${String(error)}`)
       return false
     })
-    const view = engine?.view()
-    if (view === undefined || view.startedAt === dismissed) return
+    const view = shownView()
+    if (view === undefined) return
     const shown = Formatter.formatJson({ ...view, startedAt: 0 })
     const changed = shown !== drawn
     if (!changed && (!live || Date.now() - tickedAt < 500)) return
@@ -139,7 +147,7 @@ function startClock($: Engines) {
       }
       drawn = shown
     } catch (error) {
-      log($, `redraw failed: ${String(error)}`)
+      log($, modLog, `redraw failed: ${String(error)}`)
     }
   })
 }
@@ -160,13 +168,13 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
 })
 
 // The run's page when it has one (a demo writes only dossier.md).
-async function openDossier($: Engines, path: string) {
+async function openDossier($: Engines, modLog: ModLog, path: string) {
   const open = (file: string) =>
     $.process.run(["open", file]).catch((error) => ({ exitCode: 1, stderr: String(error) }))
   const page = await open(path.replace(/dossier\.md$/, "dossier.html"))
   const opened = page.exitCode === 0 ? page : await open(path)
   if (opened.exitCode !== 0) {
-    log($, `open ${path} failed: ${opened.stderr.trim()}`)
+    log($, modLog, `open ${path} failed: ${opened.stderr.trim()}`)
     $.ui.toast(`gauntlet: could not open ${path}`)
   }
 }
@@ -177,15 +185,26 @@ export const register: Register = (on, options) => {
   // The Linear key `/plugin configure` set, else the environment's, as the
   // CLI reads it.
   const linearApiKey = linearApiKeyFromOptions(options)
+  // This activation's state: the engine and session policy session.start
+  // makes, and when the review whose strip was dismissed started (dismissing
+  // clears the strip until the next review starts).
+  let engine: Engine | undefined
+  let session: Session | undefined
+  let dismissed: number | undefined
+  const modLog: ModLog = { home: "", pending: [], writing: Promise.resolve() }
+  const shownView = () => {
+    const view = engine?.view()
+    return view === undefined || view.startedAt === dismissed ? undefined : view
+  }
   on("session.start", async ($, e, next) => {
     const started = await next(e)
-    home = (await $.env.get("HOME")) ?? ""
+    modLog.home = (await $.env.get("HOME")) ?? ""
     const env = Record.filter({
-      HOME: home,
+      HOME: modLog.home,
       TMPDIR: await $.env.get("TMPDIR"),
       LINEAR_API_KEY: linearApiKey ?? (await $.env.get("LINEAR_API_KEY")),
     }, Predicate.isNotUndefined)
-    const ports = portsOf($, env)
+    const ports = portsOf($, modLog, env)
     const sessionId = await $.session.id()
     try {
       const loadStart = Date.now()
@@ -194,12 +213,12 @@ export const register: Register = (on, options) => {
       )
       engine = createEngine(ports, version)
       session = createSession(ports, engine, sessionId)
-      log($, `loaded engine ${version} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
+      log($, modLog, `loaded engine ${version} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
     } catch (error) {
-      log($, `engine failed to load: ${String(error)}`)
+      log($, modLog, `engine failed to load: ${String(error)}`)
     }
     const recipes = await (engine?.recipes() ?? Promise.resolve([])).catch((error) => {
-      log($, `recipe catalog unreadable: ${String(error)}`)
+      log($, modLog, `recipe catalog unreadable: ${String(error)}`)
       return []
     })
     await $.tool.register(reviewTool(recipes))
@@ -208,7 +227,7 @@ export const register: Register = (on, options) => {
       description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${Array.join(DEMO_SCENARIOS, "|")}] for a scripted review that runs no agents; --help for the rest`,
     })
     await recoverLostRun(ports, sessionId)
-    startClock($)
+    startClock($, modLog, () => session?.tick() ?? Promise.resolve(false), shownView)
     return started
   })
 
@@ -216,14 +235,14 @@ export const register: Register = (on, options) => {
     // The engine reads a state ref's plugin and key off the source, as literals.
     if (e.surface === "terminal") await $.state.get({ plugin: "gauntlet", key: "tick" })
     else await $.state.get({ plugin: "gauntlet", key: "drawn" })
-    const view = engine?.view()
-    if (view === undefined || view.startedAt === dismissed || e.props.hasSurvey) return next(e)
+    const view = shownView()
+    if (view === undefined || e.props.hasSurvey) return next(e)
     return renderStrip(view, $.ui.resolve(e), { surface: e.surface, columns: e.props.bodyColumns }, Date.now(), {
       stop: () => {
-        void engine?.cancel().then((cancelled) => log($, `stop pressed: ${String(cancelled)}`))
+        void engine?.cancel().then((cancelled) => log($, modLog, `stop pressed: ${String(cancelled)}`))
       },
       openDossier: (path) => {
-        void openDossier($, path)
+        void openDossier($, modLog, path)
       },
       dismiss: () => {
         dismissed = view.startedAt
