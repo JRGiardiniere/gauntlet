@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
 import type * as ChildProcess from "effect/process/ChildProcess"
@@ -32,6 +33,9 @@ interface Child {
   readonly ending: number
 }
 
+// The child sees a Redacted word's value.
+const unwrap = (word: string | Redacted.Redacted<string>) => (Redacted.isRedacted(word) ? Redacted.value(word) : word)
+
 interface Spawned {
   readonly command: string
   readonly args: ReadonlyArray<string>
@@ -55,9 +59,13 @@ const scriptedSpawner = (children: Array<Child>, spawned: Array<Spawned>) =>
       if (child === undefined) return yield* Effect.die("no scripted child left")
       spawned.push({
         command: command.command,
-        args: command.args,
+        args: command.args.map(unwrap),
         cwd: command.options.cwd,
-        env: command.options.env,
+        env: command.options.env === undefined
+          ? undefined
+          : Object.fromEntries(
+            Object.entries(command.options.env).map(([key, value]) => [key, value === undefined ? undefined : unwrap(value)]),
+          ),
         stdin: yield* stdinOf(command),
       })
       return ChildProcessSpawner.makeHandle({

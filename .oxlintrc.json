@@ -2,8 +2,8 @@
   "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
   "extends": [
     "./.convoy/packs/typescript/oxlintrc.json",
-    "./.convoy/packs/anti-slop/oxlintrc.json",
     "./.convoy/packs/effect-house-rules/oxlintrc.json",
+    "./.convoy/packs/anti-slop/oxlintrc.json",
     "./.convoy/packs/effect/oxlintrc.json"
   ],
   "ignorePatterns": [
@@ -22,7 +22,7 @@
     "**/dist/**",
     "**/build/**",
     "**/*.mjs",
-    ".convoy/packs/anti-slop/**",
+    ".convoy/**",
     "mod/types/**"
   ],
   "rules": {
@@ -36,8 +36,7 @@
     "anti-slop-effect/no-manual-tagged-construction": "off",
     "anti-slop-effect/no-manual-tag-comparison": "off",
     "anti-slop-effect/no-service-constructor-imports": "off",
-    "anti-slop/no-array-filter-map": "off",
-    "house/effect-fn-span-format": "off"
+    "anti-slop/no-array-filter-map": "off"
   },
   "overrides": [
     {
@@ -46,22 +45,13 @@
         "effecttsgo/async-function": "off",
         "effecttsgo/global-date": "off",
         "effecttsgo/global-timers": "off",
-        "effecttsgo/new-promise": "off",
-        "house/no-raw-error-throw": "off"
+        "effecttsgo/new-promise": "off"
       }
     },
     {
       "files": ["**/*.test.ts", "**/*.fixture.ts"],
       "rules": {
         "anti-slop-effect/no-manual-tag-comparison": "off"
-      }
-    },
-    {
-      "files": [".convoy/packs/effect-house-rules/**"],
-      "rules": {
-        "anti-slop/no-runtime-typeof": ["error", {
-          "allowInTypeGuards": true
-        }]
       }
     },
     {

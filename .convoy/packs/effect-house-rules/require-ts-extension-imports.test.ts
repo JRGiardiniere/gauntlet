@@ -49,6 +49,15 @@ ruleTester.run("require-ts-extension-imports", rule, {
   ],
   invalid: [
     {
+      name: "an extensionless relative import of a .tsx file",
+      code: `import { value } from "./fixtures/component"`,
+      filename: import.meta.filename,
+      errors: [{
+        message: `Use an explicit ".tsx" extension for relative import "./fixtures/component"`,
+      }],
+      output: `import { value } from "./fixtures/component.tsx"`,
+    },
+    {
       name: "an extensionless relative import",
       code: `import { value } from "./module"`,
       filename: productionFile,
@@ -65,6 +74,24 @@ ruleTester.run("require-ts-extension-imports", rule, {
         message: `Use ".ts" extension instead of ".js" for relative imports`,
       }],
       output: `import { value } from "./fixtures/missing.ts"`,
+    },
+    {
+      name: "a .js import of a .tsx file",
+      code: `import { value } from "./fixtures/component.js"`,
+      filename: import.meta.filename,
+      errors: [{
+        message: `Use ".tsx" extension instead of ".js" for relative imports`,
+      }],
+      output: `import { value } from "./fixtures/component.tsx"`,
+    },
+    {
+      name: "a .jsx import where both a .ts and a .tsx file exist",
+      code: `import { value } from "./fixtures/both.jsx"`,
+      filename: import.meta.filename,
+      errors: [{
+        message: `Use ".tsx" extension instead of ".jsx" for relative imports`,
+      }],
+      output: `import { value } from "./fixtures/both.tsx"`,
     },
     {
       name: "a .jsx extension on a relative import",

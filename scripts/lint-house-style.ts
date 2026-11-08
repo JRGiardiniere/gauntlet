@@ -40,7 +40,6 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
         "src",
         "scripts",
         "mod",
-        ".convoy/packs/effect-house-rules",
         "vitest.config.ts",
         "vitest.setup.ts",
         ...extraLintTargets,

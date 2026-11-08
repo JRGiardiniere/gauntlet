@@ -16,7 +16,21 @@
       {
         "name": "@effect/language-service",
         "diagnostics": false,
-        "allowedUnstableApis": ["effect/cli", "effect/http", "effect/process"]
+        "allowedUnstableApis": [
+          "@effect/platform-node",
+          "@effect/vitest",
+          "effect/ByteSize",
+          "effect/cli",
+          "effect/FileSystem",
+          "effect/http",
+          "effect/Logger#toFile",
+          "effect/Path",
+          "effect/PlatformError",
+          "effect/process",
+          "effect/Stdio",
+          "effect/Terminal",
+          "effect/testing"
+        ]
       }
     ]
   },

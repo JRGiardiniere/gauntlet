@@ -46,6 +46,7 @@ import * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
+import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stdio from "effect/Stdio"
 import * as Stream from "effect/Stream"
@@ -134,7 +135,7 @@ const fileInfo = (stat: FsStat): FileSystem.File.Info => ({
   mtime: Option.none(),
   atime: Option.none(),
   birthtime: Option.none(),
-  dev: 0,
+  dev: 0n,
   ino: Option.none(),
   mode: 0,
   nlink: Option.none(),
@@ -266,13 +267,18 @@ const fileSystemOver = (ports: PlatformPorts) =>
 // `undefined` value) is unset by running the command under `env -u`.
 const commandArgv = (command: ChildProcess.StandardCommand) => {
   const unset = Object.entries(command.options.env ?? {}).flatMap(([key, value]) => (value === undefined ? [key] : []))
+  const args = command.args.map(unwrap)
   return unset.length === 0
-    ? [command.command, ...command.args]
-    : ["env", ...unset.flatMap((key) => ["-u", key]), command.command, ...command.args]
+    ? [command.command, ...args]
+    : ["env", ...unset.flatMap((key) => ["-u", key]), command.command, ...args]
 }
 
-const definedEnv = (env: Record<string, string | undefined> | undefined) =>
-  Object.fromEntries(Object.entries(env ?? {}).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])))
+const unwrap = (word: string | Redacted.Redacted<string>) => (Redacted.isRedacted(word) ? Redacted.value(word) : word)
+
+const definedEnv = (env: ChildProcess.CommandOptions["env"]) =>
+  Object.fromEntries(
+    Object.entries(env ?? {}).flatMap(([key, value]) => (value === undefined ? [] : [[key, unwrap(value)]])),
+  )
 
 const spawnFailure = (description: string) =>
   PlatformError.systemError({ _tag: "Unknown", module: "ChildProcess", method: "spawn", description })
@@ -387,6 +393,7 @@ const terminalOver = (ports: PlatformPorts) =>
   Terminal.make({
     columns: Effect.succeed(100),
     rows: Effect.succeed(40),
+    size: Effect.die("the mod has no terminal resizes"),
     readInput: Effect.die("the mod has no terminal input"),
     readLine: Effect.fail(new Terminal.QuitError()),
     display: (shown) => Effect.sync(() => ports.stdout(shown)),
