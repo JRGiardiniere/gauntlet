@@ -833,12 +833,7 @@ const outputFrom = <O>(
     const salvaged = pipe(states, Array.filter(isSalvagedCapture), Array.flatMap((state) => state.raws))
       .reverse()
     for (const [index, raw] of salvaged.entries()) {
-      const decoded = yield* decode(raw).pipe(
-        Effect.match({
-          onFailure: () => Option.none<O>(),
-          onSuccess: Option.some,
-        }),
-      )
+      const decoded = yield* Effect.option(decode(raw))
       if (Option.isSome(decoded)) {
         diagnostics.push(
           `${contract.toolName} output recovered from pre-validation arguments`,
