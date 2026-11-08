@@ -17,7 +17,7 @@ const explainGitHub = (number: number) =>
 <A, R>(self: Effect.Effect<A, GitHubError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
   self.pipe(
     Effect.mapError((cause) =>
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: `could not resolve PR #${String(number)}: ${cause.reason}`,
         cause,
       })),
@@ -33,7 +33,7 @@ const existingCommit = Effect.fn("gauntlet.pull_request.existing_commit")(
         Effect.catchTag("GitCommandError", (cause) =>
           cause.exitCode === undefined
             ? Effect.fail(
-              new TargetUnresolvable({
+              TargetUnresolvable.make({
                 reason: describeGitFailure(
                   `could not resolve commit ${oid}`,
                   cause,
@@ -58,7 +58,7 @@ const resolveCommit = Effect.fn("gauntlet.pull_request.resolve_commit")(
     yield* runGit(repoRoot, fetchArgs).pipe(explainGit(missingReason))
     const fetched = yield* existingCommit(repoRoot, oid)
     if (Option.isSome(fetched)) return fetched.value
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: missingReason,
       cause: undefined,
     })
@@ -120,7 +120,7 @@ export const resolvePullRequestTarget = Effect.fn(
   )
 
   if (diff === "") {
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: `PR #${String(number)} has no changes to review`,
       cause: undefined,
     })

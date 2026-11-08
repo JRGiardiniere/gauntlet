@@ -1,14 +1,15 @@
 import { ModelRuntime } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 
-export class ModelCatalogRefreshError extends Data.TaggedError(
-  "ModelCatalogRefreshError",
-)<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class ModelCatalogRefreshError extends Schema.TaggedError<
+  ModelCatalogRefreshError,
+  { readonly brand: unique symbol }
+>()("ModelCatalogRefreshError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // Pi's network catalog refresh — the call `pi update --models` makes — which
 // persists to ~/.pi/agent/models-store.json, so later review runs resolve the
@@ -17,7 +18,7 @@ export class ModelCatalogRefreshError extends Data.TaggedError(
 export const refreshedModelCatalog = Effect.fn("gauntlet.pi.refresh_catalog")(
   function* () {
     const refreshError = (cause: unknown) =>
-      new ModelCatalogRefreshError({ reason: String(cause), cause })
+      ModelCatalogRefreshError.make({ reason: String(cause), cause })
     const runtime = yield* Effect.tryPromise({
       try: (signal) => ModelRuntime.create({ signal }),
       catch: refreshError,
@@ -27,7 +28,7 @@ export const refreshedModelCatalog = Effect.fn("gauntlet.pi.refresh_catalog")(
       catch: refreshError,
     })
     if (result.aborted) {
-      return yield* new ModelCatalogRefreshError({ reason: "refresh aborted" })
+      return yield* ModelCatalogRefreshError.make({ reason: "refresh aborted" })
     }
     return (provider: string): ReadonlyArray<string> =>
       Array.map(runtime.getModels(provider), (model) => model.id)
@@ -35,6 +36,6 @@ export const refreshedModelCatalog = Effect.fn("gauntlet.pi.refresh_catalog")(
   Effect.timeoutOrElse({
     duration: "15 seconds",
     orElse: () =>
-      Effect.fail(new ModelCatalogRefreshError({ reason: "timed out" })),
+      Effect.fail(ModelCatalogRefreshError.make({ reason: "timed out" })),
   }),
 )

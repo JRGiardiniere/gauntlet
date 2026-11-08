@@ -1,6 +1,5 @@
 import * as Array from "effect/Array"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
@@ -11,11 +10,14 @@ import * as ChildProcess from "effect/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/process/ChildProcessSpawner"
 import { scrubbedGitEnv } from "../target/git.ts"
 
-export class GitHubError extends Data.TaggedError("GitHubError")<{
-  readonly operation: "view" | "post" | "specification"
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class GitHubError extends Schema.TaggedError<
+  GitHubError,
+  { readonly brand: unique symbol }
+>()("GitHubError", {
+  operation: Schema.Literals(["view", "post", "specification"]),
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // gh --json field names, decoded at the boundary. The resolver turns these
 // OIDs into a frozen PullRequest range; delivery only needs cwd + number.
@@ -82,7 +84,7 @@ export const gitHubLayer = (impl: GitHubContract) =>
 const unused = (operation: GitHubError["operation"]) =>
   () =>
     Effect.fail(
-      new GitHubError({ operation, reason: "GitHub not scripted" }),
+      GitHubError.make({ operation, reason: "GitHub not scripted" }),
     )
 
 export const unusedGitHubContract: GitHubContract = {
@@ -127,7 +129,7 @@ const runGh = (
       )
       if (exitCode !== 0) {
         const detail = stderr.trim() === "" ? stdout.trim() : stderr.trim()
-        return yield* new GitHubError({
+        return yield* GitHubError.make({
           operation,
           reason: detail === ""
             ? `gh ${Array.join(args, " ")} exited ${String(exitCode)}`
@@ -140,7 +142,7 @@ const runGh = (
     Effect.provideService(ChildProcessSpawner, spawner),
     Effect.catchTag("PlatformError", (cause) =>
       Effect.fail(
-        new GitHubError({
+        GitHubError.make({
           operation,
           reason: cause.reason._tag === "NotFound" &&
               cause.reason.module === "ChildProcess"
@@ -280,7 +282,7 @@ const flattenIssue = (
 })
 
 const graphqlUndecodable = (cause: unknown) =>
-  new GitHubError({
+  GitHubError.make({
     operation: "specification",
     reason: "GitHub GraphQL returned an undecodable specification payload",
     cause,
@@ -306,7 +308,7 @@ const makeLive = Effect.gen(function* () {
       )
       return yield* decodeView(stdout).pipe(
         Effect.mapError((cause) =>
-          new GitHubError({
+          GitHubError.make({
             operation: "view",
             reason: `gh pr view #${String(number)} returned an undecodable payload`,
             cause,
@@ -335,7 +337,7 @@ const makeLive = Effect.gen(function* () {
           )
           const url = lastNonEmptyLine(stdout)
           if (url === "") {
-            return yield* new GitHubError({
+            return yield* GitHubError.make({
               operation: "post",
               reason: `gh pr comment #${String(number)} produced no comment URL`,
             })
@@ -345,7 +347,7 @@ const makeLive = Effect.gen(function* () {
       ).pipe(
         Effect.catchTag("PlatformError", (cause) =>
           Effect.fail(
-            new GitHubError({
+            GitHubError.make({
               operation: "post",
               reason: `could not stage comment body: ${String(cause)}`,
               cause,
@@ -389,7 +391,7 @@ const makeLive = Effect.gen(function* () {
         )
         const connection = envelope.data.node?.comments
         if (connection === undefined) {
-          return yield* new GitHubError({
+          return yield* GitHubError.make({
             operation: "specification",
             reason: "GitHub GraphQL comment page was missing",
           })
@@ -429,7 +431,7 @@ const makeLive = Effect.gen(function* () {
         )
         const pullRequest = envelope.data.repository?.pullRequest
         if (pullRequest === undefined || pullRequest === null) {
-          return yield* new GitHubError({
+          return yield* GitHubError.make({
             operation: "specification",
             reason: `GitHub GraphQL returned no pull request #${String(number)}`,
           })

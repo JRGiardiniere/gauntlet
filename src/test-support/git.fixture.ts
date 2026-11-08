@@ -1,16 +1,19 @@
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 import { scrubbedGitEnv } from "../target/git.ts"
 
-export class FixtureGitError extends Data.TaggedError("FixtureGitError")<{
-  readonly args: ReadonlyArray<string>
-  readonly exitCode: number | undefined
-  readonly stderr: string
-}> {}
+export class FixtureGitError extends Schema.TaggedError<
+  FixtureGitError,
+  { readonly brand: unique symbol }
+>()("FixtureGitError", {
+  args: Schema.Array(Schema.String),
+  exitCode: Schema.UndefinedOr(Schema.Finite),
+  stderr: Schema.String,
+}) {}
 
 export interface GitFixture {
   readonly root: string
@@ -38,7 +41,7 @@ const git = (cwd: string, args: ReadonlyArray<string>) =>
         { concurrency: 3 },
       )
       if (exitCode !== 0) {
-        return yield* new FixtureGitError({ args, exitCode, stderr })
+        return yield* FixtureGitError.make({ args, exitCode, stderr })
       }
     }),
   )

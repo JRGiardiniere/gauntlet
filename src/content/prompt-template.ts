@@ -1,15 +1,18 @@
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as HashMap from "effect/HashMap"
 import * as HashSet from "effect/HashSet"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { ContentLoadError } from "./lens.ts"
 
-export class PromptAssemblyError extends Data.TaggedError(
-  "PromptAssemblyError",
-)<{ readonly reason: string }> {}
+export class PromptAssemblyError extends Schema.TaggedError<
+  PromptAssemblyError,
+  { readonly brand: unique symbol }
+>()("PromptAssemblyError", {
+  reason: Schema.String,
+}) {}
 
 export const readPromptTemplate = Effect.fn("PromptTemplate.read")(function* (
   path: string,
@@ -17,7 +20,7 @@ export const readPromptTemplate = Effect.fn("PromptTemplate.read")(function* (
   const fs = yield* FileSystem.FileSystem
   return yield* fs.readFileString(path).pipe(
     Effect.mapError((cause) =>
-      new ContentLoadError({ path, reason: "could not read prompt", cause })),
+      ContentLoadError.make({ path, reason: "could not read prompt", cause })),
   )
 })
 
@@ -38,7 +41,7 @@ export const renderPromptTemplate = Effect.fn(
     const placeholder = token.slice(2, -2)
     const value = HashMap.get(values, placeholder)
     if (Option.isNone(value)) {
-      return yield* new PromptAssemblyError({
+      return yield* PromptAssemblyError.make({
         reason: `${name} template contains unresolved {{${placeholder}}}`,
       })
     }
@@ -49,7 +52,7 @@ export const renderPromptTemplate = Effect.fn(
 
   const missingPlaceholder = Array.fromIterable(missing)[0]
   if (missingPlaceholder !== undefined) {
-    return yield* new PromptAssemblyError({
+    return yield* PromptAssemblyError.make({
       reason: `${name} template is missing {{${missingPlaceholder}}}`,
     })
   }

@@ -1,8 +1,8 @@
 import type * as Config from "effect/Config"
-import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import type * as PlatformError from "effect/PlatformError"
+import * as Schema from "effect/Schema"
 import {
   type RecipeCatalogError,
   type RecipeSelectionError,
@@ -62,16 +62,19 @@ export interface Reviewed {
 
 // Why a review could not run, or a Run could not be posted, as one line every
 // Host shows as it stands.
-export class RunRefusal extends Data.TaggedError("RunRefusal")<{
-  readonly reason: string
+export class RunRefusal extends Schema.TaggedError<
+  RunRefusal,
+  { readonly brand: unique symbol }
+>()("RunRefusal", {
+  reason: Schema.String,
   // A failed post may still have landed (gh can fail after posting, and a
   // posted comment's receipt can fail to save), so a blind retry could post
   // twice: the Run whose pull request to check before delivering it again.
-  readonly unconfirmedPost?: string
+  unconfirmedPost: Schema.optionalKey(Schema.String),
   // Gauntlet has no configuration to choose a Recipe or Lenses from: the Host
   // says how its person sets it up.
-  readonly unconfigured?: boolean
-}> {}
+  unconfigured: Schema.optionalKey(Schema.Boolean),
+}) {}
 
 // Everything that stops a review or a delivery before it can answer.
 export type RunFailure =
@@ -99,9 +102,9 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
     // file or recipe at fault.
     case "SettingsError":
     case "RecipeCatalogError":
-      return new RunRefusal({ reason: `${failure.reason} (${failure.path})` })
+      return RunRefusal.make({ reason: `${failure.reason} (${failure.path})` })
     case "RecipeSelectionError":
-      return new RunRefusal({
+      return RunRefusal.make({
         reason: `could not review — ${failure.reason}${
           renderAvailable(failure.available)
         }`,
@@ -109,42 +112,42 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
       })
     case "DeliveryError":
       return failure.operation === "post" && failure.runId !== undefined
-        ? new RunRefusal({
+        ? RunRefusal.make({
           reason: `could not deliver — ${failure.reason}`,
           unconfirmedPost: failure.runId,
         })
-        : new RunRefusal({ reason: `could not deliver — ${failure.reason}` })
+        : RunRefusal.make({ reason: `could not deliver — ${failure.reason}` })
     case "ArtifactWriteError":
-      return new RunRefusal({
+      return RunRefusal.make({
         reason: `could not review — ${describeArtifactWrite(failure)}`,
       })
     case "ContentLoadError":
     case "SpecificationLoadError":
-      return new RunRefusal({
+      return RunRefusal.make({
         reason: `could not review — ${failure.reason} (${failure.path})`,
       })
     case "InvocationSetupError":
-      return new RunRefusal({
+      return RunRefusal.make({
         reason:
           `could not review — invocation ${failure.operation}: ${failure.reason}`,
       })
     case "PlatformError":
-      return new RunRefusal({
+      return RunRefusal.make({
         reason: `could not review — ${describePlatformError(failure)}`,
       })
     case "PageError":
-      return new RunRefusal({ reason: `could not draw the page — ${failure.reason}` })
+      return RunRefusal.make({ reason: `could not draw the page — ${failure.reason}` })
     case "BriefError":
-      return new RunRefusal({ reason: `could not ask for a brief — ${failure.reason}` })
+      return RunRefusal.make({ reason: `could not ask for a brief — ${failure.reason}` })
     case "ConfigError":
-      return new RunRefusal({ reason: `could not review — ${failure.message}` })
+      return RunRefusal.make({ reason: `could not review — ${failure.message}` })
     case "SubmissionError":
-      return new RunRefusal({
+      return RunRefusal.make({
         reason: `could not review — ${failure.reason}`,
         unconfigured: failure.unconfigured === true,
       })
     default:
-      return new RunRefusal({ reason: `could not review — ${failure.reason}` })
+      return RunRefusal.make({ reason: `could not review — ${failure.reason}` })
   }
 }
 
@@ -186,7 +189,7 @@ export const deliver = Effect.fn("Run.deliver")(
     const runsRoot = yield* resolveRunsRoot()
     const loaded = yield* loadRun(runsRoot, runId).pipe(
       Effect.mapError((cause) =>
-        new DeliveryError({
+        DeliveryError.make({
           operation: "load",
           reason: cause.reason,
           runId,
@@ -204,7 +207,7 @@ export const page = Effect.fn("Run.page")(
   function* (runId: string) {
     const runsRoot = yield* resolveRunsRoot()
     const loaded = yield* loadRun(runsRoot, runId).pipe(
-      Effect.mapError((cause) => new PageError({ reason: cause.reason, cause })),
+      Effect.mapError((cause) => PageError.make({ reason: cause.reason, cause })),
     )
     return yield* redrawDossierPage(loaded)
   },
@@ -215,7 +218,7 @@ export const brief = Effect.fn("Run.brief")(
   function* (runId: string, findingId: string) {
     const runsRoot = yield* resolveRunsRoot()
     const loaded = yield* loadRun(runsRoot, runId).pipe(
-      Effect.mapError((cause) => new BriefError({ reason: cause.reason, cause })),
+      Effect.mapError((cause) => BriefError.make({ reason: cause.reason, cause })),
     )
     return yield* briefRequest(loaded, findingId)
   },

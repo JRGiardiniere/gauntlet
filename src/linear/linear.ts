@@ -1,7 +1,6 @@
 import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
@@ -14,18 +13,23 @@ import * as HttpClient from "effect/http/HttpClient"
 import * as HttpClientRequest from "effect/http/HttpClientRequest"
 import type * as HttpClientResponse from "effect/http/HttpClientResponse"
 
-export type LinearErrorReason =
-  | "invalid-api-key"
-  | "invalid-response"
-  | "missing-api-key"
-  | "unreachable"
-  | "unresolvable-issue"
+export const LinearErrorReason = Schema.Literals([
+  "invalid-api-key",
+  "invalid-response",
+  "missing-api-key",
+  "unreachable",
+  "unresolvable-issue",
+])
+export type LinearErrorReason = typeof LinearErrorReason.Type
 
-export class LinearError extends Data.TaggedError("LinearError")<{
-  readonly reason: LinearErrorReason
-  readonly detail: string
-  readonly cause?: unknown
-}> {}
+export class LinearError extends Schema.TaggedError<
+  LinearError,
+  { readonly brand: unique symbol }
+>()("LinearError", {
+  reason: LinearErrorReason,
+  detail: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 export interface LinearCommentSnapshot {
   readonly url: string
@@ -175,14 +179,17 @@ interface CollectedBody {
   readonly bytes: number
 }
 
-class ResponseBodyTooLarge extends Data.TaggedError("ResponseBodyTooLarge")<{
-  readonly bytes: number
-}> {}
+class ResponseBodyTooLarge extends Schema.TaggedError<
+  ResponseBodyTooLarge,
+  { readonly brand: unique symbol }
+>()("ResponseBodyTooLarge", {
+  bytes: Schema.Finite,
+}) {}
 
 const invalidResponse = (detail: string, cause?: unknown) =>
   cause === undefined
-    ? new LinearError({ reason: "invalid-response", detail })
-    : new LinearError({ reason: "invalid-response", detail, cause })
+    ? LinearError.make({ reason: "invalid-response", detail })
+    : LinearError.make({ reason: "invalid-response", detail, cause })
 
 const decodeJsonText = Schema.decodeEffect(
   Schema.fromJsonString(Schema.Json),
@@ -200,7 +207,7 @@ const checkGraphQlErrors = (
     error.extensions?.code === "ENTITY_NOT_FOUND" ||
     /issue.*not found|not found.*issue/i.test(error.message))
   return Effect.fail(
-    new LinearError({
+    LinearError.make({
       reason: invalidKey
         ? "invalid-api-key"
         : unresolvableIssue
@@ -241,14 +248,14 @@ const makeLive = Effect.gen(function* () {
         (accumulator, chunk) => {
           const bytes = accumulator.bytes + chunk.byteLength
           if (bytes > MAX_RESPONSE_BYTES) {
-            return Effect.fail(new ResponseBodyTooLarge({ bytes }))
+            return Effect.fail(ResponseBodyTooLarge.make({ bytes }))
           }
           accumulator.chunks.push(chunk)
           return Effect.succeed({ chunks: accumulator.chunks, bytes })
         },
       ).pipe(
         Effect.mapError((cause) =>
-          cause instanceof ResponseBodyTooLarge
+          Schema.is(ResponseBodyTooLarge)(cause)
             ? invalidResponse(
                 `Linear response exceeded ${String(MAX_RESPONSE_BYTES)} bytes`,
               )
@@ -275,7 +282,7 @@ const makeLive = Effect.gen(function* () {
     variables: Readonly<Record<string, string | null>>,
   ) {
     if (Option.isNone(apiKey)) {
-      return yield* new LinearError({
+      return yield* LinearError.make({
         reason: "missing-api-key",
         detail: "LINEAR_API_KEY is not set",
       })
@@ -293,7 +300,7 @@ const makeLive = Effect.gen(function* () {
     )
     const response = yield* client.execute(request).pipe(
       Effect.mapError((cause) =>
-        new LinearError({
+        LinearError.make({
           reason: "unreachable",
           detail: "Linear could not be reached",
           cause,
@@ -301,19 +308,19 @@ const makeLive = Effect.gen(function* () {
       ),
     )
     if (response.status === 401) {
-      return yield* new LinearError({
+      return yield* LinearError.make({
         reason: "invalid-api-key",
         detail: `Linear rejected the API key with HTTP ${String(response.status)}`,
       })
     }
     if (response.status === 403) {
-      return yield* new LinearError({
+      return yield* LinearError.make({
         reason: "unresolvable-issue",
         detail: "Linear denied access to the issue with HTTP 403",
       })
     }
     if (response.status < 200 || response.status >= 300) {
-      return yield* new LinearError({
+      return yield* LinearError.make({
         reason: response.status >= 500 || response.status === 429
           ? "unreachable"
           : "invalid-response",
@@ -325,7 +332,7 @@ const makeLive = Effect.gen(function* () {
         duration: "15 seconds",
         orElse: () =>
           Effect.fail(
-            new LinearError({
+            LinearError.make({
               reason: "unreachable",
               detail: "reading the Linear response body timed out",
             }),
@@ -433,7 +440,7 @@ const makeLive = Effect.gen(function* () {
     yield* checkGraphQlErrors(envelope.errors)
     const issue = envelope.data?.issue
     if (issue === undefined || issue === null) {
-      return yield* new LinearError({
+      return yield* LinearError.make({
         reason: "unresolvable-issue",
         detail: `Linear issue ${identifier} was not found`,
       })
@@ -475,7 +482,7 @@ export class Linear extends Context.Service<Linear, LinearContract>()(
 export const unusedLinearContract: LinearContract = {
   viewIssue: () =>
     Effect.fail(
-      new LinearError({
+      LinearError.make({
         reason: "unreachable",
         detail: "Linear not scripted",
       }),

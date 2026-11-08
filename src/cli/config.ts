@@ -1,6 +1,5 @@
 import * as Array from "effect/Array"
 import * as Console from "effect/Console"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
@@ -8,6 +7,7 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Config from "effect/Config"
 import * as Result from "effect/Result"
+import * as Schema from "effect/Schema"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import {
@@ -40,9 +40,12 @@ import {
 } from "../run/artifact.ts"
 import { resolveInvocationProjectRoot } from "../target/invocation-directory.ts"
 
-export class ConfigCommandError extends Data.TaggedError("ConfigCommandError")<{
-  readonly reason: string
-}> {}
+export class ConfigCommandError extends Schema.TaggedError<
+  ConfigCommandError,
+  { readonly brand: unique symbol }
+>()("ConfigCommandError", {
+  reason: Schema.String,
+}) {}
 
 const SETTINGS_KEYS = "default-recipe, default-lenses, favorites, runs-root"
 
@@ -80,7 +83,7 @@ export const printConfiguration = Effect.fn("gauntlet.cli.config_print")(functio
   const entries = yield* listRecipes()
   const lenses = yield* loadFinderLensCatalog(repoRoot).pipe(
     Effect.catchTag("ContentLoadError", (failure) =>
-      new ConfigCommandError({
+      ConfigCommandError.make({
         reason: `${failure.reason} (${failure.path})`,
       })),
   )
@@ -186,7 +189,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const catalogPath = yield* recipesDirectory()
   const settingsExists = yield* fs.exists(settingsFile).pipe(
     Effect.mapError((cause) =>
-      new ConfigCommandError({
+      ConfigCommandError.make({
         reason: `could not inspect ${settingsFile}: ${String(cause)}`,
       })),
   )
@@ -199,14 +202,14 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
       names: INITIAL_DEFAULT_LENSES,
     }).pipe(
       Effect.catchTag("ContentLoadError", (failure) =>
-        new ConfigCommandError({
+        ConfigCommandError.make({
           reason:
             `initial default-lenses are unusable — ${failure.reason} (${failure.path})`,
         })),
     )
     const initial = yield* writeInitialConfig().pipe(
       Effect.catchTag("PlatformError", (cause) =>
-        new ConfigCommandError({
+        ConfigCommandError.make({
           reason: `could not create ${catalogPath}: ${String(cause)}`,
         })),
     )
@@ -226,7 +229,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   // Anything between fresh and valid is partial: refuse with the precise
   // repair, never overwrite, replenish, or silently heal (issue #24).
   if (!settingsExists) {
-    return yield* new ConfigCommandError({
+    return yield* ConfigCommandError.make({
       reason:
         `recipe catalog ${catalogPath} already has recipes but ${settingsFile} is missing — ` +
         `write settings.json ({"default-recipe": <name>, "default-lenses": [], "favorites": []}) or remove the catalog and rerun init`,
@@ -234,7 +237,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   }
   const settings = yield* loadSettings().pipe(
     Effect.mapError((failure) =>
-      new ConfigCommandError({
+      ConfigCommandError.make({
         // Deleting settings.json would leave the existing catalog in a
         // partial state init also refuses, so only fixing is advised.
         reason: `${failure.reason} (${failure.path}) — fix settings.json, then rerun init`,
@@ -243,7 +246,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   if (Option.isNone(settings)) {
     // exists() said the file is there; a concurrent delete is the only path
     // here, and re-running init is the honest advice.
-    return yield* new ConfigCommandError({
+    return yield* ConfigCommandError.make({
       reason: `${settingsFile} disappeared while init ran — rerun init`,
     })
   }
@@ -252,7 +255,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const entry = Array.findFirst(entries, (candidate) =>
     candidate.name === defaultRecipe)
   if (Option.isNone(entry) || entry.value._tag === "InvalidRecipe") {
-    return yield* new ConfigCommandError({
+    return yield* ConfigCommandError.make({
       reason:
         `default-recipe ${defaultRecipe} does not name an available valid recipe — ` +
         `\`gauntlet config set default-recipe <name>\` or fix ${catalogPath}/${defaultRecipe}.json`,
@@ -263,7 +266,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
     names: configured["default-lenses"],
   }).pipe(
     Effect.catchTag("ContentLoadError", (failure) =>
-      new ConfigCommandError({
+      ConfigCommandError.make({
         reason:
           `default-lenses are unusable — ${failure.reason} (${failure.path})`,
       })),
@@ -279,7 +282,7 @@ const requireSettings = Effect.fn("gauntlet.cli.config_require_settings")(
     const settings = yield* loadSettings()
     if (Option.isNone(settings)) {
       const path = yield* settingsPath()
-      return yield* new ConfigCommandError({
+      return yield* ConfigCommandError.make({
         reason: `no settings file at ${path} — run \`gauntlet config init\` first`,
       })
     }
@@ -295,7 +298,7 @@ const requireExactlyOne = (
   return values.length === 1 && value !== undefined
     ? Effect.succeed(value)
     : Effect.fail(
-      new ConfigCommandError({
+      ConfigCommandError.make({
         reason: `config set ${key} takes exactly one value`,
       }),
     )
@@ -310,7 +313,7 @@ const normalizeRunsRoot = Effect.fn("gauntlet.cli.config_runs_root")(function* (
     return path.normalize(path.join(home, value.slice(1)))
   }
   if (path.isAbsolute(value)) return path.normalize(value)
-  return yield* new ConfigCommandError({
+  return yield* ConfigCommandError.make({
     reason:
       `runs-root must be an absolute or ~/ path, got: ${value} — ` +
       "a working-directory-relative runs root would change meaning per invocation",
@@ -318,14 +321,14 @@ const normalizeRunsRoot = Effect.fn("gauntlet.cli.config_runs_root")(function* (
 })
 
 const noSuchKey = (verb: string, key: string) =>
-  new ConfigCommandError({
+  ConfigCommandError.make({
     reason: `unknown settings key for config ${verb}: ${key} (keys: ${SETTINGS_KEYS})`,
   })
 
 // Selection failures inside config verbs render as configuration failures —
 // the Run module's wording says "could not review".
 const asConfigError = (failure: RecipeSelectionError) =>
-  new ConfigCommandError({
+  ConfigCommandError.make({
     reason: `${failure.reason}${renderAvailable(failure.available)}${
       failure.available.length === 0 ? " — run `gauntlet config init`" : ""
     }`,
@@ -334,13 +337,13 @@ const asConfigError = (failure: RecipeSelectionError) =>
 // A config verb's failed write is a configuration failure, never "could not
 // review".
 const configWriteError = (failure: ArtifactWriteError) =>
-  new ConfigCommandError({ reason: describeArtifactWrite(failure) })
+  ConfigCommandError.make({ reason: describeArtifactWrite(failure) })
 
 const lensConfigError = (failure: {
   readonly path: string
   readonly reason: string
 }) =>
-  new ConfigCommandError({
+  ConfigCommandError.make({
     reason: `${failure.reason} (${failure.path})`,
   })
 
@@ -379,13 +382,13 @@ const runSet = Effect.fn("gauntlet.cli.config_set")(function* (
     }
     case "favorites": {
       if (values.length === 0) {
-        return yield* new ConfigCommandError({
+        return yield* ConfigCommandError.make({
           reason:
             "config set favorites takes one or more recipe names (config unset favorites clears the list)",
         })
       }
       if (new Set(values).size !== values.length) {
-        return yield* new ConfigCommandError({
+        return yield* ConfigCommandError.make({
           reason: `favorites must be distinct: ${Array.join(values, ", ")}`,
         })
       }
@@ -423,12 +426,12 @@ const runUnset = Effect.fn("gauntlet.cli.config_unset")(function* (
     case "default-recipe":
       // An unnamed review must always have a Default Recipe to resolve;
       // pointing it elsewhere is the only supported change (issue #24).
-      return yield* new ConfigCommandError({
+      return yield* ConfigCommandError.make({
         reason:
           "default-recipe cannot be unset — set a different recipe with `gauntlet config set default-recipe <name>`",
       })
     case "default-lenses":
-      return yield* new ConfigCommandError({
+      return yield* ConfigCommandError.make({
         reason:
           "default-lenses cannot be unset — replace it with `gauntlet config set default-lenses <name...>` or pass no names for an empty selection",
       })

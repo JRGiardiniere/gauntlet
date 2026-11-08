@@ -1,7 +1,6 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
@@ -29,11 +28,14 @@ export const LoadedLens = Schema.Struct({
 })
 export interface LoadedLens extends Schema.Schema.Type<typeof LoadedLens> {}
 
-export class ContentLoadError extends Data.TaggedError("ContentLoadError")<{
-  readonly path: string
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class ContentLoadError extends Schema.TaggedError<
+  ContentLoadError,
+  { readonly brand: unique symbol }
+>()("ContentLoadError", {
+  path: Schema.String,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // Inside a compiled Bun executable every module URL sits under the virtual
 // bundle root ($bunfs; ~BUN/%7EBUN on Windows) and the shipped content is an
@@ -57,7 +59,7 @@ export const ContentDirectory = Context.Reference<string>(
 )
 
 const contentLoadError = (path: string, reason: string) => (cause?: unknown) =>
-  new ContentLoadError({ path, reason, cause })
+  ContentLoadError.make({ path, reason, cause })
 
 const decodeLensSource = (
   path: string,
@@ -72,7 +74,7 @@ const decodeLensSource = (
       normalized.startsWith("---\n") &&
       normalized.indexOf("\n---", 4) === -1
     ) {
-      return yield* new ContentLoadError({
+      return yield* ContentLoadError.make({
         path,
         reason: "frontmatter has no closing --- delimiter",
       })
@@ -84,7 +86,7 @@ const decodeLensSource = (
     const allowed = new Set(["finder-class", "category"])
     for (const key of Object.keys(parsed.frontmatter)) {
       if (!allowed.has(key)) {
-        return yield* new ContentLoadError({
+        return yield* ContentLoadError.make({
           path,
           reason: `frontmatter field is not admitted: ${key}`,
         })
@@ -103,7 +105,7 @@ const decodeLensSource = (
     )
     const promptText = parsed.body
     if (promptText.trim() === "") {
-      return yield* new ContentLoadError({
+      return yield* ContentLoadError.make({
         path,
         reason: "lens prompt body is empty",
       })
@@ -144,7 +146,7 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
       optionalDirectory && Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed([])
         : Effect.fail(
-          new ContentLoadError({
+          ContentLoadError.make({
             path: lensesDirectory,
             reason: "could not list lens directory",
             cause: failure,
@@ -201,7 +203,7 @@ const discoverFinderLensSources = Effect.fn(
           ),
         )
         if (catalog.has(decodedName)) {
-          return yield* new ContentLoadError({
+          return yield* ContentLoadError.make({
             path: projectDirectory,
             reason: `duplicate shipped/project lens name: ${decodedName}`,
           })
@@ -231,7 +233,7 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
       seen.add(decodedName)
       const source = catalog.get(decodedName)
       if (source === undefined) {
-        return yield* new ContentLoadError({
+        return yield* ContentLoadError.make({
           path: repoRoot,
           reason: `selected lens does not exist: ${decodedName}`,
         })

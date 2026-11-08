@@ -1,23 +1,25 @@
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent"
-import * as Data from "effect/Data"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 
-export class ToolCallTimeoutError extends Data.TaggedError(
-  "ToolCallTimeoutError",
-)<{
-  readonly toolName: string
-  readonly timeoutMillis: number
-  readonly message: string
-}> {}
+export class ToolCallTimeoutError extends Schema.TaggedError<
+  ToolCallTimeoutError,
+  { readonly brand: unique symbol }
+>()("ToolCallTimeoutError", {
+  toolName: Schema.String,
+  timeoutMillis: Schema.Finite,
+  message: Schema.String,
+}) {}
 
-class ToolCallExecutionError extends Data.TaggedError(
-  "ToolCallExecutionError",
-)<{
-  readonly toolName: string
-  readonly message: string
-  readonly cause: unknown
-}> {}
+class ToolCallExecutionError extends Schema.TaggedError<
+  ToolCallExecutionError,
+  { readonly brand: unique symbol }
+>()("ToolCallExecutionError", {
+  toolName: Schema.String,
+  message: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 // Pi requires a Promise-returning method, so this adapter runs one bounded
 // Effect at that literal Promise seam. Effect owns the timer and interrupts
@@ -53,7 +55,7 @@ export const withToolCallDeadline = <
           context,
         ),
       catch: (cause) =>
-        new ToolCallExecutionError({
+        ToolCallExecutionError.make({
           toolName: tool.name,
           message: `${tool.name} failed: ${String(cause)}`,
           cause,
@@ -63,7 +65,7 @@ export const withToolCallDeadline = <
         duration: Duration.millis(timeoutMillis),
         orElse: () =>
           Effect.fail(
-            new ToolCallTimeoutError({
+            ToolCallTimeoutError.make({
               toolName: tool.name,
               timeoutMillis,
               message: `${tool.name} exceeded its ${String(timeoutMillis)}ms deadline`,

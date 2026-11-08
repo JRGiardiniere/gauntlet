@@ -13,7 +13,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
@@ -38,9 +37,12 @@ declare const Bun: {
   }) => Promise<{ readonly success: boolean }>
 }
 
-class BundleFailed extends Data.TaggedError("BundleFailed")<{
-  readonly cause: unknown
-}> {}
+class BundleFailed extends Schema.TaggedError<
+  BundleFailed,
+  { readonly brand: unique symbol }
+>()("BundleFailed", {
+  cause: Schema.Defect(),
+}) {}
 
 const repoRoot = `${import.meta.dirname}/..`
 process.chdir(repoRoot)
@@ -65,7 +67,7 @@ const program = Effect.gen(function* () {
     GAUNTLET_VERSION: yield* Schema.encodeEffect(
       Schema.fromJsonString(Schema.String),
     )(version).pipe(
-      Effect.mapError((cause) => new BundleFailed({ cause })),
+      Effect.mapError((cause) => BundleFailed.make({ cause })),
     ),
   }
 
@@ -106,10 +108,10 @@ const program = Effect.gen(function* () {
           ? compileBase
           : { ...compileBase, target },
       }),
-    catch: (cause) => new BundleFailed({ cause }),
+    catch: (cause) => BundleFailed.make({ cause }),
   })
   if (!build.success) {
-    return yield* new BundleFailed({ cause: "Bun.build reported failure" })
+    return yield* BundleFailed.make({ cause: "Bun.build reported failure" })
   }
   yield* Console.log(`compiled ${outfile}`)
 
@@ -131,7 +133,7 @@ const program = Effect.gen(function* () {
       }),
     )
     if (exitCode !== 0) {
-      return yield* new BundleFailed({ cause: `codesign exited ${String(exitCode)}` })
+      return yield* BundleFailed.make({ cause: `codesign exited ${String(exitCode)}` })
     }
   }
 })

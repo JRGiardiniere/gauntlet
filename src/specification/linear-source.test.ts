@@ -163,7 +163,7 @@ describe("loadLinearSpecification", () => {
           Linear.Fake({
             viewIssue: () =>
               Effect.fail(
-                new LinearError({
+                LinearError.make({
                   reason: "missing-api-key",
                   detail: "LINEAR_API_KEY is not set",
                 }),

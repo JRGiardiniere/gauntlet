@@ -108,7 +108,7 @@ export const executeFinders = Effect.fn(
         plan.target.changedFiles,
       ).pipe(
         Effect.mapError((cause) =>
-          new RunError({
+          RunError.make({
             operation: "execute-plan",
             runId: plan.runId,
             reason: "could not gather the related-file context",

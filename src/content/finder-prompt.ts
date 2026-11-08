@@ -61,7 +61,7 @@ const promptReader = Effect.fn("FinderPrompt.promptReader")(
       const promptPath = path.join(root, "prompts", name)
       return fs.readFileString(promptPath).pipe(
         Effect.mapError((cause) =>
-          new ContentLoadError({
+          ContentLoadError.make({
             path: promptPath,
             reason: "could not read prompt",
             cause,

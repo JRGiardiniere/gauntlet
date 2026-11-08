@@ -1,4 +1,3 @@
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -7,10 +6,13 @@ import * as Predicate from "effect/Predicate"
 import * as Random from "effect/Random"
 import * as Schema from "effect/Schema"
 
-export class ArtifactWriteError extends Data.TaggedError("ArtifactWriteError")<{
-  readonly path: string
-  readonly cause: unknown
-}> {}
+export class ArtifactWriteError extends Schema.TaggedError<
+  ArtifactWriteError,
+  { readonly brand: unique symbol }
+>()("ArtifactWriteError", {
+  path: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 // The one rendering of a filesystem or process failure:
 // `<operation> failed on <path>: <reason>`. Node's errno failures carry no
@@ -41,7 +43,7 @@ export const describeArtifactWrite = (failure: ArtifactWriteError): string =>
   }`
 
 const artifactWriteError = (path: string) => (cause: unknown) =>
-  new ArtifactWriteError({ path, cause })
+  ArtifactWriteError.make({ path, cause })
 
 export const readOptionalArtifactText = Effect.fn(
   "gauntlet.artifact.read_optional_text",

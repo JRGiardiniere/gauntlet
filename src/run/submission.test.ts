@@ -585,7 +585,7 @@ describe("submission", () => {
           Effect.succeed(prView(7, headCommit, baseCommit)),
         viewClosingIssues: () =>
           Effect.fail(
-            new GitHubError({
+            GitHubError.make({
               operation: "specification",
               reason: "gh auth login required",
             }),
@@ -737,7 +737,7 @@ const createAndSwitchBranch = (fixture: Fixture, branch: string) =>
 const missingApiKeyLinear = Linear.Fake({
   viewIssue: () =>
     Effect.fail(
-      new LinearError({
+      LinearError.make({
         reason: "missing-api-key",
         detail: "LINEAR_API_KEY is not set",
       }),

@@ -5,8 +5,8 @@
 // swapping the file swaps the catalog atomically (ADR 0004).
 import * as Array from "effect/Array"
 import * as Console from "effect/Console"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
 import * as Command from "effect/cli/Command"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
@@ -21,10 +21,13 @@ import {
 } from "./update-check.ts"
 import { gauntletVersion } from "./version.ts"
 
-export class UpgradeError extends Data.TaggedError("UpgradeError")<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class UpgradeError extends Schema.TaggedError<
+  UpgradeError,
+  { readonly brand: unique symbol }
+>()("UpgradeError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 const releaseAsset = () =>
   (process.platform === "darwin" || process.platform === "linux") &&
@@ -76,14 +79,14 @@ const reportSeatFailure = (reason: string) =>
 
 const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
   if (!isCompiledBinary) {
-    return yield* new UpgradeError({
+    return yield* UpgradeError.make({
       reason:
         "this is a source checkout, not a release binary — git pull and re-bundle instead",
     })
   }
   const latest = yield* probeLatestVersion().pipe(
     Effect.mapError((cause) =>
-      new UpgradeError({ reason: cause.reason, cause })),
+      UpgradeError.make({ reason: cause.reason, cause })),
   )
   if (!isNewer(latest, gauntletVersion)) {
     yield* Console.log(`already up to date (v${gauntletVersion})`)
@@ -91,7 +94,7 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
   }
   const asset = releaseAsset()
   if (asset === undefined) {
-    return yield* new UpgradeError({
+    return yield* UpgradeError.make({
       reason: `no release binary for ${process.platform}-${process.arch}`,
     })
   }
@@ -111,17 +114,17 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
     )
     const response = yield* client.get(url).pipe(
       Effect.mapError((cause) =>
-        new UpgradeError({ reason: `download failed (${url})`, cause })),
+        UpgradeError.make({ reason: `download failed (${url})`, cause })),
     )
     if (response.status !== 200) {
-      return yield* new UpgradeError({
+      return yield* UpgradeError.make({
         reason:
           `download failed with status ${String(response.status)} (${url})`,
       })
     }
     return yield* response.arrayBuffer.pipe(
       Effect.mapError((cause) =>
-        new UpgradeError({
+        UpgradeError.make({
           reason: `download failed mid-body (${url})`,
           cause,
         })),
@@ -135,7 +138,7 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
       Effect.andThen(fs.chmod(tempPath, 0o755)),
     )).pipe(
       Effect.mapError((cause) =>
-        new UpgradeError({
+        UpgradeError.make({
           reason: `could not replace ${targetPath}`,
           cause,
         })),

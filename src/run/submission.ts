@@ -3,6 +3,7 @@ import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { listRecipes, resolveReviewRecipe } from "../config/recipe-catalog.ts"
 import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
@@ -50,11 +51,14 @@ import {
 // delivery stay with the caller.
 
 // Assembly refusals — the request parsed but no Run can be assembled from it.
-export class SubmissionError extends Data.TaggedError("SubmissionError")<{
-  readonly reason: string
+export class SubmissionError extends Schema.TaggedError<
+  SubmissionError,
+  { readonly brand: unique symbol }
+>()("SubmissionError", {
+  reason: Schema.String,
   // No settings exist to take Default Lenses from.
-  readonly unconfigured?: boolean
-}> {}
+  unconfigured: Schema.optionalKey(Schema.Boolean),
+}) {}
 
 const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -101,7 +105,7 @@ const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
     Effect.flatMap((named) =>
       Effect.fail(
         named
-          ? new TargetUnresolvable({
+          ? TargetUnresolvable.make({
             reason: `${failure.reason}; did you mean --recipe ${written}?`,
             cause: failure.cause,
           })
@@ -142,7 +146,7 @@ const resolveSpecificationBranch = Effect.fn(
   return yield* runGit(repoRoot, ["branch", "--show-current"]).pipe(
     Effect.map(chompLine),
     Effect.mapError((cause) =>
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: describeGitFailure("could not resolve the current branch", cause),
         cause,
       })
@@ -194,7 +198,7 @@ const acquireSpecification = Effect.fn(
       Effect.catchTag("GitHubError", (failure) =>
         githubOnly
           ? Effect.fail(
-            new SubmissionError({
+            SubmissionError.make({
               reason:
                 `--github-spec could not read GitHub closing issues — ${failure.reason}`,
             }),
@@ -204,7 +208,7 @@ const acquireSpecification = Effect.fn(
     )
     : undefined
   if (githubOnly && fetched === undefined) {
-    return yield* new SubmissionError({
+    return yield* SubmissionError.make({
       reason:
         "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
     })
@@ -226,7 +230,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     ? yield* Effect.gen(function* () {
         const settings = yield* loadSettings()
         if (Option.isNone(settings)) {
-          return yield* new SubmissionError({
+          return yield* SubmissionError.make({
             reason:
               "no Default Lenses are configured and the review names no Lenses",
             unconfigured: true,
@@ -269,7 +273,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   const standardsBlock = Array.some(lenses, (lens) => lens.name === STANDARDS_LENS_NAME)
     ? yield* loadGoverningStandardsBlock(target.repoRoot).pipe(
         Effect.mapError((failure) =>
-          new SubmissionError({
+          SubmissionError.make({
             reason: `${failure.reason} (${failure.path})`,
           })),
       )

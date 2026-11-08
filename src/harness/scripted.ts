@@ -221,13 +221,13 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       configs.push(config)
 
       if (behaviorForSession === undefined) {
-        return yield* new InvocationSetupError({
+        return yield* InvocationSetupError.make({
           operation: "open",
           reason: `no scripted session for open ${String(sessionIndex)}`,
         })
       }
       if (behaviorForSession.failOpen !== undefined) {
-        return yield* new InvocationSetupError({
+        return yield* InvocationSetupError.make({
           operation: "open",
           reason: behaviorForSession.failOpen,
         })
@@ -245,7 +245,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         ? yield* Effect.tryPromise({
             try: () => makeReviewWorkspace(config.cwd),
             catch: (cause) =>
-              new InvocationSetupError({
+              InvocationSetupError.make({
                 operation: "session-construction",
                 reason: `failed to construct ReviewWorkspace: ${
                   cause instanceof Error ? cause.message : String(cause)

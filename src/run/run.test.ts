@@ -176,7 +176,7 @@ describe("Run.review", () => {
       const missing = path.join(fixture.home, "missing.md")
       const missingAddendumRefusal = yield* refusalOf({ specPath: missing })
       expect(missingAddendumRefusal).toEqual(
-        new Run.RunRefusal({
+        Run.RunRefusal.make({
           reason: `could not review — caller addendum file does not exist (${missing})`,
         }),
       )
@@ -238,7 +238,7 @@ describe("Run.deliver", () => {
         Effect.flip,
       )
       expect(refusal).toEqual(
-        new Run.RunRefusal({
+        Run.RunRefusal.make({
           reason: `could not deliver — run ${reviewed.runId} is not a pull-request review and has no pull-request destination`,
         }),
       )

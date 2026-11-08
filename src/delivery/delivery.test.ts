@@ -102,7 +102,7 @@ const scriptedGitHub = (
       return script.failPost === undefined
         ? Effect.succeed<PostedComment>({ url: script.url })
         : Effect.fail(
-          new GitHubError({ operation: "post", reason: script.failPost }),
+          GitHubError.make({ operation: "post", reason: script.failPost }),
         )
     },
   })

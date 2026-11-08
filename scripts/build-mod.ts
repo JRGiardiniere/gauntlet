@@ -22,7 +22,6 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -55,10 +54,13 @@ declare const Bun: {
   readonly fileURLToPath: (url: URL) => string
 }
 
-class ModBuildFailed extends Data.TaggedError("ModBuildFailed")<{
-  readonly step: string
-  readonly cause: unknown
-}> {}
+class ModBuildFailed extends Schema.TaggedError<
+  ModBuildFailed,
+  { readonly brand: unique symbol }
+>()("ModBuildFailed", {
+  step: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 const repoRoot = `${import.meta.dirname}/..`
 // The checkout's root as Bun reports module paths, for each source file's
@@ -135,11 +137,11 @@ const program = Effect.gen(function* () {
         minify,
         plugins: [graphGuard],
       }),
-    catch: (cause) => new ModBuildFailed({ step: plugin.name, cause }),
+    catch: (cause) => ModBuildFailed.make({ step: plugin.name, cause }),
   })
-  if (!built.success) return yield* new ModBuildFailed({ step: plugin.name, cause: built.logs })
+  if (!built.success) return yield* ModBuildFailed.make({ step: plugin.name, cause: built.logs })
   if (refused.length > 0) {
-    return yield* new ModBuildFailed({ step: plugin.name, cause: `imports that cannot run in the mod: ${Array.join(refused, ", ")}` })
+    return yield* ModBuildFailed.make({ step: plugin.name, cause: `imports that cannot run in the mod: ${Array.join(refused, ", ")}` })
   }
   yield* fs.makeDirectory(`${staging}/.claude-plugin`, { recursive: true })
   yield* fs.makeDirectory(`${staging}/types`, { recursive: true })

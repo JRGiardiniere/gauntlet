@@ -595,16 +595,16 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
     const common = commonOf(state)
     if (ending.rejection !== undefined) {
       if (common.violations.length > 0) {
-        return yield* new AdapterContractViolation({
+        return yield* AdapterContractViolation.make({
           reason: Array.join(common.violations, "; "),
         })
       }
       if (common.acceptedActivity) {
-        return yield* new AdapterContractViolation({
+        return yield* AdapterContractViolation.make({
           reason: `prompt rejected after accepted session activity: ${ending.rejection}`,
         })
       }
-      return yield* new InvocationSetupError({
+      return yield* InvocationSetupError.make({
         operation: "prompt",
         reason: ending.rejection,
       })
@@ -612,7 +612,7 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
 
     const terminal = common.terminal
     if (terminal === undefined) {
-      return yield* new AdapterContractViolation({
+      return yield* AdapterContractViolation.make({
         reason: "prompt settled without terminal assistant evidence",
       })
     }
@@ -638,7 +638,7 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
       case "pending":
       case "deferred":
       case "aborted": {
-        return yield* new AdapterContractViolation({
+        return yield* AdapterContractViolation.make({
           reason: `prompt settled with uncaused stop reason ${terminal.stopReason}`,
         })
       }
@@ -681,20 +681,20 @@ const isFreshRetryable = (termination: TerminationType): boolean =>
 const validateInput = <O>(input: InvokeInput<O>) =>
   Effect.gen(function* () {
     if (input.systemPrompt.trim() === "") {
-      return yield* new InvocationSetupError({
+      return yield* InvocationSetupError.make({
         operation: "validate-config",
         reason: "systemPrompt must be non-empty",
       })
     }
     if (input.prompt.trim() === "") {
-      return yield* new InvocationSetupError({
+      return yield* InvocationSetupError.make({
         operation: "validate-config",
         reason: "prompt must be non-empty",
       })
     }
     for (const [name, value] of Object.entries(input.deadlines)) {
       if (!Number.isFinite(value) || value <= 0) {
-        return yield* new InvocationSetupError({
+        return yield* InvocationSetupError.make({
           operation: "validate-config",
           reason: `${name} must be a positive finite number`,
         })
@@ -733,14 +733,14 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
       const common = commonOf(state)
       if (common.violations.length > 0) {
         return Effect.fail(
-          new AdapterContractViolation({
+          AdapterContractViolation.make({
             reason: Array.join(common.violations, "; "),
           }),
         )
       }
       if (common.usageSweepError !== undefined) {
         return Effect.fail(
-          new AdapterContractViolation({
+          AdapterContractViolation.make({
             reason: `usage sweep threw: ${common.usageSweepError}`,
           }),
         )
@@ -749,7 +749,7 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
         decodeUsageRow(row).pipe(
           Effect.mapError(
             () =>
-              new AdapterContractViolation({
+              AdapterContractViolation.make({
                 reason: "usage row does not match Pi's accounting contract",
               }),
           ),
@@ -811,7 +811,7 @@ const outputFrom = <O>(
         ),
         Effect.mapError(
           (error) =>
-            new AdapterContractViolation({
+            AdapterContractViolation.make({
               reason: `validated ${contract.toolName} arguments failed their OutputContract decoder: ${String(error)}`,
             }),
         ),

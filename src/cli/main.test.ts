@@ -306,7 +306,7 @@ describe("gauntlet deliver", () => {
                 Effect.flatMap((lines) => {
                   stdoutAtPost = Array.join(Array.map(lines, String), "\n")
                   return Effect.fail(
-                    new GitHubError({ operation: "post", reason: "gh timed out" }),
+                    GitHubError.make({ operation: "post", reason: "gh timed out" }),
                   )
                 }),
               ),

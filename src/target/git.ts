@@ -1,23 +1,29 @@
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 
-export class GitCommandError extends Data.TaggedError("GitCommandError")<{
-  readonly args: ReadonlyArray<string>
-  readonly exitCode: number | undefined
-  readonly stderr: string
-  readonly cause: unknown
-}> {}
+export class GitCommandError extends Schema.TaggedError<
+  GitCommandError,
+  { readonly brand: unique symbol }
+>()("GitCommandError", {
+  args: Schema.Array(Schema.String),
+  exitCode: Schema.UndefinedOr(Schema.Finite),
+  stderr: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 // No ReviewTarget can be resolved at all — not a repo, no HEAD to diff
 // against, an unresolvable ref, or nothing changed. "Could not review", exit 1.
-export class TargetUnresolvable extends Data.TaggedError("TargetUnresolvable")<{
-  readonly reason: string
-  readonly cause: unknown
-}> {}
+export class TargetUnresolvable extends Schema.TaggedError<
+  TargetUnresolvable,
+  { readonly brand: unique symbol }
+>()("TargetUnresolvable", {
+  reason: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 // rev-parse and friends terminate with a single newline. Strip exactly that
 // — trim() would also eat whitespace that is legally part of a path.
@@ -64,7 +70,7 @@ export const explainGit = (reason: string) =>
 ): Effect.Effect<A, TargetUnresolvable, R> =>
   Effect.catchTag(self, "GitCommandError", (cause) =>
     Effect.fail(
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: describeGitFailure(reason, cause),
         cause,
       }),
@@ -113,7 +119,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
           { concurrency: 3 },
         )
         if (exitCode !== 0) {
-          return yield* new GitCommandError({
+          return yield* GitCommandError.make({
             args,
             exitCode,
             stderr,
@@ -125,7 +131,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
     ).pipe(
       Effect.catchTag("PlatformError", (cause) =>
         Effect.fail(
-          new GitCommandError({ args, exitCode: undefined, stderr: "", cause }),
+          GitCommandError.make({ args, exitCode: undefined, stderr: "", cause }),
         ),
       ),
     )

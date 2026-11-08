@@ -223,7 +223,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
         const modelRuntime = yield* Effect.tryPromise({
           try: () => sharedModelRuntime(),
           catch: (cause) =>
-            new InvocationSetupError({
+            InvocationSetupError.make({
               operation: "model-runtime",
               reason: String(cause),
               cause,
@@ -243,7 +243,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               modelRuntime,
             }),
           catch: (cause) =>
-            new InvocationSetupError({
+            InvocationSetupError.make({
               operation: "resolve-model",
               reason: String(cause),
               cause,
@@ -255,7 +255,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             /Use --list-models to see available (?:providers\/models|models)\./,
             "Check the configured provider and model.",
           )
-          return yield* new InvocationSetupError({
+          return yield* InvocationSetupError.make({
             operation: "resolve-model",
             reason:
               resolutionError ??
@@ -447,7 +447,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             } satisfies HarnessSession
           },
           catch: (cause) =>
-            new InvocationSetupError({
+            InvocationSetupError.make({
               operation: "session-construction",
               reason: String(cause),
               cause,

@@ -77,7 +77,7 @@ export const resolveCommitsTarget = Effect.fn(
   )
 
   if (diff === "") {
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: `${spec} has no changes to review`,
       cause: undefined,
     })

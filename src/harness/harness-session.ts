@@ -1,5 +1,4 @@
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as JsonSchema from "effect/JsonSchema"
 import * as Schema from "effect/Schema"
@@ -154,32 +153,38 @@ export interface SessionConfig {
 // The distinct steps an adapter's `open` can fail in — the coarse-error
 // operation discriminator. The seam enumerates every
 // adapter's operations so the union stays a closed, typo-proof set.
-export type InvocationSetupOperation =
-  | "validate-config"
-  | "model-runtime"
-  | "resolve-model"
-  | "session-construction"
-  | "open"
-  | "prompt"
+export const InvocationSetupOperation = Schema.Literals([
+  "validate-config",
+  "model-runtime",
+  "resolve-model",
+  "session-construction",
+  "open",
+  "prompt",
+])
+export type InvocationSetupOperation = typeof InvocationSetupOperation.Type
 
 // "No outcome can exist" — session construction failed (GLOSSARY.md: Failure).
 // `cause` retains the original thrown value for diagnosis at this multi-step
 // external boundary; `reason` is the human-readable rendering.
-export class InvocationSetupError extends Data.TaggedError(
-  "InvocationSetupError",
-)<{
-  readonly operation: InvocationSetupOperation
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class InvocationSetupError extends Schema.TaggedError<
+  InvocationSetupError,
+  { readonly brand: unique symbol }
+>()("InvocationSetupError", {
+  operation: InvocationSetupOperation,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // "No outcome can exist" — the adapter broke its contract: a drifted usage
 // shape, an event that no longer decodes. Raised even when an emit was
 // captured, because a silently-$0 invocation is indistinguishable from a
 // healthy one (ADR 0001, #4 §8).
-export class AdapterContractViolation extends Data.TaggedError(
-  "AdapterContractViolation",
-)<{ readonly reason: string }> {}
+export class AdapterContractViolation extends Schema.TaggedError<
+  AdapterContractViolation,
+  { readonly brand: unique symbol }
+>()("AdapterContractViolation", {
+  reason: Schema.String,
+}) {}
 
 export type InvocationFailure =
   | InvocationSetupError

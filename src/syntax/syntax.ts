@@ -1,9 +1,9 @@
 import * as Array from "effect/Array"
 import * as Config from "effect/Config"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 import * as Argument from "effect/cli/Argument"
 import * as Command from "effect/cli/Command"
 import * as Flag from "effect/cli/Flag"
@@ -24,9 +24,12 @@ import { InvocationDirectory } from "../target/invocation-directory.ts"
 // request here and nowhere else.
 
 // A review whose words parse but ask for something no review can be.
-export class ReviewCommandError extends Data.TaggedError("ReviewCommandError")<{
-  readonly reason: string
-}> {}
+export class ReviewCommandError extends Schema.TaggedError<
+  ReviewCommandError,
+  { readonly brand: unique symbol }
+>()("ReviewCommandError", {
+  reason: Schema.String,
+}) {}
 
 // Where a review's Dossier goes: local stays in the run directory, pr is also
 // posted on the reviewed pull request, by the Host delivering the Run once it
@@ -65,7 +68,7 @@ const resolveWritten = Effect.fn("Syntax.resolvePath")(function* (
   }
   const home = yield* Config.String("HOME").pipe(
     Effect.mapError(() =>
-      new ReviewCommandError({ reason: `HOME is not set, so ${written} names no folder` })
+      ReviewCommandError.make({ reason: `HOME is not set, so ${written} names no folder` })
     ),
   )
   return path.join(home, written.slice(1))
@@ -84,18 +87,18 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
     input.workingTree &&
     (pullRequest !== undefined || target?.includes("..") === true)
   ) {
-    return yield* new ReviewCommandError({
+    return yield* ReviewCommandError.make({
       reason:
         "--working-tree extends only a commit base; a pull request or a <base>..<head> range has its own head",
     })
   }
   if (input.destination === "pr" && pullRequest === undefined) {
-    return yield* new ReviewCommandError({
+    return yield* ReviewCommandError.make({
       reason: "--destination pr needs a pull request target",
     })
   }
   if (input.githubSpec && pullRequest === undefined) {
-    return yield* new ReviewCommandError({
+    return yield* ReviewCommandError.make({
       reason: "--github-spec needs a pull request target",
     })
   }

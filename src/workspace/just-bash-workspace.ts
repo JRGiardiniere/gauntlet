@@ -8,7 +8,7 @@ import {
   truncateTail,
 } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
+import * as Schema from "effect/Schema"
 import { Bash, type BashOptions, OverlayFs, type OverlayFsOptions } from "just-bash"
 import { type Static, Type } from "typebox"
 import {
@@ -44,11 +44,12 @@ export const WORKSPACE_EXECUTION_LIMITS: NonNullable<
 // interpreter. They reject at the Pi Promise seam, surface as isError tool
 // results, and the invocation continues — same recovery path as a bad flag
 // on real bash.
-export class WorkspaceToolError extends Data.TaggedError(
-  "WorkspaceToolError",
-)<{
-  readonly message: string
-}> {}
+export class WorkspaceToolError extends Schema.TaggedError<
+  WorkspaceToolError,
+  { readonly brand: unique symbol }
+>()("WorkspaceToolError", {
+  message: Schema.String,
+}) {}
 
 const failureMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause)
@@ -83,7 +84,7 @@ const guardWorkspacePath = (absolutePath: string): void => {
     absolutePath !== REVIEW_WORKSPACE_ROOT &&
     !absolutePath.startsWith(`${REVIEW_WORKSPACE_ROOT}/`)
   ) {
-    throw new WorkspaceToolError({
+    throw WorkspaceToolError.make({
       message: `Path is outside the workspace root ${REVIEW_WORKSPACE_ROOT}`,
     })
   }
@@ -172,7 +173,7 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
         // The upper bound guards Node's 2^31-1ms timer ceiling: a delay past
         // it overflows and fires the abort immediately instead of later.
         if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483) {
-          throw new WorkspaceToolError({
+          throw WorkspaceToolError.make({
             message:
               "Invalid timeout: must be a positive number of seconds at most 2147483",
           })
@@ -186,7 +187,7 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
           signal: AbortSignal.any(signals),
         })
         .catch((cause: unknown) => {
-          throw new WorkspaceToolError({
+          throw WorkspaceToolError.make({
             message: timeoutSignal?.aborted === true
               ? `Command timed out after ${String(timeout)} seconds`
               : failureMessage(cause),
@@ -198,7 +199,7 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
       if (result.exitCode !== 0) {
         // The interpreter may honor the abort by resolving with exit 124
         // instead of rejecting; report that as the timeout it is.
-        throw new WorkspaceToolError({
+        throw WorkspaceToolError.make({
           message: timeoutSignal?.aborted === true
             ? `Command timed out after ${String(timeout)} seconds`
             : `${outputText}\n\nCommand exited with code ${String(result.exitCode)}`,

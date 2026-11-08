@@ -127,7 +127,7 @@ export const playDemo = Effect.fn("Demo.play")(
     const name = words[0] ?? "findings"
     const named = Array.findFirst(Object.entries(SCENARIOS), ([key]) => key === name)
     if (Option.isNone(named) || words.length > 1) {
-      return yield* new RunRefusal({ reason: `no demo ${Array.join(words, " ")}; the scenarios are ${Array.join(DEMO_SCENARIOS, ", ")}` })
+      return yield* RunRefusal.make({ reason: `no demo ${Array.join(words, " ")}; the scenarios are ${Array.join(DEMO_SCENARIOS, ", ")}` })
     }
     const scenario: Scenario = named.value[1]
     const fs = yield* FileSystem.FileSystem
@@ -162,7 +162,7 @@ export const playDemo = Effect.fn("Demo.play")(
       const directory = yield* fs.makeTempDirectory({ prefix: "gauntlet-demo-" })
       yield* reportMilestone(RunMilestone.Started({ runId, directory, lenses, skipped: scenario.skipped }))
       yield* Effect.sleep("1500 millis")
-      if (scenario.refusal !== undefined) return yield* new RunRefusal({ reason: scenario.refusal })
+      if (scenario.refusal !== undefined) return yield* RunRefusal.make({ reason: scenario.refusal })
       // The first Finder alone, then the rest, as the cache warm-up runs them.
       const [first, ...rest] = scenario.finders
       const finder = ([lens, seconds, candidates]: Scenario["finders"][number]) => invoke(`finders-1-finder-${lens}`, seconds, candidates)
@@ -182,7 +182,7 @@ export const playDemo = Effect.fn("Demo.play")(
       const seconds = Math.round(((yield* Clock.currentTimeMillis) - startedAt) / 1000)
       return { runId, digest: digestOf(scenario, seconds, dossierMarkdown) }
     }).pipe(
-      Effect.catchTag("PlatformError", (failure) => new RunRefusal({ reason: `the demo could not write its dossier: ${failure.message}` })),
+      Effect.catchTag("PlatformError", (failure) => RunRefusal.make({ reason: `the demo could not write its dossier: ${failure.message}` })),
     )
     const deliver = () =>
       Effect.sleep("3 seconds").pipe(Effect.as({ url: "https://github.com/example/demo/pull/7#issuecomment-1" }))

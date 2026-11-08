@@ -191,12 +191,12 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
         // the Run removes as it ends.
         const systemPromptFile = path.join(path.dirname(config.cwd), `claude-system-${sessionId}.md`)
         yield* fs.writeFileString(systemPromptFile, config.systemPrompt).pipe(
-          Effect.mapError((cause) => new InvocationSetupError({ operation: "open", reason: String(cause), cause })),
+          Effect.mapError((cause) => InvocationSetupError.make({ operation: "open", reason: String(cause), cause })),
         )
         const { effort, model } = seatParts(config.seat)
         // The contract's projection, its description the tool's own text.
         const schema = yield* encodeJson({ ...config.emitTool.parameters, description: config.emitTool.description }).pipe(
-          Effect.mapError((cause) => new InvocationSetupError({ operation: "open", reason: String(cause), cause })),
+          Effect.mapError((cause) => InvocationSetupError.make({ operation: "open", reason: String(cause), cause })),
         )
         // Every turn passes the same argv, but for how it names the session:
         // a resumed turn keeps the system prompt and model and nothing else

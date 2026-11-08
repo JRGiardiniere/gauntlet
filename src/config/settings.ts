@@ -1,6 +1,5 @@
 import * as Config from "effect/Config"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
@@ -31,11 +30,14 @@ export const Settings = Schema.Struct({
 })
 export type Settings = typeof Settings.Type
 
-export class SettingsError extends Data.TaggedError("SettingsError")<{
-  readonly path: string
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class SettingsError extends Schema.TaggedError<
+  SettingsError,
+  { readonly brand: unique symbol }
+>()("SettingsError", {
+  path: Schema.String,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // Recipes and settings live under ~/.gauntlet (ADR 0005). HOME is read via
 // Config so tests point it at a temp directory instead of mutating env.
@@ -43,7 +45,7 @@ export const gauntletHome = Effect.fn("gauntlet.settings.home")(function* () {
   const path = yield* Path.Path
   const home = yield* Config.String("HOME").pipe(
     Effect.mapError((cause) =>
-      new SettingsError({
+      SettingsError.make({
         path: "$HOME",
         reason: "HOME is not set; cannot locate ~/.gauntlet",
         cause,
@@ -107,7 +109,7 @@ export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
       Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed(Option.none<string>())
         : Effect.fail(
-          new SettingsError({
+          SettingsError.make({
             path,
             reason: "could not read settings",
             cause: failure,
@@ -117,7 +119,7 @@ export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
   if (Option.isNone(source)) return Option.none<Settings>()
   const settings = yield* decodeSettings(source.value).pipe(
     Effect.mapError((cause) =>
-      new SettingsError({
+      SettingsError.make({
         path,
         reason: `settings are invalid: ${cause.message}`,
         cause,

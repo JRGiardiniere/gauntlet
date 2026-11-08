@@ -6,7 +6,6 @@
 // slow or offline network never fails a command and delays one by at most
 // the one-second claim.
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -22,10 +21,13 @@ import { gauntletVersion } from "./version.ts"
 export const repository = "JRGiardiniere/gauntlet"
 const latestReleaseUrl = `https://github.com/${repository}/releases/latest`
 
-export class UpdateProbeError extends Data.TaggedError("UpdateProbeError")<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class UpdateProbeError extends Schema.TaggedError<
+  UpdateProbeError,
+  { readonly brand: unique symbol }
+>()("UpdateProbeError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 const releaseTagPattern = /\/releases\/tag\/v(\d+\.\d+\.\d+)$/
 
@@ -48,10 +50,10 @@ export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
             signal,
           }),
         catch: (cause) =>
-          new UpdateProbeError({ reason: "release lookup failed", cause }),
+          UpdateProbeError.make({ reason: "release lookup failed", cause }),
       })
       if (isTransientStatus(result.status)) {
-        return yield* new UpdateProbeError({
+        return yield* UpdateProbeError.make({
           reason: `release lookup failed with status ${String(result.status)}`,
         })
       }
@@ -61,20 +63,20 @@ export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
         duration: "3 seconds",
         orElse: () =>
           Effect.fail(
-            new UpdateProbeError({ reason: "release lookup timed out" }),
+            UpdateProbeError.make({ reason: "release lookup timed out" }),
           ),
       }),
       Effect.retry({ times: 2 }),
     )
     const location = response.headers.get("location")
     if (location === null) {
-      return yield* new UpdateProbeError({
+      return yield* UpdateProbeError.make({
         reason: `${latestReleaseUrl} did not redirect — the repository may have no releases`,
       })
     }
     const version = releaseTagPattern.exec(location)?.[1]
     if (version === undefined) {
-      return yield* new UpdateProbeError({
+      return yield* UpdateProbeError.make({
         reason: `unrecognized release redirect: ${location}`,
       })
     }

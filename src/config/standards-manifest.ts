@@ -1,12 +1,12 @@
 import * as Array from "effect/Array"
 import * as Config from "effect/Config"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import { GOVERNING_STANDARDS_HEADING } from "../domain/finder-selection.ts"
 import { chompLine, describeGitFailure, runGit } from "../target/git.ts"
 import { gauntletHome } from "./settings.ts"
@@ -15,13 +15,14 @@ import { gauntletHome } from "./settings.ts"
 // documents fed to the standards lens (#110): one newline-delimited path list
 // under ~/.gauntlet/standards, never a file in the reviewed repository.
 
-export class StandardsManifestError extends Data.TaggedError(
-  "StandardsManifestError",
-)<{
-  readonly path: string
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class StandardsManifestError extends Schema.TaggedError<
+  StandardsManifestError,
+  { readonly brand: unique symbol }
+>()("StandardsManifestError", {
+  path: Schema.String,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // The repository identity is the common git directory itself: exactly one
 // per repository, shared by every worktree, present from commit zero, and
@@ -37,7 +38,7 @@ const resolveRepoIdentity = Effect.fn(
   ]).pipe(
     Effect.map(chompLine),
     Effect.mapError((cause) =>
-      new StandardsManifestError({
+      StandardsManifestError.make({
         path: repoRoot,
         reason: describeGitFailure(
           "could not resolve the repository identity for the Standards Manifest",
@@ -58,7 +59,7 @@ export const standardsManifestPath = Effect.fn(
   const identity = yield* resolveRepoIdentity(repoRoot)
   const home = yield* gauntletHome().pipe(
     Effect.mapError((cause) =>
-      new StandardsManifestError({
+      StandardsManifestError.make({
         path: cause.path,
         reason: cause.reason,
         cause,
@@ -79,7 +80,7 @@ const resolveEntry = Effect.fn("gauntlet.standards.resolve_entry")(function* (
   if (entry.startsWith("~/")) {
     const home = yield* Config.String("HOME").pipe(
       Effect.mapError((cause) =>
-        new StandardsManifestError({
+        StandardsManifestError.make({
           path: manifestPath,
           reason: `HOME is not set; cannot resolve manifest entry ${entry}`,
           cause,
@@ -106,7 +107,7 @@ export const loadGoverningStandardsBlock = Effect.fn(
       Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed(Option.none<string>())
         : Effect.fail(
-          new StandardsManifestError({
+          StandardsManifestError.make({
             path: manifestPath,
             reason: "could not read the Standards Manifest",
             cause: failure,
@@ -126,7 +127,7 @@ export const loadGoverningStandardsBlock = Effect.fn(
       const documentPath = yield* resolveEntry(manifestPath, repoRoot, entry)
       const text = yield* fs.readFileString(documentPath).pipe(
         Effect.mapError((cause) =>
-          new StandardsManifestError({
+          StandardsManifestError.make({
             path: documentPath,
             reason:
               `could not read a document listed in the Standards Manifest at ${manifestPath}`,

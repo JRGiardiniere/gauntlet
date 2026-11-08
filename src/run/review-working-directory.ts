@@ -39,7 +39,7 @@ export const captureWorkspaceOverlay = Effect.fn(
       GIT_INDEX_FILE: path.join(scratch, "index"),
     }).pipe(
       Effect.mapError((cause) =>
-        new TargetUnresolvable({
+        TargetUnresolvable.make({
           reason: describeGitFailure(
             "could not capture the working-tree overlay",
             cause,
@@ -86,7 +86,7 @@ export const captureWorkspaceOverlay = Effect.fn(
   ])
   return yield* fs.readFile(overlay).pipe(
     Effect.mapError((cause) =>
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: "could not read the captured working-tree overlay",
         cause,
       })
@@ -105,7 +105,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
     PullRequest: ({ number }) => `PR #${String(number)}`,
   })
   const runFailure = (reason: string, cause?: unknown) =>
-    new RunError({ operation: "execute-plan", reason, runId, cause })
+    RunError.make({ operation: "execute-plan", reason, runId, cause })
   const scratchDirectory = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-review-",
   })

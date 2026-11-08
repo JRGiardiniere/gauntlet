@@ -21,7 +21,7 @@ const explainUntrackedFile = (reason: string) =>
   self: Effect.Effect<A, { readonly _tag: "PlatformError" }, R>,
 ): Effect.Effect<A, TargetUnresolvable, R> =>
   Effect.catchTag(self, "PlatformError", (cause) =>
-    Effect.fail(new TargetUnresolvable({ reason, cause })))
+    Effect.fail(TargetUnresolvable.make({ reason, cause })))
 
 // Git already governs tracked files. Untracked files larger than this are
 // dropped from the included set and named in a scope-degradation warning.
@@ -106,7 +106,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
     const nothing = base === undefined
       ? "working tree has no uncommitted changes to review"
       : `${base} has no committed or uncommitted changes to review`
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: untracked.length === 0
         ? nothing
         : `${nothing} (${untracked.length} untracked file(s) are not part of the diff)`,

@@ -2,14 +2,17 @@ import { createInterface } from "node:readline/promises"
 import type { AuthEvent, AuthInteraction, AuthPrompt } from "@earendil-works/pi-ai"
 import { getAgentDir, ModelRuntime, SettingsManager } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
+import * as Schema from "effect/Schema"
 
-export class LoginError extends Data.TaggedError("LoginError")<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class LoginError extends Schema.TaggedError<
+  LoginError,
+  { readonly brand: unique symbol }
+>()("LoginError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 const describeEvent = (event: AuthEvent): string => {
   switch (event.type) {
@@ -61,18 +64,18 @@ const terminalInteraction = (signal: AbortSignal): AuthInteraction & { readonly 
 // flow needs a stable device ID; it is Pi's own, so a standalone `pi` agrees.
 export const loginProvider = Effect.fn("PiLogin.login")(function* (provider: string) {
   const failure = (cause: unknown) =>
-    new LoginError({ reason: cause instanceof Error ? cause.message : String(cause), cause })
+    LoginError.make({ reason: cause instanceof Error ? cause.message : String(cause), cause })
   const runtime = yield* Effect.tryPromise({
     try: (signal) => ModelRuntime.create({ signal }),
     catch: failure,
   })
   const auth = runtime.getProvider(provider)?.auth
   if (auth === undefined) {
-    return yield* new LoginError({ reason: `unknown provider ${provider}` })
+    return yield* LoginError.make({ reason: `unknown provider ${provider}` })
   }
   const oauth = auth.oauth
   if (oauth === undefined) {
-    return yield* new LoginError({
+    return yield* LoginError.make({
       reason: `${provider} has no sign-in; an API-key provider reads its key from the environment`,
     })
   }

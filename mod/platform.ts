@@ -397,7 +397,7 @@ const terminalOver = (ports: PlatformPorts) =>
     rows: Effect.succeed(40),
     size: Effect.die("the mod has no terminal resizes"),
     readInput: Effect.die("the mod has no terminal input"),
-    readLine: Effect.fail(new Terminal.QuitError()),
+    readLine: Effect.fail(Terminal.QuitError.make()),
     display: (shown) => Effect.sync(() => ports.stdout(shown)),
   })
 
