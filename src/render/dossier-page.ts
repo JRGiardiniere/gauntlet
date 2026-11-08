@@ -12,6 +12,7 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import type { ReviewPriority } from "../domain/verdict.ts"
 import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderBrief, type RenderedBrief } from "./brief.ts"
@@ -163,8 +164,7 @@ const SIGN = { context: " ", added: "+", removed: "−" } as const
 const ROW = { context: "ctx", added: "add", removed: "del" } as const
 
 const change = (file: string, hunk: Hunk, line: number | undefined, pin: string) => {
-  const found = hunk.rows.findIndex((row) => row.newLine === line)
-  const at = found === -1 ? 0 : found
+  const at = Option.getOrElse(Array.findFirstIndex(hunk.rows, (row) => row.newLine === line), () => 0)
   const whole = hunk.rows.length <= WINDOW * 2 + 6
   const low = whole ? 0 : Math.max(0, at - WINDOW)
   const high = whole ? hunk.rows.length : Math.min(hunk.rows.length, at + WINDOW + 1)
@@ -206,7 +206,7 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
     ? hunks[0] === undefined ? "" : change(file, hunks[0], undefined, pin)
     : (() => {
       const hunk = hunkAt(hunks, line)
-      if (hunk !== undefined) return change(file, hunk, line, pin)
+      if (Option.isSome(hunk)) return change(file, hunk.value, line, pin)
       return lines === undefined
         ? ""
         : excerpt({
@@ -450,7 +450,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
       <h1><span class="diamond h-mark" aria-hidden="true">◆</span><span class="h-subject">${escapeHtml(subject)}</span> <span class="h-range">${escapeHtml(range)}</span></h1>
       <p class="ix-docket">
         ${
-    pipe((["P1", "P2", "P3"] as const), Array.map((priority) => {
+    pipe(["P1", "P2", "P3"] as const, Array.map((priority) => {
       const count = ranked(priority).length
       return `<span class="dk dk-${priority.toLowerCase()}${count === 0 ? " zero" : ""}"><b>${count}</b> ${priority}</span>`
     }), Array.join(""))

@@ -125,7 +125,11 @@ export const executeReviewPlan = Effect.fn(
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
         const accounting = {
-          costUsd: Array.reduce(results, 0, (total, result) => total + result.outcome.usage.costUsd) + pooled.costUsd + verification.costUsd + judgment.costUsd,
+          costUsd: Array.reduce(
+            results,
+            0,
+            (total, result) => total + result.outcome.usage.costUsd,
+          ) + pooled.costUsd + verification.costUsd + judgment.costUsd,
           invocationCount:
             results.length +
             pooled.invocationCount +
@@ -153,7 +157,10 @@ export const executeReviewPlan = Effect.fn(
 
         const view = viewDossier(dossier)
         yield* reportMilestone(RunMilestone.Reviewed({
-          entries: Array.map([...view.findings, ...view.unresolved], ({ reviewPriority, tag }) => ({ tag, reviewPriority })),
+          entries: Array.map(
+            [...view.findings, ...view.unresolved],
+            ({ reviewPriority, tag }) => ({ tag, reviewPriority }),
+          ),
           coverageGaps: dossier.coverageGaps,
           dossierMarkdown: paths.dossierMarkdown,
         }))

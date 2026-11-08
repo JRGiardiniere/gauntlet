@@ -1,4 +1,5 @@
 import * as Array from "effect/Array"
+import * as Option from "effect/Option"
 import {
   Dossier,
   DossierFinding,
@@ -39,10 +40,9 @@ export interface DossierAssembly {
 const suggestionFor = (
   bugClaimIds: ReadonlySet<string>,
   testSuggestions: ReadonlyArray<TestSuggestion>,
-): TestSuggestion | undefined =>
-  testSuggestions.find(({ bugClaimIds: suggestedIds }) =>
-    Array.some(suggestedIds, (id) => bugClaimIds.has(id))
-  )
+): Option.Option<TestSuggestion> =>
+  Array.findFirst(testSuggestions, ({ bugClaimIds: suggestedIds }) =>
+    Array.some(suggestedIds, (id) => bugClaimIds.has(id)))
 
 const priorityRank = {
   P1: 0,
@@ -90,9 +90,10 @@ export const assembleDossier = ({
       new Set(Array.map(bugClaims, ({ id }) => id)),
       bugClaimPath.testSuggestions,
     )
-    const suggestedCore = testSuggestion === undefined
-      ? clusterCore
-      : { ...clusterCore, testSuggestion }
+    const suggestedCore = Option.match(testSuggestion, {
+      onNone: () => clusterCore,
+      onSome: (suggestion) => ({ ...clusterCore, testSuggestion: suggestion }),
+    })
     if (Verdict.guards.Confirmed(verdict)) {
       findings.push(
         DossierFinding.cases.Confirmed.make({ ...suggestedCore, verdict }),

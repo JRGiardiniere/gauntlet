@@ -112,10 +112,10 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
       // Up to two trailing member segments: `Foo\Bar::baz`, `mod.fn`.
       for (let drop = 0; drop <= 2 && parts.length - drop >= 2; drop++) {
         const head = parts.slice(0, parts.length - drop)
-        const named = Array.map(head.slice(0, -1), (_, start) => bySuffix.get(Array.join(head.slice(start), "/")))
-          .find(Predicate.isNotUndefined)
-        if (named !== undefined && named.length <= AMBIGUOUS) {
-          Array.forEach(named, (each) => found.add(each))
+        const named = Array.findFirst(head.slice(0, -1), (_, start) =>
+          Option.fromUndefinedOr(bySuffix.get(Array.join(head.slice(start), "/"))))
+        if (Option.isSome(named) && named.value.length <= AMBIGUOUS) {
+          Array.forEach(named.value, (each) => found.add(each))
           break
         }
       }

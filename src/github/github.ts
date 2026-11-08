@@ -99,8 +99,7 @@ const lastNonEmptyLine = (text: string): string => {
   const lines = pipe(
     text.split("\n"),
     Array.map((line) => line.trim()),
-    Array.filter((line) =>
-      line !== ""),
+    Array.filter((line) => line !== ""),
   )
   return lines[lines.length - 1] ?? ""
 }

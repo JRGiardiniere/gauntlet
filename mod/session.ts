@@ -214,7 +214,7 @@ export const createSession = (
     // Without a digest, the notes say what happened; the verdict stands in
     // only when there are none (a cancelled run).
     const text = digest === ""
-      ? `gauntlet: ${Array.join((notes.length === 0 ? [verdict] : notes), "\n")}`
+      ? `gauntlet: ${Array.join(notes.length === 0 ? [verdict] : notes, "\n")}`
       : `gauntlet ${verdict}:\n\n${digest}${notes.length === 0 ? "" : `\n\n${Array.join(notes, "\n")}`}`
     await handOff(text, request.agentId)
   }

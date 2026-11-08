@@ -35,10 +35,10 @@ const admittedComments = (
     issue.comments,
     Array.filter((comment) => ADMITTED_ASSOCIATIONS.has(comment.authorAssociation)),
     Array.map((comment) => ({
-        provenance: comment.url,
-        createdAt: comment.createdAt,
-        text: comment.body,
-      })),
+      provenance: comment.url,
+      createdAt: comment.createdAt,
+      text: comment.body,
+    })),
   )
 
 // Assemble a source-neutral ReviewSpecification from GitHub closing issues.

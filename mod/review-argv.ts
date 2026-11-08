@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import { flow } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -13,7 +14,7 @@ import * as Schema from "effect/Schema"
 const VERBS = new Set(["review", "deliver", "page", "brief", "config", "demo"])
 
 export const commandWords = (args: string): ReadonlyArray<string> => {
-  const words = args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)?.map((word) => word.replace(/(["'])(.*?)\1/g, "$2")) ?? []
+  const words = Array.map(args.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [], (word) => word.replace(/(["'])(.*?)\1/g, "$2"))
   return VERBS.has(words[0] ?? "") ? words : ["review", ...words]
 }
 

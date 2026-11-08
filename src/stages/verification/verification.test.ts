@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewSpecification } from "../../domain/review-specification.ts"
@@ -172,9 +173,11 @@ describe("Verification stage interface", () => {
       // resolved, the scope block, then the specification, then the bundle's
       // own [cN] clusters — never wording.
       const promptFor = (bundle: string) =>
-        scripted.prompts.find(({ invocationId }) =>
-          invocationId.endsWith(`-verification-${bundle}`)
-        )?.text ?? ""
+        Option.match(
+          Array.findFirst(scripted.prompts, ({ invocationId }) =>
+            invocationId.endsWith(`-verification-${bundle}`)),
+          { onNone: () => "", onSome: ({ text }) => text },
+        )
       const first = promptFor("1")
       expect(first).not.toContain("{{")
       expect(first).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)

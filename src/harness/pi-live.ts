@@ -175,7 +175,7 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
           const detail = pipe(
             end.result.content,
             Array.flatMap((content) =>
-                content.text === undefined ? [] : [content.text]),
+              content.text === undefined ? [] : [content.text]),
             Array.join("\n"),
           )
           const event = {

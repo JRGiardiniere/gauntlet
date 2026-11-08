@@ -18,8 +18,12 @@ const substance = (candidate: BugClaim): number =>
 export const projectBugClaimCluster = (
   bugClaims: BugClaimCluster,
 ): BugClaimClusterProjection => ({
-  candidate: Array.reduce(bugClaims.slice(1), bugClaims[0], (fullest, candidate) =>
-      substance(candidate) > substance(fullest) ? candidate : fullest),
+  candidate: Array.reduce(
+    bugClaims.slice(1),
+    bugClaims[0],
+    (fullest, candidate) =>
+      substance(candidate) > substance(fullest) ? candidate : fullest,
+  ),
   lenses: Array.dedupe(Array.map(bugClaims, ({ lens }) => lens)),
 })
 

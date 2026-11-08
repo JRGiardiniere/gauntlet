@@ -7,6 +7,7 @@ import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestClock from "effect/testing/TestClock"
@@ -232,9 +233,9 @@ describe("Finder stage interface", () => {
       expect(result.finders).toHaveLength(5)
       expect(new Set(Array.map(scripted.configs, ({ cacheGroupId }) => cacheGroupId)).size).toBe(3)
       for (const selectedLens of fixture.plan.lenses) {
-        const prompt = scripted.prompts.find(({ invocationId }) =>
+        const prompt = Array.findFirst(scripted.prompts, ({ invocationId }) =>
           invocationId.endsWith(`-finder-${selectedLens.name}`))
-        expect(prompt?.text.endsWith(`\n\n${selectedLens.promptText}`)).toBe(true)
+        expect(Option.exists(prompt, ({ text }) => text.endsWith(`\n\n${selectedLens.promptText}`))).toBe(true)
       }
       for (const suffix of ["-finders-1", "-finders-2"]) {
         const configs = Array.filter(scripted.configs, ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false)

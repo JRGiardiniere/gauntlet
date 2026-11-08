@@ -858,12 +858,13 @@ const finalizeOutcome = <O>(
       states,
       diagnostics,
     )
-    const toolCalls = states.reduce<AgentToolCalls>(
+    const toolCalls: AgentToolCalls = Array.reduce(
+      states,
+      { total: 0, errored: 0 },
       (sum, state) => ({
         total: sum.total + commonOf(state).toolCalls.total,
         errored: sum.errored + commonOf(state).toolCalls.errored,
       }),
-      { total: 0, errored: 0 },
     )
     const outcome = {
       termination,

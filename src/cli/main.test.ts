@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
@@ -121,12 +122,13 @@ describe("gauntlet review", () => {
       )
       expect(dossier.runId).toBe(plan.runId)
       const dossierView = viewDossier(dossier)
-      const confirmed = dossierView.findings.find(
+      const confirmed = Array.findFirst(
+        dossierView.findings,
         ({ tag }) => tag === "confirmed",
       )
-      expect(confirmed?.candidate._tag).toBe("BugClaim")
-      expect(confirmed?.candidate.id).toBe("fixture-review/1")
-      expect(confirmed).toMatchObject({
+      expect(Option.map(confirmed, ({ candidate }) => candidate._tag)).toEqual(Option.some("BugClaim"))
+      expect(Option.map(confirmed, ({ candidate }) => candidate.id)).toEqual(Option.some("fixture-review/1"))
+      expect(Option.getOrUndefined(confirmed)).toMatchObject({
         reviewPriority: "P2",
         detail: "empty input reaches the added line and throws",
         testSuggestion: {
@@ -135,12 +137,13 @@ describe("gauntlet review", () => {
           bugClaimIds: ["fixture-review/1"],
         },
       })
-      const judgment = dossierView.findings.find(
+      const judgment = Array.findFirst(
+        dossierView.findings,
         ({ tag }) => tag === "judgment",
       )
-      expect(judgment?.candidate._tag).toBe("Observation")
-      expect(judgment?.candidate.id).toBe("fixture-review/2")
-      expect(judgment).toMatchObject({
+      expect(Option.map(judgment, ({ candidate }) => candidate._tag)).toEqual(Option.some("Observation"))
+      expect(Option.map(judgment, ({ candidate }) => candidate.id)).toEqual(Option.some("fixture-review/2"))
+      expect(Option.getOrUndefined(judgment)).toMatchObject({
         reviewPriority: "P2",
       })
       expect(dossier.coverageGaps).toEqual([])

@@ -12,6 +12,7 @@
 // from progress text; no dollar or cache figure shows.
 import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import type { RunMilestone, SkippedLens } from "../src/run/run-milestones.ts"
 import type { AgentActivity } from "./activity.ts"
 import { type MarkState, type TrackStage, trackSvg } from "./strip-svg.ts"
@@ -168,7 +169,12 @@ const stageMarks = (view: RunView): ReadonlyArray<TrackStage> =>
   Array.map(STAGES, (stage) => {
     const ran = stageRuns(view, stage)
     const states = stage === "Finders"
-      ? Array.map(view.lenses, (lens) => ran.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state)
+      ? Array.map(view.lenses, (lens) =>
+        pipe(
+          Array.findLast(ran, (each) => stageOf(each.invocationId)?.name === lens),
+          Option.map((each) => each.state),
+          Option.getOrUndefined,
+        ))
       : Array.map(ran, (each) => each.state)
     const marks = Array.map(states, markOf).sort((a, b) => markOrder(a) - markOrder(b))
     const notRun: ReadonlyArray<MarkState> = stage === "Finders" ? Array.map(view.skipped, () => "skipped") : []
@@ -183,10 +189,11 @@ export const doing = (view: RunView): string => {
     if (finders.length === 1 && !hasEnded(finders[0]?.state ?? "opening")) return "Sending the first finder to set the cache"
     // A lens whose Finder has not opened yet is still to look; a retried
     // Finder counts by its latest attempt.
-    const ended = Array.filter(view.lenses, (lens) => {
-      const state = finders.findLast((each) => stageOf(each.invocationId)?.name === lens)?.state
-      return state !== undefined && hasEnded(state)
-    }).length
+    const ended = Array.filter(view.lenses, (lens) =>
+      Option.exists(
+        Array.findLast(finders, (each) => stageOf(each.invocationId)?.name === lens),
+        (each) => hasEnded(each.state),
+      )).length
     const looking = plural(view.lenses.length - ended, "finder", "finders")
     const found = leads(view)
     return found === 0 ? `${looking} looking for bugs` : `${looking} still looking · ${plural(found, "lead", "leads")} so far`

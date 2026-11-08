@@ -60,9 +60,9 @@ const asOutcome = (promise: Promise<WorkspaceToolResult>) =>
       text: pipe(
         result.content,
         Array.flatMap((entry) =>
-            entry.type === "text" && entry.text !== undefined
-              ? [entry.text]
-              : []),
+          entry.type === "text" && entry.text !== undefined
+            ? [entry.text]
+            : []),
         Array.join("\n"),
       ),
     }),

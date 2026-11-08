@@ -280,7 +280,8 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             const endedByResponse = lastStop === "length" || lastStop === "error"
             const cost = lastRow === undefined ? result.total_cost_usd : 0
             if (result.is_error && result.subtype !== "error_max_structured_output_retries" && !endedByResponse) {
-              failed(result.result ?? result.errors?.join("; ") ?? `Claude Code turn ended: ${result.subtype}`, cost)
+              const errors = result.errors === undefined ? undefined : Array.join(result.errors, "; ")
+              failed(result.result ?? errors ?? `Claude Code turn ended: ${result.subtype}`, cost)
             } else if (lastStop === undefined) {
               failed("Claude Code turn ended with no recorded response", cost)
             }

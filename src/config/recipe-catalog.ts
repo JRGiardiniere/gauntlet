@@ -148,8 +148,8 @@ export const selectRecipeFrom = (
       }),
     )
   }
-  const entry = entries.find((candidate) => candidate.name === name)
-  if (entry === undefined) {
+  const found = Array.findFirst(entries, (candidate) => candidate.name === name)
+  if (Option.isNone(found)) {
     return Effect.fail(
       new RecipeSelectionError({
         reason: `recipe does not exist: ${name}`,
@@ -157,6 +157,7 @@ export const selectRecipeFrom = (
       }),
     )
   }
+  const entry = found.value
   if (entry._tag === "InvalidRecipe") {
     return Effect.fail(
       new RecipeSelectionError({

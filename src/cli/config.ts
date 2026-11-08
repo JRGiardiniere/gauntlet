@@ -249,10 +249,9 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   }
   const configured = settings.value
   const defaultRecipe = configured["default-recipe"]
-  const entry = entries.find((candidate) =>
-    candidate.name === defaultRecipe
-  )
-  if (entry === undefined || entry._tag === "InvalidRecipe") {
+  const entry = Array.findFirst(entries, (candidate) =>
+    candidate.name === defaultRecipe)
+  if (Option.isNone(entry) || entry.value._tag === "InvalidRecipe") {
     return yield* new ConfigCommandError({
       reason:
         `default-recipe ${defaultRecipe} does not name an available valid recipe — ` +

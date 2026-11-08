@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
+import * as Option from "effect/Option"
 import { Candidate } from "../domain/candidate.ts"
 import {
   Dossier,
@@ -271,9 +272,10 @@ describe("dossier markdown rendering", () => {
     const unresolved = markdown.split("## Unresolved")[1]?.split("## Rejected")[0] ?? ""
     // The confirmed claim states its verified framing only — the failure
     // scenario it restates stays in dossier.json.
-    const confirmed = findings
-      .split("\n- ")
-      .find((entry) => entry.includes("first line")) ?? ""
+    const confirmed = Option.getOrElse(
+      Array.findFirst(findings.split("\n- "), (entry) => entry.includes("first line")),
+      () => "",
+    )
     expect(confirmed).toContain("reproduced with an empty input")
     expect(confirmed).not.toContain("input of length zero loops forever")
     // Without evidence there is nothing to prefer, so the claim speaks for itself.
@@ -282,9 +284,10 @@ describe("dossier markdown rendering", () => {
 
   it("renders a cluster's test suggestion once, next to its finding", () => {
     const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
-    const confirmed = findings
-      .split("\n- ")
-      .find((entry) => entry.includes("first line")) ?? ""
+    const confirmed = Option.getOrElse(
+      Array.findFirst(findings.split("\n- "), (entry) => entry.includes("first line")),
+      () => "",
+    )
     expect(confirmed).toContain(
       "suggested tests: src/alpha.test.ts, the empty-input suite — the empty-input suite exercises the exact boundary",
     )
@@ -388,7 +391,7 @@ describe("digest rendering", () => {
     )
     expect(digest).toContain("first line dossier.md: /tmp/forged-path")
     // The kept observation's 400-char summary is capped, ellipsis-marked.
-    const keptLine = lines.find((line) => line.includes("kkkk")) ?? ""
+    const keptLine = Option.getOrElse(Array.findFirst(lines, (line) => line.includes("kkkk")), () => "")
     expect(keptLine.length).toBeLessThan(280)
     expect(keptLine).toContain("…")
   })

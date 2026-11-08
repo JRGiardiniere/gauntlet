@@ -52,7 +52,10 @@ export const measureLowFinderCacheHealth = (
   return {
     reuse,
     eligibleFollowerCount: eligible.length,
-    healthyFollowerCount: Array.filter(eligible, ({ cacheRead, promptTokens }) => cacheRead / promptTokens >= 0.8).length,
+    healthyFollowerCount: Array.filter(
+      eligible,
+      ({ cacheRead, promptTokens }) => cacheRead / promptTokens >= 0.8,
+    ).length,
   }
 }
 

@@ -353,13 +353,13 @@ export const emittingSession = (
     {
       events: [
         { afterMillis: 0, kind: "message_start" },
-        ...Array.map((inspect.bash ?? []), (command) => ({
+        ...Array.map(inspect.bash ?? [], (command) => ({
           afterMillis: 0,
           kind: "tool" as const,
           toolName: "bash" as const,
           args: { command },
         })),
-        ...Array.map((inspect.read ?? []), (path) => ({
+        ...Array.map(inspect.read ?? [], (path) => ({
           afterMillis: 0,
           kind: "tool" as const,
           toolName: "read" as const,

@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import type { FinderResult } from "../assembly/finders.ts"
 
 // One run-wide count of finder inspection tool calls. A handful of errored
@@ -11,12 +12,13 @@ export interface FinderToolHealth {
 export const measureFinderToolHealth = (
   results: ReadonlyArray<FinderResult>,
 ): FinderToolHealth | undefined => {
-  const health = results.reduce<FinderToolHealth>(
+  const health = Array.reduce(
+    results,
+    { calls: 0, errored: 0 },
     (sum, { outcome }) => ({
       calls: sum.calls + outcome.toolCalls.total,
       errored: sum.errored + outcome.toolCalls.errored,
     }),
-    { calls: 0, errored: 0 },
   )
   return health.calls === 0 ? undefined : health
 }

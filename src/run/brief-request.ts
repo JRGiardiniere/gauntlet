@@ -1,6 +1,8 @@
+import * as Array from "effect/Array"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { isCompiledBinary } from "../content/lens.ts"
@@ -34,14 +36,14 @@ export const briefRequest = Effect.fn("Brief.request")(function* (
     ),
   )
   const view = viewDossier(dossier)
-  const entry = [...view.findings, ...view.unresolved].find(({ candidate }) =>
-    candidate.id === findingId
-  )
-  if (entry === undefined) {
+  const found = Array.findFirst([...view.findings, ...view.unresolved], ({ candidate }) =>
+    candidate.id === findingId)
+  if (Option.isNone(found)) {
     return yield* new BriefError({
       reason: `run ${plan.runId} has no finding or unresolved Candidate ${findingId}`,
     })
   }
+  const entry = found.value
   const { file, line } = entry.candidate
   return yield* renderPromptTemplate("brief", yield* readPromptTemplate(templatePath), [
     ["SUBJECT", noun(entry)],

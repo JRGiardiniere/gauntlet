@@ -125,10 +125,11 @@ const dossierOf = (scenario: Scenario) =>
 export const playDemo = Effect.fn("Demo.play")(
   function* (words: ReadonlyArray<string>, cwd: string) {
     const name = words[0] ?? "findings"
-    const scenario: Scenario | undefined = Object.entries(SCENARIOS).find(([key]) => key === name)?.[1]
-    if (scenario === undefined || words.length > 1) {
+    const named = Array.findFirst(Object.entries(SCENARIOS), ([key]) => key === name)
+    if (Option.isNone(named) || words.length > 1) {
       return yield* new RunRefusal({ reason: `no demo ${Array.join(words, " ")}; the scenarios are ${Array.join(DEMO_SCENARIOS, ", ")}` })
     }
+    const scenario: Scenario = named.value[1]
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const runId = `demo-${String(yield* Clock.currentTimeMillis)}`
