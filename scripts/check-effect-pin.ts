@@ -20,6 +20,8 @@ const dependencyFields = [
 const independentlyVersionedEffectPackages = new Set(["@effect/tsgo"])
 const exactVersionPattern = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 
+const quoted = Schema.encodeSync(Schema.fromJsonString(Schema.String))
+
 const DependencyMap = Schema.Record(Schema.String, Schema.String)
 const Manifest = Schema.fromJsonString(Schema.Struct({
   dependencies: Schema.optional(DependencyMap),
@@ -43,7 +45,7 @@ const program = Effect.gen(function* () {
   const violations = Array.flatMap(effectPins, ({ name, version }) =>
     exactVersionPattern.test(version)
       ? []
-      : [`${name} must be an exact version; found ${JSON.stringify(version)}`])
+      : [`${name} must be an exact version; found ${quoted(version)}`])
 
   const distinctVersions = new Set(Array.map(effectPins, ({ version }) => version))
   if (violations.length === 0 && distinctVersions.size > 1) {

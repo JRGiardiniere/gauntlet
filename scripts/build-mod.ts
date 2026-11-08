@@ -69,6 +69,9 @@ const sourceRoot = Bun.fileURLToPath(new URL("..", import.meta.url)).replace(/\/
 
 const plugin = { name: "gauntlet", entry: "engine.ts", vendor: "engine.js", respell: "../../engine.ts" } as const
 
+// A string as a JavaScript string literal, for generated module source.
+const stringLiteral = Schema.encodeSync(Schema.fromJsonString(Schema.String))
+
 const frontmatterModule = `${repoRoot}/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js`
 
 const refused: Array<string> = []
@@ -78,7 +81,7 @@ const graphGuard = {
   setup: (build: BunPluginBuild) => {
     build.onResolve({ filter: /^@earendil-works\/pi-coding-agent$/ }, () => ({ path: "pi", namespace: "gc-pi" }))
     build.onLoad({ filter: /.*/, namespace: "gc-pi" }, () => ({
-      contents: `export { parseFrontmatter } from ${JSON.stringify(frontmatterModule)}`,
+      contents: `export { parseFrontmatter } from ${stringLiteral(frontmatterModule)}`,
       loader: "js",
     }))
     build.onResolve({ filter: /^node:buffer$/ }, () => ({ path: "buffer", namespace: "gc-node" }))
@@ -101,7 +104,7 @@ const graphGuard = {
         return {
           contents: !args.path.startsWith(`${sourceRoot}/src/`) ? source : source.replaceAll(
             "import.meta.dirname",
-            `decodeURIComponent(new URL(${JSON.stringify(directory)}, import.meta.url).pathname)`,
+            `decodeURIComponent(new URL(${stringLiteral(directory)}, import.meta.url).pathname)`,
           ),
           loader: "ts",
         }

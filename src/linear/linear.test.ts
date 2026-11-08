@@ -2,13 +2,15 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
-import type * as Schema from "effect/Schema"
+import * as Schema from "effect/Schema"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import { Linear } from "./linear.ts"
 
+const encodeJson = Schema.encodeSync(Schema.fromJsonString(Schema.Json))
+
 const jsonResponse = (body: Schema.Json, status = 200) =>
   Promise.resolve(
-    new Response(JSON.stringify(body), {
+    new Response(encodeJson(body), {
       status,
       headers: { "content-type": "application/json" },
     }),
