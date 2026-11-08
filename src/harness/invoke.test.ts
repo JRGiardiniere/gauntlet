@@ -475,7 +475,7 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
   it.effect("maps only explicit cancellation provenance to Interrupted", () =>
     Effect.gen(function* () {
       // This signal represents cancellation from the caller, outside Effect.
-      // @effect-diagnostics-next-line abortControllerInEffect:off
+      // @effect-diagnostics-next-line abortControllerInEffect:off -- the test stands in for a caller outside Effect that cancels through its own signal
       const controller = new AbortController()
       const scripted = makeScripted({
         sessions: [

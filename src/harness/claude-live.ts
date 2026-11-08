@@ -441,7 +441,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             }
           },
           prompt: (text) =>
-            // @effect-diagnostics-next-line newPromise:off
+            // @effect-diagnostics-next-line newPromise:off -- HarnessSession's `prompt` is Pi's Promise contract; this bridges the turn's child process into it
             new Promise<void>((resolve) => {
               const turn = turns
               turns += 1

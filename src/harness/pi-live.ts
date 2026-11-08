@@ -271,7 +271,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
         }
 
         return yield* Effect.tryPromise({
-          // @effect-diagnostics-next-line asyncFunction:off
+          // @effect-diagnostics-next-line asyncFunction:off -- Pi's session factory is a Promise API taking an AbortSignal; Effect.tryPromise bridges it here
           try: async (signal): Promise<HarnessSession> => {
             // Retry ownership is ADR 0002, stated here rather than inherited
             // from Pi defaults: agent-level retry on (3 attempts),
@@ -314,7 +314,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // unanimity hazard: `terminate` only ends the run when every
               // finalized call in the batch terminates.
               executionMode: "sequential",
-              // @effect-diagnostics-next-line asyncFunction:off
+              // @effect-diagnostics-next-line asyncFunction:off -- Pi's custom tool `execute` contract is async
               execute: async (_toolCallId, args) => {
                 // SAFETY: pi-ai's `validateToolArguments` structuredClones the
                 // model's arguments, takes the JSON-Schema coercion branch

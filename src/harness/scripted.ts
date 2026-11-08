@@ -414,7 +414,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
               `no scripted prompt ${String(promptIndex)} for session ${String(sessionIndex)}`,
             )
           }
-          // @effect-diagnostics-next-line newPromise:off
+          // @effect-diagnostics-next-line newPromise:off -- the scripted adapter fakes Pi's Promise-returning `prompt` contract
           return new Promise<void>((resolve, reject) => {
             Queue.offerUnsafe(promptRequests, {
               resolve,
@@ -425,7 +425,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         abort: () => {
           log.push(`abort:${String(sessionIndex)}`)
           return behaviorForSession.abortBehavior === "hangs"
-            // @effect-diagnostics-next-line newPromise:off
+            // @effect-diagnostics-next-line newPromise:off -- the scripted adapter fakes an abort that never settles, under Pi's Promise contract
             ? new Promise<never>(() => undefined)
             : Promise.resolve()
         },

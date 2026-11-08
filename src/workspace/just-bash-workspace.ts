@@ -104,12 +104,12 @@ const makeReadTool = (fs: OverlayFs): ToolDefinition =>
   defineTool(
     createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
       operations: {
-        // @effect-diagnostics-next-line asyncFunction:off
+        // @effect-diagnostics-next-line asyncFunction:off -- Pi's read-tool operations contract is async
         readFile: async (absolutePath) => {
           guardWorkspacePath(absolutePath)
           return Buffer.from(await fs.readFileBuffer(absolutePath))
         },
-        // @effect-diagnostics-next-line asyncFunction:off
+        // @effect-diagnostics-next-line asyncFunction:off -- Pi's read-tool operations contract is async
         access: async (absolutePath) => {
           guardWorkspacePath(absolutePath)
           await fs.stat(absolutePath)
@@ -165,7 +165,7 @@ const boundBashResponse = (output: string): string => {
 const makeBashTool = (bash: Bash): ToolDefinition =>
   defineTool({
     ...bashToolMetadata,
-    // @effect-diagnostics-next-line asyncFunction:off
+    // @effect-diagnostics-next-line asyncFunction:off -- Pi's custom tool `execute` contract is async
     execute: async (_toolCallId, args: BashArgs, signal) => {
       const { command, timeout } = args
       let timeoutSignal: AbortSignal | undefined
@@ -235,7 +235,7 @@ export interface ReviewWorkspaceOptions {
 // One ReviewWorkspace per AgentInvocation: one overlay, one interpreter.
 // Invocations never observe one another's writes and cannot modify the
 // backing snapshot.
-// @effect-diagnostics-next-line asyncFunction:off
+// @effect-diagnostics-next-line asyncFunction:off -- it awaits just-bash's Promise-based overlay filesystem and runs inside Pi's async session setup
 export const makeReviewWorkspace = async (
   snapshotRoot: string,
   options?: ReviewWorkspaceOptions,

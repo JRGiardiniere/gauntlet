@@ -27,6 +27,6 @@ const GIT_ENV_KEYS = [
 ] as const
 
 for (const key of GIT_ENV_KEYS) {
-  // @effect-diagnostics-next-line processEnv:off
+  // @effect-diagnostics-next-line processEnv:off -- test setup scrubs inherited Git variables from the real process environment before any Effect runs
   delete process.env[key]
 }
