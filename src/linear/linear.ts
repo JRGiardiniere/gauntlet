@@ -380,9 +380,7 @@ const makeLive = Effect.gen(function* () {
           )
           yield* checkGraphQlErrors(envelope.errors)
           const connection = envelope.data?.issue?.comments
-          return connection === undefined
-            ? yield* invalidResponse("Linear comment page was missing")
-            : connection
+          return connection ?? (yield* invalidResponse("Linear comment page was missing"))
         }),
     )
     return Array.map(comments, (comment) => ({
@@ -413,9 +411,7 @@ const makeLive = Effect.gen(function* () {
           )
           yield* checkGraphQlErrors(envelope.errors)
           const connection = envelope.data?.issue?.children
-          return connection === undefined
-            ? yield* invalidResponse("Linear sibling page was missing")
-            : connection
+          return connection ?? (yield* invalidResponse("Linear sibling page was missing"))
         }),
     )
   })
