@@ -1,7 +1,10 @@
 import type { EngineInterface, Register } from "claude-code"
 import * as Array from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as Formatter from "effect/Formatter"
 import * as Predicate from "effect/Predicate"
 import * as Record from "effect/Record"
+import * as Schema from "effect/Schema"
 import {
   createEngine,
   createSession,
@@ -47,6 +50,10 @@ let changes = 0
 let pendingLog: Array<string> = []
 let logWriting: Promise<unknown> = Promise.resolve()
 const loadedAt = Date.now()
+// The build writes plugin.json's version, the release's.
+const decodePluginManifest = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
+)
 
 const modDir = () => `${home}/.gauntlet/mod`
 
@@ -117,7 +124,7 @@ function startClock($: Engines) {
     })
     const view = engine?.view()
     if (view === undefined || view.startedAt === dismissed) return
-    const shown = JSON.stringify({ ...view, startedAt: 0 })
+    const shown = Formatter.formatJson({ ...view, startedAt: 0 })
     const changed = shown !== drawn
     if (!changed && (!live || Date.now() - tickedAt < 500)) return
     tickedAt = Date.now()
@@ -182,8 +189,9 @@ export const register: Register = (on, options) => {
     const sessionId = await $.session.id()
     try {
       const loadStart = Date.now()
-      // SAFETY: the build writes plugin.json's version, the release's.
-      const { version } = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)) as { version: string }
+      const { version } = await Effect.runPromise(
+        decodePluginManifest(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)),
+      )
       engine = createEngine(ports, version)
       session = createSession(ports, engine, sessionId)
       log($, `loaded engine ${version} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)

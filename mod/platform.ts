@@ -41,6 +41,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import * as Formatter from "effect/Formatter"
 import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -375,7 +376,7 @@ const consoleOver = (ports: PlatformPorts): Console.Console => {
     groupEnd: () => undefined,
     info: out,
     log: out,
-    table: (data) => out(JSON.stringify(data)),
+    table: (data) => out(Formatter.formatJson(data)),
     time: () => undefined,
     timeEnd: () => undefined,
     timeLog: () => undefined,

@@ -6,6 +6,7 @@
 // into calls here and `$` into ports; it keeps the strip, the log batch and
 // the 250ms clock, whose ticks it passes to `tick`.
 import * as Array from "effect/Array"
+import * as Formatter from "effect/Formatter"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type { ReviewRequest } from "../src/run/run.ts"
@@ -66,7 +67,7 @@ export const recoverLostRun = async (
   await ports.store.delete(key).catch((error) => ports.log(`in-flight marker failed: ${String(error)}`))
   const lost = Option.getOrUndefined(Schema.decodeUnknownOption(InFlight)(stored))
   if (lost === undefined) {
-    ports.log(`in-flight marker unreadable, dropped: ${JSON.stringify(stored)}`)
+    ports.log(`in-flight marker unreadable, dropped: ${Formatter.formatJson(stored)}`)
     return
   }
   const outcomes: Array<string> = []
@@ -120,7 +121,7 @@ export const createSession = (
     const review = ticking
     const running = engine.running()
     if (review === undefined || running === undefined) return false
-    const work = JSON.stringify(running.snapshots)
+    const work = Formatter.formatJson(running.snapshots)
     if (work !== review.marked) {
       review.marked = work
       await mark({ ...running, cwd: review.cwd })

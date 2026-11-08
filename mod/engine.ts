@@ -17,11 +17,13 @@ import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as Formatter from "effect/Formatter"
 import * as Layer from "effect/Layer"
 import * as Predicate from "effect/Predicate"
 import * as Record from "effect/Record"
 import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
 import { briefCommand } from "../src/cli/brief.ts"
@@ -107,7 +109,7 @@ export interface StartedRun {
 // stderr on a GitCommandError) when it has none.
 const errorText = (error: Error & Record.ReadonlyRecord<string, unknown>) =>
   error.message === ""
-    ? `${error.name} ${JSON.stringify(Record.filter(error, (_, key) => key !== "cause" && key !== "_tag"))}`
+    ? `${error.name} ${Formatter.formatJson(Record.filter(error, (_, key) => key !== "cause" && key !== "_tag"))}`
     : `${error.name}: ${error.message}`
 
 const defectText = (cause: Cause.Cause<unknown>) => {
@@ -328,7 +330,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
         executable: "claude",
         runDirectory: () => runDirectory,
       }).pipe(Effect.map(watched.watch)),
-    )
+    ).pipe(Layer.provide(SecureRandom.layerWebCrypto))
     const layer = Layer.mergeAll(
       factory,
       Linear.Default,
