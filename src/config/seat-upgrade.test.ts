@@ -63,15 +63,21 @@ describe("upgradeRecipeSeats", () => {
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))),
       )
 
-      expect(yield* decodeRecipe(yield* fs.readFileString(path.join(recipes, "quick.json")))).toEqual({
+      const quickText = yield* fs.readFileString(path.join(recipes, "quick.json"))
+      const quickRecipe = yield* decodeRecipe(quickText)
+      expect(quickRecipe).toEqual({
         default: "acme/gpt-6-luna:high",
         finders: "acme/gpt-10-sol:low",
       })
-      expect(yield* decodeRecipe(yield* fs.readFileString(path.join(recipes, "fast.json")))).toEqual({
+      const fastText = yield* fs.readFileString(path.join(recipes, "fast.json"))
+      const fastRecipe = yield* decodeRecipe(fastText)
+      expect(fastRecipe).toEqual({
         default: "acme/gpt-6-luna:low",
       })
-      expect(yield* fs.readFileString(path.join(recipes, "slow.json"))).toBe(untouched)
-      expect(yield* fs.readFileString(path.join(recipes, "broken.json"))).toBe(invalid)
+      const slowText = yield* fs.readFileString(path.join(recipes, "slow.json"))
+      expect(slowText).toBe(untouched)
+      const brokenText = yield* fs.readFileString(path.join(recipes, "broken.json"))
+      expect(brokenText).toBe(invalid)
       expect(upgrade.skipped).toEqual(["broken"])
       // The CLI's rendering: one line per destination model.
       expect(renderSeatUpgrade(upgrade).slice(0, 2)).toEqual([

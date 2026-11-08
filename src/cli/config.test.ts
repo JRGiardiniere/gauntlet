@@ -110,7 +110,8 @@ describe("gauntlet config init", () => {
   it.effect("seeds a fresh catalog and settings, then no-ops while valid", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture
-      expect(yield* config(fixture, "init")).toBe(0)
+      const initExit = yield* config(fixture, "init")
+      expect(initExit).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
@@ -127,47 +128,58 @@ describe("gauntlet config init", () => {
         ).pipe(
           Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Recipe))),
         )
-      expect(yield* readRecipe("quick")).toEqual({
+      const quickRecipe = yield* readRecipe("quick")
+      expect(quickRecipe).toEqual({
         default: "openai/gpt-6-luna:high",
         finders: "openai/gpt-6-sol:low",
       })
-      expect(yield* readRecipe("low")).toEqual({
+      const lowRecipe = yield* readRecipe("low")
+      expect(lowRecipe).toEqual({
         default: "openai/gpt-6-luna:high",
       })
-      expect(yield* readRecipe("medium")).toEqual({
+      const mediumRecipe = yield* readRecipe("medium")
+      expect(mediumRecipe).toEqual({
         default: "openai/gpt-6.1-sol:medium",
       })
-      expect(yield* readRecipe("high")).toEqual({
+      const highRecipe = yield* readRecipe("high")
+      expect(highRecipe).toEqual({
         default: "openai/gpt-6.1-sol:high",
       })
-      expect(yield* readSettings(fixture)).toEqual({
+      const settings = yield* readSettings(fixture)
+      expect(settings).toEqual({
         "default-recipe": "medium",
         "default-lenses": INITIAL_DEFAULT_LENSES,
         favorites: ["quick", "low", "medium", "high"],
       })
-      expect(yield* stdout()).toContain("initialized")
+      const initOutput = yield* stdout()
+      expect(initOutput).toContain("initialized")
 
       // A valid second invocation changes nothing.
       const settingsBefore = yield* fs.readFileString(fixture.settingsFile)
-      expect(yield* config(fixture, "init")).toBe(0)
-      expect(yield* stdout()).toContain("already initialized")
-      expect(yield* fs.readFileString(fixture.settingsFile)).toBe(
-        settingsBefore,
-      )
+      const secondInitExit = yield* config(fixture, "init")
+      expect(secondInitExit).toBe(0)
+      const secondInitOutput = yield* stdout()
+      expect(secondInitOutput).toContain("already initialized")
+      const settingsAfter = yield* fs.readFileString(fixture.settingsFile)
+      expect(settingsAfter).toBe(settingsBefore)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a partial configuration with repair guidance, never healing it", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture
-      expect(yield* config(fixture, "init")).toBe(0)
+      const initExit = yield* config(fixture, "init")
+      expect(initExit).toBe(0)
 
       const fs = yield* FileSystem.FileSystem
 
       // Catalog present, settings missing.
       yield* fs.remove(fixture.settingsFile)
-      expect(yield* config(fixture, "init")).toBe(1)
-      expect(yield* stderr()).toContain("settings.json is missing")
-      expect(yield* fs.exists(fixture.settingsFile)).toBe(false)
+      const missingSettingsExit = yield* config(fixture, "init")
+      expect(missingSettingsExit).toBe(1)
+      const missingSettingsError = yield* stderr()
+      expect(missingSettingsError).toContain("settings.json is missing")
+      const settingsExists = yield* fs.exists(fixture.settingsFile)
+      expect(settingsExists).toBe(false)
 
       // Settings present, default recipe dangling.
       yield* writeSettings(fixture, {
@@ -175,16 +187,21 @@ describe("gauntlet config init", () => {
         "default-lenses": [],
         favorites: [],
       })
-      expect(yield* config(fixture, "init")).toBe(1)
-      expect(yield* stderr()).toContain(
+      const danglingRecipeExit = yield* config(fixture, "init")
+      expect(danglingRecipeExit).toBe(1)
+      const danglingRecipeError = yield* stderr()
+      expect(danglingRecipeError).toContain(
         "default-recipe gone does not name an available valid recipe",
       )
 
       // Settings malformed.
       yield* fs.writeFileString(fixture.settingsFile, "{not json\n")
-      expect(yield* config(fixture, "init")).toBe(1)
-      expect(yield* stderr()).toContain("fix settings.json, then rerun init")
-      expect(yield* fs.readFileString(fixture.settingsFile)).toBe("{not json\n")
+      const malformedExit = yield* config(fixture, "init")
+      expect(malformedExit).toBe(1)
+      const malformedError = yield* stderr()
+      expect(malformedError).toContain("fix settings.json, then rerun init")
+      const malformedSettings = yield* fs.readFileString(fixture.settingsFile)
+      expect(malformedSettings).toBe("{not json\n")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("validates fresh Default Lenses before writing configuration", () =>
@@ -199,49 +216,54 @@ describe("gauntlet config init", () => {
         "duplicate project Lens\n",
       )
 
-      expect(yield* config(fixture, "init")).toBe(1)
-      expect(yield* stderr()).toContain(
-        "duplicate shipped/project lens name: subjective",
-      )
-      expect(yield* fs.exists(fixture.settingsFile)).toBe(false)
-      expect(yield* fs.exists(fixture.recipesDirectory)).toBe(false)
+      const initExit = yield* config(fixture, "init")
+      expect(initExit).toBe(1)
+      const initError = yield* stderr()
+      expect(initError).toContain("duplicate shipped/project lens name: subjective")
+      const settingsExists = yield* fs.exists(fixture.settingsFile)
+      expect(settingsExists).toBe(false)
+      const recipesExist = yield* fs.exists(fixture.recipesDirectory)
+      expect(recipesExist).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("lists, replaces, empties, and refuses to unset Default Lenses", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture
-      expect(yield* config(fixture, "init")).toBe(0)
+      const initExit = yield* config(fixture, "init")
+      expect(initExit).toBe(0)
 
-      expect(
-        yield* config(
-          fixture,
-          "set",
-          "default-lenses",
-          "subjective",
-          "fixture-review",
-          "subjective",
-        ),
-      ).toBe(0)
+      const setExit = yield* config(
+        fixture,
+        "set",
+        "default-lenses",
+        "subjective",
+        "fixture-review",
+        "subjective",
+      )
+      expect(setExit).toBe(0)
       expect((yield* readSettings(fixture))["default-lenses"]).toEqual([
         "subjective",
         "fixture-review",
       ])
 
-      expect(yield* config(fixture)).toBe(0)
-      expect(yield* stdout()).toContain("- fixture-review (default Lens)")
-      expect(yield* stdout()).toContain("- subjective (default Lens)")
+      const listExit = yield* config(fixture)
+      expect(listExit).toBe(0)
+      const listing = yield* stdout()
+      expect(listing).toContain("- fixture-review (default Lens)")
+      expect(listing).toContain("- subjective (default Lens)")
 
-      expect(yield* config(fixture, "set", "default-lenses")).toBe(0)
+      const emptySetExit = yield* config(fixture, "set", "default-lenses")
+      expect(emptySetExit).toBe(0)
       expect((yield* readSettings(fixture))["default-lenses"]).toEqual([])
-      expect(yield* config(fixture, "unset", "default-lenses")).toBe(1)
-      expect(yield* stderr()).toContain("default-lenses cannot be unset")
+      const unsetExit = yield* config(fixture, "unset", "default-lenses")
+      expect(unsetExit).toBe(1)
+      const unsetError = yield* stderr()
+      expect(unsetError).toContain("default-lenses cannot be unset")
 
-      expect(
-        yield* config(fixture, "set", "default-lenses", "missing-lens"),
-      ).toBe(1)
-      expect(yield* stderr()).toContain(
-        "selected lens does not exist: missing-lens",
-      )
+      const missingLensExit = yield* config(fixture, "set", "default-lenses", "missing-lens")
+      expect(missingLensExit).toBe(1)
+      const missingLensError = yield* stderr()
+      expect(missingLensError).toContain("selected lens does not exist: missing-lens")
       expect((yield* readSettings(fixture))["default-lenses"]).toEqual([])
 
       const fs = yield* FileSystem.FileSystem
@@ -249,15 +271,18 @@ describe("gauntlet config init", () => {
         `${fixture.content}/lenses/invalid.md`,
         "---\nrouting: bugs\n---\ninvalid prompt\n",
       )
-      expect(yield* config(fixture)).toBe(1)
-      expect(yield* stderr()).toContain("could not configure")
-      expect(yield* stderr()).toContain("not admitted: routing")
+      const invalidLensExit = yield* config(fixture)
+      expect(invalidLensExit).toBe(1)
+      const invalidLensError = yield* stderr()
+      expect(invalidLensError).toContain("could not configure")
+      expect(invalidLensError).toContain("not admitted: routing")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("renders a failed settings write as a configuration failure naming its cause", () =>
     Effect.gen(function* () {
       const fixture = yield* makeFixture
-      expect(yield* config(fixture, "init")).toBe(0)
+      const initExit = yield* config(fixture, "init")
+      expect(initExit).toBe(0)
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const directory = path.dirname(fixture.settingsFile)
@@ -281,7 +306,8 @@ describe("gauntlet config init", () => {
       const fixture = yield* makeFixture
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      expect(yield* config(fixture, "init")).toBe(0)
+      const initExit = yield* config(fixture, "init")
+      expect(initExit).toBe(0)
       yield* runGit(fixture.home, ["init"])
 
       const projectLenses = path.join(fixture.home, ".gauntlet", "lenses")
@@ -293,18 +319,19 @@ describe("gauntlet config init", () => {
         "project-local prompt\n",
       )
 
-      expect(yield* configAt(fixture, nested)).toBe(0)
-      expect(yield* stdout()).toContain("project Lens catalog:")
-      expect(yield* stdout()).toContain("- project-local")
-      expect(
-        yield* configAt(
-          fixture,
-          nested,
-          "set",
-          "default-lenses",
-          "project-local",
-        ),
-      ).toBe(0)
+      const nestedListExit = yield* configAt(fixture, nested)
+      expect(nestedListExit).toBe(0)
+      const nestedListing = yield* stdout()
+      expect(nestedListing).toContain("project Lens catalog:")
+      expect(nestedListing).toContain("- project-local")
+      const nestedSetExit = yield* configAt(
+        fixture,
+        nested,
+        "set",
+        "default-lenses",
+        "project-local",
+      )
+      expect(nestedSetExit).toBe(0)
       expect((yield* readSettings(fixture))["default-lenses"]).toEqual([
         "project-local",
       ])

@@ -246,7 +246,8 @@ describe("gauntlet review", () => {
       const redrawn = yield* runCommand(fixture, ["page", plan.runId], makeScripted({ sessions: [] })).effect
       expect(redrawn).toBe(0)
       expect((yield* TestConsole.logLines).at(-1)).toBe(path.join(runDir, "dossier.html"))
-      expect(yield* TestConsole.errorLines).toContain(
+      const errorLines = yield* TestConsole.errorLines
+      expect(errorLines).toContain(
         "gauntlet: briefs/fixture-review/2.md: alpha.txt:90 is outside the file's 2 lines",
       )
       const page = yield* fs.readFileString(path.join(runDir, "dossier.html"))
@@ -265,11 +266,13 @@ describe("gauntlet review", () => {
         ["review", "7", "--working-tree"],
         makeScripted({ sessions: [] }),
       )
-      expect(yield* aimed.effect).toBe(1)
+      const aimedExit = yield* aimed.effect
+      expect(aimedExit).toBe(1)
 
       yield* fs.writeFileString(fixture.settingsFile, "{ not json\n")
       const unreadable = review(fixture, makeScripted({ sessions: [] }))
-      expect(yield* unreadable.effect).toBe(1)
+      const unreadableExit = yield* unreadable.effect
+      expect(unreadableExit).toBe(1)
 
       const stderr = yield* TestConsole.errorLines
       expect(stderr[0]).toBe(
@@ -278,8 +281,10 @@ describe("gauntlet review", () => {
       expect(stderr.at(-1)).toMatch(
         new RegExp(`^gauntlet: .*\\(${fixture.settingsFile}\\)$`),
       )
-      expect(yield* TestConsole.logLines).toEqual([])
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const logLines = yield* TestConsole.logLines
+      expect(logLines).toEqual([])
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
@@ -313,7 +318,8 @@ describe("gauntlet deliver", () => {
         successfulScripted(),
         github(false),
       )
-      expect(yield* reviewed.effect).toBe(1)
+      const reviewedExit = yield* reviewed.effect
+      expect(reviewedExit).toBe(1)
       const [runId = ""] = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readDirectory(fixture.runsRoot)),
       )
@@ -328,7 +334,8 @@ describe("gauntlet deliver", () => {
         makeScripted({ sessions: [] }),
         github(true),
       )
-      expect(yield* delivered.effect).toBe(0)
+      const deliveredExit = yield* delivered.effect
+      expect(deliveredExit).toBe(0)
       expect((yield* TestConsole.logLines).at(-1)).toBe(url)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

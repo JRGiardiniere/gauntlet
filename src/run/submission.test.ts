@@ -183,7 +183,8 @@ describe("submission", () => {
       ])
 
       // A commit range has no uncommitted state to persist.
-      expect(yield* fs.readDirectory(loaded.paths.root)).toEqual(["plan.json"])
+      const rootEntries = yield* fs.readDirectory(loaded.paths.root)
+      expect(rootEntries).toEqual(["plan.json"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("extends a commit range to the working tree as one target", () =>
@@ -323,7 +324,8 @@ describe("submission", () => {
       expect(refusal).toBeInstanceOf(SubmissionError)
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("no Default Lenses are configured")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a recipe that seats a provider this host cannot run, creating no Run", () =>
@@ -345,7 +347,8 @@ describe("submission", () => {
       }))
       if (!Predicate.isTagged(refusal, "RecipeSelectionError")) return expect.unreachable(String(refusal))
       expect(refusal.reason).toContain("claude-code/sonnet:low runs only in the Mod")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes per-stage seats from the named Recipe for every stage and both finder classes", () =>
@@ -571,7 +574,8 @@ describe("submission", () => {
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("--github-spec")
       const fs = yield* FileSystem.FileSystem
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
 
       // An unreadable GitHub is quiet without the pin (issue #74) and named
       // in the refusal with it, never mistaken for "no closing issues".
@@ -701,7 +705,8 @@ describe("submission", () => {
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("Standards Manifest")
       expect(refusal.reason).toContain("missing-standards.md")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 

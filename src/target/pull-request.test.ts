@@ -26,13 +26,13 @@ const makePrRepo = Effect.gen(function* () {
   const path = yield* Path.Path
   yield* fs.writeFileString(path.join(repo, "alpha.txt"), "first line\n")
   yield* commitAll(repo, "base")
-  const baseCommit = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const baseCommit = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   yield* fs.writeFileString(
     path.join(repo, "alpha.txt"),
     "first line\npr-added-line\n",
   )
   yield* commitAll(repo, "head")
-  const headCommit = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const headCommit = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   yield* fs.writeFileString(
     path.join(repo, "alpha.txt"),
     "first line\npr-added-line\nuncommitted-line\n",

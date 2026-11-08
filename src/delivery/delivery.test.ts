@@ -233,8 +233,10 @@ describe("deliverCompletedRun", () => {
         runId: loaded.plan.runId,
         reason: "GitHub unavailable",
       }))
-      expect(yield* fs.readFileString(loaded.paths.dossierMarkdown)).toBe(originalMarkdown)
-      expect(yield* fs.readFileString(loaded.paths.dossier)).toBe(originalDossier)
+      const markdownAfter = yield* fs.readFileString(loaded.paths.dossierMarkdown)
+      expect(markdownAfter).toBe(originalMarkdown)
+      const dossierAfter = yield* fs.readFileString(loaded.paths.dossier)
+      expect(dossierAfter).toBe(originalDossier)
 
       script.failPost = undefined
       const posted = yield* deliverCompletedRun(loaded).pipe(
@@ -278,9 +280,10 @@ describe("deliverCompletedRun", () => {
       expect(utf8Bytes(script.posts[0]?.body ?? "")).toBeLessThanOrEqual(
         SAFE_PR_COMMENT_BYTES,
       )
-      expect(yield* FileSystem.FileSystem.pipe(
+      const markdownAfter = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readFileString(loaded.paths.dossierMarkdown)),
-      )).toBe(markdown)
+      )
+      expect(markdownAfter).toBe(markdown)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a working-tree run before posting", () =>

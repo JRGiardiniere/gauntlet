@@ -69,21 +69,24 @@ const configDirectory = Effect.fn("Settings.configDirectory")(function* () {
 
 export const settingsPath = Effect.fn("gauntlet.settings.path")(function* () {
   const path = yield* Path.Path
-  return path.join(yield* configDirectory(), "settings.json")
+  const directory = yield* configDirectory()
+  return path.join(directory, "settings.json")
 })
 
 export const recipesDirectory = Effect.fn(
   "gauntlet.settings.recipes_directory",
 )(function* () {
   const path = yield* Path.Path
-  return path.join(yield* configDirectory(), "recipes")
+  const directory = yield* configDirectory()
+  return path.join(directory, "recipes")
 })
 
 export const defaultRunsRoot = Effect.fn(
   "gauntlet.settings.default_runs_root",
 )(function* () {
   const path = yield* Path.Path
-  return path.join(yield* gauntletHome(), "runs")
+  const home = yield* gauntletHome()
+  return path.join(home, "runs")
 })
 
 const decodeSettings = Schema.decodeUnknownEffect(

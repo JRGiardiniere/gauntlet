@@ -73,7 +73,8 @@ describe("Run.review", () => {
       expect(reviewed.digest).toContain(`dossier.md: ${reviewed.paths.dossierMarkdown}`)
       expect(reviewed.coverageGaps).toEqual([])
       // The answer is data: a review prints no digest itself.
-      expect(yield* TestConsole.logLines).toEqual([])
+      const logLines = yield* TestConsole.logLines
+      expect(logLines).toEqual([])
 
       expect(Array.map(reported, (milestone) => milestone._tag)).toEqual([
         "Started",
@@ -125,9 +126,8 @@ describe("Run.review", () => {
         }),
       )
       const fs = yield* FileSystem.FileSystem
-      expect(yield* fs.readFileString(reviewed.paths.runLog)).toContain(
-        "529 overloaded: fixture provider body",
-      )
+      const runLog = yield* fs.readFileString(reviewed.paths.runLog)
+      expect(runLog).toContain("529 overloaded: fixture provider body")
       expect(Array.map(reviewed.coverageGaps, ({ reason }) => reason)).toEqual([
         "judgment provider failed",
       ])
@@ -174,19 +174,20 @@ describe("Run.review", () => {
         review(fixture, makeScripted({ sessions: [] }), fields).pipe(Effect.flip)
 
       const missing = path.join(fixture.home, "missing.md")
-      expect(yield* refusalOf({ specPath: missing })).toEqual(
+      const missingAddendumRefusal = yield* refusalOf({ specPath: missing })
+      expect(missingAddendumRefusal).toEqual(
         new Run.RunRefusal({
           reason: `could not review — caller addendum file does not exist (${missing})`,
         }),
       )
       yield* fs.remove(fixture.settingsFile)
-      expect(
-        yield* refusalOf({ selectedLensNames: undefined, recipeName: Option.some("fixture-recipe") }),
-      ).toMatchObject({
+      const unconfiguredRefusal = yield* refusalOf({ selectedLensNames: undefined, recipeName: Option.some("fixture-recipe") })
+      expect(unconfiguredRefusal).toMatchObject({
         reason: "could not review — no Default Lenses are configured and the review names no Lenses",
         unconfigured: true,
       })
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 

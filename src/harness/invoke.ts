@@ -488,9 +488,12 @@ const runPrompt = Effect.fn("gauntlet.invocation.run_prompt")(function* (
   capture: CaptureAccumulator,
 ) {
   capture.dispatch({ type: "prompt_started" })
-  while (Option.isSome(yield* Queue.poll(events))) {
-    // Drain terminal evidence from the preceding corrective prompt without
-    // waiting for a new event. Queue.takeAll is intentionally blocking in v4.
+  // Drain terminal evidence from the preceding corrective prompt without
+  // waiting for a new event. Queue.takeAll is intentionally blocking in v4.
+  let drained = false
+  while (!drained) {
+    const pending = yield* Queue.poll(events)
+    drained = Option.isNone(pending)
   }
 
   const firstResponse = yield* Deferred.make<void>()

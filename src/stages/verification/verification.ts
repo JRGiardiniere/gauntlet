@@ -120,8 +120,9 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   const confirmed = Array.filter(verdicts, Verdict.guards.Confirmed).length
   const refuted = Array.filter(verdicts, Verdict.guards.Refuted).length
   const plausible = Array.filter(verdicts, Verdict.guards.Plausible).length
+  const verificationSeconds = yield* wallSeconds(verificationStartedAt)
   yield* runProgress(
-    `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(plausible)} plausible · ${String(yield* wallSeconds(verificationStartedAt))}s`,
+    `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(plausible)} plausible · ${String(verificationSeconds)}s`,
   )
   return {
     ...resolved,

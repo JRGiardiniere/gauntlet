@@ -152,13 +152,13 @@ export const makePrReviewFixture = Effect.gen(function* () {
   const path = yield* Path.Path
   yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
   yield* commitAll(fixture.repo, "base")
-  const baseCommit = chompLine(yield* runGit(fixture.repo, ["rev-parse", "HEAD"]))
+  const baseCommit = yield* runGit(fixture.repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   yield* fs.writeFileString(
     path.join(fixture.repo, "alpha.txt"),
     "first line\nneedle-added-line\n",
   )
   yield* commitAll(fixture.repo, "head")
-  const headCommit = chompLine(yield* runGit(fixture.repo, ["rev-parse", "HEAD"]))
+  const headCommit = yield* runGit(fixture.repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   return { baseCommit, fixture, headCommit }
 })
 
@@ -171,21 +171,15 @@ export const makeCommitRangeFixture = Effect.gen(function* () {
   const path = yield* Path.Path
   yield* fs.writeFileString(path.join(fixture.repo, "alpha.txt"), "first line\n")
   yield* commitAll(fixture.repo, "base")
-  const mergeBase = chompLine(
-    yield* runGit(fixture.repo, ["rev-parse", "HEAD"]),
-  )
-  const trunk = chompLine(
-    yield* runGit(fixture.repo, ["branch", "--show-current"]),
-  )
+  const mergeBase = yield* runGit(fixture.repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
+  const trunk = yield* runGit(fixture.repo, ["branch", "--show-current"]).pipe(Effect.map(chompLine))
   yield* runGit(fixture.repo, ["switch", "-c", "feature"])
   yield* fs.writeFileString(
     path.join(fixture.repo, "alpha.txt"),
     "first line\nneedle-added-line\n",
   )
   yield* commitAll(fixture.repo, "feature work")
-  const headCommit = chompLine(
-    yield* runGit(fixture.repo, ["rev-parse", "HEAD"]),
-  )
+  const headCommit = yield* runGit(fixture.repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   return { fixture, headCommit, mergeBase, trunk }
 })
 

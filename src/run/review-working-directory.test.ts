@@ -29,9 +29,10 @@ const freezeOverlay = Effect.fn("test.freeze_overlay")(function* (
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const overlayPath = path.join(directory, "workspace-overlay.patch")
+  const overlay = yield* Effect.scoped(captureWorkspaceOverlay(target))
   yield* fs.writeFile(
     overlayPath,
-    yield* Effect.scoped(captureWorkspaceOverlay(target)),
+    overlay,
   )
   return overlayPath
 })
@@ -53,11 +54,11 @@ const makeMismatchedPullRequestTarget = Effect.gen(function* () {
   const file = path.join(repo, "alpha.txt")
   yield* fs.writeFileString(file, "base\n")
   yield* commitAll(repo, "base")
-  const baseCommit = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const baseCommit = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
 
   yield* fs.writeFileString(file, "frozen head\n")
   yield* commitAll(repo, "head")
-  const headCommit = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const headCommit = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
 
   // The caller is deliberately on the wrong commit with an unrelated dirty
   // file. Agent tools must see neither piece of live-checkout state.
@@ -96,28 +97,29 @@ describe("PR review working directory", () => {
               })),
           )
           expect(reviewDirectory).not.toBe(repo)
-          expect(
-            chompLine(yield* runGit(reviewDirectory, ["rev-parse", "HEAD"])),
-          ).toBe(target.headCommit)
-          expect(
-            yield* fs.readFileString(path.join(reviewDirectory, "alpha.txt")),
-          ).toBe("frozen head\n")
-          expect(
-            yield* fs.exists(path.join(reviewDirectory, "caller-only.txt")),
-          ).toBe(false)
-          expect(yield* countWorktrees(repo)).toBe(2)
+          const reviewedHead = yield* runGit(reviewDirectory, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
+          expect(reviewedHead).toBe(target.headCommit)
+          const reviewedAlpha = yield* fs.readFileString(path.join(reviewDirectory, "alpha.txt"))
+          expect(reviewedAlpha).toBe("frozen head\n")
+          const callerOnlyExists = yield* fs.exists(path.join(reviewDirectory, "caller-only.txt"))
+          expect(callerOnlyExists).toBe(false)
+          const worktreesDuring = yield* countWorktrees(repo)
+          expect(worktreesDuring).toBe(2)
         }),
       )
 
-      expect(yield* fs.exists(reviewDirectory)).toBe(false)
-      expect(yield* countWorktrees(repo)).toBe(1)
+      const reviewDirectoryExists = yield* fs.exists(reviewDirectory)
+      expect(reviewDirectoryExists).toBe(false)
+      const worktreesAfter = yield* countWorktrees(repo)
+      expect(worktreesAfter).toBe(1)
       // A Host that loses the Run removes the one directory reported, which
       // holds the snapshot; the Run removed it as it ended.
       const [made, ...others] = Array.flatMap(reported, (milestone) =>
         milestone._tag === "SnapshotDirectoryMade" ? [milestone.directory] : [])
       expect(others).toEqual([])
       expect(reviewDirectory.startsWith(`${made}${path.sep}`)).toBe(true)
-      expect(yield* fs.exists(made)).toBe(false)
+      const madeExists = yield* fs.exists(made)
+      expect(madeExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("cleans up after a typed failure", () =>
@@ -134,8 +136,10 @@ describe("PR review working directory", () => {
       ).pipe(Effect.flip)
 
       expect(reason).toBe("fixture failure")
-      expect(yield* fs.exists(reviewDirectory)).toBe(false)
-      expect(yield* countWorktrees(repo)).toBe(1)
+      const reviewDirectoryExists = yield* fs.exists(reviewDirectory)
+      expect(reviewDirectoryExists).toBe(false)
+      const worktreesAfter = yield* countWorktrees(repo)
+      expect(worktreesAfter).toBe(1)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("warns, without failing the scope, when the worktree cannot be removed", () =>
@@ -172,11 +176,15 @@ describe("PR review working directory", () => {
       ).pipe(Effect.forkChild)
 
       const reviewDirectory = yield* Deferred.await(ready)
-      expect(yield* fs.exists(reviewDirectory)).toBe(true)
-      expect(yield* countWorktrees(repo)).toBe(2)
+      const existsWhileRunning = yield* fs.exists(reviewDirectory)
+      expect(existsWhileRunning).toBe(true)
+      const worktreesWhileRunning = yield* countWorktrees(repo)
+      expect(worktreesWhileRunning).toBe(2)
       yield* Fiber.interrupt(fiber)
-      expect(yield* fs.exists(reviewDirectory)).toBe(false)
-      expect(yield* countWorktrees(repo)).toBe(1)
+      const existsAfterInterrupt = yield* fs.exists(reviewDirectory)
+      expect(existsAfterInterrupt).toBe(false)
+      const worktreesAfterInterrupt = yield* countWorktrees(repo)
+      expect(worktreesAfterInterrupt).toBe(1)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
@@ -234,63 +242,61 @@ describe("working-tree review working directory", () => {
           snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlay)
           const inSnapshot = (name: string) => path.join(snapshot, name)
           expect(snapshot).not.toBe(repo)
-          expect(
-            chompLine(yield* runGit(snapshot, ["rev-parse", "HEAD"])),
-          ).toBe(target.headCommit)
+          const snapshotHead = yield* runGit(snapshot, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
+          expect(snapshotHead).toBe(target.headCommit)
 
-          expect(yield* fs.readFileString(inSnapshot("alpha.txt"))).toBe(
-            "base\nmodified\n",
-          )
-          expect(yield* fs.exists(inSnapshot("delete-me.txt"))).toBe(false)
-          expect(yield* fs.exists(inSnapshot("old-name.txt"))).toBe(false)
-          expect(yield* fs.readFileString(inSnapshot("new-name.txt"))).toBe(
-            "renamed content\n",
-          )
+          const alpha = yield* fs.readFileString(inSnapshot("alpha.txt"))
+          expect(alpha).toBe("base\nmodified\n")
+          const deleteMeExists = yield* fs.exists(inSnapshot("delete-me.txt"))
+          expect(deleteMeExists).toBe(false)
+          const oldNameExists = yield* fs.exists(inSnapshot("old-name.txt"))
+          expect(oldNameExists).toBe(false)
+          const renamed = yield* fs.readFileString(inSnapshot("new-name.txt"))
+          expect(renamed).toBe("renamed content\n")
           const snapshotBytes = yield* fs.readFile(inSnapshot("bin.dat"))
           expect(Array.fromIterable(snapshotBytes)).toEqual(
             [9, 8, 7, 0],
           )
           const script = yield* fs.stat(inSnapshot("script.sh"))
           expect(script.mode & 0o111).not.toBe(0)
-          expect(yield* fs.readLink(inSnapshot("linky"))).toBe("bin.dat")
-          expect(yield* fs.readFileString(inSnapshot("staged.txt"))).toBe(
-            "staged addition\n",
-          )
-          expect(yield* fs.readFileString(inSnapshot("stray.txt"))).toBe(
-            "untracked payload\n",
-          )
-          expect(yield* fs.readLink(inSnapshot("stray-link"))).toBe("alpha.txt")
-          expect(yield* fs.readFileString(inSnapshot("notes[1].txt"))).toBe(
-            "bracketed\n",
-          )
-          expect(yield* fs.exists(inSnapshot("ignored.txt"))).toBe(false)
+          const linkyTarget = yield* fs.readLink(inSnapshot("linky"))
+          expect(linkyTarget).toBe("bin.dat")
+          const staged = yield* fs.readFileString(inSnapshot("staged.txt"))
+          expect(staged).toBe("staged addition\n")
+          const stray = yield* fs.readFileString(inSnapshot("stray.txt"))
+          expect(stray).toBe("untracked payload\n")
+          const strayLinkTarget = yield* fs.readLink(inSnapshot("stray-link"))
+          expect(strayLinkTarget).toBe("alpha.txt")
+          const bracketed = yield* fs.readFileString(inSnapshot("notes[1].txt"))
+          expect(bracketed).toBe("bracketed\n")
+          const ignoredExists = yield* fs.exists(inSnapshot("ignored.txt"))
+          expect(ignoredExists).toBe(false)
           expect((yield* fs.stat(inSnapshot("reshaped"))).type).toBe(
             "Directory",
           )
-          expect(
-            yield* fs.readFileString(inSnapshot("reshaped/child.txt")),
-          ).toBe("dir child\n")
+          const directoryChild = yield* fs.readFileString(inSnapshot("reshaped/child.txt"))
+          expect(directoryChild).toBe("dir child\n")
 
           // Edits and new commits in the developer's repo after acquisition
           // are invisible to the Run already in flight.
           yield* fs.writeFileString(inRepo("alpha.txt"), "live edit\n")
           yield* fs.writeFileString(inRepo("stray.txt"), "live stray edit\n")
           yield* commitAll(repo, "live drift")
-          expect(yield* fs.readFileString(inSnapshot("alpha.txt"))).toBe(
-            "base\nmodified\n",
-          )
-          expect(yield* fs.readFileString(inSnapshot("stray.txt"))).toBe(
-            "untracked payload\n",
-          )
-          expect(
-            chompLine(yield* runGit(snapshot, ["rev-parse", "HEAD"])),
-          ).toBe(target.headCommit)
-          expect(yield* countWorktrees(repo)).toBe(2)
+          const alphaAfterDrift = yield* fs.readFileString(inSnapshot("alpha.txt"))
+          expect(alphaAfterDrift).toBe("base\nmodified\n")
+          const strayAfterDrift = yield* fs.readFileString(inSnapshot("stray.txt"))
+          expect(strayAfterDrift).toBe("untracked payload\n")
+          const headAfterDrift = yield* runGit(snapshot, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
+          expect(headAfterDrift).toBe(target.headCommit)
+          const worktreesDuring = yield* countWorktrees(repo)
+          expect(worktreesDuring).toBe(2)
         }),
       )
 
-      expect(yield* fs.exists(snapshot)).toBe(false)
-      expect(yield* countWorktrees(repo)).toBe(1)
+      const snapshotExists = yield* fs.exists(snapshot)
+      expect(snapshotExists).toBe(false)
+      const worktreesAfter = yield* countWorktrees(repo)
+      expect(worktreesAfter).toBe(1)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("shows a submodule as an unpopulated gitlink behind a scope-degradation warning", () =>
@@ -331,14 +337,13 @@ describe("working-tree review working directory", () => {
           const gitlink = yield* fs.stat(path.join(snapshot, "sub"))
           expect(gitlink.type).toBe("Directory")
           // The live checkout has populated contents; the snapshot must not.
-          expect(
-            yield* fs.exists(path.join(repo, "sub", "inner.txt")),
-          ).toBe(true)
-          expect(yield* fs.readDirectory(path.join(snapshot, "sub"))).toEqual(
-            [],
-          )
+          const innerExists = yield* fs.exists(path.join(repo, "sub", "inner.txt"))
+          expect(innerExists).toBe(true)
+          const snapshotSubEntries = yield* fs.readDirectory(path.join(snapshot, "sub"))
+          expect(snapshotSubEntries).toEqual([])
         }),
       )
-      expect(yield* countWorktrees(repo)).toBe(1)
+      const worktreesAfter = yield* countWorktrees(repo)
+      expect(worktreesAfter).toBe(1)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

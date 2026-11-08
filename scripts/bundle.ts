@@ -50,17 +50,12 @@ const program = Effect.gen(function* () {
 
   // Release builds (the tag workflow) set all three; a bare `bun run bundle`
   // produces a host-platform dev binary reporting the 0.0.0-dev sentinel.
-  const version = Option.getOrElse(
-    yield* Config.option(Config.String("GAUNTLET_VERSION")),
-    () => "0.0.0-dev",
-  )
-  const target = Option.getOrUndefined(
-    yield* Config.option(Config.String("GAUNTLET_TARGET")),
-  )
-  const outfile = Option.getOrElse(
-    yield* Config.option(Config.String("GAUNTLET_OUTFILE")),
-    () => "dist/gauntlet",
-  )
+  const versionSetting = yield* Config.option(Config.String("GAUNTLET_VERSION"))
+  const version = Option.getOrElse(versionSetting, () => "0.0.0-dev")
+  const targetSetting = yield* Config.option(Config.String("GAUNTLET_TARGET"))
+  const target = Option.getOrUndefined(targetSetting)
+  const outfileSetting = yield* Config.option(Config.String("GAUNTLET_OUTFILE"))
+  const outfile = Option.getOrElse(outfileSetting, () => "dist/gauntlet")
 
   // Defines take JS expression source: the version string becomes a quoted
   // string literal via the JSON codec. Every compiled binary carries the
@@ -76,8 +71,9 @@ const program = Effect.gen(function* () {
 
   // Stage-owned prompt templates (markdown living with its Stage module,
   // e.g. src/stages/judgment/judge.md).
+  const sourceEntries = yield* fs.readDirectory("src", { recursive: true })
   const stageTemplateImports = pipe(
-    yield* fs.readDirectory("src", { recursive: true }),
+    sourceEntries,
     Array.filter((entry) => entry.endsWith(".md")),
     Array.map((entry) => `src/${entry}`),
   )

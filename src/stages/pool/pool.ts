@@ -191,9 +191,10 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   }
 
   const poolStartedAt = yield* DateTime.now
+  const template = yield* readPromptTemplate(templatePath)
   const prompt = yield* renderPromptTemplate(
     "pool",
-    yield* readPromptTemplate(templatePath),
+    template,
     [["CANDIDATES", Array.join(Array.map(claims, formatCandidateLine), "\n")]],
   )
   const outcome = yield* invokeStageAgent({
@@ -213,9 +214,8 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   if (reason !== undefined) {
     yield* runProgress(coverageGapLine({ reason }))
   }
-  yield* runProgress(
-    `Pool finished — ${String(yield* wallSeconds(poolStartedAt))}s`,
-  )
+  const poolSeconds = yield* wallSeconds(poolStartedAt)
+  yield* runProgress(`Pool finished — ${String(poolSeconds)}s`)
   return {
     claims,
     clusters: numberClusters(repair.clusters),

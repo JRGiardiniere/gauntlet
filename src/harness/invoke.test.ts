@@ -179,9 +179,8 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           yield* TestClock.adjust("100 millis")
           yield* Effect.yieldNow
         }
-        expect(PrefixSignal.$is("PrefixObserved")(
-          yield* Fiber.join(observedSignal),
-        )).toBe(true)
+        const observedPrefix = yield* Fiber.join(observedSignal)
+        expect(PrefixSignal.$is("PrefixObserved")(observedPrefix)).toBe(true)
         // Still running: the signal never waits for session teardown.
         expect(metered.log).not.toContain("dispose:1")
         yield* Fiber.interrupt(observed.owner)
@@ -213,9 +212,8 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
           yield* TestClock.adjust("100 millis")
           yield* Effect.yieldNow
         }
-        expect(PrefixSignal.$is("PrefixObserved")(
-          yield* Fiber.join(tooledSignal),
-        )).toBe(true)
+        const tooledPrefix = yield* Fiber.join(tooledSignal)
+        expect(PrefixSignal.$is("PrefixObserved")(tooledPrefix)).toBe(true)
         yield* Fiber.interrupt(tooledRun.owner)
 
         const stalled = makeScripted({
@@ -234,9 +232,8 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         }
         expect(stalled.log).toContain("prompt:1.1")
         yield* Fiber.interrupt(pending.owner)
-        expect(PrefixSignal.$is("PrefixNotObserved")(
-          yield* Fiber.join(pendingSignal),
-        )).toBe(true)
+        const pendingPrefix = yield* Fiber.join(pendingSignal)
+        expect(PrefixSignal.$is("PrefixNotObserved")(pendingPrefix)).toBe(true)
 
         // A prompt that starts and then settles with no terminal or metered
         // event: the lifecycle finalizer, not a response, resolves the signal.
@@ -251,12 +248,10 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         const settled = yield* invokeSignaled(INPUT).pipe(
           Effect.provide(scriptedLayer(unmetered)),
         )
-        expect(PrefixSignal.$is("PrefixNotObserved")(
-          yield* settled.firstResponse,
-        )).toBe(true)
-        expect(yield* Effect.flip(settled.outcome)).toBeInstanceOf(
-          AdapterContractViolation,
-        )
+        const settledPrefix = yield* settled.firstResponse
+        expect(PrefixSignal.$is("PrefixNotObserved")(settledPrefix)).toBe(true)
+        const settledFailure = yield* Effect.flip(settled.outcome)
+        expect(settledFailure).toBeInstanceOf(AdapterContractViolation)
 
         const unavailable = makeScripted({
           sessions: [{ failOpen: "provider unavailable", prompts: [] }],
@@ -264,12 +259,10 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         const failed = yield* invokeSignaled(INPUT).pipe(
           Effect.provide(scriptedLayer(unavailable)),
         )
-        expect(PrefixSignal.$is("PrefixNotObserved")(
-          yield* failed.firstResponse,
-        )).toBe(true)
-        expect(yield* Effect.flip(failed.outcome)).toBeInstanceOf(
-          InvocationSetupError,
-        )
+        const failedPrefix = yield* failed.firstResponse
+        expect(PrefixSignal.$is("PrefixNotObserved")(failedPrefix)).toBe(true)
+        const failedFailure = yield* Effect.flip(failed.outcome)
+        expect(failedFailure).toBeInstanceOf(InvocationSetupError)
       }),
   )
 
@@ -293,9 +286,8 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         yield* TestClock.adjust("20 seconds")
         yield* Effect.yieldNow
 
-        expect(PrefixSignal.$is("PrefixNotObserved")(
-          yield* Fiber.join(signalFiber),
-        )).toBe(true)
+        const prefix = yield* Fiber.join(signalFiber)
+        expect(PrefixSignal.$is("PrefixNotObserved")(prefix)).toBe(true)
         const outcome = yield* running.outcome.pipe(Effect.orDie)
         expect(
           Termination.guards.FirstResponseTimeout(outcome.termination),
@@ -322,9 +314,8 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
         const stalledSignal = yield* Effect.forkChild(stalledRun.firstResponse)
         yield* TestClock.adjust("20 seconds")
         yield* Effect.yieldNow
-        expect(PrefixSignal.$is("PrefixNotObserved")(
-          yield* Fiber.join(stalledSignal),
-        )).toBe(true)
+        const stalledPrefix = yield* Fiber.join(stalledSignal)
+        expect(PrefixSignal.$is("PrefixNotObserved")(stalledPrefix)).toBe(true)
         const stalledOutcome = yield* stalledRun.outcome.pipe(Effect.orDie)
         expect(
           Termination.guards.FirstResponseTimeout(stalledOutcome.termination),

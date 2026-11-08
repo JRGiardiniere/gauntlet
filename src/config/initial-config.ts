@@ -67,7 +67,8 @@ export const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
 // valid is partial, and nothing heals it (issue #24).
 export const isFreshConfig = Effect.fn("InitialConfig.isFresh")(function* () {
   const fs = yield* FileSystem.FileSystem
-  const settingsExists = yield* fs.exists(yield* settingsPath())
+  const settingsFile = yield* settingsPath()
+  const settingsExists = yield* fs.exists(settingsFile)
   return !settingsExists && (yield* listRecipes()).length === 0
 })
 

@@ -168,9 +168,7 @@ const acquireSpecification = Effect.fn(
   // submission never resolves it.
   const linear = githubOnly
     ? undefined
-    : yield* loadLinearSpecification(
-        yield* resolveSpecificationBranch(target.repoRoot),
-      )
+    : yield* resolveSpecificationBranch(target.repoRoot).pipe(Effect.flatMap(loadLinearSpecification))
   if (
     linear !== undefined &&
     LinearSpecificationResolution.$is("Resolved")(linear)

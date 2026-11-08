@@ -132,7 +132,8 @@ export const playDemo = Effect.fn("Demo.play")(
     const scenario: Scenario = named.value[1]
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const runId = `demo-${String(yield* Clock.currentTimeMillis)}`
+    const startMillis = yield* Clock.currentTimeMillis
+    const runId = `demo-${String(startMillis)}`
     const activity: Array<AgentActivity> = []
     // One agent, from its open to its answer, or a failure without one.
     const invoke = (id: string, seconds: number, items: number | undefined) =>

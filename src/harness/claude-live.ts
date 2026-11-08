@@ -183,7 +183,8 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
       Effect.gen(function* () {
         // The opening fiber's services, so the bridge logs to the Run's
         // run.log, with the platform the factory was built over.
-        const services = Context.merge(yield* Effect.context<never>(), platform)
+        const openingServices = yield* Effect.context<never>()
+        const services = Context.merge(openingServices, platform)
         const run = Effect.runForkWith(services)
         const sessionId = globalThis.crypto.randomUUID()
         // The snapshot is the worktree folder of the Run's temp area, which

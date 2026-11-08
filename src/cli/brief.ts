@@ -17,7 +17,8 @@ export const briefCommand = Command.make(
     ),
   },
   Effect.fn("Cli.brief")(function* ({ runId, findingId }) {
-    yield* Console.log(yield* Run.brief(runId, findingId))
+    const briefText = yield* Run.brief(runId, findingId)
+    yield* Console.log(briefText)
   }),
 ).pipe(
   Command.withDescription(

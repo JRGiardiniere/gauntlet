@@ -45,7 +45,8 @@ export const briefRequest = Effect.fn("Brief.request")(function* (
   }
   const entry = found.value
   const { file, line } = entry.candidate
-  return yield* renderPromptTemplate("brief", yield* readPromptTemplate(templatePath), [
+  const template = yield* readPromptTemplate(templatePath)
+  return yield* renderPromptTemplate("brief", template, [
     ["SUBJECT", noun(entry)],
     ["FINDING_ID", findingId],
     ["LOCATION", line === undefined ? file : `${file}:${line}`],

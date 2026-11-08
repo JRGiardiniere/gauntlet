@@ -122,7 +122,8 @@ const decodeState = Schema.decodeUnknownEffect(
 
 const statePath = Effect.fn("gauntlet.update.state_path")(function* () {
   const path = yield* Path.Path
-  return path.join(yield* gauntletHome(), "update-check.json")
+  const home = yield* gauntletHome()
+  return path.join(home, "update-check.json")
 })
 
 const dayMillis = 24 * 60 * 60 * 1000
@@ -130,7 +131,8 @@ const dayMillis = 24 * 60 * 60 * 1000
 const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
   function* () {
     const path = yield* statePath()
-    const now = DateTime.toEpochMillis(yield* DateTime.now)
+    const currentTime = yield* DateTime.now
+    const now = DateTime.toEpochMillis(currentTime)
     const cached = yield* readOptionalArtifactText(path).pipe(
       Effect.flatMap(Option.match({
         onNone: () => Effect.succeed(Option.none<typeof UpdateCheckState.Type>()),
@@ -154,7 +156,8 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
     // cache is enrichment, so a failed write just means the next invocation
     // probes again.
     const fs = yield* FileSystem.FileSystem
-    yield* fs.makeDirectory(yield* gauntletHome(), { recursive: true }).pipe(
+    const home = yield* gauntletHome()
+    yield* fs.makeDirectory(home, { recursive: true }).pipe(
       Effect.ignore,
     )
     yield* writeArtifactJson(path, UpdateCheckState, {

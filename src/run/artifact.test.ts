@@ -18,7 +18,9 @@ describe("artifact writes", () => {
       yield* writeArtifactText(target, "a".repeat(4096))
       yield* writeArtifactText(target, "short")
 
-      expect(yield* fs.readFileString(target)).toBe("short")
-      expect(yield* fs.readDirectory(dir)).toEqual(["artifact.md"])
+      const written = yield* fs.readFileString(target)
+      expect(written).toBe("short")
+      const entries = yield* fs.readDirectory(dir)
+      expect(entries).toEqual(["artifact.md"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

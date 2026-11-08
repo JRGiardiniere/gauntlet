@@ -445,16 +445,15 @@ const makeLive = Effect.gen(function* () {
         uniqueIssues.set(issue.id, issue)
         if (issue.parent !== null) uniqueIssues.set(issue.parent.id, issue.parent)
       }
-      const completed = new Map(
-        yield* Effect.forEach(
-          uniqueIssues.entries(),
-          ([id, issue]) =>
-            completeIssue(cwd, issue).pipe(
-              Effect.map((snapshot) => [id, snapshot] as const),
-            ),
-          { concurrency: 2 },
-        ),
+      const completedEntries = yield* Effect.forEach(
+        uniqueIssues.entries(),
+        ([id, issue]) =>
+          completeIssue(cwd, issue).pipe(
+            Effect.map((snapshot) => [id, snapshot] as const),
+          ),
+        { concurrency: 2 },
       )
+      const completed = new Map(completedEntries)
       return Array.flatMap(collected, (issue) => {
         const snapshot = completed.get(issue.id)
         if (snapshot === undefined) return []

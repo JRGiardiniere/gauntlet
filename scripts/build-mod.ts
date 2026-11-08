@@ -147,14 +147,16 @@ const program = Effect.gen(function* () {
     yield* fs.copyFile(`${source}/${file}`, `${staging}/${file}`)
   }
   yield* fs.copy(`${source}/skills`, `${staging}/skills`)
-  const manifest = yield* decodeJson(yield* fs.readFileString(`${source}/.claude-plugin/plugin.json`))
+  const manifestText = yield* fs.readFileString(`${source}/.claude-plugin/plugin.json`)
+  const manifest = yield* decodeJson(manifestText)
   yield* fs.writeFileString(
     `${staging}/.claude-plugin/plugin.json`,
     `${yield* encodeJson({ ...manifest, version })}\n`,
   )
   // The content the bundle reads, where its rewritten paths look.
   yield* fs.copy(`${root}/content`, `${staging}/hooks/vendor/content`)
-  for (const template of Array.filter((yield* fs.readDirectory(`${root}/src`, { recursive: true })), (entry) => entry.endsWith(".md"))) {
+  const sourceEntries = yield* fs.readDirectory(`${root}/src`, { recursive: true })
+  for (const template of Array.filter(sourceEntries, (entry) => entry.endsWith(".md"))) {
     yield* fs.makeDirectory(path.dirname(`${staging}/hooks/vendor/src/${template}`), { recursive: true })
     yield* fs.copyFile(`${root}/src/${template}`, `${staging}/hooks/vendor/src/${template}`)
   }

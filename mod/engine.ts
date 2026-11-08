@@ -418,7 +418,8 @@ export const createEngine = (ports: EnginePorts, version: string) => {
   const recipes = (): Promise<ReadonlyArray<string>> =>
     Effect.gen(function* () {
       if (yield* isFreshConfig()) yield* writeInitialConfig()
-      return availableRecipeNames(yield* listRecipes())
+      const catalogEntries = yield* listRecipes()
+      return availableRecipeNames(catalogEntries)
     }).pipe(Effect.provideService(ConfigHost, "mod"), Effect.provide(platformLayer(ports)), Effect.runPromise)
 
   // The words answered at once, which start no run: `config`, the CLI's bare

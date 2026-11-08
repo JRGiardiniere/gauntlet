@@ -375,9 +375,8 @@ describe("Finder stage interface", () => {
         scripted,
       )
 
-      expect(yield* Effect.flip(fixture.effect)).toBeInstanceOf(
-        InvocationSetupError,
-      )
+      const setupFailure = yield* Effect.flip(fixture.effect)
+      expect(setupFailure).toBeInstanceOf(InvocationSetupError)
       expect(scripted.configs).toHaveLength(2)
       expect(scripted.prompts).toHaveLength(1)
       expect(scripted.prompts[0]?.text).toContain("standard two tail")

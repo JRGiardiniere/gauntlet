@@ -38,11 +38,8 @@ export const resolveCommitsTarget = Effect.fn(
     Effect.map(chompLine),
   )
   const headCommit = yield* resolveCommittish(repoRoot, range.head)
-  const baseCommit = yield* mergeBaseOf(
-    repoRoot,
-    yield* resolveCommittish(repoRoot, range.base),
-    headCommit,
-  )
+  const resolvedBase = yield* resolveCommittish(repoRoot, range.base)
+  const baseCommit = yield* mergeBaseOf(repoRoot, resolvedBase, headCommit)
   const [diff, changedFiles, submodules, uncommitted] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(

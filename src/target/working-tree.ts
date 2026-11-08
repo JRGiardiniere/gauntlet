@@ -67,10 +67,8 @@ export const resolveWorkingTreeTarget = Effect.fn(
     explainGit("repository has no HEAD commit to diff against"),
     Effect.map(chompLine),
   )
-  const baseCommit = base === undefined ? undefined : yield* mergeBaseOf(
-    repoRoot,
-    yield* resolveCommittish(repoRoot, base),
-    headCommit,
+  const baseCommit = base === undefined ? undefined : yield* resolveCommittish(repoRoot, base).pipe(
+    Effect.flatMap((resolvedBase) => mergeBaseOf(repoRoot, resolvedBase, headCommit)),
   )
   const diffBase = baseCommit ?? headCommit
   // Diff against the resolved hash, not symbolic HEAD — a commit landing

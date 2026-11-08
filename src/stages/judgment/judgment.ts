@@ -118,8 +118,9 @@ export const executeJudgment = Effect.fn(
   const kept = Array.filter(judgments, Judgment.guards.Kept).length
   const dropped = Array.filter(judgments, Judgment.guards.Dropped).length
   const undecided = Array.filter(judgments, Judgment.guards.Undecided).length
+  const judgmentSeconds = yield* wallSeconds(judgmentStartedAt)
   yield* runProgress(
-    `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(yield* wallSeconds(judgmentStartedAt))}s`,
+    `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(judgmentSeconds)}s`,
   )
   return {
     observations: repair.observations,

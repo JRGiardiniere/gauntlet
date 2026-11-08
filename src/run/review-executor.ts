@@ -74,8 +74,9 @@ export const executeReviewPlan = Effect.fn(
         })
         const results = finderStage.finders
 
+        const findersSeconds = yield* wallSeconds(findersStartedAt)
         yield* runProgress(
-          `Finders finished — ${String(yield* wallSeconds(findersStartedAt))}s`,
+          `Finders finished — ${String(findersSeconds)}s`,
           cacheShare(Array.map(results, ({ outcome }) => outcome.usage)),
         )
         yield* reportMilestone(RunMilestone.FindersFinished())

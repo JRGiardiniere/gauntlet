@@ -131,7 +131,7 @@ const makeSnapshotFixture = Effect.gen(function* () {
   )
 
   const snapshot = path.join(root, "snapshot")
-  const headCommit = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const headCommit = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   yield* runGit(repo, ["worktree", "add", "--detach", snapshot, headCommit])
   return { repo, root, snapshot }
 })
@@ -147,7 +147,8 @@ describe("ReviewWorkspace", () => {
       )
       expect(workspace.root).toBe(REVIEW_WORKSPACE_ROOT)
 
-      expect(yield* bash(workspace, "pwd")).toEqual({
+      const pwd = yield* bash(workspace, "pwd")
+      expect(pwd).toEqual({
         isError: false,
         text: REVIEW_WORKSPACE_ROOT,
       })
@@ -171,15 +172,18 @@ describe("ReviewWorkspace", () => {
       )
       expect(findExec.isError).toBe(false)
       expect(findExec.text).toContain("src/app.ts")
-      expect(yield* bash(workspace, `sed -n '1p' notes.md`)).toEqual({
+      const sedOutput = yield* bash(workspace, `sed -n '1p' notes.md`)
+      expect(sedOutput).toEqual({
         isError: false,
         text: "alpha beta",
       })
-      expect(yield* bash(workspace, `awk '{print $2}' notes.md`)).toEqual({
+      const awkOutput = yield* bash(workspace, `awk '{print $2}' notes.md`)
+      expect(awkOutput).toEqual({
         isError: false,
         text: "beta\ndelta",
       })
-      expect(yield* bash(workspace, `jq -r .name data/config.json`)).toEqual({
+      const jqOutput = yield* bash(workspace, `jq -r .name data/config.json`)
+      expect(jqOutput).toEqual({
         isError: false,
         text: "fixture",
       })
@@ -329,7 +333,8 @@ describe("ReviewWorkspace", () => {
       }
 
       // The host worktree's administrative entry is untouched.
-      expect(yield* fs.exists(path.join(snapshot, ".git"))).toBe(true)
+      const gitEntryExists = yield* fs.exists(path.join(snapshot, ".git"))
+      expect(gitEntryExists).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(layer)))
 
   it.effect("exposes only the synthetic environment", () =>
@@ -388,10 +393,10 @@ describe("ReviewWorkspace", () => {
         expect((yield* bash(second, "cat notes.md")).isError).toBe(false)
 
         // The backing snapshot itself is untouched.
-        expect(
-          yield* fs.readFileString(path.join(snapshot, "src", "app.ts")),
-        ).toBe(APP_SOURCE)
-        expect(yield* fs.exists(path.join(snapshot, "notes.md"))).toBe(true)
+        const appSource = yield* fs.readFileString(path.join(snapshot, "src", "app.ts"))
+        expect(appSource).toBe(APP_SOURCE)
+        const notesExist = yield* fs.exists(path.join(snapshot, "notes.md"))
+        expect(notesExist).toBe(true)
       }).pipe(Effect.scoped, Effect.provide(layer)))
 
   it.effect("resets shell state per call while the filesystem persists", () =>
@@ -408,15 +413,18 @@ describe("ReviewWorkspace", () => {
         isError: false,
         text: `${REVIEW_WORKSPACE_ROOT}/src`,
       })
-      expect(yield* bash(workspace, "pwd")).toEqual({
+      const pwd = yield* bash(workspace, "pwd")
+      expect(pwd).toEqual({
         isError: false,
         text: REVIEW_WORKSPACE_ROOT,
       })
-      expect(yield* bash(workspace, `echo "\${MARKER:-unset}"`)).toEqual({
+      const marker = yield* bash(workspace, `echo "\${MARKER:-unset}"`)
+      expect(marker).toEqual({
         isError: false,
         text: "unset",
       })
-      expect(yield* bash(workspace, "cat /tmp-probe.txt")).toEqual({
+      const probe = yield* bash(workspace, "cat /tmp-probe.txt")
+      expect(probe).toEqual({
         isError: false,
         text: "probe",
       })
@@ -431,7 +439,8 @@ describe("ReviewWorkspace", () => {
           makeReviewWorkspace(snapshot),
         )
 
-        expect(yield* bash(workspace, "cat data/blob.txt | wc -c")).toEqual({
+        const blobSize = yield* bash(workspace, "cat data/blob.txt | wc -c")
+        expect(blobSize).toEqual({
           isError: false,
           text: "262144",
         })
@@ -547,12 +556,10 @@ describe("ReviewWorkspace", () => {
         expect(timedOut).toContain("bash exceeded its 200ms deadline")
 
         // Nothing above mutated the backing snapshot.
-        expect(
-          yield* fs.readFileString(path.join(snapshot, "src", "app.ts")),
-        ).toBe(APP_SOURCE)
-        expect(
-          yield* fs.exists(path.join(snapshot, "scratch-copy.txt")),
-        ).toBe(false)
+        const appSource = yield* fs.readFileString(path.join(snapshot, "src", "app.ts"))
+        expect(appSource).toBe(APP_SOURCE)
+        const scratchCopyExists = yield* fs.exists(path.join(snapshot, "scratch-copy.txt"))
+        expect(scratchCopyExists).toBe(false)
         const status = yield* runGit(snapshot, ["status", "--porcelain"])
         expect(status).toBe("")
       }).pipe(Effect.scoped, Effect.provide(layer)))

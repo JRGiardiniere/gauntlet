@@ -42,7 +42,8 @@ describe("output contracts", () => {
 
   it.effect("accepts empty finder output and an arbitrary candidate path", () =>
     Effect.gen(function* () {
-      expect(yield* decodeOutputContract(EmitFindings)({ findings: [] })).toEqual({
+      const emptyFindings = yield* decodeOutputContract(EmitFindings)({ findings: [] })
+      expect(emptyFindings).toEqual({
         findings: [],
       })
       const output = yield* decodeOutputContract(EmitFindings)({
@@ -86,7 +87,8 @@ describe("output contracts", () => {
       const candidate: Candidate = { _tag: "Observation", id: "a", lens: "test", file: "a.ts",
         summary: "claim", sourceReferences: references }
       const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(Candidate))(candidate)
-      expect(yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)).toEqual(candidate)
+      const decodedCandidate = yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)
+      expect(decodedCandidate).toEqual(candidate)
     }))
 
   it.effect("requires JSON-safe 1-indexed integer locations", () =>

@@ -116,10 +116,8 @@ export const executeFinders = Effect.fn(
           })
         ),
       )
-      return yield* renderRelatedFiles(
-        yield* loadRelatedFilesTemplate(),
-        relatedFiles,
-      )
+      const template = yield* loadRelatedFilesTemplate()
+      return yield* renderRelatedFiles(template, relatedFiles)
     }),
   )
 
@@ -158,7 +156,8 @@ export const executeFinders = Effect.fn(
       HarnessSessionFactory
     >,
   ) {
-    const outcome = enforceCandidateCap(invocation.lens, yield* invoked)
+    const uncappedOutcome = yield* invoked
+    const outcome = enforceCandidateCap(invocation.lens, uncappedOutcome)
     yield* reportFinderDone({ lens: invocation.lens, outcome })
     return { invocation, outcome }
   })

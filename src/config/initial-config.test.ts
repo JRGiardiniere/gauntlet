@@ -24,7 +24,8 @@ describe("the Mod's configuration", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-mod-config-" })
-      expect(yield* asMod(home, isFreshConfig())).toBe(true)
+      const freshBefore = yield* asMod(home, isFreshConfig())
+      expect(freshBefore).toBe(true)
       yield* asMod(home, writeInitialConfig())
 
       const entries = yield* asMod(home, listRecipes())
@@ -35,10 +36,12 @@ describe("the Mod's configuration", () => {
       ])
       const settings = yield* asMod(home, loadSettings())
       expect(Option.map(settings, (value) => value["default-recipe"])).toEqual(Option.some("medium"))
-      expect(yield* fs.exists(path.join(home, ".gauntlet", "settings.json"))).toBe(false)
+      const settingsExists = yield* fs.exists(path.join(home, ".gauntlet", "settings.json"))
+      expect(settingsExists).toBe(false)
 
       yield* fs.remove(path.join(home, ".gauntlet", "mod", "settings.json"))
-      expect(yield* asMod(home, isFreshConfig())).toBe(false)
+      const freshAfter = yield* asMod(home, isFreshConfig())
+      expect(freshAfter).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("lists a recipe seating another provider as invalid, naming the Seat it takes", () =>

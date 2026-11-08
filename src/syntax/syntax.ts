@@ -60,7 +60,8 @@ const resolveWritten = Effect.fn("Syntax.resolvePath")(function* (
 ) {
   const path = yield* Path.Path
   if (written !== "~" && !written.startsWith("~/")) {
-    return path.resolve(yield* InvocationDirectory, written)
+    const invocationDirectory = yield* InvocationDirectory
+    return path.resolve(invocationDirectory, written)
   }
   const home = yield* Config.String("HOME").pipe(
     Effect.mapError(() =>

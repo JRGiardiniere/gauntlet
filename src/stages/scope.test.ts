@@ -18,8 +18,9 @@ const reviewRoot = "/fixture/review-worktree"
 describe("Stage scope block", () => {
   it.effect("frames an embedded Markdown fence safely, under the root the tools expose", () =>
     Effect.gen(function* () {
+      const scopeTemplates = yield* loadStageScopeTemplates("workspace-pi.md")
       const scope = yield* assembleStageScope(
-        yield* loadStageScopeTemplates("workspace-pi.md"),
+        scopeTemplates,
         target,
         reviewRoot,
         undefined,
@@ -35,8 +36,9 @@ describe("Stage scope block", () => {
   it.effect("tells the model on the Claude Code host about that host's tools", () =>
     Effect.gen(function* () {
       const factory = yield* makeClaudeLiveFactory({ executable: "claude", runDirectory: () => undefined })
+      const scopeTemplates = yield* loadStageScopeTemplates(factory.workspacePrompt)
       const scope = yield* assembleStageScope(
-        yield* loadStageScopeTemplates(factory.workspacePrompt),
+        scopeTemplates,
         target,
         factory.workspaceRoot(reviewRoot),
         undefined,

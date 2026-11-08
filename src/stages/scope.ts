@@ -28,8 +28,9 @@ export interface StageScopeTemplates {
 export const loadStageScopeTemplates = Effect.fn("StageScope.loadTemplates")(
   function* (workspacePrompt: string) {
     const path = yield* Path.Path
+    const contentDirectory = yield* ContentDirectory
     const workspacePromptPath = path.join(
-      yield* ContentDirectory,
+      contentDirectory,
       "prompts",
       workspacePrompt,
     )
