@@ -48,6 +48,7 @@ import * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
+import * as Record from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stdio from "effect/Stdio"
@@ -71,7 +72,7 @@ export interface PlatformPorts {
   // The variables the review program reads (HOME, LINEAR_API_KEY) and
   // TMPDIR, as `$.env.get` answered them, but for a LINEAR_API_KEY the
   // plugin's options set.
-  readonly env: Readonly<Record<string, string>>
+  readonly env: Record.ReadonlyRecord<string, string>
   // Where the program's stdout and stderr go: the digest and the progress
   // lines.
   readonly stdout: (text: string) => void
@@ -268,7 +269,7 @@ const fileSystemOver = (ports: PlatformPorts) =>
 // unset one, so a variable the command unsets (the CLI's Git scrub: an
 // `undefined` value) is unset by running the command under `env -u`.
 const commandArgv = (command: ChildProcess.StandardCommand) => {
-  const unset = Array.flatMap(Object.entries(command.options.env ?? {}), ([key, value]) => (value === undefined ? [key] : []))
+  const unset = Array.flatMap(Record.toEntries(command.options.env ?? {}), ([key, value]) => (value === undefined ? [key] : []))
   const args = Array.map(command.args, unwrap)
   return unset.length === 0
     ? [command.command, ...args]
@@ -278,9 +279,7 @@ const commandArgv = (command: ChildProcess.StandardCommand) => {
 const unwrap = (word: string | Redacted.Redacted<string>) => (Redacted.isRedacted(word) ? Redacted.value(word) : word)
 
 const definedEnv = (env: ChildProcess.CommandOptions["env"]) =>
-  Object.fromEntries(
-    Array.flatMap(Object.entries(env ?? {}), ([key, value]) => (value === undefined ? [] : [[key, unwrap(value)]])),
-  )
+  pipe(env ?? {}, Record.filter(Predicate.isNotUndefined), Record.map(unwrap))
 
 const spawnFailure = (description: string) =>
   PlatformError.systemError({ _tag: "Unknown", module: "ChildProcess", method: "spawn", description })

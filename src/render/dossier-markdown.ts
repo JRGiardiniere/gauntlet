@@ -1,5 +1,6 @@
 import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
+import * as Record from "effect/Record"
 import { Candidate } from "../domain/candidate.ts"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
@@ -63,7 +64,7 @@ const renderEntries = (
 
 export const describeRecipe = (plan: ReviewPlan): string => {
   const seatList = pipe(
-    Object.entries(plan.seats),
+    Record.toEntries<string, string | undefined>(plan.seats),
     Array.map(([stage, seat]) => `${stage}: ${seat}`),
     Array.join(", "),
   )

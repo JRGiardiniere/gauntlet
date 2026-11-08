@@ -8,6 +8,7 @@ import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 
 const dependencyFields = [
@@ -33,7 +34,7 @@ const program = Effect.gen(function* () {
   const manifest = yield* Schema.decodeEffect(Manifest)(source)
 
   const effectPins = Array.flatMap(dependencyFields, (field) =>
-    Array.flatMap(Object.entries(manifest[field] ?? {}), ([name, version]) => {
+    Array.flatMap(Record.toEntries(manifest[field] ?? {}), ([name, version]) => {
       if (name !== "effect" && !name.startsWith("@effect/")) return []
       if (independentlyVersionedEffectPackages.has(name)) return []
       return [{ name, version }]

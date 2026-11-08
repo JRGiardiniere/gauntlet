@@ -4,6 +4,7 @@ import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Record from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
@@ -41,7 +42,7 @@ interface Spawned {
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly cwd: string | undefined
-  readonly env: Record<string, string | undefined> | undefined
+  readonly env: Record.ReadonlyRecord<string, string | undefined> | undefined
   readonly stdin: string
 }
 
@@ -64,9 +65,7 @@ const scriptedSpawner = (children: Array<Child>, spawned: Array<Spawned>) =>
         cwd: command.options.cwd,
         env: command.options.env === undefined
           ? undefined
-          : Object.fromEntries(
-            Array.map(Object.entries(command.options.env), ([key, value]) => [key, value === undefined ? undefined : unwrap(value)]),
-          ),
+          : Record.map(command.options.env, (value) => value === undefined ? undefined : unwrap(value)),
         stdin: yield* stdinOf(command),
       })
       return ChildProcessSpawner.makeHandle({

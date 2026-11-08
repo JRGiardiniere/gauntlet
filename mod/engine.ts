@@ -18,6 +18,8 @@ import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
 import * as Command from "effect/cli/Command"
@@ -54,8 +56,8 @@ export type { Json } from "effect/Schema"
 export interface HttpPort {
   readonly fetch: (
     url: string,
-    init: { readonly method: string; readonly headers: Record<string, string>; readonly body?: string },
-  ) => Promise<{ readonly status: number; readonly headers: Record<string, string>; readonly text: string }>
+    init: { readonly method: string; readonly headers: Record.ReadonlyRecord<string, string>; readonly body?: string },
+  ) => Promise<{ readonly status: number; readonly headers: Record.ReadonlyRecord<string, string>; readonly text: string }>
 }
 
 export interface EnginePorts extends PlatformPorts, HttpPort {
@@ -103,14 +105,14 @@ export interface StartedRun {
 
 // An error's own words: its message, or a tagged error's fields (git's
 // stderr on a GitCommandError) when it has none.
-const errorText = (error: Error) =>
+const errorText = (error: Error & Record.ReadonlyRecord<string, unknown>) =>
   error.message === ""
-    ? `${error.name} ${JSON.stringify(Object.fromEntries(Array.filter(Object.entries(error), ([key]) => key !== "cause" && key !== "_tag")))}`
+    ? `${error.name} ${JSON.stringify(Record.filter(error, (_, key) => key !== "cause" && key !== "_tag"))}`
     : `${error.name}: ${error.message}`
 
 const defectText = (cause: Cause.Cause<unknown>) => {
   const defect = Cause.squash(cause)
-  return `run ended: ${defect instanceof Error ? errorText(defect) : String(defect)}`
+  return `run ended: ${defect instanceof Error && Predicate.isReadonlyObject(defect) ? errorText(defect) : String(defect)}`
 }
 
 // A refusal as the Mod words it: a post that may have landed names the
@@ -132,13 +134,13 @@ const refusalText = (refusal: Run.RunRefusal) =>
 // interrupted run stops waiting while the request runs on to its end.
 interface FetchInit {
   readonly method?: string
-  readonly headers?: Readonly<Record<string, string>>
+  readonly headers?: Record.ReadonlyRecord<string, string>
   readonly body?: Uint8Array | string | null
 }
 
 interface HttpRequest {
   method: string
-  headers: Record<string, string>
+  headers: Record.ReadonlyRecord<string, string>
   body?: string
 }
 
@@ -155,7 +157,7 @@ const fetchOver = (http: HttpPort) => {
     return {
       status: answer.status,
       url: url.href,
-      headers: Object.entries(answer.headers),
+      headers: Record.toEntries(answer.headers),
       body: null,
       arrayBuffer: () => Promise.resolve(bytes.buffer),
     }

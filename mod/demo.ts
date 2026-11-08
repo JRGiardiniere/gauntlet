@@ -13,6 +13,7 @@ import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Record from "effect/Record"
 import type { CoverageGap } from "../src/domain/dossier.ts"
 import type { ReviewPriority } from "../src/domain/verdict.ts"
 import type { DossierEntryTag } from "../src/render/dossier-view.ts"
@@ -90,9 +91,9 @@ const SCENARIOS = {
   },
   pr: { ...FINDINGS, destination: "pr" },
   refused: { ...FINDINGS, refusal: "the working tree has no uncommitted changes to review" },
-} satisfies Record<string, Scenario>
+} satisfies Record.ReadonlyRecord<string, Scenario>
 
-export const DEMO_SCENARIOS = Object.keys(SCENARIOS)
+export const DEMO_SCENARIOS = Record.keys(SCENARIOS)
 
 // The digest as src/render/digest.ts lays it out.
 const digestOf = (scenario: Scenario, seconds: number, dossierMarkdown: string) => {
@@ -125,7 +126,7 @@ const dossierOf = (scenario: Scenario) =>
 export const playDemo = Effect.fn("Demo.play")(
   function* (words: ReadonlyArray<string>, cwd: string) {
     const name = words[0] ?? "findings"
-    const named = Array.findFirst(Object.entries(SCENARIOS), ([key]) => key === name)
+    const named = Array.findFirst(Record.toEntries(SCENARIOS), ([key]) => key === name)
     if (Option.isNone(named) || words.length > 1) {
       return yield* RunRefusal.make({ reason: `no demo ${Array.join(words, " ")}; the scenarios are ${Array.join(DEMO_SCENARIOS, ", ")}` })
     }

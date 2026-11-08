@@ -7,6 +7,7 @@ import { pipe } from "effect/Function"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
@@ -84,7 +85,7 @@ const decodeLensSource = (
       catch: contentLoadError(path, "frontmatter is not valid YAML"),
     })
     const allowed = new Set(["finder-class", "category"])
-    for (const key of Object.keys(parsed.frontmatter)) {
+    for (const key of Record.keys(parsed.frontmatter)) {
       if (!allowed.has(key)) {
         return yield* ContentLoadError.make({
           path,

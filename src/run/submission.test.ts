@@ -9,6 +9,7 @@ import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { standardsManifestPath } from "../config/standards-manifest.ts"
 import { ContentDirectory } from "../content/lens.ts"
@@ -140,12 +141,12 @@ describe("submission", () => {
         Schema.fromJsonString(Schema.Json),
       )(raw)
       const encoded = Predicate.isObject(decoded) ? decoded : {}
-      expect(Object.keys(encoded)).not.toContain("specification")
-      expect(Object.keys(encoded)).not.toContain("specificationSourceDiagnostic")
+      expect(Record.keys(encoded)).not.toContain("specification")
+      expect(Record.keys(encoded)).not.toContain("specificationSourceDiagnostic")
       const encodedTarget = Predicate.isObject(encoded["target"])
         ? encoded["target"]
         : {}
-      expect(Object.keys(encodedTarget)).not.toContain("baseCommit")
+      expect(Record.keys(encodedTarget)).not.toContain("baseCommit")
       const encodedLenses = Array.isArray(encoded["lenses"])
         ? encoded["lenses"]
         : []

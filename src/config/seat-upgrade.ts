@@ -1,6 +1,7 @@
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Record from "effect/Record"
 import { Recipe, type RecipeName, type Seat } from "../domain/recipe.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 import { listRecipes } from "./recipe-catalog.ts"
@@ -107,7 +108,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
       if (upgradedSeats.length > 0) {
         yield* writeArtifactJson(entry.path, Recipe, {
           ...entry.recipe,
-          ...Object.fromEntries(upgradedSeats),
+          ...Record.fromEntries(upgradedSeats),
         })
       }
     }

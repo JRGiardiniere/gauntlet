@@ -2,6 +2,7 @@ import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Record from "effect/Record"
 import {
   type AgentOutcome,
   Termination,
@@ -93,7 +94,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
     const seat = `${provider}/${model}`
 
     const document = projectOutputContract(EmitFindings)
-    const definitionCount = Object.keys(document.definitions ?? {}).length
+    const definitionCount = Record.keys(document.definitions ?? {}).length
     if (definitionCount > 0) {
       return yield* reportChecks([
         check(

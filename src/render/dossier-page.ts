@@ -13,6 +13,7 @@ import type { ReviewPriority } from "../domain/verdict.ts"
 import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderBrief, type RenderedBrief } from "./brief.ts"
@@ -61,7 +62,7 @@ export const dossierPageData = (
   invocationCount: accounting.invocationCount,
   wallTimeSeconds: accounting.wallTimeSeconds,
   runNotes: describeRunNotes(accounting),
-  sources: Object.fromEntries(sources),
+  sources: Record.fromEntries(sources),
 })
 
 export interface DossierPageInput {
@@ -249,14 +250,14 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
 // Exhibits
 
 type Ink = ReviewPriority | "none"
-const INK: Record<Ink, string> = {
+const INK: Record.ReadonlyRecord<Ink, string> = {
   P1: "var(--p1)",
   P2: "var(--p2)",
   P3: "var(--p3)",
   none: "var(--ink-3)",
 }
 
-const STAMP: Record<DossierEntryTag, { readonly word: string; readonly by: string }> = {
+const STAMP: Record.ReadonlyRecord<DossierEntryTag, { readonly word: string; readonly by: string }> = {
   confirmed: { word: "Confirmed", by: "Verification" },
   judgment: { word: "Kept", by: "Judgment" },
   plausible: { word: "Plausible", by: "Verification" },
@@ -379,7 +380,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
   const briefs = input.briefs ?? new Map<string, string>()
   const sources: PageSources = {
     hunks: parseDiffHunks(plan.target.diff),
-    files: new Map(Object.entries(data.sources)),
+    files: new Map(Record.toEntries(data.sources)),
     citable: citablePaths(plan, dossier),
   }
   const lookup = (key: string) => input.extraSources?.get(key) ?? sources.files.get(key)

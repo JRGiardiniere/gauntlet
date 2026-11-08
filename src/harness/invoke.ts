@@ -10,6 +10,7 @@ import { pipe } from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
+import * as Record from "effect/Record"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
@@ -70,8 +71,8 @@ export interface InvokeInput<O> {
 }
 
 export type PrefixSignal = Data.TaggedEnum<{
-  PrefixObserved: Record<never, never>
-  PrefixNotObserved: Record<never, never>
+  PrefixObserved: Record.ReadonlyRecord<never, never>
+  PrefixNotObserved: Record.ReadonlyRecord<never, never>
 }>
 
 export const PrefixSignal = Data.taggedEnum<PrefixSignal>()
@@ -692,7 +693,7 @@ const validateInput = <O>(input: InvokeInput<O>) =>
         reason: "prompt must be non-empty",
       })
     }
-    for (const [name, value] of Object.entries(input.deadlines)) {
+    for (const [name, value] of Record.toEntries(input.deadlines)) {
       if (!Number.isFinite(value) || value <= 0) {
         return yield* InvocationSetupError.make({
           operation: "validate-config",

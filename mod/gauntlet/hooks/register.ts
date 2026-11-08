@@ -1,5 +1,7 @@
 import type { EngineInterface, Register } from "claude-code"
 import * as Array from "effect/Array"
+import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import {
   createEngine,
   createSession,
@@ -60,7 +62,7 @@ function log($: Engines, line: string) {
   }).catch(() => undefined)
 }
 
-function portsOf($: Engines, env: Record<string, string>): EnginePorts {
+function portsOf($: Engines, env: Record.ReadonlyRecord<string, string>): EnginePorts {
   return {
     read: (path) => $.fs.read(path),
     readBytes: (path) => $.fs.read(path, { as: "bytes" }).then((bytes) => bytes.base64),
@@ -171,13 +173,11 @@ export const register: Register = (on, options) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
     home = (await $.env.get("HOME")) ?? ""
-    const env = Object.fromEntries(
-      Array.flatMap([
-        ["HOME", home],
-        ["TMPDIR", await $.env.get("TMPDIR")],
-        ["LINEAR_API_KEY", linearApiKey ?? (await $.env.get("LINEAR_API_KEY"))],
-      ], ([name, value]) => (value === undefined ? [] : [[name, value]])),
-    )
+    const env = Record.filter({
+      HOME: home,
+      TMPDIR: await $.env.get("TMPDIR"),
+      LINEAR_API_KEY: linearApiKey ?? (await $.env.get("LINEAR_API_KEY")),
+    }, Predicate.isNotUndefined)
     const ports = portsOf($, env)
     const sessionId = await $.session.id()
     try {

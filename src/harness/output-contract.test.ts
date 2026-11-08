@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { Candidate } from "../domain/candidate.ts"
 import {
@@ -18,7 +19,7 @@ describe("output contracts", () => {
       ] as const
       for (const [contract, sentinel] of sentinels) {
         const document = projectOutputContract(contract)
-        expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
+        expect(Record.keys(document.definitions ?? {})).toHaveLength(0)
         const projected = yield* Schema.encodeEffect(
           Schema.fromJsonString(Schema.Unknown),
         )({
