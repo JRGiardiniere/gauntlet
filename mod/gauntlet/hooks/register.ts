@@ -1,10 +1,4 @@
 import type { EngineInterface, Register } from "claude-code"
-import * as Array from "effect/Array"
-import * as Effect from "effect/Effect"
-import * as Formatter from "effect/Formatter"
-import * as Predicate from "effect/Predicate"
-import * as Record from "effect/Record"
-import * as Schema from "effect/Schema"
 import {
   createEngine,
   createSession,
@@ -48,10 +42,6 @@ interface ModLog {
 }
 
 const loadedAt = Date.now()
-// The build writes plugin.json's version, the release's.
-const decodePluginManifest = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(Schema.Struct({ version: Schema.String })),
-)
 
 const modDir = (home: string) => `${home}/.gauntlet/mod`
 
@@ -61,13 +51,13 @@ function log($: Engines, modLog: ModLog, line: string) {
   modLog.pending.push(`${new Date().toISOString()} [+${((Date.now() - loadedAt) / 1000).toFixed(1)}s] ${line}`)
   modLog.writing = modLog.writing.then(async () => {
     if (modLog.pending.length === 0 || modLog.home === "") return
-    const text = `${Array.join(modLog.pending, "\n")}\n`
+    const text = `${modLog.pending.join("\n")}\n`
     modLog.pending = []
     await $.process.run(["sh", "-c", 'mkdir -p "${1%/*}" && cat >> "$1"', "sh", `${modDir(modLog.home)}/mod.log`], { stdin: text })
   }).catch(() => undefined)
 }
 
-function portsOf($: Engines, modLog: ModLog, env: Record.ReadonlyRecord<string, string>): EnginePorts {
+function portsOf($: Engines, modLog: ModLog, env: Record<string, string>): EnginePorts {
   return {
     read: (path) => $.fs.read(path),
     readBytes: (path) => $.fs.read(path, { as: "bytes" }).then((bytes) => bytes.base64),
@@ -132,7 +122,7 @@ function startClock(
     })
     const view = shownView()
     if (view === undefined) return
-    const shown = Formatter.formatJson({ ...view, startedAt: 0 })
+    const shown = JSON.stringify({ ...view, startedAt: 0 })
     const changed = shown !== drawn
     if (!changed && (!live || Date.now() - tickedAt < 500)) return
     tickedAt = Date.now()
@@ -163,7 +153,7 @@ const reviewTool = (recipes: ReadonlyArray<string>) => ({
     "`config` answers at once with the Mod's settings and recipes (~/.gauntlet/mod), each invalid recipe with why. " +
     (recipes.length === 0
       ? "No recipes are installed."
-      : `Recipes: ${Array.join(recipes, ", ")}; when the person names an effort ("gauntlet high"), pass the recipe here that matches it.`),
+      : `Recipes: ${recipes.join(", ")}; when the person names an effort ("gauntlet high"), pass the recipe here that matches it.`),
   inputSchema: { ...reviewToolInputSchema },
 })
 
@@ -199,18 +189,19 @@ export const register: Register = (on, options) => {
   on("session.start", async ($, e, next) => {
     const started = await next(e)
     modLog.home = (await $.env.get("HOME")) ?? ""
-    const env = Record.filter({
-      HOME: modLog.home,
-      TMPDIR: await $.env.get("TMPDIR"),
-      LINEAR_API_KEY: linearApiKey ?? (await $.env.get("LINEAR_API_KEY")),
-    }, Predicate.isNotUndefined)
+    const env = Object.fromEntries(
+      [
+        ["HOME", modLog.home],
+        ["TMPDIR", await $.env.get("TMPDIR")],
+        ["LINEAR_API_KEY", linearApiKey ?? (await $.env.get("LINEAR_API_KEY"))],
+      ].flatMap(([name, value]) => (value === undefined ? [] : [[name, value]])),
+    )
     const ports = portsOf($, modLog, env)
     const sessionId = await $.session.id()
     try {
       const loadStart = Date.now()
-      const { version } = await Effect.runPromise(
-        decodePluginManifest(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)),
-      )
+      // SAFETY: the build writes plugin.json's version, the release's.
+      const { version } = JSON.parse(await $.fs.read(`${$.plugin.root}/.claude-plugin/plugin.json`)) as { version: string }
       engine = createEngine(ports, version)
       session = createSession(ports, engine, sessionId)
       log($, modLog, `loaded engine ${version} in ${String(Date.now() - loadStart)}ms (module loaded ${String(Date.now() - loadedAt)}ms ago)`)
@@ -224,7 +215,7 @@ export const register: Register = (on, options) => {
     await $.tool.register(reviewTool(recipes))
     await $.command.register({
       name: "gauntlet",
-      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${Array.join(DEMO_SCENARIOS, "|")}] for a scripted review that runs no agents; --help for the rest`,
+      description: `Gauntlet review, run in process: /gauntlet [target] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--repo <path>] [--no-related-files] [--destination pr], /gauntlet deliver <run-id>, /gauntlet config, or /gauntlet demo [${DEMO_SCENARIOS.join("|")}] for a scripted review that runs no agents; --help for the rest`,
     })
     await recoverLostRun(ports, sessionId)
     startClock($, modLog, () => session?.tick() ?? Promise.resolve(false), shownView)
