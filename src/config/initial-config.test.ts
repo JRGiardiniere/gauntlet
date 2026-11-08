@@ -54,8 +54,8 @@ describe("the Mod's configuration", () => {
       yield* fs.writeFileString(path.join(recipes, "fixture.json"), `{"default":"fixture/fixture-model:low"}\n`)
 
       const [entry] = yield* asMod(home, listRecipes())
-      expect(entry?._tag).toBe("InvalidRecipe")
-      if (entry?._tag !== "InvalidRecipe") return
+      expect(entry).toMatchObject({ _tag: "InvalidRecipe" })
+      if (entry._tag !== "InvalidRecipe") return
       expect(entry.error).toContain("the Mod runs only claude-code/<model>:<effort> Seats")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

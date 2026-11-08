@@ -94,7 +94,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
     const seat = `${provider}/${model}`
 
     const document = projectOutputContract(EmitFindings)
-    const definitionCount = Record.keys(document.definitions ?? {}).length
+    const definitionCount = Record.keys(document.definitions).length
     if (definitionCount > 0) {
       return yield* reportChecks([
         check(

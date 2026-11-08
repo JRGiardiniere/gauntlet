@@ -18,8 +18,10 @@ import { commandWords } from "./review-argv.ts"
 // "gauntlet review finished:" and the digest's counts line joined; a message
 // of notes alone, its first line.
 export const digestHeadline = (text: string): string => {
-  const [first = "", second] = Array.filter(text.split("\n"), (line) => line.trim() !== "")
-  return first.endsWith(":") && second !== undefined ? `${first.slice(0, -1)} · ${second}` : first
+  const lines = Array.filter(text.split("\n"), (line) => line.trim() !== "")
+  const first = Option.getOrElse(Array.head(lines), () => "")
+  const second = Array.get(lines, 1)
+  return first.endsWith(":") && Option.isSome(second) ? `${first.slice(0, -1)} · ${second.value}` : first
 }
 
 // Words the engine answers at once, as the command's own answer, without

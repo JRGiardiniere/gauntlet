@@ -19,7 +19,7 @@ describe("output contracts", () => {
       ] as const
       for (const [contract, sentinel] of sentinels) {
         const document = projectOutputContract(contract)
-        expect(Record.keys(document.definitions ?? {})).toHaveLength(0)
+        expect(Record.keys(document.definitions)).toHaveLength(0)
         const projected = yield* Schema.encodeEffect(
           Schema.fromJsonString(Schema.Unknown),
         )({

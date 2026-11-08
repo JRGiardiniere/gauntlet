@@ -51,10 +51,10 @@ export const renderPromptTemplate = Effect.fn(
     missing = HashSet.remove(missing, placeholder)
   }
 
-  const missingPlaceholder = Array.fromIterable(missing)[0]
-  if (missingPlaceholder !== undefined) {
+  const missingPlaceholder = missing.pipe(Array.fromIterable, Array.head)
+  if (Option.isSome(missingPlaceholder)) {
     return yield* PromptAssemblyError.make({
-      reason: `${name} template is missing {{${missingPlaceholder}}}`,
+      reason: `${name} template is missing {{${missingPlaceholder.value}}}`,
     })
   }
   parts.push(template.slice(cursor))

@@ -184,7 +184,8 @@ const appendOnlyFile = (ports: PlatformPorts, path: string, initial: string): Fi
 }
 
 const makeTemp = (ports: PlatformPorts, kind: "directory" | "file", prefix: string | undefined) => {
-  const template = `${(ports.env.TMPDIR ?? "/tmp").replace(/\/$/, "")}/${prefix ?? "gauntlet-"}XXXXXX`
+  const tmpdir = Option.getOrElse(Record.get(ports.env, "TMPDIR"), () => "/tmp")
+  const template = `${tmpdir.replace(/\/$/, "")}/${prefix ?? "gauntlet-"}XXXXXX`
   return kind === "directory"
     ? tool(ports, "makeTempDirectory", template, ["mktemp", "-d", template]).pipe(Effect.map(chomp))
     : tool(ports, "makeTempFile", template, ["mktemp", template]).pipe(Effect.map(chomp))

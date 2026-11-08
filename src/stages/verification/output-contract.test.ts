@@ -17,7 +17,7 @@ describe("EmitVerdicts contract", () => {
   it.effect("projects self-contained with the normative descriptions intact", () =>
     Effect.gen(function* () {
       const document = projectOutputContract(EmitVerdicts)
-      expect(Record.keys(document.definitions ?? {})).toHaveLength(0)
+      expect(Record.keys(document.definitions)).toHaveLength(0)
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )(document.schema)

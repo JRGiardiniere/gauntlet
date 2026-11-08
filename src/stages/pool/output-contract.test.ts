@@ -16,7 +16,7 @@ describe("EmitPool contract", () => {
   it.effect("projects self-contained with its description intact", () =>
     Effect.gen(function* () {
       const document = projectOutputContract(EmitPool)
-      expect(Record.keys(document.definitions ?? {})).toHaveLength(0)
+      expect(Record.keys(document.definitions)).toHaveLength(0)
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )({ description: EmitPool.description, parameters: document.schema })

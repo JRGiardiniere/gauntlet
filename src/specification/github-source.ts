@@ -63,8 +63,7 @@ export const reviewSpecificationFromGitHubIssues = (
     ...Array.map(parents, (parent) => issueDocument("parent", parent)),
     ...Array.map(slices, (slice) => issueDocument("slice", slice)),
   ]
-  const [first, ...rest] = documents
-  if (first === undefined) return undefined
+  if (!Array.isArrayNonEmpty(documents)) return undefined
 
   const uniqueIssues = new Map<string, GitHubIssueSnapshot>()
   for (const parent of parents) uniqueIssues.set(parent.url, parent)
@@ -75,11 +74,11 @@ export const reviewSpecificationFromGitHubIssues = (
   )
   return trimmed.commentOmission === undefined
     ? ReviewSpecification.make({
-        documents: [first, ...rest],
+        documents,
         comments: trimmed.comments,
       })
     : ReviewSpecification.make({
-        documents: [first, ...rest],
+        documents,
         comments: trimmed.comments,
         commentOmission: trimmed.commentOmission,
       })

@@ -5,6 +5,10 @@
 import * as Array from "effect/Array"
 import type * as Option from "effect/Option"
 
+// A match's group, undefined when the group is optional and took no part in
+// the match: the standard library types every group as a string.
+export const capture = (match: ReadonlyArray<string>, group: number): string | undefined => match[group]
+
 export const escapeHtml = (text: string): string =>
   text
     .replace(/&/g, "&amp;")
@@ -69,9 +73,11 @@ export const parseDiffHunks = (
     const header = HUNK_HEADER.exec(line)
     if (header !== null && hunks !== undefined) {
       oldLine = Number(header[1])
-      oldLeft = header[2] === undefined ? 1 : Number(header[2])
+      const oldCount = capture(header, 2)
+      oldLeft = oldCount === undefined ? 1 : Number(oldCount)
       newLine = Number(header[3])
-      newLeft = header[4] === undefined ? 1 : Number(header[4])
+      const newCount = capture(header, 4)
+      newLeft = newCount === undefined ? 1 : Number(newCount)
       rows = []
       hunks.push({ header: line, newStart: newLine, newLength: newLeft, rows })
     }
@@ -113,7 +119,12 @@ export const lineHighlighter = (file: string): (line: string) => string => {
     }
     let last = 0
     for (const match of rest.matchAll(TOKEN)) {
-      const [token, lineComment, blockComment, string, number, word] = match
+      const token = match[0]
+      const lineComment = capture(match, 1)
+      const blockComment = capture(match, 2)
+      const string = capture(match, 3)
+      const number = capture(match, 4)
+      const word = capture(match, 5)
       html += escapeHtml(rest.slice(last, match.index))
       last = match.index + token.length
       if (lineComment !== undefined) html += span("com", token)

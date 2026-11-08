@@ -4,6 +4,7 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import {
@@ -234,8 +235,8 @@ export const executeFinders = Effect.fn(
   )
 
   const failures = Array.flatMap(groupResults, ({ failed }) => failed)
-  const firstFailure = failures[0]
-  if (firstFailure !== undefined) return yield* firstFailure.error
+  const firstFailure = Array.head(failures)
+  if (Option.isSome(firstFailure)) return yield* firstFailure.value.error
 
   const completedByKey = HashMap.fromIterable(
     pipe(

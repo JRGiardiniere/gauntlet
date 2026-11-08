@@ -36,11 +36,9 @@ export const linearIssueIdentifierFromBranch = (
 ): string | undefined => {
   const identifiers = new Set(
     Array.flatMap([...branch.matchAll(ISSUE_IDENTIFIER)], (match) =>
-      match[1] === undefined
+      GENERIC_BRANCH_KEYS.has(match[1].slice(0, match[1].lastIndexOf("-")).toUpperCase())
         ? []
-        : GENERIC_BRANCH_KEYS.has(match[1].slice(0, match[1].lastIndexOf("-")).toUpperCase())
-          ? []
-          : [match[1].toUpperCase()]),
+        : [match[1].toUpperCase()]),
   )
   return identifiers.size === 1 ? [...identifiers][0] : undefined
 }

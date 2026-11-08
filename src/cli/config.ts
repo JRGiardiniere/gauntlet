@@ -293,16 +293,14 @@ const requireSettings = Effect.fn("gauntlet.cli.config_require_settings")(
 const requireExactlyOne = (
   key: string,
   values: ReadonlyArray<string>,
-): Effect.Effect<string, ConfigCommandError> => {
-  const [value] = values
-  return values.length === 1 && value !== undefined
-    ? Effect.succeed(value)
+): Effect.Effect<string, ConfigCommandError> =>
+  values.length === 1
+    ? Effect.succeed(values[0])
     : Effect.fail(
       ConfigCommandError.make({
         reason: `config set ${key} takes exactly one value`,
       }),
     )
-}
 
 const normalizeRunsRoot = Effect.fn("gauntlet.cli.config_runs_root")(function* (
   value: string,

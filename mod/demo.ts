@@ -165,9 +165,10 @@ export const playDemo = Effect.fn("Demo.play")(
       yield* Effect.sleep("1500 millis")
       if (scenario.refusal !== undefined) return yield* RunRefusal.make({ reason: scenario.refusal })
       // The first Finder alone, then the rest, as the cache warm-up runs them.
-      const [first, ...rest] = scenario.finders
+      const first = Array.head(scenario.finders)
+      const rest = Array.drop(scenario.finders, 1)
       const finder = ([lens, seconds, candidates]: Scenario["finders"][number]) => invoke(`finders-1-finder-${lens}`, seconds, candidates)
-      if (first !== undefined) yield* finder(first)
+      if (Option.isSome(first)) yield* finder(first.value)
       yield* Effect.forEach(rest, (each, at) => Effect.delay(finder(each), Duration.millis(at * 150)), { concurrency: "unbounded" })
       yield* reportMilestone(RunMilestone.FindersFinished())
       yield* reportMilestone(RunMilestone.Routed(scenario.routed))

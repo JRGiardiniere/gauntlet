@@ -11,6 +11,7 @@
 
 import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 
 export type MarkState = "waiting" | "running" | "answered" | "failed" | "skipped"
 
@@ -175,14 +176,14 @@ export const trackSvg = (stages: ReadonlyArray<TrackStage>, pills: ReadonlyArray
     })
     const dotsEnd = x + 2 + RADIUS * 2 + (marks.length - 1) * PITCH
     const labelEnd = x + stage.name.length * LETTER
-    const following = stages[at + 1]
-    if (following === undefined) {
+    const following = Array.get(stages, at + 1)
+    if (Option.isNone(following)) {
       x = Math.max(dotsEnd, labelEnd)
       return
     }
     // A label longer than its marks may push the next stage, and the line, on.
     const next = Math.max(dotsEnd + CONNECT + 10, labelEnd + 12)
-    parts.push(connectorSvg(dotsEnd + 5, next - 5, following, clock.now))
+    parts.push(connectorSvg(dotsEnd + 5, next - 5, following.value, clock.now))
     x = next
   })
   if (pills.length > 0) {

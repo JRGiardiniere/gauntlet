@@ -24,7 +24,7 @@ const parseFamilyModel = (modelId: string) => {
   const match = familyModel.exec(modelId)
   return match === null
     ? Option.none<{ readonly version: ReadonlyArray<number>; readonly family: string }>()
-    : Option.some({ version: Array.map((match[1] ?? "").split("."), Number), family: match[2] ?? "" })
+    : Option.some({ version: Array.map(match[1].split("."), Number), family: match[2] })
 }
 
 const compareVersions = (

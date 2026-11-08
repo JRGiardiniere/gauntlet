@@ -4,6 +4,7 @@ import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { Dossier } from "../domain/dossier.ts"
 import { briefReferences, sourceKey } from "../render/brief.ts"
@@ -84,7 +85,7 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
       [...briefs.values()],
       Arr.flatMap(briefReferences),
       Arr.filter(({ file, revision }) =>
-        revision !== undefined || (data.sources[file] === undefined && !uncommitted.has(file))),
+        revision !== undefined || (!Record.has(data.sources, file) && !uncommitted.has(file))),
       Arr.map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
     ),
   )

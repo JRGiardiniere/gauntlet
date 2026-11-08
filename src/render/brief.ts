@@ -12,7 +12,8 @@
 // A first-level heading is the brief's takeaway. Raw HTML stays text.
 import MarkdownIt from "markdown-it"
 import * as Array from "effect/Array"
-import { escapeHtml, lineHighlighter } from "./code-text.ts"
+import * as Option from "effect/Option"
+import { capture, escapeHtml, lineHighlighter } from "./code-text.ts"
 import { code, codeLine, excerpt, frame, markdown } from "./page-frames.ts"
 
 export interface CodeReference {
@@ -32,22 +33,29 @@ const CODE_FENCE =
 
 const lineNumbers = (spec: string): ReadonlyArray<number> =>
   Array.flatMap(spec.split(","), (part) => {
-    const [from, to] = Array.map(part.trim().split("-"), Number)
-    if (from === undefined || Number.isNaN(from)) return []
-    const last = to === undefined || Number.isNaN(to) ? from : to
-    return globalThis.Array.from({ length: Math.max(0, last - from + 1) }, (_, i) => from + i)
+    const bounds = Array.map(part.trim().split("-"), Number)
+    const bound = (index: number) => Option.filter(Array.get(bounds, index), (value) => !Number.isNaN(value))
+    return Option.match(bound(0), {
+      onNone: () => [],
+      onSome: (from) => {
+        const last = Option.getOrElse(bound(1), () => from)
+        return globalThis.Array.from({ length: Math.max(0, last - from + 1) }, (_, i) => from + i)
+      },
+    })
   })
 
 const codeReference = (info: string): CodeReference | undefined => {
   const match = CODE_FENCE.exec(info.trim())
   if (match === null) return undefined
   const from = Number(match[2])
-  const to = match[3] === undefined ? from : Number(match[3])
+  const toText = capture(match, 3)
+  const to = toText === undefined ? from : Number(toText)
+  const marks = capture(match, 5)
   return {
-    file: match[1] ?? "",
+    file: match[1],
     from,
     to,
-    marked: match[5] === undefined ? [] : lineNumbers(match[5]),
+    marked: marks === undefined ? [] : lineNumbers(marks),
     revision: match[4],
   }
 }

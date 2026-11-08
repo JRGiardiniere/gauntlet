@@ -18,6 +18,7 @@ import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderBrief, type RenderedBrief } from "./brief.ts"
 import {
+  capture,
   escapeHtml,
   type Hunk,
   hunkAt,
@@ -141,7 +142,7 @@ export const dossierPageFiles = (
   for (const entry of entries) {
     for (const text of prose(entry)) {
       for (const match of text.matchAll(CITATION)) {
-        const path = resolveCited(match[1] ?? "", entry.candidate.file, known)
+        const path = resolveCited(match[1], entry.candidate.file, known)
         if (path !== undefined) files.add(path)
       }
     }
@@ -158,7 +159,7 @@ const splitLead = (summary: string) => {
   const match = /^(.{40,220}?[.!?])\s+(?=[A-Z`(])/.exec(summary)
   return match === null
     ? { lead: summary, rest: "" }
-    : { lead: match[1] ?? summary, rest: summary.slice(match[0].length) }
+    : { lead: match[1], rest: summary.slice(match[0].length) }
 }
 
 const WINDOW = 9
@@ -205,7 +206,7 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
   const hunks = sources.hunks.get(file) ?? []
   const lines = sources.files.get(file)
   const own = line === undefined
-    ? hunks[0] === undefined ? "" : change(file, hunks[0], undefined, pin)
+    ? Option.match(Array.head(hunks), { onNone: () => "", onSome: (hunk) => change(file, hunk, undefined, pin) })
     : (() => {
       const hunk = hunkAt(hunks, line)
       if (Option.isSome(hunk)) return change(file, hunk.value, line, pin)
@@ -224,9 +225,10 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
   const cited: Array<string> = []
   for (const text of prose(entry)) {
     for (const match of text.matchAll(CITATION)) {
-      const path = resolveCited(match[1] ?? "", file, sources.citable)
+      const path = resolveCited(match[1], file, sources.citable)
       const from = Number(match[2])
-      const to = Math.min(match[3] === undefined ? from : Number(match[3]), from + 20)
+      const toText = capture(match, 3)
+      const to = Math.min(toText === undefined ? from : Number(toText), from + 20)
       const key = `${path}:${from}`
       const nearOwn = path === file && line !== undefined && Math.abs(from - line) <= CONTEXT
       const pathLines = path === undefined ? undefined : sources.files.get(path)

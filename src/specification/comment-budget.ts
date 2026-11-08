@@ -1,4 +1,6 @@
 import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import type {
   CommentOmission,
   SpecificationComment,
@@ -46,13 +48,17 @@ export const trimCommentBudget = (
     total -= earliest.text.length
   }
 
-  const cutoff = retained[0]?.createdAt ?? ordered[ordered.length - 1]?.createdAt
+  const cutoff = pipe(
+    Array.head(retained),
+    Option.orElse(() => Array.last(ordered)),
+    Option.match({ onNone: () => "none", onSome: (comment) => comment.createdAt }),
+  )
   return {
     comments: retained,
     commentOmission: {
       droppedCount,
       droppedCharacters,
-      cutoff: cutoff ?? "none",
+      cutoff,
     },
   }
 }

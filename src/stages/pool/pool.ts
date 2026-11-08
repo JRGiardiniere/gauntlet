@@ -127,8 +127,8 @@ export const repairPoolOutput = (
       seen = HashSet.add(seen, index)
       return true
     })
-    const firstIndex = indexes[0]
-    if (firstIndex === undefined) return Result.fail(undefined)
+    if (!Array.isArrayNonEmpty(indexes)) return Result.fail(undefined)
+    const firstIndex = Array.headNonEmpty(indexes)
     const summary = indexes.length === cluster.indexes.length
       ? cluster.summary
       : Array.findFirst(claims, ({ index }) => index === firstIndex).pipe(

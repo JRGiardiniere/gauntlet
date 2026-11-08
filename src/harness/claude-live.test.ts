@@ -149,15 +149,16 @@ describe("the Claude Code Host's claude -p adapter", () => {
 
       expect(Termination.guards.Completed(outcome.termination)).toBe(true)
       expect(outcome.diagnostics).toContain("validated emit succeeded after 1 corrective turn")
+      expect(spawned).toHaveLength(2)
       const [first, second] = spawned
-      expect(second?.stdin).toContain("Call StructuredOutput now")
-      const sessionId = first?.args[first.args.indexOf("--session-id") + 1]
-      expect(second?.args).toEqual(Array.map(first?.args, (arg) => (arg === "--session-id" ? "--resume" : arg)))
-      expect(second?.args).toContain(sessionId)
+      expect(second.stdin).toContain("Call StructuredOutput now")
+      const sessionId = first.args[first.args.indexOf("--session-id") + 1]
+      expect(second.args).toEqual(Array.map(first.args, (arg) => (arg === "--session-id" ? "--resume" : arg)))
+      expect(second.args).toContain(sessionId)
       for (const turn of [first, second]) {
-        for (const pair of FENCE) expect(hasPair(turn?.args ?? [], pair)).toBe(true)
-        expect(turn?.args).toContain("--strict-mcp-config")
-        expect(turn?.env).toMatchObject({ CLAUDE_CODE_PLUGIN_DIRS: "", CLAUDE_CODE_CHILD_SESSION: undefined })
+        for (const pair of FENCE) expect(hasPair(turn.args, pair)).toBe(true)
+        expect(turn.args).toContain("--strict-mcp-config")
+        expect(turn.env).toMatchObject({ CLAUDE_CODE_PLUGIN_DIRS: "", CLAUDE_CODE_CHILD_SESSION: undefined })
       }
       // The two turns' costs: each on its turn's last response.
       expect(outcome.usage.costUsd).toBeCloseTo(0.00029465 + 0.00160743, 8)
