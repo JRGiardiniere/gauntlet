@@ -153,13 +153,11 @@ const executeFixture = (
         path.join(root, "review"),
     }).pipe(
       Effect.provideService(FinderCacheSettle, options.settle ?? Effect.void),
-      Effect.provide(
-        Layer.mergeAll(
-          NodeServices.layer,
-          scriptedLayer(scripted),
-          Layer.succeed(ContentDirectory, content),
-        ),
-      ),
+      Effect.provide([
+        NodeServices.layer,
+        scriptedLayer(scripted),
+        Layer.succeed(ContentDirectory, content),
+      ]),
     )
     return { effect, fs, paths, plan }
   }).pipe(Effect.provide(NodeServices.layer))

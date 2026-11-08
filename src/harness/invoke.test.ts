@@ -4,7 +4,6 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
 import * as TestClock from "effect/testing/TestClock"
@@ -600,12 +599,10 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       })
       const fiber = yield* Effect.forkChild(
         invoke(INPUT).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              scriptedLayer(scripted),
-              Logger.layer([collector]),
-            ),
-          ),
+          Effect.provide([
+            scriptedLayer(scripted),
+            Logger.layer([collector]),
+          ]),
           Effect.flip,
         ),
       )
@@ -652,12 +649,10 @@ describe("invoke (scripted HarnessSession, TestClock)", () => {
       })
       const fiber = yield* Effect.forkChild(
         invoke(INPUT).pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              scriptedLayer(scripted),
-              Logger.layer([collector]),
-            ),
-          ),
+          Effect.provide([
+            scriptedLayer(scripted),
+            Logger.layer([collector]),
+          ]),
           Effect.provideService(References.MinimumLogLevel, "Debug"),
         ),
       )

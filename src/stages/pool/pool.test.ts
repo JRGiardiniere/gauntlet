@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
@@ -51,9 +50,7 @@ const runPool = (scripted: Scripted, seatless = false) =>
       bugClaims,
     })
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
-    ),
+    Effect.provide([NodeServices.layer, scriptedLayer(scripted)]),
   )
 
 describe("Pool stage interface", () => {

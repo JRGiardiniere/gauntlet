@@ -5,7 +5,6 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
-import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -70,15 +69,13 @@ const submitWith = (
   submit(request).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
     Effect.provideService(ContentDirectory, fixture.content),
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-        github,
-        linear,
-        scriptedLayer(makeScripted({ sessions: [] })),
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+      github,
+      linear,
+      scriptedLayer(makeScripted({ sessions: [] })),
+    ]),
   )
 
 const persistedPlan = (fixture: Fixture, runId: string) =>
@@ -724,12 +721,10 @@ const writeStandardsManifest = (
     yield* fs.makeDirectory(path.dirname(manifest), { recursive: true })
     yield* fs.writeFileString(manifest, `${Array.join(entries, "\n")}\n`)
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+    ]),
   )
 
 const createAndSwitchBranch = (fixture: Fixture, branch: string) =>

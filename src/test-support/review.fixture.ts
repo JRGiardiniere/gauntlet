@@ -4,7 +4,6 @@ import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
-import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { ContentDirectory } from "../content/lens.ts"
@@ -300,15 +299,13 @@ export const provideReviewFixture = (
     Effect.provideService(InvocationDirectory, fixture.repo),
     Effect.provideService(ContentDirectory, fixture.content),
     Effect.provideService(FinderCacheSettle, Effect.void),
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-        scriptedLayer(scripted),
-        github,
-        unusedLinearLayer,
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+      scriptedLayer(scripted),
+      github,
+      unusedLinearLayer,
+    ]),
   )
 
 export const FINDER_OUTPUT = {

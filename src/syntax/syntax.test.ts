@@ -4,7 +4,6 @@ import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
-import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Command from "effect/cli/Command"
@@ -40,12 +39,10 @@ const parse = (words: ReadonlyArray<string>, relatedFiles: boolean) => {
         Effect.succeed(pipe(help.errors, Array.map((error) => error.message), Array.join("; "))),
     }),
     Effect.provideService(InvocationDirectory, "/work/repo"),
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: "/home/me" })),
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: "/home/me" })),
+    ]),
   )
 }
 

@@ -2,7 +2,6 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
@@ -100,9 +99,7 @@ const runVerification = (scripted: Scripted, seatless = false) =>
       pooled,
     })
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
-    ),
+    Effect.provide([NodeServices.layer, scriptedLayer(scripted)]),
   )
 
 describe("Verification stage interface", () => {

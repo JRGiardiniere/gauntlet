@@ -4,7 +4,6 @@ import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
@@ -79,15 +78,13 @@ const configAt = (
   runGauntlet(["config", ...argv]).pipe(
     Effect.provideService(InvocationDirectory, invocationDirectory),
     Effect.provideService(ContentDirectory, fixture.content),
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-        scriptedLayer(makeScripted({ sessions: [] })),
-        unusedGitHubLayer,
-        unusedLinearLayer,
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+      scriptedLayer(makeScripted({ sessions: [] })),
+      unusedGitHubLayer,
+      unusedLinearLayer,
+    ]),
   )
 
 const config = (fixture: Fixture, ...argv: Array<string>) =>
