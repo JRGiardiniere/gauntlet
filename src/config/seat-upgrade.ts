@@ -20,11 +20,15 @@ const successorProviders: ReadonlyMap<string, string> = new Map([
   ["openai-codex", "openai"],
 ])
 
-const parseFamilyModel = (modelId: string) => {
+const parseFamilyModel = (
+  modelId: string,
+): Option.Option<{ readonly version: ReadonlyArray<number>; readonly family: string }> => {
   const match = familyModel.exec(modelId)
-  return match === null
-    ? Option.none<{ readonly version: ReadonlyArray<number>; readonly family: string }>()
-    : Option.some({ version: Array.map(match[1].split("."), Number), family: match[2] })
+  const version = match?.[1]
+  const family = match?.[2]
+  return version === undefined || family === undefined
+    ? Option.none()
+    : Option.some({ version: Array.map(version.split("."), Number), family })
 }
 
 const compareVersions = (

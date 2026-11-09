@@ -18,7 +18,6 @@ import * as Schema from "effect/Schema"
 import type { RunAccounting } from "../run/run-accounting.ts"
 import { renderBrief, type RenderedBrief } from "./brief.ts"
 import {
-  capture,
   escapeHtml,
   type Hunk,
   hunkAt,
@@ -95,10 +94,11 @@ const CITATION =
 // A name cited in model prose ("engine.ts:349") resolved to one known path,
 // preferring the finding's own directory when the name is ambiguous.
 const resolveCited = (
-  name: string,
+  name: string | undefined,
   near: string,
   known: ReadonlyArray<string>,
 ): string | undefined => {
+  if (name === undefined) return undefined
   if (known.includes(name)) return name
   const hits = Array.filter(known, (path) => path.endsWith(`/${name}`))
   if (hits.length === 1) return hits[0]
@@ -157,9 +157,10 @@ export const dossierPageFiles = (
 const splitLead = (summary: string) => {
   if (summary.length <= 150) return { lead: summary, rest: "" }
   const match = /^(.{40,220}?[.!?])\s+(?=[A-Z`(])/.exec(summary)
-  return match === null
+  const lead = match?.[1]
+  return match === null || lead === undefined
     ? { lead: summary, rest: "" }
-    : { lead: match[1], rest: summary.slice(match[0].length) }
+    : { lead, rest: summary.slice(match[0].length) }
 }
 
 const WINDOW = 9
@@ -227,7 +228,7 @@ const evidence = (sources: PageSources, entry: DossierEntryView, pin: string) =>
     for (const match of text.matchAll(CITATION)) {
       const path = resolveCited(match[1], file, sources.citable)
       const from = Number(match[2])
-      const toText = capture(match, 3)
+      const toText = match[3]
       const to = Math.min(toText === undefined ? from : Number(toText), from + 20)
       const key = `${path}:${from}`
       const nearOwn = path === file && line !== undefined && Math.abs(from - line) <= CONTEXT

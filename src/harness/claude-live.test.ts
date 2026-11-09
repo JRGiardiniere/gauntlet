@@ -1,9 +1,10 @@
-import { describe, expect, it } from "@effect/vitest"
+import { assert, describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Predicate from "effect/Predicate"
 import * as Record from "effect/Record"
 import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
@@ -149,7 +150,7 @@ describe("the Claude Code Host's claude -p adapter", () => {
 
       expect(Termination.guards.Completed(outcome.termination)).toBe(true)
       expect(outcome.diagnostics).toContain("validated emit succeeded after 1 corrective turn")
-      expect(spawned).toHaveLength(2)
+      assert(Predicate.isTupleOf(spawned, 2), `expected 2 claude -p turns, got ${spawned.length}`)
       const [first, second] = spawned
       expect(second.stdin).toContain("Call StructuredOutput now")
       const sessionId = first.args[first.args.indexOf("--session-id") + 1]

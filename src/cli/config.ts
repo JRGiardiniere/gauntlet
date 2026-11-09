@@ -5,6 +5,7 @@ import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Predicate from "effect/Predicate"
 import * as Config from "effect/Config"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -294,7 +295,7 @@ const requireExactlyOne = (
   key: string,
   values: ReadonlyArray<string>,
 ): Effect.Effect<string, ConfigCommandError> =>
-  values.length === 1
+  Predicate.isTupleOf(values, 1)
     ? Effect.succeed(values[0])
     : Effect.fail(
       ConfigCommandError.make({

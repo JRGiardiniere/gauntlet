@@ -192,9 +192,12 @@ describe("gauntlet review", () => {
 
       for (const suffix of ["-verification", "-judgment"] as const) {
         const [pwd] = inspectionsFor(run.scripted, suffix)
-        expect(pwd).toMatchObject({ toolName: "bash", isError: false })
-        expect(pwd.text).toContain(REVIEW_WORKSPACE_ROOT)
-        expect(pwd.text).not.toContain(snapshot)
+        expect(pwd).toMatchObject({
+          toolName: "bash",
+          isError: false,
+          text: expect.stringContaining(REVIEW_WORKSPACE_ROOT),
+        })
+        expect(pwd).toMatchObject({ text: expect.not.stringContaining(snapshot) })
       }
 
       // Finders carry the repo root in the system prompt; the later stages

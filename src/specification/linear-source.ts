@@ -24,7 +24,7 @@ type LinearSpecificationResolution = Data.TaggedEnum<{
 export const LinearSpecificationResolution =
   Data.taggedEnum<LinearSpecificationResolution>()
 
-const ISSUE_IDENTIFIER = /(?:^|[^A-Za-z0-9])([A-Za-z][A-Za-z0-9]*-\d+)(?=$|[^A-Za-z0-9])/g
+const ISSUE_IDENTIFIER = /(?<=^|[^A-Za-z0-9])[A-Za-z][A-Za-z0-9]*-\d+(?=$|[^A-Za-z0-9])/g
 // Avoid treating Gauntlet/GitHub branches such as issue-75 as Linear bindings.
 const GENERIC_BRANCH_KEYS = new Set(["ISSUE", "PR", "SLICE"])
 
@@ -35,10 +35,10 @@ export const linearIssueIdentifierFromBranch = (
   branch: string,
 ): string | undefined => {
   const identifiers = new Set(
-    Array.flatMap([...branch.matchAll(ISSUE_IDENTIFIER)], (match) =>
-      GENERIC_BRANCH_KEYS.has(match[1].slice(0, match[1].lastIndexOf("-")).toUpperCase())
+    Array.flatMap([...branch.matchAll(ISSUE_IDENTIFIER)], ([identifier]) =>
+      GENERIC_BRANCH_KEYS.has(identifier.slice(0, identifier.lastIndexOf("-")).toUpperCase())
         ? []
-        : [match[1].toUpperCase()]),
+        : [identifier.toUpperCase()]),
   )
   return identifiers.size === 1 ? [...identifiers][0] : undefined
 }

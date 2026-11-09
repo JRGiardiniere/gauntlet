@@ -13,7 +13,7 @@
 import MarkdownIt from "markdown-it"
 import * as Array from "effect/Array"
 import * as Option from "effect/Option"
-import { capture, escapeHtml, lineHighlighter } from "./code-text.ts"
+import { escapeHtml, lineHighlighter } from "./code-text.ts"
 import { code, codeLine, excerpt, frame, markdown } from "./page-frames.ts"
 
 export interface CodeReference {
@@ -46,13 +46,14 @@ const lineNumbers = (spec: string): ReadonlyArray<number> =>
 
 const codeReference = (info: string): CodeReference | undefined => {
   const match = CODE_FENCE.exec(info.trim())
-  if (match === null) return undefined
+  const file = match?.[1]
+  if (match === null || file === undefined) return undefined
   const from = Number(match[2])
-  const toText = capture(match, 3)
+  const toText = match[3]
   const to = toText === undefined ? from : Number(toText)
-  const marks = capture(match, 5)
+  const marks = match[5]
   return {
-    file: match[1],
+    file,
     from,
     to,
     marked: marks === undefined ? [] : lineNumbers(marks),
