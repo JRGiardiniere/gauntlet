@@ -48,8 +48,6 @@ const admittedComments = (
 export const reviewSpecificationFromGitHubIssues = (
   issues: ReadonlyArray<GitHubClosingIssue>,
 ): ReviewSpecification | undefined => {
-  if (issues.length === 0) return undefined
-
   const slices = [...issues].sort(byIssueIdentity)
   const sliceUrls = new Set(Array.map(slices, (slice) => slice.url))
   const parentsByUrl = new Map<string, GitHubIssueSnapshot>()
@@ -63,6 +61,7 @@ export const reviewSpecificationFromGitHubIssues = (
     ...Array.map(parents, (parent) => issueDocument("parent", parent)),
     ...Array.map(slices, (slice) => issueDocument("slice", slice)),
   ]
+  // No closing issues, so no documents and no specification.
   if (!Array.isArrayNonEmpty(documents)) return undefined
 
   const uniqueIssues = new Map<string, GitHubIssueSnapshot>()
