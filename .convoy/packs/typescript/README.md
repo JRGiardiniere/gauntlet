@@ -4,6 +4,7 @@ Oxlint's own rules for any TypeScript project, with our choices: the plugins, th
 
 - `oxlintrc.json` turns on the plugins and categories, raises some rules to `error`, turns off the ones we don't want, and allows `console` in tests and `scripts/**`, and extraneous classes and triple-slash references in tests and fixtures.
 - Four type-aware correctness rules outside those categories are on: `strict-boolean-expressions` (no strings or numbers as conditions, where `""`, `0` and `NaN` are the bugs; nullable objects and booleans are fine), `switch-exhaustiveness-check`, `no-unnecessary-condition` (constant loop conditions such as `while (true)` allowed) and `prefer-nullish-coalescing`.
+- Keep `noUncheckedIndexedAccess` on in the project's `tsconfig.json` (`tsc --init` sets it). Without it, `xs[i]` and a regex group are typed as always present, so `no-unnecessary-condition` calls a real absence check unnecessary, and clearing its findings deletes the check.
 - `typescript/consistent-return` is off by choice: it misreads exhaustive `switch`es. The other rules it turns off would otherwise run in those categories.
 - With type-aware linting (the `effect` pack turns it on), the `typescript/*` choices here apply to oxlint's type-aware rules too.
 

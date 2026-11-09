@@ -26,12 +26,6 @@
     "mod/types/**"
   ],
   "rules": {
-    // Off until the effect pack drops it. effect/String is data-last only, so
-    // the rewrite turns `s.slice(0, n)` into `pipe(s, Str.slice(0, n))` for no
-    // behaviour change, and its Option results force branches a schema already
-    // rules out. Upstream ships it off by default, and Effect's own code
-    // doesn't follow it.
-    "effecttsgo/prefer-effect-string": "off",
     "typescript/no-unsafe-type-assertion": "off",
     "typescript/no-unnecessary-type-arguments": "off",
     "typescript/no-useless-default-assignment": "off",

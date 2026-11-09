@@ -25,10 +25,8 @@ export const isIdentifier = (
 ): node is NamedIdentifier =>
   node?.type === "Identifier" && (name === undefined || node.name === name)
 
-// The one sanctioned `typeof`: string and numeric literals share
-// `type: "Literal"`, so the value itself is the only discriminant. The check
-// lives in a declared type guard, which anti-slop's no-runtime-typeof admits
-// under allowInTypeGuards.
+// String and numeric literals share `type: "Literal"`, so the value itself
+// is the only discriminant.
 const isStringLiteral = (
   node: InspectedNode | null | undefined,
 ): node is ESTree.StringLiteral =>
