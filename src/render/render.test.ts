@@ -1,4 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
+import * as Option from "effect/Option"
 import { Candidate } from "../domain/candidate.ts"
 import {
   Dossier,
@@ -243,9 +245,9 @@ describe("dossier markdown rendering", () => {
     // newlines with Markdown-significant prefixes; neither may start a line.
     expect(markdown).toContain("first line dossier.md: /tmp/forged-path")
     expect(markdown).toContain("checked the call sites; ## the coupling is real")
-    expect(markdown.split("\n").filter((line) => line.startsWith("dossier.md:")))
+    expect(Array.filter(markdown.split("\n"), (line) => line.startsWith("dossier.md:")))
       .toHaveLength(0)
-    expect(markdown.split("\n").filter((line) => line.startsWith("##")))
+    expect(Array.filter(markdown.split("\n"), (line) => line.startsWith("##")))
       .toEqual([
         "## Findings",
         "## Unresolved",
@@ -270,9 +272,10 @@ describe("dossier markdown rendering", () => {
     const unresolved = markdown.split("## Unresolved")[1]?.split("## Rejected")[0] ?? ""
     // The confirmed claim states its verified framing only — the failure
     // scenario it restates stays in dossier.json.
-    const confirmed = findings
-      .split("\n- ")
-      .find((entry) => entry.includes("first line")) ?? ""
+    const confirmed = Option.getOrElse(
+      Array.findFirst(findings.split("\n- "), (entry) => entry.includes("first line")),
+      () => "",
+    )
     expect(confirmed).toContain("reproduced with an empty input")
     expect(confirmed).not.toContain("input of length zero loops forever")
     // Without evidence there is nothing to prefer, so the claim speaks for itself.
@@ -281,9 +284,10 @@ describe("dossier markdown rendering", () => {
 
   it("renders a cluster's test suggestion once, next to its finding", () => {
     const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
-    const confirmed = findings
-      .split("\n- ")
-      .find((entry) => entry.includes("first line")) ?? ""
+    const confirmed = Option.getOrElse(
+      Array.findFirst(findings.split("\n- "), (entry) => entry.includes("first line")),
+      () => "",
+    )
     expect(confirmed).toContain(
       "suggested tests: src/alpha.test.ts, the empty-input suite — the empty-input suite exercises the exact boundary",
     )
@@ -379,7 +383,7 @@ describe("digest rendering", () => {
   it("keeps candidate text from breaking the line-oriented contract", () => {
     // The confirmed claim's location and summary both embed a newline plus a
     // forged "dossier.md:" prefix; flattened, it cannot mint a digest path line.
-    expect(lines.filter((line) => line.startsWith("dossier.md: "))).toHaveLength(
+    expect(Array.filter(lines, (line) => line.startsWith("dossier.md: "))).toHaveLength(
       1,
     )
     expect(digest).toContain(
@@ -387,7 +391,7 @@ describe("digest rendering", () => {
     )
     expect(digest).toContain("first line dossier.md: /tmp/forged-path")
     // The kept observation's 400-char summary is capped, ellipsis-marked.
-    const keptLine = lines.find((line) => line.includes("kkkk")) ?? ""
+    const keptLine = Option.getOrElse(Array.findFirst(lines, (line) => line.includes("kkkk")), () => "")
     expect(keptLine.length).toBeLessThan(280)
     expect(keptLine).toContain("…")
   })
@@ -442,7 +446,7 @@ describe("digest rendering", () => {
     const everyLensRan = renderDigest(
       ReviewPlan.make({
         ...plan,
-        lenses: plan.lenses.filter(({ name }) => name !== "spec-conformance"),
+        lenses: Array.filter(plan.lenses, ({ name }) => name !== "spec-conformance"),
       }),
       dossier,
       accounting,
@@ -517,7 +521,7 @@ describe("dossier page rendering", () => {
 
 describe("page text parsing", () => {
   it("keeps an added line that reads like a file header inside its hunk", () => {
-    const diff = [
+    const diff = Array.join([
       "diff --git a/src/a.ts b/src/a.ts",
       "--- a/src/a.ts",
       "+++ b/src/a.ts",
@@ -527,9 +531,9 @@ describe("page text parsing", () => {
       "@@ -9,1 +10,1 @@",
       "-old",
       "+new",
-    ].join("\n")
+    ], "\n")
     const hunks = parseDiffHunks(diff).get("src/a.ts") ?? []
-    expect(hunks.map((hunk) => hunk.rows.length)).toEqual([2, 2])
+    expect(Array.map(hunks, (hunk) => hunk.rows.length)).toEqual([2, 2])
     expect(hunks[0]?.rows[1]).toEqual({ kind: "added", newLine: 2, text: "++ counter" })
   })
 

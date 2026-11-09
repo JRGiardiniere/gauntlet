@@ -31,7 +31,7 @@ const note = (
   label: string,
   indexes: ReadonlyArray<number>,
 ): ReadonlyArray<string> =>
-  indexes.length === 0 ? [] : [`${label} ${indexes.join(", ")}`]
+  indexes.length === 0 ? [] : [`${label} ${Array.join(Array.map(indexes, String), ", ")}`]
 
 // Phase 1 — one decision per index. A second decision for the same index
 // fails closed: the index becomes undecided and no later decision revives it.

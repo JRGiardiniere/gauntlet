@@ -1,5 +1,7 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Record from "effect/Record"
 import { Recipe, type RecipeName, type Seat } from "../domain/recipe.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
 import { listRecipes } from "./recipe-catalog.ts"
@@ -18,11 +20,15 @@ const successorProviders: ReadonlyMap<string, string> = new Map([
   ["openai-codex", "openai"],
 ])
 
-const parseFamilyModel = (modelId: string) => {
+const parseFamilyModel = (
+  modelId: string,
+): Option.Option<{ readonly version: ReadonlyArray<number>; readonly family: string }> => {
   const match = familyModel.exec(modelId)
-  return match === null
-    ? Option.none<{ readonly version: ReadonlyArray<number>; readonly family: string }>()
-    : Option.some({ version: (match[1] ?? "").split(".").map(Number), family: match[2] ?? "" })
+  const version = match?.[1]
+  const family = match?.[2]
+  return version === undefined || family === undefined
+    ? Option.none()
+    : Option.some({ version: Array.map(version.split("."), Number), family })
 }
 
 const compareVersions = (
@@ -96,7 +102,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
         skipped.push(entry.name)
         continue
       }
-      const upgradedSeats = seatFields.flatMap((field) => {
+      const upgradedSeats = Array.flatMap(seatFields, (field) => {
         const seat = entry.recipe[field]
         const next = seat === undefined ? Option.none() : newerSeat(seat, providerModelIds)
         if (seat === undefined || Option.isNone(next)) return []
@@ -106,7 +112,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
       if (upgradedSeats.length > 0) {
         yield* writeArtifactJson(entry.path, Recipe, {
           ...entry.recipe,
-          ...Object.fromEntries(upgradedSeats),
+          ...Record.fromEntries(upgradedSeats),
         })
       }
     }

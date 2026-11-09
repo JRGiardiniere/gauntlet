@@ -17,16 +17,16 @@ const makeBranchedRepo = Effect.gen(function* () {
   const path = yield* Path.Path
   yield* fs.writeFileString(path.join(repo, "alpha.txt"), "first line\n")
   yield* commitAll(repo, "base")
-  const mergeBase = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const mergeBase = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   // The fixture repo takes whatever init.defaultBranch is configured.
-  const trunk = chompLine(yield* runGit(repo, ["branch", "--show-current"]))
+  const trunk = yield* runGit(repo, ["branch", "--show-current"]).pipe(Effect.map(chompLine))
   yield* runGit(repo, ["checkout", "-b", "feature"])
   yield* fs.writeFileString(
     path.join(repo, "alpha.txt"),
     "first line\nfeature-line\n",
   )
   yield* commitAll(repo, "feature work")
-  const featureHead = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const featureHead = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   yield* runGit(repo, ["checkout", trunk])
   yield* fs.writeFileString(path.join(repo, "beta.txt"), "unrelated\n")
   yield* commitAll(repo, "unrelated main work")

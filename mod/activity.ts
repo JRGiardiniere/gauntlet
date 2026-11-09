@@ -1,6 +1,7 @@
 // What the strip shows of each invocation (#181): a thin wrapper over the
 // Claude Code Host's HarnessSessionFactory that watches each session's life,
 // from its open to its dispose, and the item count of its accepted emit.
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -18,10 +19,10 @@ export interface AgentActivity {
 
 // An accepted emit's items, under its contract's one list field.
 const EmitItems = Schema.Struct({
-  findings: Schema.optional(Schema.Array(Schema.Unknown)),
-  clusters: Schema.optional(Schema.Array(Schema.Unknown)),
-  verdicts: Schema.optional(Schema.Array(Schema.Unknown)),
-  decisions: Schema.optional(Schema.Array(Schema.Unknown)),
+  findings: Schema.Unknown.pipe(Schema.Array, Schema.optional),
+  clusters: Schema.Unknown.pipe(Schema.Array, Schema.optional),
+  verdicts: Schema.Unknown.pipe(Schema.Array, Schema.optional),
+  decisions: Schema.Unknown.pipe(Schema.Array, Schema.optional),
 })
 
 const itemCount = (args: Schema.Json) =>
@@ -75,6 +76,6 @@ export const makeActivity = () => {
   return {
     watch,
     // This run's invocations in open order, copied for the strip.
-    activity: (): ReadonlyArray<AgentActivity> => activity.map((each) => ({ ...each })),
+    activity: (): ReadonlyArray<AgentActivity> => Array.map(activity, (each) => ({ ...each })),
   }
 }

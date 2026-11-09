@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import {
   decodeOutputContract,
@@ -15,7 +16,7 @@ describe("EmitPool contract", () => {
   it.effect("projects self-contained with its description intact", () =>
     Effect.gen(function* () {
       const document = projectOutputContract(EmitPool)
-      expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
+      expect(Record.keys(document.definitions)).toHaveLength(0)
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )({ description: EmitPool.description, parameters: document.schema })

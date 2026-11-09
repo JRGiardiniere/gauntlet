@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -50,7 +51,7 @@ describe("source context", () => {
       const { snapshot } = yield* fixture
       const result = yield* assembleSourceContext(snapshot, [claim("old"),
         claim("new", ["missing.ts", "guard.ts"])], 1000)
-      expect(result.files.map((item) => item.file)).toEqual(["guard.ts"])
+      expect(Array.map(result.files, (item) => item.file)).toEqual(["guard.ts"])
       expect(result.omissions).toEqual([
         { candidateId: "old", reason: "no source references" },
         { candidateId: "new", file: "missing.ts", reason: "file is missing from the review snapshot" },
@@ -99,6 +100,6 @@ describe("source context", () => {
       yield* fs.writeFileString(path.join(snapshot, "huge.ts"), "a".repeat(1024 * 1024 + 1))
       const result = yield* assembleSourceContext(snapshot, [claim("a", ["binary", "invalid-utf8", "huge.ts", "unicode.ts"])], 2_000_000)
       expect(result.files).toEqual([{ file: "unicode.ts", text: 'const text = "café �"\n' }])
-      expect(result.omissions.map((item) => item.file)).toEqual(["binary", "invalid-utf8", "huge.ts"])
+      expect(Array.map(result.omissions, (item) => item.file)).toEqual(["binary", "invalid-utf8", "huge.ts"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

@@ -5,6 +5,8 @@
 // Caller. The hooks module (mod/gauntlet/hooks/register.ts) turns hook events
 // into calls here and `$` into ports; it keeps the strip, the log batch and
 // the 250ms clock, whose ticks it passes to `tick`.
+import * as Array from "effect/Array"
+import * as Formatter from "effect/Formatter"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type { ReviewRequest } from "../src/run/run.ts"
@@ -16,8 +18,10 @@ import { commandWords } from "./review-argv.ts"
 // "gauntlet review finished:" and the digest's counts line joined; a message
 // of notes alone, its first line.
 export const digestHeadline = (text: string): string => {
-  const [first = "", second] = text.split("\n").filter((line) => line.trim() !== "")
-  return first.endsWith(":") && second !== undefined ? `${first.slice(0, -1)} · ${second}` : first
+  const lines = Array.filter(text.split("\n"), (line) => line.trim() !== "")
+  const first = Option.getOrElse(Array.head(lines), () => "")
+  const second = Array.get(lines, 1)
+  return first.endsWith(":") && Option.isSome(second) ? `${first.slice(0, -1)} · ${second.value}` : first
 }
 
 // Words the engine answers at once, as the command's own answer, without
@@ -65,7 +69,7 @@ export const recoverLostRun = async (
   await ports.store.delete(key).catch((error) => ports.log(`in-flight marker failed: ${String(error)}`))
   const lost = Option.getOrUndefined(Schema.decodeUnknownOption(InFlight)(stored))
   if (lost === undefined) {
-    ports.log(`in-flight marker unreadable, dropped: ${JSON.stringify(stored)}`)
+    ports.log(`in-flight marker unreadable, dropped: ${Formatter.formatJson(stored)}`)
     return
   }
   const outcomes: Array<string> = []
@@ -78,10 +82,10 @@ export const recoverLostRun = async (
   if (lost.snapshots.length > 0) await ports.run(["git", "-C", lost.cwd, "worktree", "prune"]).catch(() => undefined)
   const age = Math.round((Date.now() - lost.startedAt) / 1000)
   const what = lost.runId === undefined ? `the review started ${String(age)}s ago` : `run ${lost.runId}`
-  const note = `gauntlet: ${what} (${lost.argv.join(" ")}) was lost when the mod reloaded. ` +
+  const note = `gauntlet: ${what} (${Array.join(lost.argv, " ")}) was lost when the mod reloaded. ` +
     `${String(lost.snapshots.length)} snapshot worktree(s) removed. ` +
     "Run /gauntlet again."
-  ports.log(`${note} ${outcomes.join("; ")}`)
+  ports.log(`${note} ${Array.join(outcomes, "; ")}`)
   ports.toast(note, { timeoutMs: 15_000 })
   await ports.append(note).catch((error) => ports.log(`append failed: ${String(error)}`))
 }
@@ -119,7 +123,7 @@ export const createSession = (
     const review = ticking
     const running = engine.running()
     if (review === undefined || running === undefined) return false
-    const work = JSON.stringify(running.snapshots)
+    const work = Formatter.formatJson(running.snapshots)
     if (work !== review.marked) {
       review.marked = work
       await mark({ ...running, cwd: review.cwd })
@@ -144,7 +148,7 @@ export const createSession = (
 
   const startRun = async (request: StartRequest): Promise<string> => {
     const words = commandWords(request.args)
-    ports.log(`starting ${words.join(" ")} in ${request.cwd}`)
+    ports.log(`starting ${Array.join(words, " ")} in ${request.cwd}`)
     const run = engine.start({ words, cwd: request.cwd }, (line) => ports.log(`cli: ${line}`))
     if (words[0] === "deliver") {
       void run.ended.then(async (result) => {
@@ -152,7 +156,7 @@ export const createSession = (
         await answer(result, request)
       })
         .catch((error) => ports.log(`delivery failed to finish: ${String(error)}`))
-      return `delivering ${words.slice(1).join(" ")}; the outcome arrives as a message.`
+      return `delivering ${Array.join(words.slice(1), " ")}; the outcome arrives as a message.`
     }
     // The review runs where its words say (`--repo`), and its marker is down
     // before its ending clears it; a failed marker write only logs.
@@ -175,12 +179,12 @@ export const createSession = (
     void run.ended.then(async (result) => {
       await marked
       await release()
-      if (await digestSent) ports.log(`run ${result.verdict} after ${String(result.seconds)}s: ${result.notes.join("; ")}`)
+      if (await digestSent) ports.log(`run ${result.verdict} after ${String(result.seconds)}s: ${Array.join(result.notes, "; ")}`)
       else await answer(result, request)
     }).catch((error) => ports.log(`run failed to finish: ${String(error)}`))
     const review = await run.request
     if (review === undefined) return "the review did not start; why arrives as a message."
-    const target = words.slice(1).join(" ")
+    const target = Array.join(words.slice(1), " ")
     return `${words[0] === "demo" ? "demo " : ""}review started${target === "" ? "" : ` (${target})`}${review.directory === request.cwd ? "" : ` in ${review.directory}`}; progress shows above the prompt, and the digest arrives as a message when it finishes.` +
       (await standardsNote(review))
   }
@@ -213,8 +217,8 @@ export const createSession = (
     // Without a digest, the notes say what happened; the verdict stands in
     // only when there are none (a cancelled run).
     const text = digest === ""
-      ? `gauntlet: ${(notes.length === 0 ? [verdict] : notes).join("\n")}`
-      : `gauntlet ${verdict}:\n\n${digest}${notes.length === 0 ? "" : `\n\n${notes.join("\n")}`}`
+      ? `gauntlet: ${Array.join(notes.length === 0 ? [verdict] : notes, "\n")}`
+      : `gauntlet ${verdict}:\n\n${digest}${notes.length === 0 ? "" : `\n\n${Array.join(notes, "\n")}`}`
     await handOff(text, request.agentId)
   }
 

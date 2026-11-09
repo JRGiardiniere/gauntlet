@@ -25,11 +25,9 @@ export const isIdentifier = (
 ): node is NamedIdentifier =>
   node?.type === "Identifier" && (name === undefined || node.name === name)
 
-// The one sanctioned `typeof`: string and numeric literals share
-// `type: "Literal"`, so the value itself is the only discriminant. The check
-// lives in a declared type guard, which anti-slop's no-runtime-typeof admits
-// under allowInTypeGuards.
-export const isStringLiteral = (
+// String and numeric literals share `type: "Literal"`, so the value itself
+// is the only discriminant.
+const isStringLiteral = (
   node: InspectedNode | null | undefined,
 ): node is ESTree.StringLiteral =>
   node?.type === "Literal" && typeof node.value === "string"
@@ -44,19 +42,6 @@ export const getPropertyName = (
   return undefined
 }
 
-// The effect skill's span names: Effect.fn("Domain.operation"), and
-// "Domain.Test.operation" for a test double.
-export const isServiceSpanName = (value: string): boolean =>
-  /^[A-Z][A-Za-z0-9]*(?:\.[A-Za-z][A-Za-z0-9]*)+$/.test(value)
-
-export const isEffectFnCall = (
-  node: ESTree.Expression | null | undefined,
-): node is ESTree.CallExpression =>
-  node?.type === "CallExpression"
-  && node.callee.type === "MemberExpression"
-  && isIdentifier(node.callee.object, "Effect")
-  && getPropertyName(node.callee.property) === "fn"
-
 export const isTypeScriptFile = (filename: string): boolean =>
   /\.(?:ts|tsx|mts|cts)$/.test(filename)
 
@@ -65,6 +50,3 @@ export const isTestFile = (filename: string): boolean =>
 
 export const isRelativeImport = (source: string): boolean =>
   source.startsWith("./") || source.startsWith("../")
-
-export const looksLikeTaggedErrorName = (name: string): boolean =>
-  name !== "Error" && name.endsWith("Error")

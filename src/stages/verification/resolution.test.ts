@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import { Termination } from "../../domain/agent-outcome.ts"
 import { Candidate } from "../../domain/candidate.ts"
 import { Verdict } from "../../domain/verdict.ts"
@@ -37,7 +38,7 @@ const completed = (
 
 // Every claim in its own cluster, numbered as its index.
 const singletonClusters = (claims: ReadonlyArray<IndexedBugClaim>) =>
-  claims.map(({ candidate, index }) => ({
+  Array.map(claims, ({ candidate, index }) => ({
     number: index,
     indexes: [index],
     summary: candidate.summary,
@@ -73,7 +74,7 @@ describe("resolveVerification", () => {
       },
     ])
 
-    expect(resolved.bugClaims.map(({ verdict }) => verdict)).toEqual([
+    expect(Array.map(resolved.bugClaims, ({ verdict }) => verdict)).toEqual([
       Verdict.cases.Confirmed.make({
         reviewPriority: "P1",
         evidence: "reproduced on empty input",
@@ -115,8 +116,8 @@ describe("resolveVerification", () => {
       },
     ])
 
-    expect(resolved.bugClaims.map(({ cluster }) => cluster)).toEqual([1, 2, 1])
-    expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
+    expect(Array.map(resolved.bugClaims, ({ cluster }) => cluster)).toEqual([1, 2, 1])
+    expect(Array.map(resolved.bugClaims, ({ verdict }) => verdict._tag)).toEqual([
       "Confirmed",
       "Refuted",
       "Confirmed",
@@ -208,13 +209,13 @@ describe("resolveVerification", () => {
       },
     ])
 
-    expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
+    expect(Array.map(resolved.bugClaims, ({ verdict }) => verdict._tag)).toEqual([
       "Confirmed",
       "Plausible",
       "Refuted",
     ])
     expect(resolved.testSuggestions).toEqual([])
-    expect(resolved.coverageGaps.map(({ reason }) => reason)).toEqual([
+    expect(Array.map(resolved.coverageGaps, ({ reason }) => reason)).toEqual([
       "verification bundle 1 cluster 1 returned a test suggestion without tests or a reason; dropped it",
       "verification bundle 1 cluster 2 returned a test suggestion without tests or a reason; dropped it",
       "verification bundle 1 cluster 3 attached a test suggestion to a refuted cluster; dropped it",
@@ -239,7 +240,7 @@ describe("resolveVerification", () => {
       },
     ])
 
-    expect(resolved.bugClaims.map(({ verdict }) => verdict._tag)).toEqual([
+    expect(Array.map(resolved.bugClaims, ({ verdict }) => verdict._tag)).toEqual([
       "Plausible",
       "Plausible",
     ])

@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import type {
   ReviewSpecification,
   SpecificationDocument,
@@ -61,9 +62,9 @@ const commentBlocks = (
 export const renderSpecificationSection = (
   specification: ReviewSpecification,
 ): string =>
-  [
+  Array.join([
     "## Review Specification",
     "The requirement material behind this change — what the author was asked to deliver. Use it to judge intent and scope; the current obligations it states define what is owed now. Fetched source text is the authority; a Caller Addendum is additional caller-provided context.",
-    ...specification.documents.flatMap(documentBlocks),
+    ...Array.flatMap(specification.documents, documentBlocks),
     ...commentBlocks(specification),
-  ].join("\n\n")
+  ], "\n\n")

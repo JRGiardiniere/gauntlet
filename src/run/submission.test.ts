@@ -1,12 +1,14 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Layer from "effect/Layer"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { standardsManifestPath } from "../config/standards-manifest.ts"
 import { ContentDirectory } from "../content/lens.ts"
@@ -67,15 +69,13 @@ const submitWith = (
   submit(request).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
     Effect.provideService(ContentDirectory, fixture.content),
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-        github,
-        linear,
-        scriptedLayer(makeScripted({ sessions: [] })),
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+      github,
+      linear,
+      scriptedLayer(makeScripted({ sessions: [] })),
+    ]),
   )
 
 const persistedPlan = (fixture: Fixture, runId: string) =>
@@ -118,7 +118,7 @@ describe("submission", () => {
       const { plan, raw } = yield* persistedPlan(fixture, loaded.plan.runId)
       expect(plan).toEqual(loaded.plan)
       expect(loaded.plan.recipeName).toBe("fixture-recipe")
-      expect(loaded.plan.lenses.map(({ name, seat }) => ({ name, seat })))
+      expect(Array.map(loaded.plan.lenses, ({ name, seat }) => ({ name, seat })))
         .toEqual([{ name: "fixture-review", seat: FIXTURE_SEAT }])
 
       expect(ReviewTarget.guards.WorkingTree(loaded.plan.target)).toBe(true)
@@ -138,19 +138,18 @@ describe("submission", () => {
         Schema.fromJsonString(Schema.Json),
       )(raw)
       const encoded = Predicate.isObject(decoded) ? decoded : {}
-      expect(Object.keys(encoded)).not.toContain("specification")
-      expect(Object.keys(encoded)).not.toContain("specificationSourceDiagnostic")
+      expect(Record.keys(encoded)).not.toContain("specification")
+      expect(Record.keys(encoded)).not.toContain("specificationSourceDiagnostic")
       const encodedTarget = Predicate.isObject(encoded["target"])
         ? encoded["target"]
         : {}
-      expect(Object.keys(encodedTarget)).not.toContain("baseCommit")
+      expect(Record.keys(encodedTarget)).not.toContain("baseCommit")
       const encodedLenses = Array.isArray(encoded["lenses"])
         ? encoded["lenses"]
         : []
       expect(
-        encodedLenses.some((lens) =>
-          Predicate.isObject(lens) && "finderClass" in lens
-        ),
+        Array.some(encodedLenses, (lens) =>
+          Predicate.isObject(lens) && "finderClass" in lens),
       ).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -182,7 +181,8 @@ describe("submission", () => {
       ])
 
       // A commit range has no uncommitted state to persist.
-      expect(yield* fs.readDirectory(loaded.paths.root)).toEqual(["plan.json"])
+      const rootEntries = yield* fs.readDirectory(loaded.paths.root)
+      expect(rootEntries).toEqual(["plan.json"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("extends a commit range to the working tree as one target", () =>
@@ -270,17 +270,17 @@ describe("submission", () => {
         addendum: undefined,
       })
 
-      expect(loaded.plan.lenses.map((lens) => lens.name)).toEqual([
+      expect(Array.map(loaded.plan.lenses, (lens) => lens.name)).toEqual([
         "fixture-review",
         "fixture-local",
       ])
       const seatByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.seat]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.seat]),
       )
       expect(seatByLens.get("fixture-review")).toBe(FIXTURE_SEAT)
       expect(seatByLens.get("fixture-local")).toBe("fixture/local-model:medium")
       const classByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.finderClass]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.finderClass]),
       )
       expect(classByLens.get("fixture-review")).toBeUndefined()
       expect(classByLens.get("fixture-local")).toBe("interpretive")
@@ -302,7 +302,7 @@ describe("submission", () => {
           addendum: undefined,
         },
       )
-      expect(loaded.plan.lenses.map(({ name }) => name)).toEqual([
+      expect(Array.map(loaded.plan.lenses, ({ name }) => name)).toEqual([
         "fixture-review",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
@@ -322,7 +322,8 @@ describe("submission", () => {
       expect(refusal).toBeInstanceOf(SubmissionError)
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("no Default Lenses are configured")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a recipe that seats a provider this host cannot run, creating no Run", () =>
@@ -344,7 +345,8 @@ describe("submission", () => {
       }))
       if (!Predicate.isTagged(refusal, "RecipeSelectionError")) return expect.unreachable(String(refusal))
       expect(refusal.reason).toContain("claude-code/sonnet:low runs only in the Mod")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("freezes per-stage seats from the named Recipe for every stage and both finder classes", () =>
@@ -381,7 +383,7 @@ describe("submission", () => {
         judgment: "fixture/judge-model:low",
       })
       const seatByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.seat]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.seat]),
       )
       expect(seatByLens.get("fixture-review")).toBe("fixture/finder-model:low")
       expect(seatByLens.get("fixture-interpretive")).toBe(
@@ -433,7 +435,7 @@ describe("submission", () => {
 
       const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
       expect(plan).toEqual(loaded.plan)
-      expect(plan.specification?.documents.map(({ text }) => text))
+      expect(Array.map(plan.specification?.documents ?? [], ({ text }) => text))
         .toContain("LINEAR-SLICE-BODY")
       expect(plan.specification?.comments.length).toBeGreaterThan(0)
       expect(plan.specificationSourceDiagnostic).toBeUndefined()
@@ -484,7 +486,7 @@ describe("submission", () => {
       )
       const fallbackPlan =
         (yield* persistedPlan(fixture, fallback.plan.runId)).plan
-      expect(fallbackPlan.specification?.documents.map(({ text }) => text))
+      expect(Array.map(fallbackPlan.specification?.documents ?? [], ({ text }) => text))
         .toContain("GITHUB-SLICE-BODY")
       expect(fallbackPlan.specificationSourceDiagnostic?.reason).toBe(
         "missing-api-key",
@@ -535,14 +537,16 @@ describe("submission", () => {
 
       expect(linearCalls).toBe(0)
       const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
-      expect(plan.specification?.documents.map(({ role }) => role)).toEqual([
+      expect(Array.map(plan.specification?.documents ?? [], ({ role }) => role)).toEqual([
         "parent",
         "slice",
         "caller-addendum",
       ])
-      const specification = plan.specification?.documents
-        .map(({ text }) => text)
-        .join("\n") ?? ""
+      const specification = pipe(
+        plan.specification?.documents ?? [],
+        Array.map(({ text }) => text),
+        Array.join("\n"),
+      )
       expect(specification).not.toContain("LINEAR-SLICE-BODY")
       expect(specification).toContain("ADDENDUM-REQUIREMENT: keep the caller note")
       expect(plan.specification?.commentOmission).toBeDefined()
@@ -568,7 +572,8 @@ describe("submission", () => {
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("--github-spec")
       const fs = yield* FileSystem.FileSystem
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
 
       // An unreadable GitHub is quiet without the pin (issue #74) and named
       // in the refusal with it, never mistaken for "no closing issues".
@@ -578,7 +583,7 @@ describe("submission", () => {
           Effect.succeed(prView(7, headCommit, baseCommit)),
         viewClosingIssues: () =>
           Effect.fail(
-            new GitHubError({
+            GitHubError.make({
               operation: "specification",
               reason: "gh auth login required",
             }),
@@ -638,7 +643,7 @@ describe("submission", () => {
       )
 
       const promptByLens = new Map(
-        loaded.plan.lenses.map((lens) => [lens.name, lens.promptText]),
+        Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.promptText]),
       )
       const standardsPrompt = promptByLens.get("standards") ?? ""
       expect(standardsPrompt).toContain("standards fixture tail")
@@ -698,7 +703,8 @@ describe("submission", () => {
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("Standards Manifest")
       expect(refusal.reason).toContain("missing-standards.md")
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
@@ -713,14 +719,12 @@ const writeStandardsManifest = (
     const path = yield* Path.Path
     const manifest = yield* standardsManifestPath(fixture.repo)
     yield* fs.makeDirectory(path.dirname(manifest), { recursive: true })
-    yield* fs.writeFileString(manifest, `${entries.join("\n")}\n`)
+    yield* fs.writeFileString(manifest, `${Array.join(entries, "\n")}\n`)
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(
-        NodeServices.layer,
-        ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
-      ),
-    ),
+    Effect.provide([
+      NodeServices.layer,
+      ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
+    ]),
   )
 
 const createAndSwitchBranch = (fixture: Fixture, branch: string) =>
@@ -729,7 +733,7 @@ const createAndSwitchBranch = (fixture: Fixture, branch: string) =>
 const missingApiKeyLinear = Linear.Fake({
   viewIssue: () =>
     Effect.fail(
-      new LinearError({
+      LinearError.make({
         reason: "missing-api-key",
         detail: "LINEAR_API_KEY is not set",
       }),

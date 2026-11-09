@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
 import type { ReviewPlan } from "../domain/review-plan.ts"
@@ -36,29 +37,23 @@ export const measureLowFinderCacheHealth = (
   results: ReadonlyArray<FinderResult>,
 ): FinderCacheHealth | undefined => {
   const outcomeByLens = new Map(
-    results.map(({ lens, outcome }) => [lens.name, outcome] as const),
+    Array.map(results, ({ lens, outcome }) => [lens.name, outcome] as const),
   )
-  const eligible = finderPartitionsInPlan(plan).flatMap((partition) =>
-    partition.slice(1).flatMap(({ lens }) => {
+  const eligible = Array.flatMap(finderPartitionsInPlan(plan), (partition) =>
+    Array.flatMap(partition.slice(1), ({ lens }) => {
       const usage = firstEligibleUsage(outcomeByLens.get(lens.name))
       return usage === undefined ? [] : [usage]
-    })
-  )
+    }))
   if (eligible.length < 2) return undefined
-  const totalPromptTokens = eligible.reduce(
-    (total, usage) => total + usage.promptTokens,
-    0,
-  )
-  const totalCacheRead = eligible.reduce(
-    (total, usage) => total + usage.cacheRead,
-    0,
-  )
+  const totalPromptTokens = Array.reduce(eligible, 0, (total, usage) => total + usage.promptTokens)
+  const totalCacheRead = Array.reduce(eligible, 0, (total, usage) => total + usage.cacheRead)
   const reuse = totalCacheRead / totalPromptTokens
   if (reuse >= 0.5) return undefined
   return {
     reuse,
     eligibleFollowerCount: eligible.length,
-    healthyFollowerCount: eligible.filter(
+    healthyFollowerCount: Array.filter(
+      eligible,
       ({ cacheRead, promptTokens }) => cacheRead / promptTokens >= 0.8,
     ).length,
   }

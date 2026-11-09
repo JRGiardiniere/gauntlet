@@ -1,6 +1,7 @@
 // The pieces every page block is drawn from: inline prose, the evidence
 // frame, and an excerpt of reviewed lines with its pinned marks.
 import MarkdownIt from "markdown-it"
+import * as Array from "effect/Array"
 import { escapeHtml, lineHighlighter } from "./code-text.ts"
 import { shortCommit } from "./target-text.ts"
 
@@ -22,6 +23,9 @@ export const ICON = {
   brief: `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 2.5h6l3 3v8h-9z"/><path d="M9.5 2.5v3h3M5.8 8.5h4.4M5.8 11h4.4"/></svg>`,
 }
 
+// An empty line's cell holds a space, so its row keeps the line's height.
+export const codeLine = (html: string) => (html === "" ? " " : html)
+
 export const pinTail = (pin: string) =>
   `<span class="leader" aria-hidden="true"></span><span class="pin">${escapeHtml(pin)}</span>`
 
@@ -31,7 +35,7 @@ export const frame = (head: string, body: string, caption?: string) =>
   }</figure>`
 
 export const code = (rows: ReadonlyArray<string>, kind = "") =>
-  `<div class="code${kind}"><div class="code-inner">${rows.join("")}</div></div>`
+  `<div class="code${kind}"><div class="code-inner">${Array.join(rows, "")}</div></div>`
 
 export const CONTEXT = 6
 
@@ -61,7 +65,7 @@ export const excerpt = (
     const mark = marked.has(number)
     rows.push(
       `<div class="row${mark ? " mark" : ""}"><span class="no">${number}</span><span class="src">${
-        highlight(lines[number - 1] ?? "") || " "
+        codeLine(highlight(lines[number - 1] ?? ""))
       }</span>${mark ? pinTail(pin) : ""}</div>`,
     )
   }

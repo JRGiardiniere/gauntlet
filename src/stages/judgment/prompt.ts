@@ -1,5 +1,7 @@
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import { formatCandidateLine } from "../../content/candidate-line.ts"
 import { isCompiledBinary } from "../../content/lens.ts"
 import {
@@ -72,7 +74,7 @@ export const assembleJudgmentPrompt = (
     return yield* renderPromptTemplate("judge", templates.judge, [
       ["SCOPE_BLOCK", scope],
       ["BUG_CLAIM_CLUSTERS", clusters],
-      ["CANDIDATES", Array.map(observations, formatCandidateLine).join("\n")],
+      ["CANDIDATES", Array.join(Array.map(observations, formatCandidateLine), "\n")],
     ])
   })
 
@@ -80,10 +82,15 @@ export const assembleJudgmentPrompt = (
 const clusterLines = (
   { claims, clusters }: PooledBugClaims,
 ): string =>
-  clusters.map(({ indexes, number, summary }) => {
-    const first = claims.find(({ index }) => index === indexes[0])?.candidate
-    const location = first === undefined
-      ? ""
-      : `${first.file}${first.line === undefined ? "" : `:${String(first.line)}`} — `
-    return `- [c${String(number)}] ${location}${summary}`
-  }).join("\n")
+  pipe(
+    clusters,
+    Array.map(({ indexes, number, summary }) => {
+      const location = Option.match(Array.findFirst(claims, ({ index }) => index === indexes[0]), {
+        onNone: () => "",
+        onSome: ({ candidate: first }) =>
+          `${first.file}${first.line === undefined ? "" : `:${String(first.line)}`} — `,
+      })
+      return `- [c${String(number)}] ${location}${summary}`
+    }),
+    Array.join("\n"),
+  )

@@ -1,10 +1,15 @@
-import { describe, expect, it } from "@effect/vitest"
+import { assert, describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
+import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stream from "effect/Stream"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import type * as ChildProcess from "effect/process/ChildProcess"
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner"
 import { Termination } from "../domain/agent-outcome.ts"
@@ -32,18 +37,21 @@ interface Child {
   readonly ending: number
 }
 
+// The child sees a Redacted word's value.
+const unwrap = (word: string | Redacted.Redacted<string>) => (Redacted.isRedacted(word) ? Redacted.value(word) : word)
+
 interface Spawned {
   readonly command: string
   readonly args: ReadonlyArray<string>
   readonly cwd: string | undefined
-  readonly env: Record<string, string | undefined> | undefined
+  readonly env: Record.ReadonlyRecord<string, string | undefined> | undefined
   readonly stdin: string
 }
 
 const stdinOf = (command: ChildProcess.StandardCommand) => {
   const input = command.options.stdin
   return Stream.isStream(input)
-    ? Stream.mkString(Stream.decodeText(input))
+    ? input.pipe(Stream.decodeText(), Stream.mkString)
     : Effect.succeed("")
 }
 
@@ -55,9 +63,11 @@ const scriptedSpawner = (children: Array<Child>, spawned: Array<Spawned>) =>
       if (child === undefined) return yield* Effect.die("no scripted child left")
       spawned.push({
         command: command.command,
-        args: command.args,
+        args: Array.map(command.args, unwrap),
         cwd: command.options.cwd,
-        env: command.options.env,
+        env: command.options.env === undefined
+          ? undefined
+          : Record.map(command.options.env, (value) => value === undefined ? undefined : unwrap(value)),
         stdin: yield* stdinOf(command),
       })
       return ChildProcessSpawner.makeHandle({
@@ -109,7 +119,7 @@ const invokeOver = (...names: ReadonlyArray<readonly [string, number]>) =>
     )
     const outcome = yield* invoke(input(cwd)).pipe(Effect.provideService(HarnessSessionFactory, factory))
     return { outcome, spawned, cwd }
-  }).pipe(Effect.provide(NodeServices.layer))
+  }).pipe(Effect.provide([NodeServices.layer, SecureRandom.layerWebCrypto]))
 
 const FENCE = [
   ["--tools", "Read,Grep,Glob"],
@@ -119,7 +129,7 @@ const FENCE = [
 ] as const
 
 const hasPair = (args: ReadonlyArray<string>, [flag, value]: readonly [string, string]) =>
-  args.some((arg, at) => arg === flag && args[at + 1] === value)
+  Array.some(args, (arg, at) => arg === flag && args[at + 1] === value)
 
 describe("the Claude Code Host's claude -p adapter", () => {
   it.effect("completes on the result's structured output, counting its tool calls and the turn's cost", () =>
@@ -140,15 +150,16 @@ describe("the Claude Code Host's claude -p adapter", () => {
 
       expect(Termination.guards.Completed(outcome.termination)).toBe(true)
       expect(outcome.diagnostics).toContain("validated emit succeeded after 1 corrective turn")
+      assert(Predicate.isTupleOf(spawned, 2), `expected 2 claude -p turns, got ${spawned.length}`)
       const [first, second] = spawned
-      expect(second?.stdin).toContain("Call StructuredOutput now")
-      const sessionId = first?.args[first.args.indexOf("--session-id") + 1]
-      expect(second?.args).toEqual(first?.args.map((arg) => (arg === "--session-id" ? "--resume" : arg)))
-      expect(second?.args).toContain(sessionId)
+      expect(second.stdin).toContain("Call StructuredOutput now")
+      const sessionId = first.args[first.args.indexOf("--session-id") + 1]
+      expect(second.args).toEqual(Array.map(first.args, (arg) => (arg === "--session-id" ? "--resume" : arg)))
+      expect(second.args).toContain(sessionId)
       for (const turn of [first, second]) {
-        for (const pair of FENCE) expect(hasPair(turn?.args ?? [], pair)).toBe(true)
-        expect(turn?.args).toContain("--strict-mcp-config")
-        expect(turn?.env).toMatchObject({ CLAUDE_CODE_PLUGIN_DIRS: "", CLAUDE_CODE_CHILD_SESSION: undefined })
+        for (const pair of FENCE) expect(hasPair(turn.args, pair)).toBe(true)
+        expect(turn.args).toContain("--strict-mcp-config")
+        expect(turn.env).toMatchObject({ CLAUDE_CODE_PLUGIN_DIRS: "", CLAUDE_CODE_CHILD_SESSION: undefined })
       }
       // The two turns' costs: each on its turn's last response.
       expect(outcome.usage.costUsd).toBeCloseTo(0.00029465 + 0.00160743, 8)

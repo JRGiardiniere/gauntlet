@@ -1,6 +1,8 @@
 {
   "$schema": "../../../node_modules/@effect/tsgo/oxlint-schema.json",
-  "extends": ["../../../node_modules/@effect/tsgo/oxlint-presets/recommended.json"],
+  "extends": [
+    "../../../node_modules/@effect/tsgo/oxlint-presets/recommended.json"
+  ],
   "rules": {
     "effecttsgo/extends-native-error": "error",
     "effecttsgo/outdated-api": "error",
@@ -10,7 +12,6 @@
     "effecttsgo/async-function": "error",
     "effecttsgo/new-promise": "error",
     "effecttsgo/node-builtin-import": "error",
-    "effecttsgo/prefer-schema-over-json": "error",
     "effecttsgo/prefer-typed-schema-decoder": "error",
     "effecttsgo/any-unknown-in-error-context": "error",
     "effecttsgo/global-date": "error",
@@ -23,12 +24,48 @@
     "effecttsgo/run-effect-inside-effect": "error",
     "effecttsgo/strict-effect-provide": "error",
     "effecttsgo/unsafe-effect-type-assertion": "error",
+    "effecttsgo/instance-of-schema": "error",
+    "effecttsgo/prefer-schema-type-property": "error",
+    "effecttsgo/map-map-error-to-map-both": "error",
+    "effecttsgo/provide-merge-all-to-array": "error",
+    "effecttsgo/type-union-to-schema-union": "error",
+    "effecttsgo/yield-in-call-argument": "error",
+    "effecttsgo/effect-try-without-catch": "error",
+    "effecttsgo/global-json": "error",
+    "effecttsgo/global-json-in-effect": "error",
+    "effecttsgo/global-random": "error",
+    "effecttsgo/crypto-random-uuid": "error",
+    "effecttsgo/crypto-random-uuid-in-effect": "error",
+    "effecttsgo/global-console": "error",
+    "effecttsgo/global-console-in-effect": "error",
+    "effecttsgo/schema-sync": "error",
+    "effecttsgo/prefer-schema-tagged-error": "error",
+    "effecttsgo/missing-effect-service-dependency": "error",
+    "effecttsgo/nested-effect-gen-yield": "error",
+    "effecttsgo/prefer-effect-array": "error",
+    "effecttsgo/prefer-effect-record": "error",
+    "effecttsgo/new-schema-class": "error",
+    "effecttsgo/missed-pipeable-opportunity": "error",
+    "effecttsgo/effect-do-notation": "error",
+    "effecttsgo/schema-union-of-literals": "error",
+    "effecttsgo/service-not-as-class": "error",
+    "effecttsgo/unnecessary-arrow-block": "error",
     "eslint/require-yield": "off"
   },
   "overrides": [
     {
-      "files": ["**/*.test.ts", "**/*.integration.ts", "**/*.fixture.ts", "scripts/**"],
-      "rules": { "effecttsgo/strict-effect-provide": "off" }
+      "files": [
+        "**/*.test.ts",
+        "**/*.integration.ts",
+        "**/*.fixture.ts",
+        "scripts/**"
+      ],
+      "rules": {
+        "effecttsgo/strict-effect-provide": "off",
+        "effecttsgo/schema-sync": "off",
+        "effecttsgo/global-console": "off",
+        "effecttsgo/global-console-in-effect": "off"
+      }
     }
   ]
 }

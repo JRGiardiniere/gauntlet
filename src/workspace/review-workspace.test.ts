@@ -1,8 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import type { ReadToolInput } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Path from "effect/Path"
 import { withToolCallDeadline } from "../harness/tool-deadline.ts"
 import { chompLine, runGit } from "../target/git.ts"
@@ -55,13 +57,14 @@ const asOutcome = (promise: Promise<WorkspaceToolResult>) =>
   promise.then(
     (result) => ({
       isError: false,
-      text: result.content
-        .flatMap((entry) =>
-          entry.type === "text" && entry.text !== undefined
+      text: pipe(
+        result.content,
+        Array.flatMap((entry) =>
+          entry.type === "text"
             ? [entry.text]
-            : [],
-        )
-        .join("\n"),
+            : []),
+        Array.join("\n"),
+      ),
     }),
     (cause: unknown) => ({
       isError: true,
@@ -128,7 +131,7 @@ const makeSnapshotFixture = Effect.gen(function* () {
   )
 
   const snapshot = path.join(root, "snapshot")
-  const headCommit = chompLine(yield* runGit(repo, ["rev-parse", "HEAD"]))
+  const headCommit = yield* runGit(repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
   yield* runGit(repo, ["worktree", "add", "--detach", snapshot, headCommit])
   return { repo, root, snapshot }
 })
@@ -144,7 +147,8 @@ describe("ReviewWorkspace", () => {
       )
       expect(workspace.root).toBe(REVIEW_WORKSPACE_ROOT)
 
-      expect(yield* bash(workspace, "pwd")).toEqual({
+      const pwd = yield* bash(workspace, "pwd")
+      expect(pwd).toEqual({
         isError: false,
         text: REVIEW_WORKSPACE_ROOT,
       })
@@ -168,15 +172,18 @@ describe("ReviewWorkspace", () => {
       )
       expect(findExec.isError).toBe(false)
       expect(findExec.text).toContain("src/app.ts")
-      expect(yield* bash(workspace, `sed -n '1p' notes.md`)).toEqual({
+      const sedOutput = yield* bash(workspace, `sed -n '1p' notes.md`)
+      expect(sedOutput).toEqual({
         isError: false,
         text: "alpha beta",
       })
-      expect(yield* bash(workspace, `awk '{print $2}' notes.md`)).toEqual({
+      const awkOutput = yield* bash(workspace, `awk '{print $2}' notes.md`)
+      expect(awkOutput).toEqual({
         isError: false,
         text: "beta\ndelta",
       })
-      expect(yield* bash(workspace, `jq -r .name data/config.json`)).toEqual({
+      const jqOutput = yield* bash(workspace, `jq -r .name data/config.json`)
+      expect(jqOutput).toEqual({
         isError: false,
         text: "fixture",
       })
@@ -241,7 +248,7 @@ describe("ReviewWorkspace", () => {
       // Image reads keep Pi's attachment contract through the overlay.
       const image = yield* Effect.promise(() =>
         callOnSeam(workspace.readTool, { path: "data/pixel.png" })
-          .then((result) => result.content.map((entry) => entry.type)),
+          .then((result) => Array.map(result.content, (entry) => entry.type)),
       )
       expect(image).toEqual(["text", "image"])
     }).pipe(Effect.scoped, Effect.provide(layer)))
@@ -319,14 +326,15 @@ describe("ReviewWorkspace", () => {
       // disclose that host path.
       const tilde = yield* read(workspace, { path: "~/.ssh/config" })
       expect(tilde.isError).toBe(true)
-      // @effect-diagnostics-next-line processEnvInEffect:off
+      // @effect-diagnostics-next-line processEnvInEffect:off -- the assertion needs the real host HOME the workspace must not leak
       const hostHome = process.env["HOME"]
       if (hostHome !== undefined) {
         expect(tilde.text).not.toContain(hostHome)
       }
 
       // The host worktree's administrative entry is untouched.
-      expect(yield* fs.exists(path.join(snapshot, ".git"))).toBe(true)
+      const gitEntryExists = yield* fs.exists(path.join(snapshot, ".git"))
+      expect(gitEntryExists).toBe(true)
     }).pipe(Effect.scoped, Effect.provide(layer)))
 
   it.effect("exposes only the synthetic environment", () =>
@@ -340,7 +348,7 @@ describe("ReviewWorkspace", () => {
       expect(env.text).toMatch(/^HOME=\//m)
       expect(env.text).toContain("HOSTNAME=localhost")
       expect(env.text).toContain("PWD=/repo")
-      // @effect-diagnostics-next-line processEnvInEffect:off
+      // @effect-diagnostics-next-line processEnvInEffect:off -- the assertion needs the real host HOME the workspace must not leak
       const hostHome = process.env["HOME"]
       if (hostHome !== undefined) {
         expect(env.text).not.toContain(hostHome)
@@ -385,10 +393,10 @@ describe("ReviewWorkspace", () => {
         expect((yield* bash(second, "cat notes.md")).isError).toBe(false)
 
         // The backing snapshot itself is untouched.
-        expect(
-          yield* fs.readFileString(path.join(snapshot, "src", "app.ts")),
-        ).toBe(APP_SOURCE)
-        expect(yield* fs.exists(path.join(snapshot, "notes.md"))).toBe(true)
+        const appSource = yield* fs.readFileString(path.join(snapshot, "src", "app.ts"))
+        expect(appSource).toBe(APP_SOURCE)
+        const notesExist = yield* fs.exists(path.join(snapshot, "notes.md"))
+        expect(notesExist).toBe(true)
       }).pipe(Effect.scoped, Effect.provide(layer)))
 
   it.effect("resets shell state per call while the filesystem persists", () =>
@@ -405,15 +413,18 @@ describe("ReviewWorkspace", () => {
         isError: false,
         text: `${REVIEW_WORKSPACE_ROOT}/src`,
       })
-      expect(yield* bash(workspace, "pwd")).toEqual({
+      const pwd = yield* bash(workspace, "pwd")
+      expect(pwd).toEqual({
         isError: false,
         text: REVIEW_WORKSPACE_ROOT,
       })
-      expect(yield* bash(workspace, `echo "\${MARKER:-unset}"`)).toEqual({
+      const marker = yield* bash(workspace, `echo "\${MARKER:-unset}"`)
+      expect(marker).toEqual({
         isError: false,
         text: "unset",
       })
-      expect(yield* bash(workspace, "cat /tmp-probe.txt")).toEqual({
+      const probe = yield* bash(workspace, "cat /tmp-probe.txt")
+      expect(probe).toEqual({
         isError: false,
         text: "probe",
       })
@@ -428,7 +439,8 @@ describe("ReviewWorkspace", () => {
           makeReviewWorkspace(snapshot),
         )
 
-        expect(yield* bash(workspace, "cat data/blob.txt | wc -c")).toEqual({
+        const blobSize = yield* bash(workspace, "cat data/blob.txt | wc -c")
+        expect(blobSize).toEqual({
           isError: false,
           text: "262144",
         })
@@ -544,12 +556,10 @@ describe("ReviewWorkspace", () => {
         expect(timedOut).toContain("bash exceeded its 200ms deadline")
 
         // Nothing above mutated the backing snapshot.
-        expect(
-          yield* fs.readFileString(path.join(snapshot, "src", "app.ts")),
-        ).toBe(APP_SOURCE)
-        expect(
-          yield* fs.exists(path.join(snapshot, "scratch-copy.txt")),
-        ).toBe(false)
+        const appSource = yield* fs.readFileString(path.join(snapshot, "src", "app.ts"))
+        expect(appSource).toBe(APP_SOURCE)
+        const scratchCopyExists = yield* fs.exists(path.join(snapshot, "scratch-copy.txt"))
+        expect(scratchCopyExists).toBe(false)
         const status = yield* runGit(snapshot, ["status", "--porcelain"])
         expect(status).toBe("")
       }).pipe(Effect.scoped, Effect.provide(layer)))

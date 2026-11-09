@@ -9,7 +9,9 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
@@ -120,8 +122,8 @@ const violation = (
   reason: `${context}: ${String(error)}`,
 })
 
-// Rename the consumed Pi events into seam events; everything else is
-// dropped. Events of a consumed type that no longer decode become
+// Rename the consumed Pi events into seam events; the rest, listed by name so
+// a new Pi event type has to be placed, are dropped. Events of a consumed type that no longer decode become
 // contract_violation events — never a silent coercion. The parameter is Pi's
 // own event union, so an SDK rename of a consumed type or field breaks the
 // build here before it can drift at runtime.
@@ -170,11 +172,12 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
     case "tool_execution_end": {
       return Result.match(decodeToolExecutionEnd(event), {
         onSuccess: (end): HarnessEvent => {
-          const detail = end.result.content
-            .flatMap((content) =>
-              content.text === undefined ? [] : [content.text],
-            )
-            .join("\n")
+          const detail = pipe(
+            end.result.content,
+            Array.flatMap((content) =>
+              content.text === undefined ? [] : [content.text]),
+            Array.join("\n"),
+          )
           const event = {
             type: "tool_execution_end" as const,
             toolName: end.toolName,
@@ -186,7 +189,25 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
           violation("tool_execution_end did not decode", error),
       })
     }
-    default: {
+    case "agent_start":
+    case "agent_end":
+    case "agent_settled":
+    case "turn_start":
+    case "turn_end":
+    case "message_update":
+    case "tool_execution_update":
+    case "bash_execution_update":
+    case "queue_update":
+    case "entry_appended":
+    case "session_info_changed":
+    case "thinking_level_changed":
+    case "auto_retry_start":
+    case "auto_retry_end":
+    case "compaction_start":
+    case "compaction_end":
+    case "summarization_retry_scheduled":
+    case "summarization_retry_attempt_start":
+    case "summarization_retry_finished": {
       return undefined
     }
   }
@@ -220,7 +241,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
         const modelRuntime = yield* Effect.tryPromise({
           try: () => sharedModelRuntime(),
           catch: (cause) =>
-            new InvocationSetupError({
+            InvocationSetupError.make({
               operation: "model-runtime",
               reason: String(cause),
               cause,
@@ -240,7 +261,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               modelRuntime,
             }),
           catch: (cause) =>
-            new InvocationSetupError({
+            InvocationSetupError.make({
               operation: "resolve-model",
               reason: String(cause),
               cause,
@@ -252,7 +273,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             /Use --list-models to see available (?:providers\/models|models)\./,
             "Check the configured provider and model.",
           )
-          return yield* new InvocationSetupError({
+          return yield* InvocationSetupError.make({
             operation: "resolve-model",
             reason:
               resolutionError ??
@@ -268,7 +289,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
         }
 
         return yield* Effect.tryPromise({
-          // @effect-diagnostics-next-line asyncFunction:off
+          // @effect-diagnostics-next-line asyncFunction:off -- Pi's session factory is a Promise API taking an AbortSignal; Effect.tryPromise bridges it here
           try: async (signal): Promise<HarnessSession> => {
             // Retry ownership is ADR 0002, stated here rather than inherited
             // from Pi defaults: agent-level retry on (3 attempts),
@@ -311,7 +332,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // unanimity hazard: `terminate` only ends the run when every
               // finalized call in the batch terminates.
               executionMode: "sequential",
-              // @effect-diagnostics-next-line asyncFunction:off
+              // @effect-diagnostics-next-line asyncFunction:off -- Pi's custom tool `execute` contract is async
               execute: async (_toolCallId, args) => {
                 // SAFETY: pi-ai's `validateToolArguments` structuredClones the
                 // model's arguments, takes the JSON-Schema coercion branch
@@ -341,7 +362,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               : await makeReviewWorkspace(session.cwd)
             const workspaceTools = workspace === undefined
               ? []
-              : session.tools.map((tool) =>
+              : Array.map(session.tools, (tool) =>
                   tool === "read"
                     ? withToolCallDeadline(
                         workspace.readTool,
@@ -350,8 +371,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
                     : withToolCallDeadline(
                         workspace.bashTool,
                         session.bashTimeoutMillis,
-                      ),
-                )
+                      ))
             const emitTool = withToolCallDeadline(
               emitToolDefinition,
               session.toolTimeoutMillis,
@@ -436,17 +456,16 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // and a renamed field fails loudly there instead of reading
               // as $0.
               usageRows: () =>
-                sessionManager.getEntries().flatMap((entry) =>
+                Array.flatMap(sessionManager.getEntries(), (entry) =>
                   entry.type === "message" &&
                   entry.message.role === "assistant"
                     ? [entry.message.usage]
-                    : [],
-                ),
+                    : []),
               transcriptEntries: () => sessionManager.getEntries(),
             } satisfies HarnessSession
           },
           catch: (cause) =>
-            new InvocationSetupError({
+            InvocationSetupError.make({
               operation: "session-construction",
               reason: String(cause),
               cause,

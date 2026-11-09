@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Clock from "effect/Clock"
 import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
@@ -5,9 +6,11 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Function from "effect/Function"
+import { pipe } from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
 import * as Option from "effect/Option"
 import * as Queue from "effect/Queue"
+import * as Record from "effect/Record"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
@@ -68,8 +71,8 @@ export interface InvokeInput<O> {
 }
 
 export type PrefixSignal = Data.TaggedEnum<{
-  PrefixObserved: Record<never, never>
-  PrefixNotObserved: Record<never, never>
+  PrefixObserved: Record.ReadonlyRecord<never, never>
+  PrefixNotObserved: Record.ReadonlyRecord<never, never>
 }>
 
 export const PrefixSignal = Data.taggedEnum<PrefixSignal>()
@@ -313,10 +316,13 @@ const logDebugTranscript = (
 ) =>
   Effect.gen(function* () {
     if (!(yield* LogLevel.isEnabled("Debug"))) return
-    const entries = yield* Effect.try({
-      try: () => session.transcriptEntries().map(jsonSafeValue),
+    const transcript = yield* Effect.try({
+      try: () => session.transcriptEntries(),
       catch: (cause) => String(cause),
     })
+    const entries = yield* Effect.forEach(transcript, jsonSafeValue).pipe(
+      Effect.mapError((cause) => String(cause)),
+    )
     yield* Effect.forEach(
       entries,
       (entry, index) =>
@@ -407,17 +413,24 @@ const openCapturedSession = Effect.fn(
     ),
     (opened) =>
       settleAbort(aborting, capture).pipe(
-        Effect.andThen(Effect.sync(() => {
-          try {
-            const rows = opened.usageRows().map(jsonSafeRow)
-            capture.dispatch({ type: "usage_rows", rows })
-          } catch (cause) {
-            capture.dispatch({
-              type: "usage_sweep_error",
-              reason: String(cause),
-            })
-          }
-        })),
+        Effect.andThen(
+          Effect.try({
+            try: () => opened.usageRows(),
+            catch: (cause) => String(cause),
+          }).pipe(
+            Effect.flatMap((rows) =>
+              Effect.forEach(rows, jsonSafeRow).pipe(
+                Effect.mapError((cause) => String(cause)),
+              )
+            ),
+            Effect.match({
+              onFailure: (reason) =>
+                capture.dispatch({ type: "usage_sweep_error", reason }),
+              onSuccess: (rows) =>
+                capture.dispatch({ type: "usage_rows", rows }),
+            }),
+          ),
+        ),
         Effect.andThen(
           logDebugTranscript(opened, input.invocationId, capture),
         ),
@@ -486,9 +499,12 @@ const runPrompt = Effect.fn("gauntlet.invocation.run_prompt")(function* (
   capture: CaptureAccumulator,
 ) {
   capture.dispatch({ type: "prompt_started" })
-  while (Option.isSome(yield* Queue.poll(events))) {
-    // Drain terminal evidence from the preceding corrective prompt without
-    // waiting for a new event. Queue.takeAll is intentionally blocking in v4.
+  // Drain terminal evidence from the preceding corrective prompt without
+  // waiting for a new event. Queue.takeAll is intentionally blocking in v4.
+  let drained = false
+  while (!drained) {
+    const pending = yield* Queue.poll(events)
+    drained = Option.isNone(pending)
   }
 
   const firstResponse = yield* Deferred.make<void>()
@@ -590,16 +606,16 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
     const common = commonOf(state)
     if (ending.rejection !== undefined) {
       if (common.violations.length > 0) {
-        return yield* new AdapterContractViolation({
-          reason: common.violations.join("; "),
+        return yield* AdapterContractViolation.make({
+          reason: Array.join(common.violations, "; "),
         })
       }
       if (common.acceptedActivity) {
-        return yield* new AdapterContractViolation({
+        return yield* AdapterContractViolation.make({
           reason: `prompt rejected after accepted session activity: ${ending.rejection}`,
         })
       }
-      return yield* new InvocationSetupError({
+      return yield* InvocationSetupError.make({
         operation: "prompt",
         reason: ending.rejection,
       })
@@ -607,7 +623,7 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
 
     const terminal = common.terminal
     if (terminal === undefined) {
-      return yield* new AdapterContractViolation({
+      return yield* AdapterContractViolation.make({
         reason: "prompt settled without terminal assistant evidence",
       })
     }
@@ -633,7 +649,7 @@ const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
       case "pending":
       case "deferred":
       case "aborted": {
-        return yield* new AdapterContractViolation({
+        return yield* AdapterContractViolation.make({
           reason: `prompt settled with uncaused stop reason ${terminal.stopReason}`,
         })
       }
@@ -676,20 +692,20 @@ const isFreshRetryable = (termination: TerminationType): boolean =>
 const validateInput = <O>(input: InvokeInput<O>) =>
   Effect.gen(function* () {
     if (input.systemPrompt.trim() === "") {
-      return yield* new InvocationSetupError({
+      return yield* InvocationSetupError.make({
         operation: "validate-config",
         reason: "systemPrompt must be non-empty",
       })
     }
     if (input.prompt.trim() === "") {
-      return yield* new InvocationSetupError({
+      return yield* InvocationSetupError.make({
         operation: "validate-config",
         reason: "prompt must be non-empty",
       })
     }
-    for (const [name, value] of Object.entries(input.deadlines)) {
+    for (const [name, value] of Record.toEntries(input.deadlines)) {
       if (!Number.isFinite(value) || value <= 0) {
-        return yield* new InvocationSetupError({
+        return yield* InvocationSetupError.make({
           operation: "validate-config",
           reason: `${name} must be a positive finite number`,
         })
@@ -709,17 +725,17 @@ const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
   })
 
 const decodeUsageRow = Schema.decodeUnknownEffect(UsageRow)
-const encodeJsonString = Schema.encodeUnknownSync(
+const encodeJsonString = Schema.encodeUnknownEffect(
   Schema.fromJsonString(Schema.Unknown),
 )
-const decodeJsonValue = Schema.decodeUnknownSync(
+const decodeJsonValue = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Json),
 )
 
 // Normalizes a raw usage row into the usage-accounting JSON contract. The
 // stringify/parse round-trip drops undefined fields (as JSON.stringify
-// would) and throws on non-serializable rows.
-const jsonSafeValue = Function.compose(encodeJsonString, decodeJsonValue)
+// would) and fails with a SchemaError on non-serializable rows.
+const jsonSafeValue = Function.compose(encodeJsonString, Effect.flatMap(decodeJsonValue))
 const jsonSafeRow = jsonSafeValue
 
 const usageFrom = (states: ReadonlyArray<CaptureState>) =>
@@ -728,14 +744,14 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
       const common = commonOf(state)
       if (common.violations.length > 0) {
         return Effect.fail(
-          new AdapterContractViolation({
-            reason: common.violations.join("; "),
+          AdapterContractViolation.make({
+            reason: Array.join(common.violations, "; "),
           }),
         )
       }
       if (common.usageSweepError !== undefined) {
         return Effect.fail(
-          new AdapterContractViolation({
+          AdapterContractViolation.make({
             reason: `usage sweep threw: ${common.usageSweepError}`,
           }),
         )
@@ -744,14 +760,14 @@ const usageFrom = (states: ReadonlyArray<CaptureState>) =>
         decodeUsageRow(row).pipe(
           Effect.mapError(
             () =>
-              new AdapterContractViolation({
+              AdapterContractViolation.make({
                 reason: "usage row does not match Pi's accounting contract",
               }),
           ),
         ),
       )
     })
-    const rawRows = states.flatMap((state) => commonOf(state).rawUsageRows)
+    const rawRows = Array.flatMap(states, (state) => commonOf(state).rawUsageRows)
     let input = 0
     let output = 0
     let cacheRead = 0
@@ -785,7 +801,7 @@ const outputFrom = <O>(
 ) =>
   Effect.gen(function* () {
     const decode = decodeOutputContract(contract)
-    const validated = states.filter(isValidatedCapture)
+    const validated = Array.filter(states, isValidatedCapture)
     for (const state of validated) {
       if (state.duplicateCount > 0) {
         diagnostics.push(
@@ -806,7 +822,7 @@ const outputFrom = <O>(
         ),
         Effect.mapError(
           (error) =>
-            new AdapterContractViolation({
+            AdapterContractViolation.make({
               reason: `validated ${contract.toolName} arguments failed their OutputContract decoder: ${String(error)}`,
             }),
         ),
@@ -814,17 +830,10 @@ const outputFrom = <O>(
       )
     }
 
-    const salvaged = states
-      .filter(isSalvagedCapture)
-      .flatMap((state) => state.raws)
+    const salvaged = pipe(states, Array.filter(isSalvagedCapture), Array.flatMap((state) => state.raws))
       .reverse()
     for (const [index, raw] of salvaged.entries()) {
-      const decoded = yield* decode(raw).pipe(
-        Effect.match({
-          onFailure: () => Option.none<O>(),
-          onSuccess: Option.some,
-        }),
-      )
+      const decoded = yield* Effect.option(decode(raw))
       if (Option.isSome(decoded)) {
         diagnostics.push(
           `${contract.toolName} output recovered from pre-validation arguments`,
@@ -846,10 +855,10 @@ const finalizeOutcome = <O>(
   durationMillis: number,
 ): Effect.Effect<AgentOutcome<O>, AdapterContractViolation> =>
   Effect.gen(function* () {
-    const states = captures.map((capture) => capture.snapshot())
+    const states = Array.map(captures, (capture) => capture.snapshot())
     const diagnostics = [
       ...globalDiagnostics,
-      ...states.flatMap((state) => commonOf(state).diagnostics),
+      ...Array.flatMap(states, (state) => commonOf(state).diagnostics),
     ]
     const usage = yield* usageFrom(states)
     const output = yield* outputFrom(
@@ -858,12 +867,13 @@ const finalizeOutcome = <O>(
       states,
       diagnostics,
     )
-    const toolCalls = states.reduce<AgentToolCalls>(
+    const toolCalls: AgentToolCalls = Array.reduce(
+      states,
+      { total: 0, errored: 0 },
       (sum, state) => ({
         total: sum.total + commonOf(state).toolCalls.total,
         errored: sum.errored + commonOf(state).toolCalls.errored,
       }),
-      { total: 0, errored: 0 },
     )
     const outcome = {
       termination,

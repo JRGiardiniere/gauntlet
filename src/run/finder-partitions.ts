@@ -18,7 +18,7 @@ export interface PlannedFinderInvocation {
 export const finderInvocationsInPlan = (
   plan: ReviewPlan,
 ): ReadonlyArray<PlannedFinderInvocation> =>
-  selectRunnableFinders(plan).runnable.map((lens) => ({
+  Array.map(selectRunnableFinders(plan).runnable, (lens) => ({
     invocationKey: `finder-${lens.name}`,
     lens,
     seat: lens.seat,

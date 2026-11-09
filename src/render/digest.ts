@@ -1,3 +1,5 @@
+import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
@@ -40,19 +42,19 @@ export const renderDigest = (
 ): string => {
   const view = viewDossier(dossier)
   const recipeName = plan.recipeName ?? "none"
-  const confirmed = view.findings.filter(({ tag }) => tag === "confirmed")
+  const confirmed = Array.filter(view.findings, ({ tag }) => tag === "confirmed")
     .length
-  const kept = view.findings.filter(({ tag }) => tag === "judgment").length
-  const plausible = view.unresolved.filter(({ tag }) => tag === "plausible")
+  const kept = Array.filter(view.findings, ({ tag }) => tag === "judgment").length
+  const plausible = Array.filter(view.unresolved, ({ tag }) => tag === "plausible")
     .length
-  const undecided = view.unresolved.filter(({ tag }) => tag === "undecided")
+  const undecided = Array.filter(view.unresolved, ({ tag }) => tag === "undecided")
     .length
   const tally =
     `${String(confirmed)} confirmed · ${String(kept)} kept · ` +
     `${String(plausible)} plausible · ${String(undecided)} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
     `${accounting.wallTimeSeconds}s`
-  const surviving = [...view.findings, ...view.unresolved].map((entry) => {
+  const surviving = Array.map([...view.findings, ...view.unresolved], (entry) => {
     const label = entry.reviewPriority === undefined
       ? entry.tag
       : `${entry.reviewPriority} ${entry.tag}`
@@ -64,9 +66,8 @@ export const renderDigest = (
     ? undefined
     : boundedLine(
       `coverage gaps: ${String(dossier.coverageGaps.length)} — ${
-        dossier.coverageGaps.map((gap) =>
-          `${gap.lens ?? gap.stage} (${gap.reason})`
-        ).join("; ")
+        pipe(dossier.coverageGaps, Array.map((gap) =>
+          `${gap.lens ?? gap.stage} (${gap.reason})`), Array.join("; "))
       }`,
     )
   const toolHealth = accounting.finderToolHealth !== undefined &&
@@ -81,8 +82,8 @@ export const renderDigest = (
   const skipped = selectRunnableFinders(plan).skipped
   const notRun = skipped.length === 0
     ? undefined
-    : `Not run: ${skipped.map(({ lens, reason }) => `${lens.name} (${reason})`).join(", ")}`
-  return [
+    : `Not run: ${pipe(skipped, Array.map(({ lens, reason }) => `${lens.name} (${reason})`), Array.join(", "))}`
+  return Array.join([
     tally,
     ...(coverageGaps === undefined ? [] : [coverageGaps]),
     ...(toolHealth === undefined ? [] : [toolHealth]),
@@ -91,5 +92,5 @@ export const renderDigest = (
     "",
     `dossier.md: ${paths.dossierMarkdown}`,
     `dossier.json: ${paths.dossier}`,
-  ].join("\n")
+  ], "\n")
 }

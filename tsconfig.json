@@ -7,6 +7,7 @@
     "lib": ["es2022"],
     "types": ["node"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
@@ -16,7 +17,22 @@
       {
         "name": "@effect/language-service",
         "diagnostics": false,
-        "allowedUnstableApis": ["effect/cli", "effect/http", "effect/process"]
+        "allowedUnstableApis": [
+          "@effect/platform-node",
+          "@effect/vitest",
+          "effect/ByteSize",
+          "effect/cli",
+          "effect/crypto/SecureRandom",
+          "effect/FileSystem",
+          "effect/http",
+          "effect/Logger#toFile",
+          "effect/Path",
+          "effect/PlatformError",
+          "effect/process",
+          "effect/Stdio",
+          "effect/Terminal",
+          "effect/testing"
+        ]
       }
     ]
   },

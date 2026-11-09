@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -23,21 +24,24 @@ describe("the Mod's configuration", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-mod-config-" })
-      expect(yield* asMod(home, isFreshConfig())).toBe(true)
+      const freshBefore = yield* asMod(home, isFreshConfig())
+      expect(freshBefore).toBe(true)
       yield* asMod(home, writeInitialConfig())
 
       const entries = yield* asMod(home, listRecipes())
-      expect(entries.map((entry) => [entry.name, entry._tag])).toEqual([
+      expect(Array.map(entries, (entry) => [entry.name, entry._tag])).toEqual([
         ["high", "ValidRecipe"],
         ["low", "ValidRecipe"],
         ["medium", "ValidRecipe"],
       ])
       const settings = yield* asMod(home, loadSettings())
       expect(Option.map(settings, (value) => value["default-recipe"])).toEqual(Option.some("medium"))
-      expect(yield* fs.exists(path.join(home, ".gauntlet", "settings.json"))).toBe(false)
+      const settingsExists = yield* fs.exists(path.join(home, ".gauntlet", "settings.json"))
+      expect(settingsExists).toBe(false)
 
       yield* fs.remove(path.join(home, ".gauntlet", "mod", "settings.json"))
-      expect(yield* asMod(home, isFreshConfig())).toBe(false)
+      const freshAfter = yield* asMod(home, isFreshConfig())
+      expect(freshAfter).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("lists a recipe seating another provider as invalid, naming the Seat it takes", () =>
@@ -50,8 +54,9 @@ describe("the Mod's configuration", () => {
       yield* fs.writeFileString(path.join(recipes, "fixture.json"), `{"default":"fixture/fixture-model:low"}\n`)
 
       const [entry] = yield* asMod(home, listRecipes())
-      expect(entry?._tag).toBe("InvalidRecipe")
-      if (entry?._tag !== "InvalidRecipe") return
-      expect(entry.error).toContain("the Mod runs only claude-code/<model>:<effort> Seats")
+      expect(entry).toMatchObject({
+        _tag: "InvalidRecipe",
+        error: expect.stringContaining("the Mod runs only claude-code/<model>:<effort> Seats"),
+      })
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

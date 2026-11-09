@@ -2,6 +2,8 @@
 // small highlighter for the Dossier page. The highlighter marks comments,
 // strings, numbers, keywords and type names; the page styles them with
 // weight and tone only.
+import * as Array from "effect/Array"
+import type * as Option from "effect/Option"
 
 export const escapeHtml = (text: string): string =>
   text
@@ -80,10 +82,9 @@ export const parseDiffHunks = (
 export const hunkAt = (
   hunks: ReadonlyArray<Hunk>,
   line: number,
-): Hunk | undefined =>
-  hunks.find((hunk) =>
-    line >= hunk.newStart && line < hunk.newStart + Math.max(hunk.newLength, 1)
-  )
+): Option.Option<Hunk> =>
+  Array.findFirst(hunks, (hunk) =>
+    line >= hunk.newStart && line < hunk.newStart + Math.max(hunk.newLength, 1))
 
 const KEYWORDS = new Set(
   "import export from const let var function return if else for while do of in new type interface extends implements class readonly as async await yield throw try catch finally switch case default break continue typeof keyof void undefined null true false this satisfies declare namespace enum"

@@ -8,17 +8,20 @@ import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 
-class LiveGateStepFailed extends Data.TaggedError("LiveGateStepFailed")<{
-  readonly step: string
-  readonly reason: string
-}> {}
+class LiveGateStepFailed extends Schema.TaggedError<
+  LiveGateStepFailed,
+  { readonly brand: unique symbol }
+>()("LiveGateStepFailed", {
+  step: Schema.String,
+  reason: Schema.String,
+}) {}
 
 const repoRoot = `${import.meta.dirname}/..`
 
@@ -43,7 +46,7 @@ const runStep = (
       }),
     )
     if (exitCode !== 0) {
-      return yield* new LiveGateStepFailed({
+      return yield* LiveGateStepFailed.make({
         step,
         reason: `exited ${String(exitCode)}`,
       })
@@ -121,7 +124,7 @@ const program = Effect.gen(function* () {
   yield* Console.error(review.stderr)
   const narration = `${review.stdout}${review.stderr}`
   if (review.exitCode !== 0 || narration.includes("coverage gap")) {
-    return yield* new LiveGateStepFailed({
+    return yield* LiveGateStepFailed.make({
       step: "one real review through the binary",
       reason: review.exitCode === 0
         ? "degraded (coverage gap)"

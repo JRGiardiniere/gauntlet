@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import { ReviewTarget } from "../domain/review-target.ts"
 import {
@@ -15,12 +16,9 @@ import {
 // any committish (ADR 0005).
 const splitRange = (spec: string) => {
   const separator = spec.indexOf("..")
-  return separator === -1
-    ? { base: spec, head: "HEAD" }
-    : {
-      base: spec.slice(0, separator),
-      head: spec.slice(separator + 2) || "HEAD",
-    }
+  if (separator === -1) return { base: spec, head: "HEAD" }
+  const head = spec.slice(separator + 2)
+  return { base: spec.slice(0, separator), head: head === "" ? "HEAD" : head }
 }
 
 // Resolves `--commits <base>[..<head>]` to that committed range. It mirrors
@@ -37,11 +35,8 @@ export const resolveCommitsTarget = Effect.fn(
     Effect.map(chompLine),
   )
   const headCommit = yield* resolveCommittish(repoRoot, range.head)
-  const baseCommit = yield* mergeBaseOf(
-    repoRoot,
-    yield* resolveCommittish(repoRoot, range.base),
-    headCommit,
-  )
+  const resolvedBase = yield* resolveCommittish(repoRoot, range.base)
+  const baseCommit = yield* mergeBaseOf(repoRoot, resolvedBase, headCommit)
   const [diff, changedFiles, submodules, uncommitted] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(
@@ -56,7 +51,7 @@ export const resolveCommitsTarget = Effect.fn(
         headCommit,
       ]).pipe(
         explainGit(`could not list changed files for ${spec}`),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-tree", "-r", "-z", headCommit]).pipe(
         explainGit(`could not list the tree of ${spec}`),
@@ -72,14 +67,14 @@ export const resolveCommitsTarget = Effect.fn(
         "-z",
       ]).pipe(
         explainGit("could not inspect the working tree"),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
     ],
     { concurrency: 2 },
   )
 
   if (diff === "") {
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: `${spec} has no changes to review`,
       cause: undefined,
     })

@@ -1,12 +1,13 @@
 import { parseFrontmatter } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { FinderClass } from "../domain/recipe.ts"
 import { LensName } from "../domain/review-plan.ts"
@@ -28,17 +29,20 @@ export const LoadedLens = Schema.Struct({
 })
 export interface LoadedLens extends Schema.Schema.Type<typeof LoadedLens> {}
 
-export class ContentLoadError extends Data.TaggedError("ContentLoadError")<{
-  readonly path: string
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class ContentLoadError extends Schema.TaggedError<
+  ContentLoadError,
+  { readonly brand: unique symbol }
+>()("ContentLoadError", {
+  path: Schema.String,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // Inside a compiled Bun executable every module URL sits under the virtual
 // bundle root ($bunfs; ~BUN/%7EBUN on Windows) and the shipped content is an
 // embedded asset tree next to the bundled entry, served through ordinary
 // node:fs reads and directory listings (Bun >= 1.4).
-export const isCompiledBinary = ["$bunfs", "~BUN", "%7EBUN"].some((marker) =>
+export const isCompiledBinary = Array.some(["$bunfs", "~BUN", "%7EBUN"], (marker) =>
   import.meta.url.includes(marker))
 
 // The packaged content lives outside src/: next to the bundled entry in a
@@ -56,7 +60,7 @@ export const ContentDirectory = Context.Reference<string>(
 )
 
 const contentLoadError = (path: string, reason: string) => (cause?: unknown) =>
-  new ContentLoadError({ path, reason, cause })
+  ContentLoadError.make({ path, reason, cause })
 
 const decodeLensSource = (
   path: string,
@@ -71,7 +75,7 @@ const decodeLensSource = (
       normalized.startsWith("---\n") &&
       normalized.indexOf("\n---", 4) === -1
     ) {
-      return yield* new ContentLoadError({
+      return yield* ContentLoadError.make({
         path,
         reason: "frontmatter has no closing --- delimiter",
       })
@@ -81,9 +85,9 @@ const decodeLensSource = (
       catch: contentLoadError(path, "frontmatter is not valid YAML"),
     })
     const allowed = new Set(["finder-class", "category"])
-    for (const key of Object.keys(parsed.frontmatter)) {
+    for (const key of Record.keys(parsed.frontmatter)) {
       if (!allowed.has(key)) {
-        return yield* new ContentLoadError({
+        return yield* ContentLoadError.make({
           path,
           reason: `frontmatter field is not admitted: ${key}`,
         })
@@ -102,7 +106,7 @@ const decodeLensSource = (
     )
     const promptText = parsed.body
     if (promptText.trim() === "") {
-      return yield* new ContentLoadError({
+      return yield* ContentLoadError.make({
         path,
         reason: "lens prompt body is empty",
       })
@@ -138,12 +142,12 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const entries = yield* fs.readDirectory(lensesDirectory).pipe(
+  const entries: ReadonlyArray<string> = yield* fs.readDirectory(lensesDirectory).pipe(
     Effect.catchTag("PlatformError", (failure) =>
       optionalDirectory && Predicate.isTagged("NotFound")(failure.reason)
         ? Effect.succeed([])
         : Effect.fail(
-          new ContentLoadError({
+          ContentLoadError.make({
             path: lensesDirectory,
             reason: "could not list lens directory",
             cause: failure,
@@ -151,9 +155,11 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
         )),
   )
   return Array.sort(
-    entries
-      .filter((entry) => path.extname(entry) === ".md")
-      .map((entry) => path.basename(entry, ".md")),
+    pipe(
+      entries,
+      Array.filter((entry) => path.extname(entry) === ".md"),
+      Array.map((entry) => path.basename(entry, ".md")),
+    ),
     Order.String,
   )
 })
@@ -198,7 +204,7 @@ const discoverFinderLensSources = Effect.fn(
           ),
         )
         if (catalog.has(decodedName)) {
-          return yield* new ContentLoadError({
+          return yield* ContentLoadError.make({
             path: projectDirectory,
             reason: `duplicate shipped/project lens name: ${decodedName}`,
           })
@@ -228,7 +234,7 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
       seen.add(decodedName)
       const source = catalog.get(decodedName)
       if (source === undefined) {
-        return yield* new ContentLoadError({
+        return yield* ContentLoadError.make({
           path: repoRoot,
           reason: `selected lens does not exist: ${decodedName}`,
         })

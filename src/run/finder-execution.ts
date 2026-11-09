@@ -2,7 +2,9 @@ import * as Array from "effect/Array"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import {
@@ -107,7 +109,7 @@ export const executeFinders = Effect.fn(
         plan.target.changedFiles,
       ).pipe(
         Effect.mapError((cause) =>
-          new RunError({
+          RunError.make({
             operation: "execute-plan",
             runId: plan.runId,
             reason: "could not gather the related-file context",
@@ -115,10 +117,8 @@ export const executeFinders = Effect.fn(
           })
         ),
       )
-      return yield* renderRelatedFiles(
-        yield* loadRelatedFilesTemplate(),
-        relatedFiles,
-      )
+      const template = yield* loadRelatedFilesTemplate()
+      return yield* renderRelatedFiles(template, relatedFiles)
     }),
   )
 
@@ -157,7 +157,8 @@ export const executeFinders = Effect.fn(
       HarnessSessionFactory
     >,
   ) {
-    const outcome = enforceCandidateCap(invocation.lens, yield* invoked)
+    const uncappedOutcome = yield* invoked
+    const outcome = enforceCandidateCap(invocation.lens, uncappedOutcome)
     yield* reportFinderDone({ lens: invocation.lens, outcome })
     return { invocation, outcome }
   })
@@ -233,27 +234,29 @@ export const executeFinders = Effect.fn(
     { concurrency: "unbounded" },
   )
 
-  const failures = groupResults.flatMap(({ failed }) => failed)
-  const firstFailure = failures[0]
-  if (firstFailure !== undefined) return yield* firstFailure.error
+  const failures = Array.flatMap(groupResults, ({ failed }) => failed)
+  const firstFailure = Array.head(failures)
+  if (Option.isSome(firstFailure)) return yield* firstFailure.value.error
 
   const completedByKey = HashMap.fromIterable(
-    groupResults
-      .flatMap(({ completed }) => completed)
-      .map((result) => [result.invocation.invocationKey, result] as const),
+    pipe(
+      groupResults,
+      Array.flatMap(({ completed }) => completed),
+      Array.map((result) => [result.invocation.invocationKey, result] as const),
+    ),
   )
   const ordered = Array.filterMap(invocations, (invocation) =>
     HashMap.get(completedByKey, invocation.invocationKey).pipe(
       Result.fromOption(() => undefined),
       Result.map((result) => ({ invocation, outcome: result.outcome })),
     ))
-  const finders = ordered.map(({ invocation, outcome }): FinderResult => ({
+  const finders = Array.map(ordered, ({ invocation, outcome }): FinderResult => ({
     lens: invocation.lens,
     outcome,
   }))
   yield* writeArtifactJson(paths.finderStage, FinderStageArtifact, {
     runId: plan.runId,
-    finders: ordered.map(({ invocation, outcome }) => ({
+    finders: Array.map(ordered, ({ invocation, outcome }) => ({
       invocationKey: invocation.invocationKey,
       outcome,
     })),

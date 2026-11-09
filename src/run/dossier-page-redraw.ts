@@ -1,9 +1,10 @@
 import * as Arr from "effect/Array"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { Dossier } from "../domain/dossier.ts"
 import { briefReferences, sourceKey } from "../render/brief.ts"
@@ -15,10 +16,13 @@ import { runGit } from "../target/git.ts"
 import { describeArtifactWrite, writeArtifactText } from "./artifact.ts"
 import type { LoadedRun } from "./run-record.ts"
 
-export class PageError extends Data.TaggedError("PageError")<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class PageError extends Schema.TaggedError<
+  PageError,
+  { readonly brand: unique symbol }
+>()("PageError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 export interface RedrawnPage {
   readonly path: string
@@ -26,7 +30,7 @@ export interface RedrawnPage {
 }
 
 const unreadable = (what: string) => (cause: { readonly message: string }) =>
-  new PageError({ reason: `${what}: ${cause.message.replace(/\s+/g, " ")}`, cause })
+  PageError.make({ reason: `${what}: ${cause.message.replace(/\s+/g, " ")}`, cause })
 
 // Redraws a Run's dossier.html with the briefs in its briefs/ directory. The
 // exhibits come from page-data.json, so they stay what the Run saw; a
@@ -43,7 +47,7 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
   )
   const dataText = yield* fs.readFileString(paths.pageData).pipe(
     Effect.mapError((cause) =>
-      new PageError({
+      PageError.make({
         reason: Predicate.isTagged("NotFound")(cause.reason)
           ? `run ${plan.runId} has no page-data.json; it predates the page`
           : `could not read ${paths.pageData}: ${cause.message}`,
@@ -60,11 +64,11 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     Effect.catch((cause) =>
       Predicate.isTagged(cause.reason, "NotFound")
         ? Effect.succeed<ReadonlyArray<string>>([])
-        : Effect.fail(unreadable(`could not list ${directory}`)(cause))
+        : pipe(cause, unreadable(`could not list ${directory}`), Effect.fail)
     ),
   )
   const briefs = new Map<string, string>()
-  for (const file of listed.filter((name) => name.endsWith(".md")).sort()) {
+  for (const file of Arr.filter(listed, (name) => name.endsWith(".md")).sort()) {
     const text = yield* fs.readFileString(path.join(directory, file)).pipe(
       Effect.mapError(unreadable(`could not read briefs/${file}`)),
     )
@@ -77,11 +81,13 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     plan.target._tag === "WorkingTree" ? [...plan.target.changedFiles, ...plan.target.untrackedFiles] : [],
   )
   const wanted = new Map(
-    [...briefs.values()].flatMap(briefReferences)
-      .filter(({ file, revision }) =>
-        revision !== undefined || (data.sources[file] === undefined && !uncommitted.has(file))
-      )
-      .map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
+    pipe(
+      [...briefs.values()],
+      Arr.flatMap(briefReferences),
+      Arr.filter(({ file, revision }) =>
+        revision !== undefined || (!Record.has(data.sources, file) && !uncommitted.has(file))),
+      Arr.map(({ file, revision }) => [sourceKey(file, revision), { file, revision }] as const),
+    ),
   )
   const read = yield* Effect.forEach(wanted, ([key, { file, revision }]) =>
     runGit(dossier.target.repoRoot, ["show", `${revision ?? dossier.target.headCommit}:${file}`]).pipe(
@@ -99,7 +105,7 @@ export const redrawDossierPage = Effect.fn("DossierPage.redraw")(function* (
     extraSources,
   })
   yield* writeArtifactText(paths.dossierPage, drawn.html).pipe(
-    Effect.mapError((failure) => new PageError({ reason: describeArtifactWrite(failure), cause: failure })),
+    Effect.mapError((failure) => PageError.make({ reason: describeArtifactWrite(failure), cause: failure })),
   )
   return { path: paths.dossierPage, problems: drawn.problems } satisfies RedrawnPage
 })

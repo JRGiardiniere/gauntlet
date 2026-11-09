@@ -20,6 +20,13 @@ const unbounded = (name: string, code: string) => ({
   errors: [{ message }],
 })
 
+const unlimited = (name: string, code: string) => ({
+  name,
+  code,
+  filename: productionFile,
+  errors: [{ message: /HttpClient\.withRateLimiter retries a 429 forever unless times is set/ }],
+})
+
 ruleTester.run("retry-schedule-bounded", rule, {
   valid: [
     bounded(
@@ -51,6 +58,18 @@ ruleTester.run("retry-schedule-bounded", rule, {
       `HttpClient.retryTransient({ schedule: Schedule.spaced("1 second"), times: 2 })`,
     ),
     bounded("an unrelated retry helper", `HttpClient.retry({ times: 2 })`),
+    bounded(
+      "a rate limiter with a numeric times",
+      `HttpClient.withRateLimiter({ limiter, limit: 10, window: "1 second", times: 3 })`,
+    ),
+    bounded(
+      "a data-first rate limiter with times 0",
+      `HttpClient.withRateLimiter(client, { limiter, limit: 10, window: "1 second", times: 0 })`,
+    ),
+    bounded(
+      "a bare withRateLimiter import with times",
+      `withRateLimiter({ limiter, limit: 10, window: "1 second", times: 3 })`,
+    ),
     {
       name: "a JavaScript file, which carries no retry vocabulary",
       code: `HttpClient.retryTransient({})`,
@@ -75,6 +94,18 @@ ruleTester.run("retry-schedule-bounded", rule, {
     unbounded(
       "the beta.90 Schedule.take spelling, which no longer exists",
       `HttpClient.retryTransient({ schedule: Schedule.spaced("1 second").pipe(Schedule.take(2)) })`,
+    ),
+    unlimited(
+      "a rate limiter with no times",
+      `HttpClient.withRateLimiter({ limiter, limit: 10, window: "1 second" })`,
+    ),
+    unlimited(
+      "a data-first rate limiter with no times",
+      `HttpClient.withRateLimiter(client, { limiter, limit: 10, window: "1 second" })`,
+    ),
+    unlimited(
+      "a rate limiter that only disables response inspection",
+      `HttpClient.withRateLimiter({ limiter, limit: 10, window: "1 second", disableResponseInspection: true })`,
     ),
   ],
 })

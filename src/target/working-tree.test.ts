@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -71,7 +72,7 @@ describe("resolveWorkingTreeTarget", () => {
 
       const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target.untrackedFiles).toEqual(["visible.txt"])
-      expect(target.warnings.join("\n")).toContain("visible.txt")
+      expect(Array.join(target.warnings, "\n")).toContain("visible.txt")
       const encoded = yield* Schema.encodeEffect(
         Schema.fromJsonString(ReviewTarget),
       )(target)

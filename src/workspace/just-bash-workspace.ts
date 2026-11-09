@@ -7,7 +7,8 @@ import {
   type ToolDefinition,
   truncateTail,
 } from "@earendil-works/pi-coding-agent"
-import * as Data from "effect/Data"
+import * as Array from "effect/Array"
+import * as Schema from "effect/Schema"
 import { Bash, type BashOptions, OverlayFs, type OverlayFsOptions } from "just-bash"
 import { type Static, Type } from "typebox"
 import {
@@ -43,11 +44,12 @@ export const WORKSPACE_EXECUTION_LIMITS: NonNullable<
 // interpreter. They reject at the Pi Promise seam, surface as isError tool
 // results, and the invocation continues — same recovery path as a bad flag
 // on real bash.
-export class WorkspaceToolError extends Data.TaggedError(
-  "WorkspaceToolError",
-)<{
-  readonly message: string
-}> {}
+export class WorkspaceToolError extends Schema.TaggedError<
+  WorkspaceToolError,
+  { readonly brand: unique symbol }
+>()("WorkspaceToolError", {
+  message: Schema.String,
+}) {}
 
 const failureMessage = (cause: unknown): string =>
   cause instanceof Error ? cause.message : String(cause)
@@ -82,7 +84,7 @@ const guardWorkspacePath = (absolutePath: string): void => {
     absolutePath !== REVIEW_WORKSPACE_ROOT &&
     !absolutePath.startsWith(`${REVIEW_WORKSPACE_ROOT}/`)
   ) {
-    throw new WorkspaceToolError({
+    throw WorkspaceToolError.make({
       message: `Path is outside the workspace root ${REVIEW_WORKSPACE_ROOT}`,
     })
   }
@@ -102,12 +104,12 @@ const makeReadTool = (fs: OverlayFs): ToolDefinition =>
   defineTool(
     createReadToolDefinition(REVIEW_WORKSPACE_ROOT, {
       operations: {
-        // @effect-diagnostics-next-line asyncFunction:off
+        // @effect-diagnostics-next-line asyncFunction:off -- Pi's read-tool operations contract is async
         readFile: async (absolutePath) => {
           guardWorkspacePath(absolutePath)
           return Buffer.from(await fs.readFileBuffer(absolutePath))
         },
-        // @effect-diagnostics-next-line asyncFunction:off
+        // @effect-diagnostics-next-line asyncFunction:off -- Pi's read-tool operations contract is async
         access: async (absolutePath) => {
           guardWorkspacePath(absolutePath)
           await fs.stat(absolutePath)
@@ -163,7 +165,7 @@ const boundBashResponse = (output: string): string => {
 const makeBashTool = (bash: Bash): ToolDefinition =>
   defineTool({
     ...bashToolMetadata,
-    // @effect-diagnostics-next-line asyncFunction:off
+    // @effect-diagnostics-next-line asyncFunction:off -- Pi's custom tool `execute` contract is async
     execute: async (_toolCallId, args: BashArgs, signal) => {
       const { command, timeout } = args
       let timeoutSignal: AbortSignal | undefined
@@ -171,7 +173,7 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
         // The upper bound guards Node's 2^31-1ms timer ceiling: a delay past
         // it overflows and fires the abort immediately instead of later.
         if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483) {
-          throw new WorkspaceToolError({
+          throw WorkspaceToolError.make({
             message:
               "Invalid timeout: must be a positive number of seconds at most 2147483",
           })
@@ -179,27 +181,24 @@ const makeBashTool = (bash: Bash): ToolDefinition =>
         // Rounded: AbortSignal.timeout rejects non-integer delays.
         timeoutSignal = AbortSignal.timeout(Math.round(timeout * 1000))
       }
-      const signals = [signal, timeoutSignal].filter(
-        (candidate) => candidate !== undefined,
-      )
+      const signals = Array.filter([signal, timeoutSignal], (candidate) => candidate !== undefined)
       const result = await bash
         .exec(command, signals.length === 0 ? {} : {
           signal: AbortSignal.any(signals),
         })
         .catch((cause: unknown) => {
-          throw new WorkspaceToolError({
+          throw WorkspaceToolError.make({
             message: timeoutSignal?.aborted === true
               ? `Command timed out after ${String(timeout)} seconds`
               : failureMessage(cause),
           })
         })
-      const outputText = boundBashResponse(
-        combinedOutput(result.stdout, result.stderr) || "(no output)",
-      )
+      const output = combinedOutput(result.stdout, result.stderr)
+      const outputText = boundBashResponse(output === "" ? "(no output)" : output)
       if (result.exitCode !== 0) {
         // The interpreter may honor the abort by resolving with exit 124
         // instead of rejecting; report that as the timeout it is.
-        throw new WorkspaceToolError({
+        throw WorkspaceToolError.make({
           message: timeoutSignal?.aborted === true
             ? `Command timed out after ${String(timeout)} seconds`
             : `${outputText}\n\nCommand exited with code ${String(result.exitCode)}`,
@@ -235,7 +234,7 @@ export interface ReviewWorkspaceOptions {
 // One ReviewWorkspace per AgentInvocation: one overlay, one interpreter.
 // Invocations never observe one another's writes and cannot modify the
 // backing snapshot.
-// @effect-diagnostics-next-line asyncFunction:off
+// @effect-diagnostics-next-line asyncFunction:off -- it awaits just-bash's Promise-based overlay filesystem and runs inside Pi's async session setup
 export const makeReviewWorkspace = async (
   snapshotRoot: string,
   options?: ReviewWorkspaceOptions,

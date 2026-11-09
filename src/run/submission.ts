@@ -1,7 +1,9 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
+import * as Schema from "effect/Schema"
 import { listRecipes, resolveReviewRecipe } from "../config/recipe-catalog.ts"
 import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
@@ -49,11 +51,14 @@ import {
 // delivery stay with the caller.
 
 // Assembly refusals — the request parsed but no Run can be assembled from it.
-export class SubmissionError extends Data.TaggedError("SubmissionError")<{
-  readonly reason: string
+export class SubmissionError extends Schema.TaggedError<
+  SubmissionError,
+  { readonly brand: unique symbol }
+>()("SubmissionError", {
+  reason: Schema.String,
   // No settings exist to take Default Lenses from.
-  readonly unconfigured?: boolean
-}> {}
+  unconfigured: Schema.optionalKey(Schema.Boolean),
+}) {}
 
 const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
   Console.error(`gauntlet: ${text}`),
@@ -93,15 +98,14 @@ export interface SubmissionRequest {
 const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
   listRecipes().pipe(
     Effect.map((entries) =>
-      entries.some((entry) =>
-        entry._tag === "ValidRecipe" && entry.name === written
-      )
+      Array.some(entries, (entry) =>
+        entry._tag === "ValidRecipe" && entry.name === written)
     ),
     Effect.orElseSucceed(() => false),
     Effect.flatMap((named) =>
       Effect.fail(
         named
-          ? new TargetUnresolvable({
+          ? TargetUnresolvable.make({
             reason: `${failure.reason}; did you mean --recipe ${written}?`,
             cause: failure.cause,
           })
@@ -140,13 +144,14 @@ const resolveSpecificationBranch = Effect.fn(
   "gauntlet.submission.resolve_specification_branch",
 )(function* (repoRoot: string) {
   return yield* runGit(repoRoot, ["branch", "--show-current"]).pipe(
-    Effect.map(chompLine),
-    Effect.mapError((cause) =>
-      new TargetUnresolvable({
-        reason: describeGitFailure("could not resolve the current branch", cause),
-        cause,
-      })
-    ),
+    Effect.mapBoth({
+      onSuccess: chompLine,
+      onFailure: (cause) =>
+        TargetUnresolvable.make({
+          reason: describeGitFailure("could not resolve the current branch", cause),
+          cause,
+        }),
+    }),
   )
 })
 
@@ -168,9 +173,7 @@ const acquireSpecification = Effect.fn(
   // submission never resolves it.
   const linear = githubOnly
     ? undefined
-    : yield* loadLinearSpecification(
-        yield* resolveSpecificationBranch(target.repoRoot),
-      )
+    : yield* resolveSpecificationBranch(target.repoRoot).pipe(Effect.flatMap(loadLinearSpecification))
   if (
     linear !== undefined &&
     LinearSpecificationResolution.$is("Resolved")(linear)
@@ -196,7 +199,7 @@ const acquireSpecification = Effect.fn(
       Effect.catchTag("GitHubError", (failure) =>
         githubOnly
           ? Effect.fail(
-            new SubmissionError({
+            SubmissionError.make({
               reason:
                 `--github-spec could not read GitHub closing issues — ${failure.reason}`,
             }),
@@ -206,7 +209,7 @@ const acquireSpecification = Effect.fn(
     )
     : undefined
   if (githubOnly && fetched === undefined) {
-    return yield* new SubmissionError({
+    return yield* SubmissionError.make({
       reason:
         "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
     })
@@ -224,19 +227,18 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   // recipe, otherwise the configured Default Recipe — nothing else.
   const selected = yield* resolveReviewRecipe(request.recipeName)
   yield* progress(`using recipe ${selected.name}`)
-  const defaultLensNames = request.selectedLensNames === undefined
-    ? yield* Effect.gen(function* () {
-        const settings = yield* loadSettings()
-        if (Option.isNone(settings)) {
-          return yield* new SubmissionError({
-            reason:
-              "no Default Lenses are configured and the review names no Lenses",
-            unconfigured: true,
-          })
-        }
-        return settings.value["default-lenses"]
+  let defaultLensNames: ReadonlyArray<string> = []
+  if (request.selectedLensNames === undefined) {
+    const settings = yield* loadSettings()
+    if (Option.isNone(settings)) {
+      return yield* SubmissionError.make({
+        reason:
+          "no Default Lenses are configured and the review names no Lenses",
+        unconfigured: true,
       })
-    : []
+    }
+    defaultLensNames = settings.value["default-lenses"]
+  }
   const target = yield* resolveTarget(request.target)
   // Scope degradation is never silent (spec #16): each warning is narrated
   // as it is discovered, in addition to landing on the plan and report.
@@ -254,10 +256,12 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     request.selectedLensNames,
     defaultLensNames,
   )
+  const listedLenses = Array.join(resolvedLensNames, ", ")
+  const lensList = listedLenses === "" ? "(none)" : listedLenses
   yield* progress(
     request.selectedLensNames === undefined
-      ? `loading Default Lenses ${resolvedLensNames.join(", ") || "(none)"}`
-      : `loading exact caller Lenses ${resolvedLensNames.join(", ") || "(none)"}`,
+      ? `loading Default Lenses ${lensList}`
+      : `loading exact caller Lenses ${lensList}`,
   )
   const lenses = yield* loadFinderLenses({
     repoRoot: target.repoRoot,
@@ -268,10 +272,10 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   // Governing standards block lands in the already-frozen prompt text — the
   // freeze point is the assembly point (#110). No manifest means no block;
   // selection then skips the lens.
-  const standardsBlock = lenses.some((lens) => lens.name === STANDARDS_LENS_NAME)
+  const standardsBlock = Array.some(lenses, (lens) => lens.name === STANDARDS_LENS_NAME)
     ? yield* loadGoverningStandardsBlock(target.repoRoot).pipe(
         Effect.mapError((failure) =>
-          new SubmissionError({
+          SubmissionError.make({
             reason: `${failure.reason} (${failure.path})`,
           })),
       )
@@ -281,7 +285,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   // lens's finder class to a seat.
   // optionalKey admits an absent key, never a present undefined one, so the
   // specific-by-omission convention holds in the persisted plan too.
-  const frozenLenses = lenses.map((lens) => {
+  const frozenLenses = Array.map(lenses, (lens) => {
     const promptText =
       lens.name === STANDARDS_LENS_NAME && standardsBlock !== undefined
         ? `${lens.promptText.trimEnd()}\n\n${standardsBlock}`

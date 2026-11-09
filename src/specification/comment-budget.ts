@@ -1,3 +1,6 @@
+import * as Array from "effect/Array"
+import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import type {
   CommentOmission,
   SpecificationComment,
@@ -29,7 +32,7 @@ export const trimCommentBudget = (
   comments: ReadonlyArray<SpecificationComment>,
 ): TrimmedComments => {
   const ordered = [...comments].sort(byChronology)
-  let total = ordered.reduce((sum, comment) => sum + comment.text.length, 0)
+  let total = Array.reduce(ordered, 0, (sum, comment) => sum + comment.text.length)
   if (total <= COMMENT_BUDGET_CHARACTERS) {
     return { comments: ordered, commentOmission: undefined }
   }
@@ -45,13 +48,17 @@ export const trimCommentBudget = (
     total -= earliest.text.length
   }
 
-  const cutoff = retained[0]?.createdAt ?? ordered[ordered.length - 1]?.createdAt
+  const cutoff = pipe(
+    Array.head(retained),
+    Option.orElse(() => Array.last(ordered)),
+    Option.match({ onNone: () => "none", onSome: (comment) => comment.createdAt }),
+  )
   return {
     comments: retained,
     commentOmission: {
       droppedCount,
       droppedCharacters,
-      cutoff: cutoff ?? "none",
+      cutoff,
     },
   }
 }

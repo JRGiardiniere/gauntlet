@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Effect from "effect/Effect"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { makeClaudeLiveFactory } from "../harness/claude-live.ts"
 import { assembleStageScope, loadStageScopeTemplates } from "./scope.ts"
@@ -18,8 +19,9 @@ const reviewRoot = "/fixture/review-worktree"
 describe("Stage scope block", () => {
   it.effect("frames an embedded Markdown fence safely, under the root the tools expose", () =>
     Effect.gen(function* () {
+      const scopeTemplates = yield* loadStageScopeTemplates("workspace-pi.md")
       const scope = yield* assembleStageScope(
-        yield* loadStageScopeTemplates("workspace-pi.md"),
+        scopeTemplates,
         target,
         reviewRoot,
         undefined,
@@ -35,13 +37,14 @@ describe("Stage scope block", () => {
   it.effect("tells the model on the Claude Code host about that host's tools", () =>
     Effect.gen(function* () {
       const factory = yield* makeClaudeLiveFactory({ executable: "claude", runDirectory: () => undefined })
+      const scopeTemplates = yield* loadStageScopeTemplates(factory.workspacePrompt)
       const scope = yield* assembleStageScope(
-        yield* loadStageScopeTemplates(factory.workspacePrompt),
+        scopeTemplates,
         target,
         factory.workspaceRoot(reviewRoot),
         undefined,
       )
       expect(scope).toContain("`Grep`")
       expect(scope).not.toContain("`bash`")
-    }).pipe(Effect.provide(NodeServices.layer)))
+    }).pipe(Effect.provide([NodeServices.layer, SecureRandom.layerWebCrypto])))
 })

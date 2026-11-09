@@ -13,11 +13,12 @@ const isNamedCall = (
   && isIdentifier(node.callee.object, namespace)
   && getPropertyName(node.callee.property) === method
 
-const isRetryTransientCall = (node: ESTree.CallExpression): boolean =>
-  isIdentifier(node.callee, "retryTransient")
+// `HttpClient.<method>(...)`, or the method imported and called bare.
+const isHttpClientCall = (node: ESTree.CallExpression, method: string): boolean =>
+  isIdentifier(node.callee, method)
   || (node.callee.type === "MemberExpression"
     && isIdentifier(node.callee.object, "HttpClient")
-    && getPropertyName(node.callee.property) === "retryTransient")
+    && getPropertyName(node.callee.property) === method)
 
 const isInlineBoundedSchedule = (
   node: ESTree.Expression | null | undefined,
@@ -39,26 +40,41 @@ const propertyNamed = (
   )
 
 // String and numeric literals share `type: "Literal"`, so the value is the
-// only discriminant; the declared guard keeps the `typeof` sanctioned.
+// only discriminant.
 const isNumericLiteral = (
   node: ESTree.Expression,
 ): node is ESTree.NumericLiteral =>
   node.type === "Literal" && typeof node.value === "number"
 
+const hasNumericTimes = (options: ESTree.ObjectExpression): boolean => {
+  const times = propertyNamed(options, "times")
+  return times !== undefined && isNumericLiteral(times.value)
+}
+
+// withRateLimiter retries a 429 forever unless `times` is set. Its options
+// come last, whether it's called data-first or data-last.
+const isBoundedRateLimiter = (node: ESTree.CallExpression): boolean => {
+  const options = node.arguments.at(-1)
+  return options?.type === "ObjectExpression" && hasNumericTimes(options)
+}
+
 export const retryScheduleBoundedRule = defineRule({
   meta: {
     type: "problem",
     docs: {
-      description: "Require bounded transient HTTP retry policies",
+      description: "Require bounded HTTP retry policies",
     },
     messages: {
       unboundedRetry:
         "HttpClient.retryTransient must be explicitly bounded. Set schedule to transientRetrySchedule or Schedule.spaced(...).pipe(Schedule.upTo({ times: n })), or cap any schedule with a numeric times option, as the effect skill says.",
+      unboundedRateLimiter:
+        "HttpClient.withRateLimiter retries a 429 forever unless times is set. Give its options a numeric times (0 returns the first 429).",
     },
   },
   createOnce(context) {
     let boundedSchedules = new Set<string>()
     let retryCalls: Array<ESTree.CallExpression> = []
+    let rateLimiterCalls: Array<ESTree.CallExpression> = []
 
     const isBoundedOptions = (node: ESTree.CallExpression): boolean => {
       const options = node.arguments[0]
@@ -66,8 +82,7 @@ export const retryScheduleBoundedRule = defineRule({
 
       // buildFromOptions wraps any supplied schedule in an attempt cap when
       // `times` is set, so a numeric times bounds the retry on its own.
-      const times = propertyNamed(options, "times")
-      if (times !== undefined && isNumericLiteral(times.value)) return true
+      if (hasNumericTimes(options)) return true
 
       const schedule = propertyNamed(options, "schedule")
       if (schedule === undefined) return false
@@ -82,6 +97,7 @@ export const retryScheduleBoundedRule = defineRule({
         if (!isTypeScriptFile(context.filename)) return false
         boundedSchedules = new Set()
         retryCalls = []
+        rateLimiterCalls = []
         return true
       },
       ImportSpecifier(node) {
@@ -98,14 +114,18 @@ export const retryScheduleBoundedRule = defineRule({
         }
       },
       CallExpression(node) {
-        if (isRetryTransientCall(node)) {
-          retryCalls.push(node)
-        }
+        if (isHttpClientCall(node, "retryTransient")) retryCalls.push(node)
+        if (isHttpClientCall(node, "withRateLimiter")) rateLimiterCalls.push(node)
       },
       "Program:exit"() {
         for (const retryCall of retryCalls) {
           if (!isBoundedOptions(retryCall)) {
             context.report({ node: retryCall, messageId: "unboundedRetry" })
+          }
+        }
+        for (const rateLimiterCall of rateLimiterCalls) {
+          if (!isBoundedRateLimiter(rateLimiterCall)) {
+            context.report({ node: rateLimiterCall, messageId: "unboundedRateLimiter" })
           }
         }
       },

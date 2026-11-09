@@ -1,7 +1,7 @@
 import * as Array from "effect/Array"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
@@ -29,20 +29,24 @@ export interface InvalidRecipeEntry {
   readonly error: string
 }
 
-export class RecipeCatalogError extends Data.TaggedError("RecipeCatalogError")<{
-  readonly path: string
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class RecipeCatalogError extends Schema.TaggedError<
+  RecipeCatalogError,
+  { readonly brand: unique symbol }
+>()("RecipeCatalogError", {
+  path: Schema.String,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // Selection failures name the catalog so the caller can list what exists;
 // `available` carries the valid recipe names for the error message.
-export class RecipeSelectionError extends Data.TaggedError(
-  "RecipeSelectionError",
-)<{
-  readonly reason: string
-  readonly available: ReadonlyArray<string>
-}> {}
+export class RecipeSelectionError extends Schema.TaggedError<
+  RecipeSelectionError,
+  { readonly brand: unique symbol }
+>()("RecipeSelectionError", {
+  reason: Schema.String,
+  available: Schema.Array(Schema.String),
+}) {}
 
 // Each Host's catalog decodes with its own Seats (#177). Unknown keys are
 // invalid so a misspelled stage cannot silently inherit the default seat
@@ -70,7 +74,7 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
   }
   const source = yield* fs.readFileString(filePath).pipe(
     Effect.mapError((cause) =>
-      new RecipeCatalogError({
+      RecipeCatalogError.make({
         path: filePath,
         reason: "could not read recipe",
         cause,
@@ -107,7 +111,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
         Predicate.isTagged("NotFound")(failure.reason)
           ? Effect.succeed([])
           : Effect.fail(
-            new RecipeCatalogError({
+            RecipeCatalogError.make({
               path: directory,
               reason: "could not list recipe catalog",
               cause: failure,
@@ -115,7 +119,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
           )),
     )
     const fileNames = Array.sort(
-      entries.filter((entry) => path.extname(entry) === ".json"),
+      Array.filter(entries, (entry) => path.extname(entry) === ".json"),
       Order.String,
     )
     return yield* Effect.forEach(
@@ -129,9 +133,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
 export const availableRecipeNames = (
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<RecipeName> =>
-  entries.filter((entry) => entry._tag === "ValidRecipe").map(
-    (entry) => entry.name,
-  )
+  pipe(entries, Array.filter((entry) => entry._tag === "ValidRecipe"), Array.map((entry) => entry.name))
 
 // Select one named recipe from an already listed catalog: an absent or
 // invalid recipe fails and names what is available instead. Callers
@@ -143,24 +145,25 @@ export const selectRecipeFrom = (
   const available = availableRecipeNames(entries)
   if (!Schema.is(RecipeName)(name)) {
     return Effect.fail(
-      new RecipeSelectionError({
+      RecipeSelectionError.make({
         reason: `recipe name is not lowercase-kebab-case: ${name}`,
         available,
       }),
     )
   }
-  const entry = entries.find((candidate) => candidate.name === name)
-  if (entry === undefined) {
+  const found = Array.findFirst(entries, (candidate) => candidate.name === name)
+  if (Option.isNone(found)) {
     return Effect.fail(
-      new RecipeSelectionError({
+      RecipeSelectionError.make({
         reason: `recipe does not exist: ${name}`,
         available,
       }),
     )
   }
+  const entry = found.value
   if (entry._tag === "InvalidRecipe") {
     return Effect.fail(
-      new RecipeSelectionError({
+      RecipeSelectionError.make({
         reason: `recipe ${name} is invalid (${entry.path}): ${entry.error}`,
         available,
       }),
@@ -189,7 +192,7 @@ export const resolveReviewRecipe = Effect.fn(
   const settings = yield* loadSettings()
   if (Option.isNone(settings)) {
     const entries = yield* listRecipes()
-    return yield* new RecipeSelectionError({
+    return yield* RecipeSelectionError.make({
       reason: "no default recipe is configured and the review names none",
       available: availableRecipeNames(entries),
     })
@@ -197,7 +200,7 @@ export const resolveReviewRecipe = Effect.fn(
   const name = settings.value["default-recipe"]
   return yield* selectRecipe(name).pipe(
     Effect.catchTag("RecipeSelectionError", (failure) =>
-      new RecipeSelectionError({
+      RecipeSelectionError.make({
         reason: `configured default-recipe is unusable — ${failure.reason}`,
         available: failure.available,
       })),
@@ -210,4 +213,4 @@ export const renderAvailable = (
 ): string =>
   available.length === 0
     ? "; the recipe catalog is empty"
-    : `; available recipes: ${available.join(", ")}`
+    : `; available recipes: ${Array.join(available, ", ")}`

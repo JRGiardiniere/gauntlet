@@ -5,12 +5,15 @@
 // button are the real ones. Its digest copies the CLI digest's layout
 // (src/render/digest.ts) with made-up findings, and its dossier is a short
 // note in a temporary directory.
+import * as Array from "effect/Array"
 import * as Clock from "effect/Clock"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Record from "effect/Record"
 import type { CoverageGap } from "../src/domain/dossier.ts"
 import type { ReviewPriority } from "../src/domain/verdict.ts"
 import type { DossierEntryTag } from "../src/render/dossier-view.ts"
@@ -67,7 +70,7 @@ const SCENARIOS = {
   findings: FINDINGS,
   clean: {
     ...FINDINGS,
-    finders: FINDINGS.finders.map(([lens, seconds]) => [lens, seconds, 0]),
+    finders: Array.map(FINDINGS.finders, ([lens, seconds]) => [lens, seconds, 0]),
     routed: { bugClaims: 0, observations: 0 },
     bundles: 0,
     entries: [],
@@ -75,8 +78,11 @@ const SCENARIOS = {
   gaps: {
     ...FINDINGS,
     skipped: [{ lens: "standards", reason: "no Standards Manifest" }, { lens: "subjective", reason: "not selected" }],
-    finders: FINDINGS.finders.filter(([lens]) => lens !== "subjective").map(([lens, seconds, candidates]) =>
-      lens === "cross-file" ? [lens, seconds + 4, undefined] : [lens, seconds, candidates]
+    finders: pipe(
+      FINDINGS.finders,
+      Array.filter(([lens]) => lens !== "subjective"),
+      Array.map(([lens, seconds, candidates]) =>
+        lens === "cross-file" ? [lens, seconds + 4, undefined] : [lens, seconds, candidates]),
     ),
     routed: { bugClaims: 2, observations: 0 },
     bundles: 1,
@@ -85,49 +91,50 @@ const SCENARIOS = {
   },
   pr: { ...FINDINGS, destination: "pr" },
   refused: { ...FINDINGS, refusal: "the working tree has no uncommitted changes to review" },
-} satisfies Record<string, Scenario>
+} satisfies Record.ReadonlyRecord<string, Scenario>
 
-export const DEMO_SCENARIOS = Object.keys(SCENARIOS)
+export const DEMO_SCENARIOS = Record.keys(SCENARIOS)
 
 // The digest as src/render/digest.ts lays it out.
 const digestOf = (scenario: Scenario, seconds: number, dossierMarkdown: string) => {
-  const count = (tag: DossierEntryTag) => scenario.entries.filter((entry) => entry.tag === tag).length
-  return [
+  const count = (tag: DossierEntryTag) => Array.filter(scenario.entries, (entry) => entry.tag === tag).length
+  return Array.join([
     `${String(count("confirmed"))} confirmed · ${String(count("judgment"))} kept · ${String(count("plausible"))} plausible · ` +
     `${String(count("undecided"))} undecided — demo — recipe: demo — ${String(seconds)}s`,
     ...(scenario.coverageGaps.length === 0
       ? []
-      : [`coverage gaps: ${String(scenario.coverageGaps.length)} — ${scenario.coverageGaps.map((gap) => `${gap.lens ?? gap.stage} (${gap.reason})`).join("; ")}`]),
-    ...(scenario.skipped.length === 0 ? [] : [`Not run: ${scenario.skipped.map(({ lens, reason }) => `${lens} (${reason})`).join(", ")}`]),
-    ...scenario.entries.map((entry) =>
-      `- [${entry.reviewPriority === undefined ? entry.tag : `${entry.reviewPriority} ${entry.tag}`}] ${entry.location} — ${entry.summary}`
-    ),
+      : [`coverage gaps: ${String(scenario.coverageGaps.length)} — ${pipe(scenario.coverageGaps, Array.map((gap) => `${gap.lens ?? gap.stage} (${gap.reason})`), Array.join("; "))}`]),
+    ...(scenario.skipped.length === 0 ? [] : [`Not run: ${pipe(scenario.skipped, Array.map(({ lens, reason }) => `${lens} (${reason})`), Array.join(", "))}`]),
+    ...Array.map(scenario.entries, (entry) =>
+      `- [${entry.reviewPriority === undefined ? entry.tag : `${entry.reviewPriority} ${entry.tag}`}] ${entry.location} — ${entry.summary}`),
     "",
     `dossier.md: ${dossierMarkdown}`,
-  ].join("\n")
+  ], "\n")
 }
 
 const dossierOf = (scenario: Scenario) =>
-  [
+  Array.join([
     "# Gauntlet demo dossier",
     "",
     "A scripted run from `/gauntlet demo`: nothing was reviewed, and these findings are made up.",
     "",
-    ...scenario.entries.map((entry) => `- **${entry.reviewPriority ?? entry.tag}** \`${entry.location}\` — ${entry.summary}`),
+    ...Array.map(scenario.entries, (entry) => `- **${entry.reviewPriority ?? entry.tag}** \`${entry.location}\` — ${entry.summary}`),
     "",
-  ].join("\n")
+  ], "\n")
 
 // The words after `demo` name a scenario; none is `findings`.
 export const playDemo = Effect.fn("Demo.play")(
   function* (words: ReadonlyArray<string>, cwd: string) {
     const name = words[0] ?? "findings"
-    const scenario: Scenario | undefined = Object.entries(SCENARIOS).find(([key]) => key === name)?.[1]
-    if (scenario === undefined || words.length > 1) {
-      return yield* new RunRefusal({ reason: `no demo ${words.join(" ")}; the scenarios are ${DEMO_SCENARIOS.join(", ")}` })
+    const named = Array.findFirst(Record.toEntries(SCENARIOS), ([key]) => key === name)
+    if (Option.isNone(named) || words.length > 1) {
+      return yield* RunRefusal.make({ reason: `no demo ${Array.join(words, " ")}; the scenarios are ${Array.join(DEMO_SCENARIOS, ", ")}` })
     }
+    const scenario: Scenario = named.value[1]
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const runId = `demo-${String(yield* Clock.currentTimeMillis)}`
+    const startMillis = yield* Clock.currentTimeMillis
+    const runId = `demo-${String(startMillis)}`
     const activity: Array<AgentActivity> = []
     // One agent, from its open to its answer, or a failure without one.
     const invoke = (id: string, seconds: number, items: number | undefined) =>
@@ -143,7 +150,7 @@ export const playDemo = Effect.fn("Demo.play")(
           record.items = items
         }
       })
-    const lenses = scenario.finders.map(([lens]) => lens)
+    const lenses = Array.map(scenario.finders, ([lens]) => lens)
     const review: ReviewRequest = {
       target: SubmissionTargetRequest.WorkingTree({ base: undefined }),
       recipeName: Option.some("demo"),
@@ -156,17 +163,18 @@ export const playDemo = Effect.fn("Demo.play")(
       const directory = yield* fs.makeTempDirectory({ prefix: "gauntlet-demo-" })
       yield* reportMilestone(RunMilestone.Started({ runId, directory, lenses, skipped: scenario.skipped }))
       yield* Effect.sleep("1500 millis")
-      if (scenario.refusal !== undefined) return yield* new RunRefusal({ reason: scenario.refusal })
+      if (scenario.refusal !== undefined) return yield* RunRefusal.make({ reason: scenario.refusal })
       // The first Finder alone, then the rest, as the cache warm-up runs them.
-      const [first, ...rest] = scenario.finders
+      const first = Array.head(scenario.finders)
+      const rest = Array.drop(scenario.finders, 1)
       const finder = ([lens, seconds, candidates]: Scenario["finders"][number]) => invoke(`finders-1-finder-${lens}`, seconds, candidates)
-      if (first !== undefined) yield* finder(first)
+      if (Option.isSome(first)) yield* finder(first.value)
       yield* Effect.forEach(rest, (each, at) => Effect.delay(finder(each), Duration.millis(at * 150)), { concurrency: "unbounded" })
       yield* reportMilestone(RunMilestone.FindersFinished())
       yield* reportMilestone(RunMilestone.Routed(scenario.routed))
       if (scenario.routed.bugClaims > 1) yield* invoke("pool", 3, scenario.bundles)
       yield* Effect.all([
-        ...Array.from({ length: scenario.bundles }, (_, at) => invoke(`verification-${String(at + 1)}`, 4 + at * 2, 2)),
+        ...globalThis.Array.from({ length: scenario.bundles }, (_, at) => invoke(`verification-${String(at + 1)}`, 4 + at * 2, 2)),
         ...(scenario.routed.observations === 0 ? [] : [invoke("judgment", 5, scenario.routed.observations)]),
       ], { concurrency: "unbounded" })
       yield* Effect.sleep("1 second")
@@ -176,14 +184,14 @@ export const playDemo = Effect.fn("Demo.play")(
       const seconds = Math.round(((yield* Clock.currentTimeMillis) - startedAt) / 1000)
       return { runId, digest: digestOf(scenario, seconds, dossierMarkdown) }
     }).pipe(
-      Effect.catchTag("PlatformError", (failure) => new RunRefusal({ reason: `the demo could not write its dossier: ${failure.message}` })),
+      Effect.catchTag("PlatformError", (failure) => RunRefusal.make({ reason: `the demo could not write its dossier: ${failure.message}` })),
     )
     const deliver = () =>
       Effect.sleep("3 seconds").pipe(Effect.as({ url: "https://github.com/example/demo/pull/7#issuecomment-1" }))
     return {
       review,
       destination: scenario.destination,
-      run: { review: reviewed, deliver, activity: () => activity.map((each) => ({ ...each })) },
+      run: { review: reviewed, deliver, activity: () => Array.map(activity, (each) => ({ ...each })) },
     }
   },
 )

@@ -5,7 +5,7 @@
 // forked fiber for the whole command and is claimed briefly at exit, so a
 // slow or offline network never fails a command and delays one by at most
 // the one-second claim.
-import * as Data from "effect/Data"
+import * as Array from "effect/Array"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -21,10 +21,13 @@ import { gauntletVersion } from "./version.ts"
 export const repository = "JRGiardiniere/gauntlet"
 const latestReleaseUrl = `https://github.com/${repository}/releases/latest`
 
-export class UpdateProbeError extends Data.TaggedError("UpdateProbeError")<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class UpdateProbeError extends Schema.TaggedError<
+  UpdateProbeError,
+  { readonly brand: unique symbol }
+>()("UpdateProbeError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 const releaseTagPattern = /\/releases\/tag\/v(\d+\.\d+\.\d+)$/
 
@@ -47,10 +50,10 @@ export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
             signal,
           }),
         catch: (cause) =>
-          new UpdateProbeError({ reason: "release lookup failed", cause }),
+          UpdateProbeError.make({ reason: "release lookup failed", cause }),
       })
       if (isTransientStatus(result.status)) {
-        return yield* new UpdateProbeError({
+        return yield* UpdateProbeError.make({
           reason: `release lookup failed with status ${String(result.status)}`,
         })
       }
@@ -60,20 +63,20 @@ export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
         duration: "3 seconds",
         orElse: () =>
           Effect.fail(
-            new UpdateProbeError({ reason: "release lookup timed out" }),
+            UpdateProbeError.make({ reason: "release lookup timed out" }),
           ),
       }),
       Effect.retry({ times: 2 }),
     )
     const location = response.headers.get("location")
     if (location === null) {
-      return yield* new UpdateProbeError({
+      return yield* UpdateProbeError.make({
         reason: `${latestReleaseUrl} did not redirect — the repository may have no releases`,
       })
     }
     const version = releaseTagPattern.exec(location)?.[1]
     if (version === undefined) {
-      return yield* new UpdateProbeError({
+      return yield* UpdateProbeError.make({
         reason: `unrecognized release redirect: ${location}`,
       })
     }
@@ -87,7 +90,7 @@ const parseVersion = (raw: string) => {
   const match = versionPattern.exec(raw)
   return match === null
     ? Option.none<ReadonlyArray<number>>()
-    : Option.some(match.slice(1).map(Number))
+    : Option.some(Array.map(match.slice(1), Number))
 }
 
 // False whenever either side is not a plain release version: the dev sentinel
@@ -121,7 +124,8 @@ const decodeState = Schema.decodeUnknownEffect(
 
 const statePath = Effect.fn("gauntlet.update.state_path")(function* () {
   const path = yield* Path.Path
-  return path.join(yield* gauntletHome(), "update-check.json")
+  const home = yield* gauntletHome()
+  return path.join(home, "update-check.json")
 })
 
 const dayMillis = 24 * 60 * 60 * 1000
@@ -129,7 +133,8 @@ const dayMillis = 24 * 60 * 60 * 1000
 const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
   function* () {
     const path = yield* statePath()
-    const now = DateTime.toEpochMillis(yield* DateTime.now)
+    const currentTime = yield* DateTime.now
+    const now = DateTime.toEpochMillis(currentTime)
     const cached = yield* readOptionalArtifactText(path).pipe(
       Effect.flatMap(Option.match({
         onNone: () => Effect.succeed(Option.none<typeof UpdateCheckState.Type>()),
@@ -153,7 +158,8 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
     // cache is enrichment, so a failed write just means the next invocation
     // probes again.
     const fs = yield* FileSystem.FileSystem
-    yield* fs.makeDirectory(yield* gauntletHome(), { recursive: true }).pipe(
+    const home = yield* gauntletHome()
+    yield* fs.makeDirectory(home, { recursive: true }).pipe(
       Effect.ignore,
     )
     yield* writeArtifactJson(path, UpdateCheckState, {

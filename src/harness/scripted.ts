@@ -1,6 +1,8 @@
 import type { ReadToolInput, ToolDefinition } from "@earendil-works/pi-coding-agent"
+import * as Array from "effect/Array"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Queue from "effect/Queue"
 import { type BashArgs, makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
@@ -124,16 +126,16 @@ export interface Scripted {
 const toolText = (result: {
   readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }>
 }): string =>
-  result.content
-    .flatMap((entry) =>
-      entry.type === "text" && entry.text !== undefined ? [entry.text] : [],
-    )
-    .join("\n")
+  pipe(
+    result.content,
+    Array.flatMap((entry) =>
+      entry.type === "text" && entry.text !== undefined ? [entry.text] : []),
+    Array.join("\n"),
+  )
 
 const scriptInspectsWorkspace = (session: ScriptedSession): boolean =>
-  session.prompts.some((prompt) =>
-    prompt.events.some((event) => event.kind === "tool"),
-  )
+  Array.some(session.prompts, (prompt) =>
+    Array.some(prompt.events, (event) => event.kind === "tool"))
 
 export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
   input: 1000,
@@ -219,13 +221,13 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       configs.push(config)
 
       if (behaviorForSession === undefined) {
-        return yield* new InvocationSetupError({
+        return yield* InvocationSetupError.make({
           operation: "open",
           reason: `no scripted session for open ${String(sessionIndex)}`,
         })
       }
       if (behaviorForSession.failOpen !== undefined) {
-        return yield* new InvocationSetupError({
+        return yield* InvocationSetupError.make({
           operation: "open",
           reason: behaviorForSession.failOpen,
         })
@@ -243,7 +245,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         ? yield* Effect.tryPromise({
             try: () => makeReviewWorkspace(config.cwd),
             catch: (cause) =>
-              new InvocationSetupError({
+              InvocationSetupError.make({
                 operation: "session-construction",
                 reason: `failed to construct ReviewWorkspace: ${
                   cause instanceof Error ? cause.message : String(cause)
@@ -412,7 +414,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
               `no scripted prompt ${String(promptIndex)} for session ${String(sessionIndex)}`,
             )
           }
-          // @effect-diagnostics-next-line newPromise:off
+          // @effect-diagnostics-next-line newPromise:off -- the scripted adapter fakes Pi's Promise-returning `prompt` contract
           return new Promise<void>((resolve, reject) => {
             Queue.offerUnsafe(promptRequests, {
               resolve,
@@ -423,7 +425,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         abort: () => {
           log.push(`abort:${String(sessionIndex)}`)
           return behaviorForSession.abortBehavior === "hangs"
-            // @effect-diagnostics-next-line newPromise:off
+            // @effect-diagnostics-next-line newPromise:off -- the scripted adapter fakes an abort that never settles, under Pi's Promise contract
             ? new Promise<never>(() => undefined)
             : Promise.resolve()
         },

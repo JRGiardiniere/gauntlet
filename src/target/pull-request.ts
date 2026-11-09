@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import { ReviewTarget } from "../domain/review-target.ts"
@@ -16,7 +17,7 @@ const explainGitHub = (number: number) =>
 <A, R>(self: Effect.Effect<A, GitHubError, R>): Effect.Effect<A, TargetUnresolvable, R> =>
   self.pipe(
     Effect.mapError((cause) =>
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: `could not resolve PR #${String(number)}: ${cause.reason}`,
         cause,
       })),
@@ -32,7 +33,7 @@ const existingCommit = Effect.fn("gauntlet.pull_request.existing_commit")(
         Effect.catchTag("GitCommandError", (cause) =>
           cause.exitCode === undefined
             ? Effect.fail(
-              new TargetUnresolvable({
+              TargetUnresolvable.make({
                 reason: describeGitFailure(
                   `could not resolve commit ${oid}`,
                   cause,
@@ -57,7 +58,7 @@ const resolveCommit = Effect.fn("gauntlet.pull_request.resolve_commit")(
     yield* runGit(repoRoot, fetchArgs).pipe(explainGit(missingReason))
     const fetched = yield* existingCommit(repoRoot, oid)
     if (Option.isSome(fetched)) return fetched.value
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: missingReason,
       cause: undefined,
     })
@@ -108,7 +109,7 @@ export const resolvePullRequestTarget = Effect.fn(
         headCommit,
       ]).pipe(
         explainGit(`could not list changed files for PR #${String(number)}`),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-tree", "-r", "-z", headCommit]).pipe(
         explainGit(`could not list the tree of PR #${String(number)}`),
@@ -119,7 +120,7 @@ export const resolvePullRequestTarget = Effect.fn(
   )
 
   if (diff === "") {
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: `PR #${String(number)} has no changes to review`,
       cause: undefined,
     })

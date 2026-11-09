@@ -9,15 +9,21 @@
 // worktree, invoke.ts deadlines and corrective turns, the Stages and the run
 // record exactly as the CLI's review does. Only the platform services, the
 // HarnessSession adapter and the wording of what comes back differ.
+import * as Array from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
+import * as Formatter from "effect/Formatter"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
+import * as Record from "effect/Record"
 import type { Json } from "effect/Schema"
 import * as CliConfig from "effect/cli/CliConfig"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as Command from "effect/cli/Command"
 import * as GlobalFlag from "effect/cli/GlobalFlag"
 import { briefCommand } from "../src/cli/brief.ts"
@@ -52,8 +58,8 @@ export type { Json } from "effect/Schema"
 export interface HttpPort {
   readonly fetch: (
     url: string,
-    init: { readonly method: string; readonly headers: Record<string, string>; readonly body?: string },
-  ) => Promise<{ readonly status: number; readonly headers: Record<string, string>; readonly text: string }>
+    init: { readonly method: string; readonly headers: Record.ReadonlyRecord<string, string>; readonly body?: string },
+  ) => Promise<{ readonly status: number; readonly headers: Record.ReadonlyRecord<string, string>; readonly text: string }>
 }
 
 export interface EnginePorts extends PlatformPorts, HttpPort {
@@ -101,14 +107,14 @@ export interface StartedRun {
 
 // An error's own words: its message, or a tagged error's fields (git's
 // stderr on a GitCommandError) when it has none.
-const errorText = (error: Error) =>
+const errorText = (error: Error & Record.ReadonlyRecord<string, unknown>) =>
   error.message === ""
-    ? `${error.name} ${JSON.stringify(Object.fromEntries(Object.entries(error).filter(([key]) => key !== "cause" && key !== "_tag")))}`
+    ? `${error.name} ${Formatter.formatJson(Record.filter(error, (_, key) => key !== "cause" && key !== "_tag"))}`
     : `${error.name}: ${error.message}`
 
 const defectText = (cause: Cause.Cause<unknown>) => {
   const defect = Cause.squash(cause)
-  return `run ended: ${defect instanceof Error ? errorText(defect) : String(defect)}`
+  return `run ended: ${defect instanceof Error && Predicate.isReadonlyObject(defect) ? errorText(defect) : String(defect)}`
 }
 
 // A refusal as the Mod words it: a post that may have landed names the
@@ -130,13 +136,13 @@ const refusalText = (refusal: Run.RunRefusal) =>
 // interrupted run stops waiting while the request runs on to its end.
 interface FetchInit {
   readonly method?: string
-  readonly headers?: Readonly<Record<string, string>>
+  readonly headers?: Record.ReadonlyRecord<string, string>
   readonly body?: Uint8Array | string | null
 }
 
 interface HttpRequest {
   method: string
-  headers: Record<string, string>
+  headers: Record.ReadonlyRecord<string, string>
   body?: string
 }
 
@@ -153,7 +159,7 @@ const fetchOver = (http: HttpPort) => {
     return {
       status: answer.status,
       url: url.href,
-      headers: Object.entries(answer.headers),
+      headers: Record.toEntries(answer.headers),
       body: null,
       arrayBuffer: () => Promise.resolve(bytes.buffer),
     }
@@ -298,7 +304,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
                 onFailure: (refusal) => ({ verdict: "could not deliver", notes: [refusalText(refusal)], state: "failed" as const }),
               }),
               Effect.map(({ verdict, notes, state }) => {
-                shown.post = { state, text: notes.join("; ") }
+                shown.post = { state, text: Array.join(notes, "; ") }
                 answer = { verdict, digest: "", notes }
               }),
             )
@@ -324,7 +330,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
         executable: "claude",
         runDirectory: () => runDirectory,
       }).pipe(Effect.map(watched.watch)),
-    )
+    ).pipe(Layer.provide(SecureRandom.layerWebCrypto))
     const layer = Layer.mergeAll(
       factory,
       Linear.Default,
@@ -355,9 +361,9 @@ export const createEngine = (ports: EnginePorts, version: string) => {
         ShowHelp: (help) =>
           help.errors.length === 0
             ? Effect.void
-            : refuse(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet --help shows the syntax`),
+            : refuse(`${pipe(help.errors, Array.map((error) => error.message), Array.join("; "))}; /gauntlet --help shows the syntax`),
         ReviewCommandError: (failure) => refuse(`could not review — ${failure.reason}`),
-        RunRefusal: (refusal) => refuse(refusalText(refusal)),
+        RunRefusal: (refusal) => pipe(refusal, refusalText, refuse),
       }),
       // The CLI's other global flags (--version, --wizard, --completions,
       // --log-level) mean nothing in Claude Code: the Mod keeps only --help.
@@ -408,7 +414,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
   // worktree is removed and every invocation's child is killed.
   const cancel = () => {
     if (current === undefined) return Promise.resolve(false)
-    return Effect.runPromise(Fiber.interrupt(current.fiber)).then(() => true)
+    return current.fiber.pipe(Fiber.interrupt, Effect.runPromise).then(() => true)
   }
 
   // The names of the Mod's valid Recipes, its configuration written first
@@ -416,7 +422,8 @@ export const createEngine = (ports: EnginePorts, version: string) => {
   const recipes = (): Promise<ReadonlyArray<string>> =>
     Effect.gen(function* () {
       if (yield* isFreshConfig()) yield* writeInitialConfig()
-      return availableRecipeNames(yield* listRecipes())
+      const catalogEntries = yield* listRecipes()
+      return availableRecipeNames(catalogEntries)
     }).pipe(Effect.provideService(ConfigHost, "mod"), Effect.provide(platformLayer(ports)), Effect.runPromise)
 
   // The words answered at once, which start no run: `config`, the CLI's bare
@@ -440,7 +447,7 @@ export const createEngine = (ports: EnginePorts, version: string) => {
         Effect.catchTags({
           ShowHelp: (help) =>
             Effect.sync(() => {
-              if (help.errors.length > 0) print(`${help.errors.map((error) => error.message).join("; ")}; /gauntlet ${request.words[0] ?? ""} --help shows the syntax`)
+              if (help.errors.length > 0) print(`${pipe(help.errors, Array.map((error) => error.message), Array.join("; "))}; /gauntlet ${request.words[0] ?? ""} --help shows the syntax`)
             }),
           RunRefusal: (refusal) => Effect.sync(() => print(`gauntlet: ${refusal.reason}`)),
         }),

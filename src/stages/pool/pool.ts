@@ -100,7 +100,7 @@ const note = (
   label: string,
   indexes: ReadonlyArray<number>,
 ): ReadonlyArray<string> =>
-  indexes.length === 0 ? [] : [`${label} ${indexes.join(", ")}`]
+  indexes.length === 0 ? [] : [`${label} ${Array.join(Array.map(indexes, String), ", ")}`]
 
 // Pool output is an execution plan, not domain truth. Preserve its first valid
 // placement for each claim, discard impossible placements, then restore every
@@ -127,8 +127,8 @@ export const repairPoolOutput = (
       seen = HashSet.add(seen, index)
       return true
     })
-    const firstIndex = indexes[0]
-    if (firstIndex === undefined) return Result.fail(undefined)
+    if (!Array.isArrayNonEmpty(indexes)) return Result.fail(undefined)
+    const firstIndex = Array.headNonEmpty(indexes)
     const summary = indexes.length === cluster.indexes.length
       ? cluster.summary
       : Array.findFirst(claims, ({ index }) => index === firstIndex).pipe(
@@ -155,7 +155,7 @@ export const repairPoolOutput = (
 const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
   notes.length === 0
     ? undefined
-    : `pool output required repair: ${notes.join("; ")}`
+    : `pool output required repair: ${Array.join(notes, "; ")}`
 
 // The Run learns Pool only through this interface. Pool clusters, never
 // deletes: every claim it leaves out comes back as a singleton.
@@ -191,10 +191,11 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   }
 
   const poolStartedAt = yield* DateTime.now
+  const template = yield* readPromptTemplate(templatePath)
   const prompt = yield* renderPromptTemplate(
     "pool",
-    yield* readPromptTemplate(templatePath),
-    [["CANDIDATES", Array.map(claims, formatCandidateLine).join("\n")]],
+    template,
+    [["CANDIDATES", Array.join(Array.map(claims, formatCandidateLine), "\n")]],
   )
   const outcome = yield* invokeStageAgent({
     label: "Pool",
@@ -213,9 +214,8 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   if (reason !== undefined) {
     yield* runProgress(coverageGapLine({ reason }))
   }
-  yield* runProgress(
-    `Pool finished — ${String(yield* wallSeconds(poolStartedAt))}s`,
-  )
+  const poolSeconds = yield* wallSeconds(poolStartedAt)
+  yield* runProgress(`Pool finished — ${String(poolSeconds)}s`)
   return {
     claims,
     clusters: numberClusters(repair.clusters),

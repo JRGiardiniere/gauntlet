@@ -7,18 +7,9 @@ Opinionated Oxlint rules that reject low-evidence TypeScript and JavaScript patt
 
 **Convoy manages these files.** They're copied from `config/packs/anti-slop/` in the convoy repo into `.convoy/packs/anti-slop/` of every project whose `convoy.toml` lists `anti-slop`, as uncommitted changes that go in with the project's next commit. An edit here shows in Convoy's Review, to promote to every project or discard.
 
-## Hooking it up
+## In a project
 
-In the project's `.oxlintrc.json`, extend the pack's config and ignore the packs folder:
-
-```json
-{
-  "extends": ["./.convoy/packs/anti-slop/oxlintrc.json"],
-  "ignorePatterns": [".convoy/**"]
-}
-```
-
-The plugin imports `@oxlint/plugins`, so the project depends on it at exactly its `oxlint` version. To turn a rule off or pass it options, do it in the project's own `.oxlintrc.json`, e.g. `"anti-slop-effect/prefer-effect-match": "off"` in a project without Effect.
+`convoy project init --pack anti-slop` adds `@oxlint/plugins` at exactly the project's `oxlint` version (the plugin imports it), and Convoy adds the pack to the project's `.oxlintrc.json` `extends`. To turn a rule off or pass it options, do it in the project's own `.oxlintrc.json`, e.g. `"anti-slop-effect/prefer-effect-match": "off"` in a project without Effect.
 
 ## Fixing findings
 

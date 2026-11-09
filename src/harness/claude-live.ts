@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
@@ -5,11 +6,13 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+import * as SecureRandom from "effect/crypto/SecureRandom"
 import * as ChildProcess from "effect/process/ChildProcess"
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner"
 import {
@@ -57,8 +60,8 @@ const EXIT_GRACE = Duration.seconds(5)
 const Usage = Schema.Struct({
   input_tokens: Schema.Finite,
   output_tokens: Schema.Finite,
-  cache_read_input_tokens: Schema.optional(Schema.NullOr(Schema.Finite)),
-  cache_creation_input_tokens: Schema.optional(Schema.NullOr(Schema.Finite)),
+  cache_read_input_tokens: Schema.Finite.pipe(Schema.NullOr, Schema.optional),
+  cache_creation_input_tokens: Schema.Finite.pipe(Schema.NullOr, Schema.optional),
 })
 
 const SystemInit = Schema.Struct({
@@ -100,8 +103,8 @@ const Result = Schema.Struct({
   is_error: Schema.Boolean,
   total_cost_usd: Schema.Finite,
   result: Schema.optional(Schema.String),
-  errors: Schema.optional(Schema.Array(Schema.String)),
-  structured_output: Schema.optional(Schema.NullOr(Schema.Json)),
+  errors: Schema.String.pipe(Schema.Array, Schema.optional),
+  structured_output: Schema.Json.pipe(Schema.NullOr, Schema.optional),
 })
 
 const ToolUse = Schema.Struct({
@@ -144,6 +147,8 @@ const stopReasonOf = (claude: string | null): StopReason => {
     case "model_context_window_exceeded": {
       return "length"
     }
+    // A final delta without a stop reason leaves the turn unexplained.
+    case null:
     default: {
       return "error"
     }
@@ -162,7 +167,7 @@ const seatParts = (seat: string) => {
 const toolResultText = (content: typeof ToolResult.Type["content"]) =>
   content === undefined || Predicate.isString(content)
     ? content
-    : content.flatMap((part) => (part.text === undefined ? [] : [part.text])).join("\n")
+    : pipe(content, Array.flatMap((part) => (part.text === undefined ? [] : [part.text])), Array.join("\n"))
 
 // One turn: its process's fiber, and whether its result arrived.
 interface Turn {
@@ -172,28 +177,32 @@ interface Turn {
 
 export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
   Effect.gen(function* () {
-    const platform = yield* Effect.context<ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path>()
+    const platform = yield* Effect.context<
+      ChildProcessSpawner.ChildProcessSpawner | FileSystem.FileSystem | Path.Path | SecureRandom.SecureRandom
+    >()
     const spawner = Context.get(platform, ChildProcessSpawner.ChildProcessSpawner)
     const fs = Context.get(platform, FileSystem.FileSystem)
     const path = Context.get(platform, Path.Path)
+    const random = Context.get(platform, SecureRandom.SecureRandom)
 
     const open = (config: SessionConfig) =>
       Effect.gen(function* () {
         // The opening fiber's services, so the bridge logs to the Run's
         // run.log, with the platform the factory was built over.
-        const services = Context.merge(yield* Effect.context<never>(), platform)
+        const openingServices = yield* Effect.context<never>()
+        const services = Context.merge(openingServices, platform)
         const run = Effect.runForkWith(services)
-        const sessionId = globalThis.crypto.randomUUID()
+        const sessionId = yield* random.uuidV4()
         // The snapshot is the worktree folder of the Run's temp area, which
         // the Run removes as it ends.
         const systemPromptFile = path.join(path.dirname(config.cwd), `claude-system-${sessionId}.md`)
         yield* fs.writeFileString(systemPromptFile, config.systemPrompt).pipe(
-          Effect.mapError((cause) => new InvocationSetupError({ operation: "open", reason: String(cause), cause })),
+          Effect.mapError((cause) => InvocationSetupError.make({ operation: "open", reason: String(cause), cause })),
         )
         const { effort, model } = seatParts(config.seat)
         // The contract's projection, its description the tool's own text.
         const schema = yield* encodeJson({ ...config.emitTool.parameters, description: config.emitTool.description }).pipe(
-          Effect.mapError((cause) => new InvocationSetupError({ operation: "open", reason: String(cause), cause })),
+          Effect.mapError((cause) => InvocationSetupError.make({ operation: "open", reason: String(cause), cause })),
         )
         // Every turn passes the same argv, but for how it names the session:
         // a resumed turn keeps the system prompt and model and nothing else
@@ -278,7 +287,8 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             const endedByResponse = lastStop === "length" || lastStop === "error"
             const cost = lastRow === undefined ? result.total_cost_usd : 0
             if (result.is_error && result.subtype !== "error_max_structured_output_retries" && !endedByResponse) {
-              failed(result.result ?? result.errors?.join("; ") ?? `Claude Code turn ended: ${result.subtype}`, cost)
+              const errors = result.errors === undefined ? undefined : Array.join(result.errors, "; ")
+              failed(result.result ?? errors ?? `Claude Code turn ended: ${result.subtype}`, cost)
             } else if (lastStop === undefined) {
               failed("Claude Code turn ended with no recorded response", cost)
             }
@@ -366,11 +376,16 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
                   stdin: Stream.make(new TextEncoder().encode(text)),
                 }),
               )
-              const stderr = yield* Effect.forkScoped(
-                Stream.runFold(Stream.decodeText(handle.stderr), () => "", (tail, text) => `${tail}${text}`.slice(-STDERR_TAIL)),
+              const stderr = yield* handle.stderr.pipe(
+                Stream.decodeText(),
+                Stream.runFold(() => "", (tail, text) => `${tail}${text}`.slice(-STDERR_TAIL)),
+                Effect.forkScoped,
               )
-              yield* Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), (raw) =>
-                Effect.sync(() => onLine(raw)))
+              yield* handle.stdout.pipe(
+                Stream.decodeText(),
+                Stream.splitLines,
+                Stream.runForEach((raw) => Effect.sync(() => onLine(raw))),
+              )
               const exit = yield* Effect.exit(handle.exitCode)
               const errorText = (yield* Fiber.join(stderr)).trim()
               if (state.resulted || abortRequested) return
@@ -392,7 +407,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
 
         // The previous turn's process finishes writing its transcript before
         // the next one resumes it, or before the transcript moves.
-        const settled = () => (current === undefined ? Effect.void : Effect.asVoid(Fiber.await(current.fiber)))
+        const settled = () => (current === undefined ? Effect.void : current.fiber.pipe(Fiber.await, Effect.asVoid))
 
         // The child's transcript is `<session_id>.jsonl` in one of Claude
         // Code's project folders, the folder init's auto-memory path sits two
@@ -428,7 +443,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             }
           },
           prompt: (text) =>
-            // @effect-diagnostics-next-line newPromise:off
+            // @effect-diagnostics-next-line newPromise:off -- HarnessSession's `prompt` is Pi's Promise contract; this bridges the turn's child process into it
             new Promise<void>((resolve) => {
               const turn = turns
               turns += 1
@@ -442,7 +457,7 @@ export const makeClaudeLiveFactory = (options: ClaudeLiveOptions) =>
             abortRequested = true
             const turn = current
             if (turn === undefined || turn.state.resulted) return Promise.resolve()
-            return Effect.runPromiseWith(services)(Fiber.interrupt(turn.fiber))
+            return turn.fiber.pipe(Fiber.interrupt, Effect.runPromiseWith(services))
           },
           // A child still in its turn is killed; one whose result arrived gets
           // a moment to exit on its own first.

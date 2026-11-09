@@ -1,7 +1,8 @@
+import * as Array from "effect/Array"
 import * as Context from "effect/Context"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -9,11 +10,14 @@ import * as ChildProcess from "effect/process/ChildProcess"
 import { ChildProcessSpawner } from "effect/process/ChildProcessSpawner"
 import { scrubbedGitEnv } from "../target/git.ts"
 
-export class GitHubError extends Data.TaggedError("GitHubError")<{
-  readonly operation: "view" | "post" | "specification"
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class GitHubError extends Schema.TaggedError<
+  GitHubError,
+  { readonly brand: unique symbol }
+>()("GitHubError", {
+  operation: Schema.Literals(["view", "post", "specification"]),
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // gh --json field names, decoded at the boundary. The resolver turns these
 // OIDs into a frozen PullRequest range; delivery only needs cwd + number.
@@ -80,7 +84,7 @@ export const gitHubLayer = (impl: GitHubContract) =>
 const unused = (operation: GitHubError["operation"]) =>
   () =>
     Effect.fail(
-      new GitHubError({ operation, reason: "GitHub not scripted" }),
+      GitHubError.make({ operation, reason: "GitHub not scripted" }),
     )
 
 export const unusedGitHubContract: GitHubContract = {
@@ -94,8 +98,10 @@ export const unusedGitHubLayer = gitHubLayer(unusedGitHubContract)
 const decodeView = Schema.decodeUnknownEffect(Schema.fromJsonString(PullRequestView))
 
 const lastNonEmptyLine = (text: string): string => {
-  const lines = text.split("\n").map((line) => line.trim()).filter((line) =>
-    line !== ""
+  const lines = pipe(
+    text.split("\n"),
+    Array.map((line) => line.trim()),
+    Array.filter((line) => line !== ""),
   )
   return lines[lines.length - 1] ?? ""
 }
@@ -123,10 +129,10 @@ const runGh = (
       )
       if (exitCode !== 0) {
         const detail = stderr.trim() === "" ? stdout.trim() : stderr.trim()
-        return yield* new GitHubError({
+        return yield* GitHubError.make({
           operation,
           reason: detail === ""
-            ? `gh ${args.join(" ")} exited ${String(exitCode)}`
+            ? `gh ${Array.join(args, " ")} exited ${String(exitCode)}`
             : detail,
         })
       }
@@ -136,7 +142,7 @@ const runGh = (
     Effect.provideService(ChildProcessSpawner, spawner),
     Effect.catchTag("PlatformError", (cause) =>
       Effect.fail(
-        new GitHubError({
+        GitHubError.make({
           operation,
           reason: cause.reason._tag === "NotFound" &&
               cause.reason.module === "ChildProcess"
@@ -276,7 +282,7 @@ const flattenIssue = (
 })
 
 const graphqlUndecodable = (cause: unknown) =>
-  new GitHubError({
+  GitHubError.make({
     operation: "specification",
     reason: "GitHub GraphQL returned an undecodable specification payload",
     cause,
@@ -302,7 +308,7 @@ const makeLive = Effect.gen(function* () {
       )
       return yield* decodeView(stdout).pipe(
         Effect.mapError((cause) =>
-          new GitHubError({
+          GitHubError.make({
             operation: "view",
             reason: `gh pr view #${String(number)} returned an undecodable payload`,
             cause,
@@ -331,7 +337,7 @@ const makeLive = Effect.gen(function* () {
           )
           const url = lastNonEmptyLine(stdout)
           if (url === "") {
-            return yield* new GitHubError({
+            return yield* GitHubError.make({
               operation: "post",
               reason: `gh pr comment #${String(number)} produced no comment URL`,
             })
@@ -341,7 +347,7 @@ const makeLive = Effect.gen(function* () {
       ).pipe(
         Effect.catchTag("PlatformError", (cause) =>
           Effect.fail(
-            new GitHubError({
+            GitHubError.make({
               operation: "post",
               reason: `could not stage comment body: ${String(cause)}`,
               cause,
@@ -364,14 +370,14 @@ const makeLive = Effect.gen(function* () {
         "graphql",
         "-f",
         `query=${query}`,
-        ...fields.flatMap(([flag, name, value]) => [flag, `${name}=${value}`]),
+        ...Array.flatMap(fields, ([flag, name, value]) => [flag, `${name}=${value}`]),
       ],
       "specification",
     )
 
   const remainingComments = Effect.fn("gauntlet.github.remaining_issue_comments")(
     function* (cwd: string, issueId: string, page: typeof CommentConnection.Type) {
-      const comments = page.nodes.map(flattenComment)
+      const comments = Array.map(page.nodes, flattenComment)
       let hasNextPage = page.pageInfo.hasNextPage
       let cursor = page.pageInfo.endCursor
       const collected: Array<GitHubIssueComment> = [...comments]
@@ -385,12 +391,12 @@ const makeLive = Effect.gen(function* () {
         )
         const connection = envelope.data.node?.comments
         if (connection === undefined) {
-          return yield* new GitHubError({
+          return yield* GitHubError.make({
             operation: "specification",
             reason: "GitHub GraphQL comment page was missing",
           })
         }
-        collected.push(...connection.nodes.map(flattenComment))
+        collected.push(...Array.map(connection.nodes, flattenComment))
         hasNextPage = connection.pageInfo.hasNextPage
         cursor = connection.pageInfo.endCursor
       }
@@ -425,7 +431,7 @@ const makeLive = Effect.gen(function* () {
         )
         const pullRequest = envelope.data.repository?.pullRequest
         if (pullRequest === undefined || pullRequest === null) {
-          return yield* new GitHubError({
+          return yield* GitHubError.make({
             operation: "specification",
             reason: `GitHub GraphQL returned no pull request #${String(number)}`,
           })
@@ -441,17 +447,16 @@ const makeLive = Effect.gen(function* () {
         uniqueIssues.set(issue.id, issue)
         if (issue.parent !== null) uniqueIssues.set(issue.parent.id, issue.parent)
       }
-      const completed = new Map(
-        yield* Effect.forEach(
-          uniqueIssues.entries(),
-          ([id, issue]) =>
-            completeIssue(cwd, issue).pipe(
-              Effect.map((snapshot) => [id, snapshot] as const),
-            ),
-          { concurrency: 2 },
-        ),
+      const completedEntries = yield* Effect.forEach(
+        uniqueIssues.entries(),
+        ([id, issue]) =>
+          completeIssue(cwd, issue).pipe(
+            Effect.map((snapshot) => [id, snapshot] as const),
+          ),
+        { concurrency: 2 },
       )
-      return collected.flatMap((issue) => {
+      const completed = new Map(completedEntries)
+      return Array.flatMap(collected, (issue) => {
         const snapshot = completed.get(issue.id)
         if (snapshot === undefined) return []
         const parent = issue.parent === null

@@ -1,21 +1,29 @@
-import * as Data from "effect/Data"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
+import { pipe } from "effect/Function"
+import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 
-export class GitCommandError extends Data.TaggedError("GitCommandError")<{
-  readonly args: ReadonlyArray<string>
-  readonly exitCode: number | undefined
-  readonly stderr: string
-  readonly cause: unknown
-}> {}
+export class GitCommandError extends Schema.TaggedError<
+  GitCommandError,
+  { readonly brand: unique symbol }
+>()("GitCommandError", {
+  args: Schema.Array(Schema.String),
+  exitCode: Schema.UndefinedOr(Schema.Finite),
+  stderr: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 // No ReviewTarget can be resolved at all — not a repo, no HEAD to diff
 // against, an unresolvable ref, or nothing changed. "Could not review", exit 1.
-export class TargetUnresolvable extends Data.TaggedError("TargetUnresolvable")<{
-  readonly reason: string
-  readonly cause: unknown
-}> {}
+export class TargetUnresolvable extends Schema.TaggedError<
+  TargetUnresolvable,
+  { readonly brand: unique symbol }
+>()("TargetUnresolvable", {
+  reason: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 // rev-parse and friends terminate with a single newline. Strip exactly that
 // — trim() would also eat whitespace that is legally part of a path.
@@ -24,13 +32,14 @@ export const chompLine = (out: string) => out.replace(/\n$/, "")
 // Gitlink entries in NUL-separated `ls-files --stage` or `ls-tree -r` output.
 // Both formats lead with the mode and put the path after the first tab.
 export const gitlinkPaths = (out: string): ReadonlyArray<string> =>
-  out
-    .split("\0")
-    .filter((entry) => entry.startsWith("160000 "))
-    .flatMap((entry) => {
+  pipe(
+    out.split("\0"),
+    Array.filter((entry) => entry.startsWith("160000 ")),
+    Array.flatMap((entry) => {
       const tab = entry.indexOf("\t")
       return tab === -1 ? [] : [entry.slice(tab + 1)]
-    })
+    }),
+  )
 
 // The review snapshot never materializes submodule contents — agents see an
 // unpopulated gitlink directory, so the degraded scope must be named (#56).
@@ -39,7 +48,7 @@ export const submoduleWarning = (
 ): ReadonlyArray<string> =>
   paths.length === 0 ? [] : [
     `${String(paths.length)} submodule(s) whose contents are not included in the review: ${
-      paths.join(", ")
+      Array.join(paths, ", ")
     }`,
   ]
 
@@ -61,7 +70,7 @@ export const explainGit = (reason: string) =>
 ): Effect.Effect<A, TargetUnresolvable, R> =>
   Effect.catchTag(self, "GitCommandError", (cause) =>
     Effect.fail(
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: describeGitFailure(reason, cause),
         cause,
       }),
@@ -110,7 +119,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
           { concurrency: 3 },
         )
         if (exitCode !== 0) {
-          return yield* new GitCommandError({
+          return yield* GitCommandError.make({
             args,
             exitCode,
             stderr,
@@ -122,7 +131,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
     ).pipe(
       Effect.catchTag("PlatformError", (cause) =>
         Effect.fail(
-          new GitCommandError({ args, exitCode: undefined, stderr: "", cause }),
+          GitCommandError.make({ args, exitCode: undefined, stderr: "", cause }),
         ),
       ),
     )

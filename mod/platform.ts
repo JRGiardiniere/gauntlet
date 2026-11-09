@@ -30,6 +30,7 @@ import type {
   ProcessSpawnRequest,
   ProcessSpawnResult,
 } from "claude-code"
+import * as Array from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Cause from "effect/Cause"
 import * as Channel from "effect/Channel"
@@ -40,12 +41,16 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
+import * as Formatter from "effect/Formatter"
+import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as PlatformError from "effect/PlatformError"
 import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
+import * as Record from "effect/Record"
+import * as Redacted from "effect/Redacted"
 import * as Sink from "effect/Sink"
 import * as Stdio from "effect/Stdio"
 import * as Stream from "effect/Stream"
@@ -68,7 +73,7 @@ export interface PlatformPorts {
   // The variables the review program reads (HOME, LINEAR_API_KEY) and
   // TMPDIR, as `$.env.get` answered them, but for a LINEAR_API_KEY the
   // plugin's options set.
-  readonly env: Readonly<Record<string, string>>
+  readonly env: Record.ReadonlyRecord<string, string>
   // Where the program's stdout and stderr go: the digest and the progress
   // lines.
   readonly stdout: (text: string) => void
@@ -134,7 +139,7 @@ const fileInfo = (stat: FsStat): FileSystem.File.Info => ({
   mtime: Option.none(),
   atime: Option.none(),
   birthtime: Option.none(),
-  dev: 0,
+  dev: 0n,
   ino: Option.none(),
   mode: 0,
   nlink: Option.none(),
@@ -179,7 +184,8 @@ const appendOnlyFile = (ports: PlatformPorts, path: string, initial: string): Fi
 }
 
 const makeTemp = (ports: PlatformPorts, kind: "directory" | "file", prefix: string | undefined) => {
-  const template = `${(ports.env.TMPDIR ?? "/tmp").replace(/\/$/, "")}/${prefix ?? "gauntlet-"}XXXXXX`
+  const tmpdir = Option.getOrElse(Record.get(ports.env, "TMPDIR"), () => "/tmp")
+  const template = `${tmpdir.replace(/\/$/, "")}/${prefix ?? "gauntlet-"}XXXXXX`
   return kind === "directory"
     ? tool(ports, "makeTempDirectory", template, ["mktemp", "-d", template]).pipe(Effect.map(chomp))
     : tool(ports, "makeTempFile", template, ["mktemp", template]).pipe(Effect.map(chomp))
@@ -206,7 +212,7 @@ const fileSystemOver = (ports: PlatformPorts) =>
       ),
     readDirectory: (path) =>
       hostCall(ports, "readDirectory", path, () => ports.list(path)).pipe(
-        Effect.map((entries) => entries.map((entry) => entry.name)),
+        Effect.map((entries) => Array.map(entries, (entry) => entry.name)),
       ),
     readFileString: (path) => hostCall(ports, "readFileString", path, () => ports.read(path)),
     readFile: (path) =>
@@ -265,14 +271,17 @@ const fileSystemOver = (ports: PlatformPorts) =>
 // unset one, so a variable the command unsets (the CLI's Git scrub: an
 // `undefined` value) is unset by running the command under `env -u`.
 const commandArgv = (command: ChildProcess.StandardCommand) => {
-  const unset = Object.entries(command.options.env ?? {}).flatMap(([key, value]) => (value === undefined ? [key] : []))
+  const unset = Array.flatMap(Record.toEntries(command.options.env ?? {}), ([key, value]) => (value === undefined ? [key] : []))
+  const args = Array.map(command.args, unwrap)
   return unset.length === 0
-    ? [command.command, ...command.args]
-    : ["env", ...unset.flatMap((key) => ["-u", key]), command.command, ...command.args]
+    ? [command.command, ...args]
+    : ["env", ...Array.flatMap(unset, (key) => ["-u", key]), command.command, ...args]
 }
 
-const definedEnv = (env: Record<string, string | undefined> | undefined) =>
-  Object.fromEntries(Object.entries(env ?? {}).flatMap(([key, value]) => (value === undefined ? [] : [[key, value]])))
+const unwrap = (word: string | Redacted.Redacted<string>) => (Redacted.isRedacted(word) ? Redacted.value(word) : word)
+
+const definedEnv = (env: ChildProcess.CommandOptions["env"]) =>
+  pipe(env ?? {}, Record.filter(Predicate.isNotUndefined), Record.map(unwrap))
 
 const spawnFailure = (description: string) =>
   PlatformError.systemError({ _tag: "Unknown", module: "ChildProcess", method: "spawn", description })
@@ -280,7 +289,7 @@ const spawnFailure = (description: string) =>
 // `$.process.spawn` takes stdin as one string, written whole and then closed.
 const stdinText = (input: ChildProcess.CommandOptions["stdin"]) => {
   const stream = input !== undefined && !Predicate.isString(input) && !Stream.isStream(input) ? input.stream : input
-  return Stream.isStream(stream) ? Effect.asSome(Stream.mkString(Stream.decodeText(stream))) : Effect.succeedNone
+  return Stream.isStream(stream) ? stream.pipe(Stream.decodeText(), Stream.mkString, Effect.asSome) : Effect.succeedNone
 }
 
 // The child's output streams as it comes, stdout and stderr each in its own
@@ -346,7 +355,7 @@ const spawnOver = (ports: PlatformPorts) => (command: ChildProcess.Command) =>
     })
   })
 
-const text = (args: ReadonlyArray<unknown>) => args.map(String).join(" ")
+const text = (args: ReadonlyArray<unknown>) => pipe(args, Array.map(String), Array.join(" "))
 
 // stdout carries the digest, stderr the progress lines, as in a terminal.
 const consoleOver = (ports: PlatformPorts): Console.Console => {
@@ -368,7 +377,7 @@ const consoleOver = (ports: PlatformPorts): Console.Console => {
     groupEnd: () => undefined,
     info: out,
     log: out,
-    table: (data) => out(JSON.stringify(data)),
+    table: (data) => out(Formatter.formatJson(data)),
     time: () => undefined,
     timeEnd: () => undefined,
     timeLog: () => undefined,
@@ -387,8 +396,9 @@ const terminalOver = (ports: PlatformPorts) =>
   Terminal.make({
     columns: Effect.succeed(100),
     rows: Effect.succeed(40),
+    size: Effect.die("the mod has no terminal resizes"),
     readInput: Effect.die("the mod has no terminal input"),
-    readLine: Effect.fail(new Terminal.QuitError()),
+    readLine: Effect.fail(Terminal.QuitError.make()),
     display: (shown) => Effect.sync(() => ports.stdout(shown)),
   })
 

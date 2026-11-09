@@ -1,6 +1,7 @@
-import * as Data from "effect/Data"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import { isCompiledBinary } from "../content/lens.ts"
@@ -10,10 +11,13 @@ import { noun } from "../render/dossier-page.ts"
 import { viewDossier } from "../render/dossier-view.ts"
 import type { LoadedRun } from "./run-record.ts"
 
-export class BriefError extends Data.TaggedError("BriefError")<{
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class BriefError extends Schema.TaggedError<
+  BriefError,
+  { readonly brand: unique symbol }
+>()("BriefError", {
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // The instructions for writing one finding's brief live here, not in the
 // gauntlet-cli skill: only the agent asked for a brief needs them.
@@ -30,20 +34,21 @@ export const briefRequest = Effect.fn("Brief.request")(function* (
   const dossier = yield* fs.readFileString(paths.dossier).pipe(
     Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Dossier))),
     Effect.mapError((cause) =>
-      new BriefError({ reason: `could not read ${paths.dossier}: ${cause.message}`, cause })
+      BriefError.make({ reason: `could not read ${paths.dossier}: ${cause.message}`, cause })
     ),
   )
   const view = viewDossier(dossier)
-  const entry = [...view.findings, ...view.unresolved].find(({ candidate }) =>
-    candidate.id === findingId
-  )
-  if (entry === undefined) {
-    return yield* new BriefError({
+  const found = Array.findFirst([...view.findings, ...view.unresolved], ({ candidate }) =>
+    candidate.id === findingId)
+  if (Option.isNone(found)) {
+    return yield* BriefError.make({
       reason: `run ${plan.runId} has no finding or unresolved Candidate ${findingId}`,
     })
   }
+  const entry = found.value
   const { file, line } = entry.candidate
-  return yield* renderPromptTemplate("brief", yield* readPromptTemplate(templatePath), [
+  const template = yield* readPromptTemplate(templatePath)
+  return yield* renderPromptTemplate("brief", template, [
     ["SUBJECT", noun(entry)],
     ["FINDING_ID", findingId],
     ["LOCATION", line === undefined ? file : `${file}:${line}`],

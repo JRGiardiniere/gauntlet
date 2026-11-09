@@ -2,8 +2,8 @@
   "$schema": "./node_modules/@effect/tsgo/oxlint-schema.json",
   "extends": [
     "./.convoy/packs/typescript/oxlintrc.json",
-    "./.convoy/packs/anti-slop/oxlintrc.json",
     "./.convoy/packs/effect-house-rules/oxlintrc.json",
+    "./.convoy/packs/anti-slop/oxlintrc.json",
     "./.convoy/packs/effect/oxlintrc.json"
   ],
   "ignorePatterns": [
@@ -22,7 +22,7 @@
     "**/dist/**",
     "**/build/**",
     "**/*.mjs",
-    ".convoy/packs/anti-slop/**",
+    ".convoy/**",
     "mod/types/**"
   ],
   "rules": {
@@ -36,8 +36,7 @@
     "anti-slop-effect/no-manual-tagged-construction": "off",
     "anti-slop-effect/no-manual-tag-comparison": "off",
     "anti-slop-effect/no-service-constructor-imports": "off",
-    "anti-slop/no-array-filter-map": "off",
-    "house/effect-fn-span-format": "off"
+    "anti-slop/no-array-filter-map": "off"
   },
   "overrides": [
     {
@@ -46,22 +45,26 @@
         "effecttsgo/async-function": "off",
         "effecttsgo/global-date": "off",
         "effecttsgo/global-timers": "off",
-        "effecttsgo/new-promise": "off",
-        "house/no-raw-error-throw": "off"
+        "effecttsgo/new-promise": "off"
+      }
+    },
+    {
+      // The hooks module ships as source and the host lets it import only
+      // "claude-code" and its own files (the engine bundle), so Effect's
+      // modules aren't available to it: `claude plugin validate` refuses an
+      // "effect/…" import there, and the Mod doesn't load.
+      "files": ["mod/gauntlet/hooks/*.ts"],
+      "rules": {
+        "effecttsgo/prefer-effect-array": "off",
+        "effecttsgo/prefer-effect-record": "off",
+        "effecttsgo/global-json": "off",
+        "eslint/no-restricted-imports": ["error", { "patterns": [{ "group": ["effect", "effect/*", "@effect/*"], "message": "The host refuses a hooks module that imports anything but \"claude-code\" and its own files; reach Effect through ../../engine.ts." }] }]
       }
     },
     {
       "files": ["**/*.test.ts", "**/*.fixture.ts"],
       "rules": {
         "anti-slop-effect/no-manual-tag-comparison": "off"
-      }
-    },
-    {
-      "files": [".convoy/packs/effect-house-rules/**"],
-      "rules": {
-        "anti-slop/no-runtime-typeof": ["error", {
-          "allowInTypeGuards": true
-        }]
       }
     },
     {

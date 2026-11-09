@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import type {
   GitHubClosingIssue,
   GitHubIssueComment,
@@ -48,7 +49,7 @@ describe("reviewSpecificationFromGitHubIssues", () => {
       closing(snapshot(75, "linear source", "slice 75"), parent),
     ])
 
-    expect(spec?.documents.map((document) => [document.role, document.provenance, document.text])).toEqual([
+    expect(Array.map(spec?.documents ?? [], (document) => [document.role, document.provenance, document.text])).toEqual([
       ["parent", issueUrl(70), "parent body"],
       ["slice", issueUrl(74), "slice 74"],
       ["slice", issueUrl(75), "slice 75"],
@@ -80,7 +81,7 @@ describe("reviewSpecificationFromGitHubIssues", () => {
         native,
       ),
     ])
-    expect(spec?.documents.map((document) => document.provenance)).toEqual([
+    expect(Array.map(spec?.documents ?? [], (document) => document.provenance)).toEqual([
       issueUrl(70),
       issueUrl(74),
     ])
@@ -92,7 +93,7 @@ describe("reviewSpecificationFromGitHubIssues", () => {
       closing(parentSlice),
       closing(snapshot(74, "child", "child body"), parentSlice),
     ])
-    expect(spec?.documents.map((document) => [document.role, document.provenance])).toEqual([
+    expect(Array.map(spec?.documents ?? [], (document) => [document.role, document.provenance])).toEqual([
       ["slice", issueUrl(70)],
       ["slice", issueUrl(74)],
     ])
@@ -108,7 +109,7 @@ describe("reviewSpecificationFromGitHubIssues", () => {
         comment("MEMBER", "2026-01-02T00:00:00Z", "member"),
       ])),
     ])
-    expect(spec?.comments.map((entry) => entry.text)).toEqual([
+    expect(Array.map(spec?.comments ?? [], (entry) => entry.text)).toEqual([
       "owner",
       "member",
       "collaborator",
@@ -128,11 +129,11 @@ describe("reviewSpecificationFromGitHubIssues", () => {
         snapshot(70, "parent", "parent body"),
       ),
     ])
-    expect(spec?.comments.map((entry) => entry.createdAt)).toEqual([
+    expect(Array.map(spec?.comments ?? [], (entry) => entry.createdAt)).toEqual([
       "2026-01-02T00:00:00Z",
       "2026-01-03T00:00:00Z",
     ])
-    expect(spec?.documents.map((document) => document.text)).toEqual([
+    expect(Array.map(spec?.documents ?? [], (document) => document.text)).toEqual([
       "parent body",
       "slice body",
     ])

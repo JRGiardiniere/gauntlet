@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import { describeMissingOutput } from "../../assembly/outcome.ts"
@@ -29,7 +30,7 @@ export const JUDGMENT_TOOLS = ["read", "bash"] as const
 const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
   notes.length === 0
     ? undefined
-    : `judgment output required repair: ${notes.join("; ")}`
+    : `judgment output required repair: ${Array.join(notes, "; ")}`
 
 export interface JudgmentExecution {
   readonly plan: ReviewPlan
@@ -113,12 +114,13 @@ export const executeJudgment = Effect.fn(
   if (reason !== undefined) {
     yield* runProgress(coverageGapLine({ reason }))
   }
-  const judgments = repair.observations.map(({ judgment }) => judgment)
-  const kept = judgments.filter(Judgment.guards.Kept).length
-  const dropped = judgments.filter(Judgment.guards.Dropped).length
-  const undecided = judgments.filter(Judgment.guards.Undecided).length
+  const judgments = Array.map(repair.observations, ({ judgment }) => judgment)
+  const kept = Array.filter(judgments, Judgment.guards.Kept).length
+  const dropped = Array.filter(judgments, Judgment.guards.Dropped).length
+  const undecided = Array.filter(judgments, Judgment.guards.Undecided).length
+  const judgmentSeconds = yield* wallSeconds(judgmentStartedAt)
   yield* runProgress(
-    `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(yield* wallSeconds(judgmentStartedAt))}s`,
+    `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(judgmentSeconds)}s`,
   )
   return {
     observations: repair.observations,

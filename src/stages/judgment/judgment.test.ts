@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
@@ -108,9 +108,7 @@ const runJudgment = (
       pooled,
     })
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
-    ),
+    Effect.provide([NodeServices.layer, scriptedLayer(scripted)]),
   )
 
 describe("Judgment stage interface", () => {
@@ -139,7 +137,7 @@ describe("Judgment stage interface", () => {
 
       // The real shipped templates, asserted structurally: every placeholder
       // resolved, the candidate lines and scope block present — never wording.
-      const [prompt = ""] = scripted.prompts.map(({ text }) => text)
+      const [prompt = ""] = Array.map(scripted.prompts, ({ text }) => text)
       expect(prompt).not.toContain("{{")
       expect(prompt).toContain("## Candidates")
       expect(prompt).toContain("[1] (fixture) alpha.txt — observation 1")
@@ -162,7 +160,7 @@ describe("Judgment stage interface", () => {
 
       const result = yield* runJudgment(scripted, true)
 
-      expect(result.observations.map(({ judgment }) => judgment._tag)).toEqual([
+      expect(Array.map(result.observations, ({ judgment }) => judgment._tag)).toEqual([
         "Undecided",
         "Undecided",
       ])
@@ -213,7 +211,7 @@ describe("Judgment stage interface", () => {
 
       const result = yield* runJudgment(scripted)
 
-      expect(result.observations.map(({ judgment }) => judgment._tag)).toEqual([
+      expect(Array.map(result.observations, ({ judgment }) => judgment._tag)).toEqual([
         "Undecided",
         "Undecided",
       ])

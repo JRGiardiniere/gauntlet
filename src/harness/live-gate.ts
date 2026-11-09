@@ -1,6 +1,8 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Record from "effect/Record"
 import {
   type AgentOutcome,
   Termination,
@@ -60,7 +62,7 @@ const reportChecks = Effect.fn("gauntlet.live_gate.report_checks")(
       const detail = entry.detail === "" ? "" : ` — ${entry.detail}`
       yield* Console.log(`${status}${entry.name}${detail}`)
     }
-    const failures = checks.filter((entry) => !entry.ok).length
+    const failures = Array.filter(checks, (entry) => !entry.ok).length
     yield* Console.log(
       failures === 0 ? "\nlive gate passed" : `\n${String(failures)} FAILED`,
     )
@@ -74,13 +76,13 @@ interface GateResult {
 }
 
 const outcomeDetail = (outcome: AgentOutcome<FindingsOutput>) => {
-  const diagnostics = outcome.diagnostics.join("; ")
+  const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
   return `termination=${outcome.termination._tag}${suffix}`
 }
 
 const usageDetail = (outcome: AgentOutcome<FindingsOutput>) => {
-  const diagnostics = outcome.diagnostics.join("; ")
+  const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
   return `rows=${String(outcome.usage.rawRows.length)} cost=$${outcome.usage.costUsd.toFixed(6)}${suffix}`
 }
@@ -92,7 +94,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
     const seat = `${provider}/${model}`
 
     const document = projectOutputContract(EmitFindings)
-    const definitionCount = Object.keys(document.definitions ?? {}).length
+    const definitionCount = Record.keys(document.definitions).length
     if (definitionCount > 0) {
       return yield* reportChecks([
         check(

@@ -1,4 +1,3 @@
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
@@ -13,12 +12,15 @@ import {
 import type { LoadedRun } from "../run/run-record.ts"
 import { fitPostedDossier } from "./comment-body.ts"
 
-export class DeliveryError extends Data.TaggedError("DeliveryError")<{
-  readonly operation: "load" | "post"
-  readonly reason: string
-  readonly runId?: string
-  readonly cause?: unknown
-}> {}
+export class DeliveryError extends Schema.TaggedError<
+  DeliveryError,
+  { readonly brand: unique symbol }
+>()("DeliveryError", {
+  operation: Schema.Literals(["load", "post"]),
+  reason: Schema.String,
+  runId: Schema.optionalKey(Schema.String),
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 const decodeReceipt = Schema.decodeUnknownEffect(
   Schema.fromJsonString(DeliveryReceipt),
@@ -31,7 +33,7 @@ const readDeliveryArtifact = (
 ) =>
   readOptionalArtifactText(path).pipe(
     Effect.mapError((cause) =>
-      new DeliveryError({
+      DeliveryError.make({
         operation: "load",
         reason: `could not read ${what} for run ${runId}`,
         runId,
@@ -50,7 +52,7 @@ const requirePullRequestTarget = (
   ReviewTarget.guards.PullRequest(plan.target)
     ? Effect.succeed(plan.target)
     : Effect.fail(
-      new DeliveryError({
+      DeliveryError.make({
         operation: "load",
         reason:
           `run ${plan.runId} is not a pull-request review and has no pull-request destination`,
@@ -68,7 +70,7 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
     if (Option.isNone(source)) return Option.none<DeliveryReceipt>()
     const receipt = yield* decodeReceipt(source.value).pipe(
       Effect.mapError((cause) =>
-        new DeliveryError({
+        DeliveryError.make({
           operation: "load",
           // Without a readable receipt, the comment may or may not be up.
           reason:
@@ -78,7 +80,7 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
         })),
     )
     if (receipt.runId !== runId) {
-      return yield* new DeliveryError({
+      return yield* DeliveryError.make({
         operation: "load",
         reason:
           `delivery receipt belongs to run ${receipt.runId}, not ${runId}`,
@@ -97,7 +99,7 @@ const requireMarkdown = Effect.fn("gauntlet.delivery.require_markdown")(
       "dossier.md",
     )
     if (Option.isNone(source) || source.value.length === 0) {
-      return yield* new DeliveryError({
+      return yield* DeliveryError.make({
         operation: "load",
         reason: `run ${runId} is not complete`,
         runId,
@@ -144,7 +146,7 @@ export const deliverCompletedRun = Effect.fn(
   )
   yield* writeArtifactJson(paths.receipt, DeliveryReceipt, posted).pipe(
     Effect.mapError((cause) =>
-      new DeliveryError({
+      DeliveryError.make({
         operation: "post",
         reason: DeliveryReceipt.guards.Posted(posted)
           ? `posted ${posted.url}, but failed to write ${cause.path}`
@@ -154,7 +156,7 @@ export const deliverCompletedRun = Effect.fn(
       })),
   )
   if (DeliveryReceipt.guards.NotPosted(posted)) {
-    return yield* new DeliveryError({
+    return yield* DeliveryError.make({
       operation: "post",
       reason: posted.reason,
       runId: plan.runId,

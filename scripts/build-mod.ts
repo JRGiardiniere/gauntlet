@@ -19,9 +19,9 @@
 // import.meta.url (Claude Code's mod loader gives modules no dirname).
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -54,10 +54,13 @@ declare const Bun: {
   readonly fileURLToPath: (url: URL) => string
 }
 
-class ModBuildFailed extends Data.TaggedError("ModBuildFailed")<{
-  readonly step: string
-  readonly cause: unknown
-}> {}
+class ModBuildFailed extends Schema.TaggedError<
+  ModBuildFailed,
+  { readonly brand: unique symbol }
+>()("ModBuildFailed", {
+  step: Schema.String,
+  cause: Schema.Defect(),
+}) {}
 
 const repoRoot = `${import.meta.dirname}/..`
 // The checkout's root as Bun reports module paths, for each source file's
@@ -65,6 +68,9 @@ const repoRoot = `${import.meta.dirname}/..`
 const sourceRoot = Bun.fileURLToPath(new URL("..", import.meta.url)).replace(/\/$/, "")
 
 const plugin = { name: "gauntlet", entry: "engine.ts", vendor: "engine.js", respell: "../../engine.ts" } as const
+
+// A string as a JavaScript string literal, for generated module source.
+const stringLiteral = Schema.encodeSync(Schema.fromJsonString(Schema.String))
 
 const frontmatterModule = `${repoRoot}/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js`
 
@@ -75,7 +81,7 @@ const graphGuard = {
   setup: (build: BunPluginBuild) => {
     build.onResolve({ filter: /^@earendil-works\/pi-coding-agent$/ }, () => ({ path: "pi", namespace: "gc-pi" }))
     build.onLoad({ filter: /.*/, namespace: "gc-pi" }, () => ({
-      contents: `export { parseFrontmatter } from ${JSON.stringify(frontmatterModule)}`,
+      contents: `export { parseFrontmatter } from ${stringLiteral(frontmatterModule)}`,
       loader: "js",
     }))
     build.onResolve({ filter: /^node:buffer$/ }, () => ({ path: "buffer", namespace: "gc-node" }))
@@ -98,7 +104,7 @@ const graphGuard = {
         return {
           contents: !args.path.startsWith(`${sourceRoot}/src/`) ? source : source.replaceAll(
             "import.meta.dirname",
-            `decodeURIComponent(new URL(${JSON.stringify(directory)}, import.meta.url).pathname)`,
+            `decodeURIComponent(new URL(${stringLiteral(directory)}, import.meta.url).pathname)`,
           ),
           loader: "ts",
         }
@@ -134,11 +140,11 @@ const program = Effect.gen(function* () {
         minify,
         plugins: [graphGuard],
       }),
-    catch: (cause) => new ModBuildFailed({ step: plugin.name, cause }),
+    catch: (cause) => ModBuildFailed.make({ step: plugin.name, cause }),
   })
-  if (!built.success) return yield* new ModBuildFailed({ step: plugin.name, cause: built.logs })
+  if (!built.success) return yield* ModBuildFailed.make({ step: plugin.name, cause: built.logs })
   if (refused.length > 0) {
-    return yield* new ModBuildFailed({ step: plugin.name, cause: `imports that cannot run in the mod: ${refused.join(", ")}` })
+    return yield* ModBuildFailed.make({ step: plugin.name, cause: `imports that cannot run in the mod: ${Array.join(refused, ", ")}` })
   }
   yield* fs.makeDirectory(`${staging}/.claude-plugin`, { recursive: true })
   yield* fs.makeDirectory(`${staging}/types`, { recursive: true })
@@ -146,14 +152,16 @@ const program = Effect.gen(function* () {
     yield* fs.copyFile(`${source}/${file}`, `${staging}/${file}`)
   }
   yield* fs.copy(`${source}/skills`, `${staging}/skills`)
-  const manifest = yield* decodeJson(yield* fs.readFileString(`${source}/.claude-plugin/plugin.json`))
+  const manifestText = yield* fs.readFileString(`${source}/.claude-plugin/plugin.json`)
+  const manifest = yield* decodeJson(manifestText)
   yield* fs.writeFileString(
     `${staging}/.claude-plugin/plugin.json`,
     `${yield* encodeJson({ ...manifest, version })}\n`,
   )
   // The content the bundle reads, where its rewritten paths look.
   yield* fs.copy(`${root}/content`, `${staging}/hooks/vendor/content`)
-  for (const template of (yield* fs.readDirectory(`${root}/src`, { recursive: true })).filter((entry) => entry.endsWith(".md"))) {
+  const sourceEntries = yield* fs.readDirectory(`${root}/src`, { recursive: true })
+  for (const template of Array.filter(sourceEntries, (entry) => entry.endsWith(".md"))) {
     yield* fs.makeDirectory(path.dirname(`${staging}/hooks/vendor/src/${template}`), { recursive: true })
     yield* fs.copyFile(`${root}/src/${template}`, `${staging}/hooks/vendor/src/${template}`)
   }

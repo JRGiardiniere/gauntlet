@@ -17,7 +17,6 @@ export const combineReviewSpecifications = (
   if (fetched === undefined) return addendum
   if (addendum === undefined) return fetched
   const [first, ...rest] = fetched.documents
-  if (first === undefined) return addendum
   const documents = nonEmptyDocuments(first, [...rest, ...addendum.documents])
   return fetched.commentOmission === undefined
     ? ReviewSpecification.make({

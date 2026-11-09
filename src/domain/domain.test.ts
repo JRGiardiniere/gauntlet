@@ -15,7 +15,8 @@ describe("domain model", () => {
         file: "src/alpha.ts",
         summary: "off-by-one in the pager",
       }
-      expect(yield* decode({ ...candidate, line: 1 })).toEqual({
+      const decodedCandidate = yield* decode({ ...candidate, line: 1 })
+      expect(decodedCandidate).toEqual({
         ...candidate,
         line: 1,
       })
@@ -27,8 +28,10 @@ describe("domain model", () => {
     Effect.gen(function* () {
       const decode = Schema.decodeUnknownEffect(Seat)
       // Model ids may contain colons; only the trailing segment is effort.
-      expect(yield* decode("acme/luna-4:high")).toBe("acme/luna-4:high")
-      expect(yield* decode("acme/luna:4-6:high")).toBe("acme/luna:4-6:high")
+      const colonlessSeat = yield* decode("acme/luna-4:high")
+      expect(colonlessSeat).toBe("acme/luna-4:high")
+      const colonSeat = yield* decode("acme/luna:4-6:high")
+      expect(colonSeat).toBe("acme/luna:4-6:high")
       const rejected = yield* Effect.flip(decode("just-a-model"))
       expect(rejected._tag).toBe("SchemaError")
     }))

@@ -1,4 +1,3 @@
-import * as Data from "effect/Data"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -26,12 +25,15 @@ export interface LoadedRun {
   readonly plan: ReviewPlan
 }
 
-export class RunError extends Data.TaggedError("RunError")<{
-  readonly operation: "load-plan" | "execute-plan"
-  readonly reason: string
-  readonly runId: string
-  readonly cause?: unknown
-}> {}
+export class RunError extends Schema.TaggedError<
+  RunError,
+  { readonly brand: unique symbol }
+>()("RunError", {
+  operation: Schema.Literals(["load-plan", "execute-plan"]),
+  reason: Schema.String,
+  runId: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 const RunIdPathSegment = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9][A-Za-z0-9-]*$/),
@@ -83,7 +85,7 @@ const runError = (
   runId: string,
   cause?: unknown,
 ) =>
-  new RunError(
+  RunError.make(
     cause === undefined
       ? { operation, reason, runId }
       : { operation, reason, runId, cause },

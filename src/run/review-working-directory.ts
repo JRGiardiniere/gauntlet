@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -38,7 +39,7 @@ export const captureWorkspaceOverlay = Effect.fn(
       GIT_INDEX_FILE: path.join(scratch, "index"),
     }).pipe(
       Effect.mapError((cause) =>
-        new TargetUnresolvable({
+        TargetUnresolvable.make({
           reason: describeGitFailure(
             "could not capture the working-tree overlay",
             cause,
@@ -60,7 +61,7 @@ export const captureWorkspaceOverlay = Effect.fn(
     target.headCommit,
   ]).pipe(
     explainGit("could not list the files to capture in the overlay"),
-    Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+    Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
   )
   yield* git(["read-tree", target.headCommit])
   // :(literal) keeps bracketed or colon-prefixed filenames from being read
@@ -72,7 +73,7 @@ export const captureWorkspaceOverlay = Effect.fn(
       "add",
       "-A",
       "--",
-      ...staged.map((file) => `:(literal)${file}`),
+      ...Array.map(staged, (file) => `:(literal)${file}`),
     ])
   }
   yield* git([
@@ -85,7 +86,7 @@ export const captureWorkspaceOverlay = Effect.fn(
   ])
   return yield* fs.readFile(overlay).pipe(
     Effect.mapError((cause) =>
-      new TargetUnresolvable({
+      TargetUnresolvable.make({
         reason: "could not read the captured working-tree overlay",
         cause,
       })
@@ -104,7 +105,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
     PullRequest: ({ number }) => `PR #${String(number)}`,
   })
   const runFailure = (reason: string, cause?: unknown) =>
-    new RunError({ operation: "execute-plan", reason, runId, cause })
+    RunError.make({ operation: "execute-plan", reason, runId, cause })
   const scratchDirectory = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-review-",
   })

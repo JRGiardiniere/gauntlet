@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import { Candidate } from "../../domain/candidate.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
@@ -50,9 +50,7 @@ const runPool = (scripted: Scripted, seatless = false) =>
       bugClaims,
     })
   }).pipe(
-    Effect.provide(
-      Layer.mergeAll(NodeServices.layer, scriptedLayer(scripted)),
-    ),
+    Effect.provide([NodeServices.layer, scriptedLayer(scripted)]),
   )
 
 describe("Pool stage interface", () => {
@@ -110,7 +108,7 @@ describe("Pool stage interface", () => {
 
       // The real shipped template, asserted structurally: its one slot filled
       // with every BugClaim's candidate line — never wording.
-      const [prompt = ""] = scripted.prompts.map(({ text }) => text)
+      const [prompt = ""] = Array.map(scripted.prompts, ({ text }) => text)
       expect(prompt).not.toContain("{{")
       expect(prompt).toContain("## Candidates")
       expect(prompt).toContain(
@@ -127,7 +125,7 @@ describe("Pool stage interface", () => {
 
       const result = yield* runPool(scripted, true)
 
-      expect(result.clusters.map(({ indexes, number }) => [number, indexes])).toEqual([
+      expect(Array.map(result.clusters, ({ indexes, number }) => [number, indexes])).toEqual([
         [1, [1]],
         [2, [2]],
         [3, [3]],

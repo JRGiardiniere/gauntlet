@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { Candidate } from "../domain/candidate.ts"
 import {
@@ -18,7 +19,7 @@ describe("output contracts", () => {
       ] as const
       for (const [contract, sentinel] of sentinels) {
         const document = projectOutputContract(contract)
-        expect(Object.keys(document.definitions ?? {})).toHaveLength(0)
+        expect(Record.keys(document.definitions)).toHaveLength(0)
         const projected = yield* Schema.encodeEffect(
           Schema.fromJsonString(Schema.Unknown),
         )({
@@ -42,7 +43,8 @@ describe("output contracts", () => {
 
   it.effect("accepts empty finder output and an arbitrary candidate path", () =>
     Effect.gen(function* () {
-      expect(yield* decodeOutputContract(EmitFindings)({ findings: [] })).toEqual({
+      const emptyFindings = yield* decodeOutputContract(EmitFindings)({ findings: [] })
+      expect(emptyFindings).toEqual({
         findings: [],
       })
       const output = yield* decodeOutputContract(EmitFindings)({
@@ -86,7 +88,8 @@ describe("output contracts", () => {
       const candidate: Candidate = { _tag: "Observation", id: "a", lens: "test", file: "a.ts",
         summary: "claim", sourceReferences: references }
       const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(Candidate))(candidate)
-      expect(yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)).toEqual(candidate)
+      const decodedCandidate = yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)
+      expect(decodedCandidate).toEqual(candidate)
     }))
 
   it.effect("requires JSON-safe 1-indexed integer locations", () =>

@@ -67,7 +67,7 @@ export const TargetIdentity = Schema.TaggedUnion({
 export type TargetIdentity = typeof TargetIdentity.Type
 
 export const targetIdentityOf = (target: ReviewTarget): TargetIdentity =>
-  ReviewTarget.match<TargetIdentity>(target, {
+  ReviewTarget.match(target, {
     WorkingTree: ({ baseCommit, headCommit, repoRoot }) =>
       TargetIdentity.cases.WorkingTree.make(
         baseCommit === undefined

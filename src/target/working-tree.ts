@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -20,7 +21,7 @@ const explainUntrackedFile = (reason: string) =>
   self: Effect.Effect<A, { readonly _tag: "PlatformError" }, R>,
 ): Effect.Effect<A, TargetUnresolvable, R> =>
   Effect.catchTag(self, "PlatformError", (cause) =>
-    Effect.fail(new TargetUnresolvable({ reason, cause })))
+    Effect.fail(TargetUnresolvable.make({ reason, cause })))
 
 // Git already governs tracked files. Untracked files larger than this are
 // dropped from the included set and named in a scope-degradation warning.
@@ -66,10 +67,8 @@ export const resolveWorkingTreeTarget = Effect.fn(
     explainGit("repository has no HEAD commit to diff against"),
     Effect.map(chompLine),
   )
-  const baseCommit = base === undefined ? undefined : yield* mergeBaseOf(
-    repoRoot,
-    yield* resolveCommittish(repoRoot, base),
-    headCommit,
+  const baseCommit = base === undefined ? undefined : yield* resolveCommittish(repoRoot, base).pipe(
+    Effect.flatMap((resolvedBase) => mergeBaseOf(repoRoot, resolvedBase, headCommit)),
   )
   const diffBase = baseCommit ?? headCommit
   // Diff against the resolved hash, not symbolic HEAD — a commit landing
@@ -89,11 +88,11 @@ export const resolveWorkingTreeTarget = Effect.fn(
         diffBase,
       ]).pipe(
         explainGit("could not list changed files"),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "-z", "--others", "--exclude-standard"]).pipe(
         explainGit("could not list untracked files"),
-        Effect.map((out) => out.split("\0").filter((line) => line !== "")),
+        Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
       ),
       runGit(repoRoot, ["ls-files", "-z", "--stage"]).pipe(
         explainGit("could not list tracked files"),
@@ -107,7 +106,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
     const nothing = base === undefined
       ? "working tree has no uncommitted changes to review"
       : `${base} has no committed or uncommitted changes to review`
-    return yield* new TargetUnresolvable({
+    return yield* TargetUnresolvable.make({
       reason: untracked.length === 0
         ? nothing
         : `${nothing} (${untracked.length} untracked file(s) are not part of the diff)`,
@@ -120,23 +119,20 @@ export const resolveWorkingTreeTarget = Effect.fn(
     (relativePath) => inspectUntrackedFile(repoRoot, relativePath),
     { concurrency: 4 },
   )
-  const untrackedFiles = inspections.flatMap((file) =>
-    file.kind === "included" ? [file.path] : []
-  )
-  const named = inspections.flatMap((file) =>
-    file.kind === "oversized" ? [] : [file.path]
-  )
-  const oversized = inspections.flatMap((file) =>
-    file.kind === "oversized" ? [file.path] : []
-  )
+  const untrackedFiles = Array.flatMap(inspections, (file) =>
+    file.kind === "included" ? [file.path] : [])
+  const named = Array.flatMap(inspections, (file) =>
+    file.kind === "oversized" ? [] : [file.path])
+  const oversized = Array.flatMap(inspections, (file) =>
+    file.kind === "oversized" ? [file.path] : [])
 
   const warnings = [
     ...(named.length === 0 ? [] : [
-      `${named.length} untracked file(s) not included in the diff: ${named.join(", ")}`,
+      `${named.length} untracked file(s) not included in the diff: ${Array.join(named, ", ")}`,
     ]),
     ...(oversized.length === 0 ? [] : [
       `${oversized.length} untracked file(s) exceed 10MB and are excluded from the review: ${
-        oversized.join(", ")
+        Array.join(oversized, ", ")
       }`,
     ]),
     ...submoduleWarning(submodules),

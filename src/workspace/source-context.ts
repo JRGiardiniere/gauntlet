@@ -1,4 +1,5 @@
 import { isUtf8 } from "node:buffer"
+import * as Array from "effect/Array"
 import * as ByteSize from "effect/ByteSize"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
@@ -55,7 +56,7 @@ export const assembleSourceContext = Effect.fn(
       if (
         path.isAbsolute(file) || /^[A-Za-z]:/.test(file) ||
         file.includes("\\") ||
-        parts.some((part) => part === ".." || part === ".git" || part === "")
+        Array.some(parts, (part) => part === ".." || part === ".git" || part === "")
       ) {
         omit("path is not repository-relative source")
         continue
@@ -93,7 +94,7 @@ export const assembleSourceContext = Effect.fn(
         omit("whole file exceeds the remaining source character budget")
         continue
       }
-      files.push({ file: relative.split(path.sep).join("/"), text })
+      files.push({ file: Array.join(relative.split(path.sep), "/"), text })
       characters += text.length
     }
   }

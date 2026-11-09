@@ -1,3 +1,4 @@
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -66,7 +67,8 @@ export const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
 // valid is partial, and nothing heals it (issue #24).
 export const isFreshConfig = Effect.fn("InitialConfig.isFresh")(function* () {
   const fs = yield* FileSystem.FileSystem
-  const settingsExists = yield* fs.exists(yield* settingsPath())
+  const settingsFile = yield* settingsPath()
+  const settingsExists = yield* fs.exists(settingsFile)
   return !settingsExists && (yield* listRecipes()).length === 0
 })
 
@@ -86,7 +88,7 @@ export const writeInitialConfig = Effect.fn("InitialConfig.write")(function* () 
   yield* writeSettings({
     "default-recipe": initial.defaultRecipe,
     "default-lenses": INITIAL_DEFAULT_LENSES,
-    favorites: initial.recipes.map(([name]) => name),
+    favorites: Array.map(initial.recipes, ([name]) => name),
   })
   return initial
 })

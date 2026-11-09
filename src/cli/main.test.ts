@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
@@ -120,12 +122,13 @@ describe("gauntlet review", () => {
       )
       expect(dossier.runId).toBe(plan.runId)
       const dossierView = viewDossier(dossier)
-      const confirmed = dossierView.findings.find(
+      const confirmed = Array.findFirst(
+        dossierView.findings,
         ({ tag }) => tag === "confirmed",
       )
-      expect(confirmed?.candidate._tag).toBe("BugClaim")
-      expect(confirmed?.candidate.id).toBe("fixture-review/1")
-      expect(confirmed).toMatchObject({
+      expect(Option.map(confirmed, ({ candidate }) => candidate._tag)).toEqual(Option.some("BugClaim"))
+      expect(Option.map(confirmed, ({ candidate }) => candidate.id)).toEqual(Option.some("fixture-review/1"))
+      expect(Option.getOrUndefined(confirmed)).toMatchObject({
         reviewPriority: "P2",
         detail: "empty input reaches the added line and throws",
         testSuggestion: {
@@ -134,12 +137,13 @@ describe("gauntlet review", () => {
           bugClaimIds: ["fixture-review/1"],
         },
       })
-      const judgment = dossierView.findings.find(
+      const judgment = Array.findFirst(
+        dossierView.findings,
         ({ tag }) => tag === "judgment",
       )
-      expect(judgment?.candidate._tag).toBe("Observation")
-      expect(judgment?.candidate.id).toBe("fixture-review/2")
-      expect(judgment).toMatchObject({
+      expect(Option.map(judgment, ({ candidate }) => candidate._tag)).toEqual(Option.some("Observation"))
+      expect(Option.map(judgment, ({ candidate }) => candidate.id)).toEqual(Option.some("fixture-review/2"))
+      expect(Option.getOrUndefined(judgment)).toMatchObject({
         reviewPriority: "P2",
       })
       expect(dossier.coverageGaps).toEqual([])
@@ -188,10 +192,12 @@ describe("gauntlet review", () => {
 
       for (const suffix of ["-verification", "-judgment"] as const) {
         const [pwd] = inspectionsFor(run.scripted, suffix)
-        expect(pwd?.toolName).toBe("bash")
-        expect(pwd?.isError).toBe(false)
-        expect(pwd?.text).toContain(REVIEW_WORKSPACE_ROOT)
-        expect(pwd?.text).not.toContain(snapshot)
+        expect(pwd).toMatchObject({
+          toolName: "bash",
+          isError: false,
+          text: expect.stringContaining(REVIEW_WORKSPACE_ROOT),
+        })
+        expect(pwd).toMatchObject({ text: expect.not.stringContaining(snapshot) })
       }
 
       // Finders carry the repo root in the system prompt; the later stages
@@ -208,7 +214,8 @@ describe("gauntlet review", () => {
       const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))
       expect(runLog.length).toBeGreaterThan(0)
 
-      const stdout = (yield* TestConsole.logLines).join("\n")
+      const logLines = yield* TestConsole.logLines
+      const stdout = Array.join(Array.map(logLines, String), "\n")
       const [tally = ""] = stdout.split("\n")
       expect(tally).toContain("1 confirmed · 1 kept · 0 plausible · 0 undecided")
       expect(tally).toContain("working tree @")
@@ -225,7 +232,8 @@ describe("gauntlet review", () => {
       // An agent asked for a brief gets its instructions from the CLI.
       const asked = yield* runCommand(fixture, ["brief", plan.runId, "fixture-review/2"], makeScripted({ sessions: [] })).effect
       expect(asked).toBe(0)
-      expect((yield* TestConsole.logLines).join("\n")).toContain(
+      const logLinesAfterBrief = yield* TestConsole.logLines
+      expect(Array.join(Array.map(logLinesAfterBrief, String), "\n")).toContain(
         `Write \`${path.join(runDir, "briefs", "fixture-review/2.md")}\``,
       )
 
@@ -240,7 +248,8 @@ describe("gauntlet review", () => {
       const redrawn = yield* runCommand(fixture, ["page", plan.runId], makeScripted({ sessions: [] })).effect
       expect(redrawn).toBe(0)
       expect((yield* TestConsole.logLines).at(-1)).toBe(path.join(runDir, "dossier.html"))
-      expect(yield* TestConsole.errorLines).toContain(
+      const errorLines = yield* TestConsole.errorLines
+      expect(errorLines).toContain(
         "gauntlet: briefs/fixture-review/2.md: alpha.txt:90 is outside the file's 2 lines",
       )
       const page = yield* fs.readFileString(path.join(runDir, "dossier.html"))
@@ -259,11 +268,13 @@ describe("gauntlet review", () => {
         ["review", "7", "--working-tree"],
         makeScripted({ sessions: [] }),
       )
-      expect(yield* aimed.effect).toBe(1)
+      const aimedExit = yield* aimed.effect
+      expect(aimedExit).toBe(1)
 
       yield* fs.writeFileString(fixture.settingsFile, "{ not json\n")
       const unreadable = review(fixture, makeScripted({ sessions: [] }))
-      expect(yield* unreadable.effect).toBe(1)
+      const unreadableExit = yield* unreadable.effect
+      expect(unreadableExit).toBe(1)
 
       const stderr = yield* TestConsole.errorLines
       expect(stderr[0]).toBe(
@@ -272,8 +283,10 @@ describe("gauntlet review", () => {
       expect(stderr.at(-1)).toMatch(
         new RegExp(`^gauntlet: .*\\(${fixture.settingsFile}\\)$`),
       )
-      expect(yield* TestConsole.logLines).toEqual([])
-      expect(yield* fs.exists(fixture.runsRoot)).toBe(false)
+      const logLines = yield* TestConsole.logLines
+      expect(logLines).toEqual([])
+      const runsRootExists = yield* fs.exists(fixture.runsRoot)
+      expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
@@ -293,9 +306,9 @@ describe("gauntlet deliver", () => {
               ? Effect.succeed({ url })
               : TestConsole.logLines.pipe(
                 Effect.flatMap((lines) => {
-                  stdoutAtPost = lines.join("\n")
+                  stdoutAtPost = Array.join(Array.map(lines, String), "\n")
                   return Effect.fail(
-                    new GitHubError({ operation: "post", reason: "gh timed out" }),
+                    GitHubError.make({ operation: "post", reason: "gh timed out" }),
                   )
                 }),
               ),
@@ -307,7 +320,8 @@ describe("gauntlet deliver", () => {
         successfulScripted(),
         github(false),
       )
-      expect(yield* reviewed.effect).toBe(1)
+      const reviewedExit = yield* reviewed.effect
+      expect(reviewedExit).toBe(1)
       const [runId = ""] = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readDirectory(fixture.runsRoot)),
       )
@@ -322,7 +336,8 @@ describe("gauntlet deliver", () => {
         makeScripted({ sessions: [] }),
         github(true),
       )
-      expect(yield* delivered.effect).toBe(0)
+      const deliveredExit = yield* delivered.effect
+      expect(deliveredExit).toBe(0)
       expect((yield* TestConsole.logLines).at(-1)).toBe(url)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

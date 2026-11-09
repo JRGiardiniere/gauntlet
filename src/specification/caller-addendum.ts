@@ -1,16 +1,17 @@
-import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Predicate from "effect/Predicate"
+import * as Schema from "effect/Schema"
 import { ReviewSpecification } from "../domain/review-specification.ts"
 
-export class SpecificationLoadError extends Data.TaggedError(
-  "SpecificationLoadError",
-)<{
-  readonly path: string
-  readonly reason: string
-  readonly cause?: unknown
-}> {}
+export class SpecificationLoadError extends Schema.TaggedError<
+  SpecificationLoadError,
+  { readonly brand: unique symbol }
+>()("SpecificationLoadError", {
+  path: Schema.String,
+  reason: Schema.String,
+  cause: Schema.optionalKey(Schema.Defect()),
+}) {}
 
 // The Caller Addendum path of the Specification Source boundary (issue #73):
 // read the explicitly named Markdown file once, before any Run exists, and
@@ -25,7 +26,7 @@ export const loadCallerAddendum = Effect.fn(
   const fs = yield* FileSystem.FileSystem
   const text = yield* fs.readFileString(resolved).pipe(
     Effect.mapError((failure) =>
-      new SpecificationLoadError({
+      SpecificationLoadError.make({
         path: resolved,
         reason: Predicate.isTagged("NotFound")(failure.reason)
           ? "caller addendum file does not exist"
@@ -34,7 +35,7 @@ export const loadCallerAddendum = Effect.fn(
       })),
   )
   if (text.trim() === "") {
-    return yield* new SpecificationLoadError({
+    return yield* SpecificationLoadError.make({
       path: resolved,
       reason: "caller addendum is empty",
     })
