@@ -97,7 +97,7 @@ const lintHouseStyle = Command.make(
     targets: Argument.String("targets").pipe(
       Argument.variadic(),
       Argument.withDescription(
-        "Extra paths to lint beyond the standing bin, src, scripts, .convoy/packs/effect-house-rules and vitest targets",
+        "Extra paths to lint beyond the standing bin, src, scripts, mod and vitest targets",
       ),
     ),
   },

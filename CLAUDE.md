@@ -17,8 +17,8 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
   mod's plugin declarations into `mod/types/` (gitignored); rerun it after a
   Claude Code update. The Mod carries its own copy of `content/` and the
   Stage templates, so `bun run build-mod` after editing those too. The gate includes
-  custom rules that reject common Effect idioms (Schema.Class, raw throw,
-  unbounded retries…) — read the rule's message, don't fight it
+  custom rules that reject common Effect idioms (unbounded retries,
+  `Effect.promise`, module-level mutable state…) — read the rule's message, don't fight it
 - Effect pinned **exactly** (enforced); single `effect` package, unstable
   subpaths fine; no new runtime dependencies without strong cause
 - Tests sit at the seam callers use: a Stage module's interface is a
