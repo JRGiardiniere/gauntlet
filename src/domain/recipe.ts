@@ -1,12 +1,21 @@
 import * as Schema from "effect/Schema"
 
-// Seat grammar: provider/model:effort (ADR 0005). Model ids may themselves
-// contain colons, so the pattern anchors on the provider slash and requires a
-// trailing :effort segment without splitting the middle.
+// Seat grammar: provider/model:effort[+fast] (ADR 0005). Model ids may
+// themselves contain colons, so the pattern anchors on the provider slash and
+// requires a trailing :effort segment without splitting the middle. `+fast`
+// asks for OpenAI's Fast mode and stays in the Seat, so a run records it.
 export const Seat = Schema.String.check(
-  Schema.isPattern(/^[^/\s]+\/\S+:[^\s:]+$/),
+  Schema.isPattern(/^[^/\s]+\/\S+:[^\s:+]+(?:\+fast)?$/),
 )
 export type Seat = typeof Seat.Type
+
+const FAST = "+fast"
+
+// The Seat without its Fast mode suffix, and whether it had one.
+export const seatSpeed = (seat: Seat): { readonly seat: string; readonly fast: boolean } =>
+  seat.endsWith(FAST)
+    ? { seat: seat.slice(0, -FAST.length), fast: true }
+    : { seat, fast: false }
 
 // The portable lowercase-kebab-case filename is the sole recipe name; the
 // JSON never repeats it (ADR 0005).
@@ -28,6 +37,9 @@ export const ClaudeSeat = Seat.check(
   Schema.makeFilter((seat) =>
     seat.startsWith(CLAUDE_CODE) ||
     `the Mod runs only claude-code/<model>:<effort> Seats (claude-code/opus:medium), not ${seat}`
+  ),
+  Schema.makeFilter((seat) =>
+    !seat.endsWith(FAST) || `${seat}: Fast mode (${FAST}) is for Pi Seats only`
   ),
 )
 export const PiSeat = Seat.check(

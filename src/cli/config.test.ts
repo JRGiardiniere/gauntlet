@@ -127,8 +127,7 @@ describe("gauntlet config init", () => {
         )
       const quickRecipe = yield* readRecipe("quick")
       expect(quickRecipe).toEqual({
-        default: "openai/gpt-6-luna:high",
-        finders: "openai/gpt-6-sol:low",
+        default: "openai/gpt-6.1-terra:high+fast",
       })
       const lowRecipe = yield* readRecipe("low")
       expect(lowRecipe).toEqual({
@@ -136,11 +135,11 @@ describe("gauntlet config init", () => {
       })
       const mediumRecipe = yield* readRecipe("medium")
       expect(mediumRecipe).toEqual({
-        default: "openai/gpt-6.1-sol:medium",
+        default: "openai/gpt-6.2-sol:medium",
       })
       const highRecipe = yield* readRecipe("high")
       expect(highRecipe).toEqual({
-        default: "openai/gpt-6.1-sol:high",
+        default: "openai/gpt-6.2-sol:high",
       })
       const settings = yield* readSettings(fixture)
       expect(settings).toEqual({

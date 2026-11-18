@@ -15,6 +15,7 @@ import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import { seatSpeed } from "../domain/recipe.ts"
 import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
@@ -213,6 +214,8 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   }
 }
 
+const isRequestBody = Schema.is(Schema.Record(Schema.String, Schema.Unknown))
+
 export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
@@ -250,9 +253,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
 
         // Split only the seat's provider separator. The model portion may
         // itself contain colons, so Pi's resolver owns model/thinking parsing.
-        const providerSeparator = session.seat.indexOf("/")
-        const provider = session.seat.slice(0, providerSeparator)
-        const modelInput = session.seat.slice(providerSeparator + 1)
+        const { seat, fast } = seatSpeed(session.seat)
+        const providerSeparator = seat.indexOf("/")
+        const provider = seat.slice(0, providerSeparator)
+        const modelInput = seat.slice(providerSeparator + 1)
         const resolved = yield* Effect.try({
           try: () =>
             resolveCliModel({
@@ -423,6 +427,17 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               throw signal.reason
             }
             const agentSession = created.session
+            if (fast) {
+              // Pi's simple stream drops a serviceTier option, so Fast mode
+              // goes on the request body; the response's tier prices it.
+              const agent = agentSession.agent
+              const transform = agent.onPayload
+              agent.onPayload = (payload, payloadModel) =>
+                Promise.resolve(transform?.(payload, payloadModel)).then((transformed) => {
+                  const body = transformed ?? payload
+                  return isRequestBody(body) ? { ...body, service_tier: "priority" } : body
+                })
+            }
 
             return {
               subscribe: (listener) =>

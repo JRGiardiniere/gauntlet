@@ -1,5 +1,5 @@
 // Self-upgrade: replace this executable with the latest release binary, then
-// move recipe seats off legacy providers and onto the newest Luna/Sol (#121).
+// move recipe seats off legacy providers and onto the newest Luna/Terra/Sol (#121).
 // Settings, runs (~/.gauntlet) and project lenses (.gauntlet/lenses) survive
 // by construction — the shipped lens catalog is embedded in the binary, so
 // swapping the file swaps the catalog atomically (ADR 0004).
@@ -157,6 +157,6 @@ export const upgradeCommand = Command.make(
   () => executeUpgrade(),
 ).pipe(
   Command.withDescription(
-    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Sol. Settings, runs, and project lenses are never touched",
+    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Terra/Sol. Settings, runs, and project lenses are never touched",
   ),
 )

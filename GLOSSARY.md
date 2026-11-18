@@ -117,7 +117,8 @@ _Avoid_: preset, tier, model config
 
 **Seat**:
 One concrete provider, model, and inference-effort assignment for an
-AgentInvocation, written `provider/model:effort`. A `claude-code/` Seat names
+AgentInvocation, written `provider/model:effort`, with `+fast` after the
+effort for OpenAI's Fast mode. A `claude-code/` Seat names
 a Claude model and effort run by the Claude Code Host, on the person's Claude
 plan.
 _Avoid_: model (omits provider and effort), model config

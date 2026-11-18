@@ -7,11 +7,11 @@ import { writeArtifactJson } from "../run/artifact.ts"
 import { listRecipes } from "./recipe-catalog.ts"
 
 // Seat upgrade (#121): `gauntlet upgrade` moves recipe seats to the newest
-// Luna/Sol their provider's catalog lists. Only this hardcoded family pattern
-// gets a newer model — variants (-pro, -mini, :batch) keep theirs, though a
-// legacy provider's seat still moves provider — and versions compare
+// Luna/Terra/Sol their provider's catalog lists. Only this hardcoded family
+// pattern gets a newer model — variants (-pro, -mini, :batch) keep theirs,
+// though a legacy provider's seat still moves provider — and versions compare
 // numerically, so gpt-10 outranks gpt-6. Widen the pattern to add a family.
-const familyModel = /^gpt-(\d+(?:\.\d+)*)-(luna|sol)$/
+const familyModel = /^gpt-(\d+(?:\.\d+)*)-(luna|terra|sol)$/
 
 // Pi superseded its OpenAI Codex provider with Sign in with ChatGPT on
 // `openai`, so a legacy seat always moves to its successor. Until the user
@@ -43,7 +43,7 @@ const compareVersions = (
 }
 
 // The newest same-family model in `modelIds`; the model itself when it is not
-// Luna/Sol or is already newest.
+// Luna/Terra/Sol or is already newest.
 const newestFamilyModel = (modelId: string, modelIds: ReadonlyArray<string>): string => {
   const current = parseFamilyModel(modelId)
   if (Option.isNone(current)) return modelId
@@ -90,7 +90,7 @@ const seatFields = [
 
 const seatModel = (seat: Seat): string => seat.slice(0, seat.lastIndexOf(":"))
 
-// Rewrites every valid recipe with a newer Luna/Sol seat in place and reports
+// Rewrites every valid recipe with a newer Luna/Terra/Sol seat in place and reports
 // each change as provider/model pairs. Invalid recipes are never rewritten;
 // they are named as skipped so "current" never covers an unchecked file.
 export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
