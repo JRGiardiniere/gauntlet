@@ -15,6 +15,8 @@ import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
+import { seatSpeed } from "../domain/recipe.ts"
+import { FAST_MODE_APIS, withFastTier } from "./fast-mode.ts"
 import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
@@ -250,9 +252,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
 
         // Split only the seat's provider separator. The model portion may
         // itself contain colons, so Pi's resolver owns model/thinking parsing.
-        const providerSeparator = session.seat.indexOf("/")
-        const provider = session.seat.slice(0, providerSeparator)
-        const modelInput = session.seat.slice(providerSeparator + 1)
+        const { seat, fast } = seatSpeed(session.seat)
+        const providerSeparator = seat.indexOf("/")
+        const provider = seat.slice(0, providerSeparator)
+        const modelInput = seat.slice(providerSeparator + 1)
         const resolved = yield* Effect.try({
           try: () =>
             resolveCliModel({
@@ -278,6 +281,12 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             reason:
               resolutionError ??
               `model not found: ${session.seat}`,
+          })
+        }
+        if (fast && !FAST_MODE_APIS.has(model.api)) {
+          return yield* InvocationSetupError.make({
+            operation: "resolve-model",
+            reason: `${session.seat}: Fast mode (+fast) needs an OpenAI Responses model, not ${model.api}`,
           })
         }
         if (resolved.warning !== undefined) {
@@ -319,10 +328,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             })
             await resourceLoader.reload()
 
-            // `parameters` is the documented plain-JSON-Schema path: Pi
-            // detects the missing TypeBox.Kind symbol and runs its JSON-Schema
-            // coercion pass instead (#4 §5). The SDK types that field as the
-            // empty `TSchema`, so the projected schema needs no cast.
+            // `parameters` is the documented plain-JSON-Schema path: since
+            // Pi 1.5 every tool's arguments go through pi-schema's validation
+            // and coercion (#4 §5). The SDK types that field as the empty
+            // `TSchema`, so the projected schema needs no cast.
             const emitToolDefinition: ToolDefinition = {
               name: session.emitTool.name,
               label: session.emitTool.name,
@@ -335,11 +344,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // @effect-diagnostics-next-line asyncFunction:off -- Pi's custom tool `execute` contract is async
               execute: async (_toolCallId, args) => {
                 // SAFETY: pi-ai's `validateToolArguments` structuredClones the
-                // model's arguments, takes the JSON-Schema coercion branch
-                // (our projected schema carries no TypeBox.Kind symbol), and
-                // throws unless the result passes `validator.Check` — so
-                // execute is only ever reached with a JSON value that matched
-                // the emit tool's schema. Verified in pi-ai 0.84.1
+                // model's arguments, parses them with pi-schema's validator for
+                // the tool's JSON Schema, and throws unless the parse is ok —
+                // so execute is only ever reached with a JSON value that
+                // matched the emit tool's schema. Verified in pi-ai 1.5.2
                 // `dist/utils/validation.js` `validateToolArguments`, called
                 // from pi-agent-core `dist/agent-loop.js` `prepareToolCall`.
                 session.emitTool.execute(args as EmitToolArgs)
@@ -423,6 +431,9 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               throw signal.reason
             }
             const agentSession = created.session
+            if (fast) {
+              agentSession.agent.onPayload = withFastTier(agentSession.agent.onPayload)
+            }
 
             return {
               subscribe: (listener) =>

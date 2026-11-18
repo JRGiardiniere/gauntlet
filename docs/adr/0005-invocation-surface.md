@@ -169,6 +169,12 @@ hardcoded `gpt-<version>-(luna|sol)` pattern matches, versions compare
 numerically, and a model launch reaches users as a Gauntlet release whose notice
 prompts the upgrade — no background check, separate command, or notified state.
 
+Amended 2026-11-18: Terra joins the pattern, `gpt-<version>-(luna|terra|sol)`,
+since the quick Recipe now runs on it. A Pi Seat's effort may end in `+fast`
+(`openai/gpt-6.1-terra:high+fast`) for OpenAI's Fast mode: the live adapter
+sets `service_tier: "priority"` on each request. It stays in the Seat string
+because runs record only that, and an upgrade keeps it with the thinking level.
+
 Amended per #177: each Host has its own Recipe Catalog and settings. The CLI's
 stay in `~/.gauntlet/`; the Mod's are in `~/.gauntlet/mod/` (`settings.json`,
 `recipes/`), so the CLI and the Mod can each name their own `low`, `medium` and

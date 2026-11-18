@@ -11,28 +11,21 @@ import { ConfigHost, type Host, recipesDirectory, settingsPath, writeSettings } 
 // What a Host's fresh configuration holds: `config init` writes it, and the
 // Mod writes its own the first time it loads (#177). After that the files
 // are user-owned; nothing re-reads or replenishes them, and only
-// `gauntlet upgrade` touches the CLI's, moving Luna/Sol seats forward (#121).
+// `gauntlet upgrade` touches the CLI's, moving Luna/Terra/Sol seats forward (#121).
 export interface InitialConfig {
   readonly recipes: ReadonlyArray<readonly [RecipeName, Recipe]>
   readonly defaultRecipe: RecipeName
 }
 
 export const INITIAL_CONFIG: Readonly<Record<Host, InitialConfig>> = {
-  // The CLI's mirror the old reviewer's MODEL_TIERS: quick keeps the manual
-  // luna:high downstream tune under sol:low finders; low/medium/high run one
-  // seat top to bottom (John's 2026-08-10 uniform-preset call).
+  // Every CLI recipe runs one seat top to bottom (John's 2026-08-10
+  // uniform-preset call); quick is Terra in Fast mode (2026-11-18).
   cli: {
     recipes: [
-      [
-        "quick",
-        PiRecipe.make({
-          default: "openai/gpt-6-luna:high",
-          finders: "openai/gpt-6-sol:low",
-        }),
-      ],
+      ["quick", PiRecipe.make({ default: "openai/gpt-6.1-terra:high+fast" })],
       ["low", PiRecipe.make({ default: "openai/gpt-6-luna:high" })],
-      ["medium", PiRecipe.make({ default: "openai/gpt-6.1-sol:medium" })],
-      ["high", PiRecipe.make({ default: "openai/gpt-6.1-sol:high" })],
+      ["medium", PiRecipe.make({ default: "openai/gpt-6.2-sol:medium" })],
+      ["high", PiRecipe.make({ default: "openai/gpt-6.2-sol:high" })],
     ],
     defaultRecipe: "medium",
   },
