@@ -1,11 +1,12 @@
 import * as Schema from "effect/Schema"
 
-// Seat grammar: provider/model:effort[+fast] (ADR 0005). Model ids may
-// themselves contain colons, so the pattern anchors on the provider slash and
-// requires a trailing :effort segment without splitting the middle. `+fast`
-// asks for OpenAI's Fast mode and stays in the Seat, so a run records it.
+// Seat grammar: provider/model:effort (ADR 0005). Model ids may themselves
+// contain colons, so the pattern anchors on the provider slash and requires a
+// trailing :effort segment without splitting the middle. An effort ending in
+// `+fast` asks for OpenAI's Fast mode and stays in the Seat, so a run records
+// it; the pattern stays as loose as before so recorded Seats keep decoding.
 export const Seat = Schema.String.check(
-  Schema.isPattern(/^[^/\s]+\/\S+:[^\s:+]+(?:\+fast)?$/),
+  Schema.isPattern(/^[^/\s]+\/\S+:[^\s:]+$/),
 )
 export type Seat = typeof Seat.Type
 

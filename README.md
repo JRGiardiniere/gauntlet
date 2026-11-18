@@ -51,7 +51,8 @@ gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post 
 `gauntlet --help` is the full flag reference. To customize:
 
 - **Recipes** — one JSON file each in `~/.gauntlet/recipes/`; copy one, edit
-  the `provider/model:effort` seats, done.
+  the `provider/model:effort` seats, done. Add `+fast` after an OpenAI seat's
+  effort (`openai/gpt-6.1-terra:high+fast`) for Fast mode.
 - **Lenses** — drop markdown files in `.gauntlet/lenses/` for project-local
   review standards; `--lenses a,b` selects exactly those for one run.
 - **Agent skill** — the installer keeps the shared skill in

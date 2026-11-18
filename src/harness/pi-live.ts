@@ -16,6 +16,7 @@ import * as Layer from "effect/Layer"
 import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import { seatSpeed } from "../domain/recipe.ts"
+import { FAST_MODE_APIS, withFastTier } from "./fast-mode.ts"
 import { makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
 import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import {
@@ -214,8 +215,6 @@ const mapPiEvent = (event: AgentSessionEvent): HarnessEvent | undefined => {
   }
 }
 
-const isRequestBody = Schema.is(Schema.Record(Schema.String, Schema.Unknown))
-
 export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
   // One ModelRuntime per factory: create() reloads the model catalog, config,
   // and credentials, so per-open recreation would make a fan-out of N lenses
@@ -284,6 +283,12 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               `model not found: ${session.seat}`,
           })
         }
+        if (fast && !FAST_MODE_APIS.has(model.api)) {
+          return yield* InvocationSetupError.make({
+            operation: "resolve-model",
+            reason: `${session.seat}: Fast mode (+fast) needs an OpenAI Responses model, not ${model.api}`,
+          })
+        }
         if (resolved.warning !== undefined) {
           // Abnormal resolution — e.g. the pattern fell back to a custom
           // model id. Not fatal, but never silent.
@@ -323,10 +328,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             })
             await resourceLoader.reload()
 
-            // `parameters` is the documented plain-JSON-Schema path: Pi
-            // detects the missing TypeBox.Kind symbol and runs its JSON-Schema
-            // coercion pass instead (#4 §5). The SDK types that field as the
-            // empty `TSchema`, so the projected schema needs no cast.
+            // `parameters` is the documented plain-JSON-Schema path: since
+            // Pi 1.5 every tool's arguments go through pi-schema's validation
+            // and coercion (#4 §5). The SDK types that field as the empty
+            // `TSchema`, so the projected schema needs no cast.
             const emitToolDefinition: ToolDefinition = {
               name: session.emitTool.name,
               label: session.emitTool.name,
@@ -339,11 +344,10 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
               // @effect-diagnostics-next-line asyncFunction:off -- Pi's custom tool `execute` contract is async
               execute: async (_toolCallId, args) => {
                 // SAFETY: pi-ai's `validateToolArguments` structuredClones the
-                // model's arguments, takes the JSON-Schema coercion branch
-                // (our projected schema carries no TypeBox.Kind symbol), and
-                // throws unless the result passes `validator.Check` — so
-                // execute is only ever reached with a JSON value that matched
-                // the emit tool's schema. Verified in pi-ai 0.84.1
+                // model's arguments, parses them with pi-schema's validator for
+                // the tool's JSON Schema, and throws unless the parse is ok —
+                // so execute is only ever reached with a JSON value that
+                // matched the emit tool's schema. Verified in pi-ai 1.5.2
                 // `dist/utils/validation.js` `validateToolArguments`, called
                 // from pi-agent-core `dist/agent-loop.js` `prepareToolCall`.
                 session.emitTool.execute(args as EmitToolArgs)
@@ -428,15 +432,7 @@ export const makeLivePiFactory = (): HarnessSessionFactoryContract => {
             }
             const agentSession = created.session
             if (fast) {
-              // Pi's simple stream drops a serviceTier option, so Fast mode
-              // goes on the request body; the response's tier prices it.
-              const agent = agentSession.agent
-              const transform = agent.onPayload
-              agent.onPayload = (payload, payloadModel) =>
-                Promise.resolve(transform?.(payload, payloadModel)).then((transformed) => {
-                  const body = transformed ?? payload
-                  return isRequestBody(body) ? { ...body, service_tier: "priority" } : body
-                })
+              agentSession.agent.onPayload = withFastTier(agentSession.agent.onPayload)
             }
 
             return {

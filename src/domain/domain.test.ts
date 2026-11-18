@@ -36,15 +36,13 @@ describe("domain model", () => {
       expect(rejected._tag).toBe("SchemaError")
     }))
 
-  it.effect("a seat's effort may end in +fast, and nothing else", () =>
+  it.effect("a seat's effort may end in +fast", () =>
     Effect.gen(function* () {
       const decode = Schema.decodeUnknownEffect(Seat)
       const fastSeat = yield* decode("acme/terra:4:high+fast")
       expect(seatSpeed(fastSeat)).toEqual({ seat: "acme/terra:4:high", fast: true })
       const plainSeat = yield* decode("acme/terra:high")
       expect(seatSpeed(plainSeat)).toEqual({ seat: "acme/terra:high", fast: false })
-      const misspelled = yield* Effect.flip(decode("acme/terra:high+fsat"))
-      expect(misspelled._tag).toBe("SchemaError")
       const claudeFast = yield* Effect.flip(Schema.decodeEffect(ClaudeSeat)("claude-code/opus:high+fast"))
       expect(claudeFast.message).toContain("Fast mode (+fast) is for Pi Seats only")
     }))
