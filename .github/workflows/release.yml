@@ -25,10 +25,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-15
             target: bun-darwin-arm64
             asset: gauntlet-darwin-arm64
-          - runner: macos-14
+          - runner: macos-15
             target: bun-darwin-x64
             asset: gauntlet-darwin-x64
           - runner: ubuntu-latest
