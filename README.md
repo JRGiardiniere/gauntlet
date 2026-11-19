@@ -18,6 +18,9 @@ Findings arrive in a report called a dossier, every bug claim carries a verdict
 
 Runs on an embedded OpenCode Host, so Claude and OpenAI models mix freely across
 a review's stages, and special care was taken to make sure it caches well.
+Agents get at most read-only `read`, `grep` and `glob` over a frozen snapshot
+of your change: no shell, no writes, no network. That is a permission fence,
+not hardened isolation for reviewing a hostile repository.
 
 ## How it works
 
@@ -38,7 +41,8 @@ curl -fsSL https://raw.githubusercontent.com/JRGiardiniere/gauntlet/main/install
 
 The installer puts the binary in `~/.local/bin`, installs the Gauntlet agent
 skill in `~/.agents/skills/gauntlet-cli`, and links that skill into
-`~/.claude/skills/gauntlet-cli`.
+`~/.claude/skills/gauntlet-cli`. Linux and macOS, x64 and arm64. Already
+installed? `gauntlet upgrade` moves you to the latest release.
 
 Then:
 
@@ -48,15 +52,43 @@ gauntlet review          # your uncommitted changes; or 42 for a PR, main for yo
 gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post it there
 ```
 
-**Signing in.** `gauntlet login` signs in with ChatGPT into Gauntlet's own
-store under `~/.gauntlet/opencode`; your own OpenCode, Codex and Pi logins are
-never read or touched. On a machine you reach remotely, paste the URL the
-browser was redirected to when it asks. To use an OpenAI API key instead, set
-`OPENAI_API_KEY` in the environment; no login is needed. The Claude recipes
-(`claude-low`, `claude-medium`, `claude-high`) use your installed `claude`
-login. On an existing, valid configuration,
-`gauntlet config init` adds the Claude recipes if they are missing, and never
-overwrites a recipe you have.
+**OpenAI Seats** (the `quick`, `low`, `medium` and `high` recipes).
+`gauntlet login` signs in with ChatGPT into Gauntlet's own store under
+`~/.gauntlet/opencode`; your own OpenCode, Codex and Pi logins are never read
+or touched. On a machine you reach remotely, paste the URL the browser was
+redirected to when it asks. To use an OpenAI API key instead, set
+`OPENAI_API_KEY` in the environment; no login is needed.
+
+**Claude Seats** (`claude-low`, `claude-medium`, `claude-high`) need Claude
+Code's `claude` installed and logged in (`claude auth login`); Gauntlet runs
+it on your Claude plan with all of Claude Code's own tools off. Gauntlet
+finds `claude` on your PATH. Set `OPENCODE_CLAUDE_PATH` to the real
+executable when it isn't there, or when `claude` is a version-manager shim
+(such as mise's) that breaks outside your shell, for example
+`OPENCODE_CLAUDE_PATH=~/.local/share/mise/installs/claude/latest/claude`.
+OpenAI-only use needs no `claude`.
+
+On an existing, valid configuration, `gauntlet config init` adds the Claude
+recipes if they are missing, and never overwrites a recipe you have.
+
+**Output.** A review prints a short digest: findings grouped by Review
+Priority (P3s counted, not listed), coverage gaps, and tokens and cache hit
+rate per Stage, then the path to the full `dossier.md`.
+
+## Upgrading from v1
+
+v2 is one CLI on an embedded OpenCode Host. Gone in v2:
+
+- The Claude Code Mod (`/gauntlet`). Claude Seats run from the CLI instead.
+  Remove the Mod with
+  `claude plugin uninstall gauntlet && claude plugin marketplace remove gauntlet`.
+- Pi. OpenAI sign-in is `gauntlet login`; your old Pi login is not used.
+- The HTML Dossier page and the `page` and `brief` commands. `dossier.md` and
+  the digest remain.
+- Linear and GitHub issue lookup. Pass requirements with `--spec <file>`.
+
+Your recipes, settings, lenses and runs in `~/.gauntlet` stay. v2 commands
+support only Runs made by v2, so deliver any pending v1 Run before upgrading.
 
 `gauntlet --help` is the full flag reference. To customize:
 

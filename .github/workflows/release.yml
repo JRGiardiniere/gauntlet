@@ -1,11 +1,11 @@
 # Tag-driven releases: pushing v<major>.<minor>.<patch> builds one binary per
-# platform and publishes them on a GitHub release. The tag is the single
-# source of truth for the version — scripts/bundle.ts bakes it in as a define,
-# and package.json's placeholder version is never consulted.
+# platform on its own native runner, smoke-tests each, and publishes them on a
+# GitHub release. The tag is the single source of truth for the version —
+# scripts/bundle.ts bakes it in as a define, and package.json's placeholder
+# version is never consulted.
 #
-# Darwin targets build on macOS runners because bundle.ts must codesign the
-# binary there (Bun 1.4.0 signature regression); Linux targets cross-compile
-# fine from one Ubuntu runner.
+# A pull request that touches the build, or a manual run, builds and
+# smoke-tests all four binaries and publishes nothing.
 name: release
 
 # Exact numeric tags only: the updater's probe parses nothing else, so a
@@ -13,9 +13,22 @@ name: release
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/bundle.ts
+      - scripts/compile.ts
+      - scripts/compile-smoke*.ts
+      - package.json
+      - bun.lock
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 jobs:
   build:
@@ -25,31 +38,39 @@ jobs:
           - runner: macos-15
             target: bun-darwin-arm64
             asset: gauntlet-darwin-arm64
-          - runner: macos-15
+          - runner: macos-15-intel
             target: bun-darwin-x64
             asset: gauntlet-darwin-x64
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
             target: bun-linux-x64
             asset: gauntlet-linux-x64
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04-arm
             target: bun-linux-arm64
             asset: gauntlet-linux-arm64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    env:
+      GAUNTLET_TARGET: ${{ matrix.target }}
+      GAUNTLET_OUTFILE: dist/${{ matrix.asset }}
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.4
       - run: bun install --frozen-lockfile
       - name: Bundle
-        env:
-          GAUNTLET_TARGET: ${{ matrix.target }}
-          GAUNTLET_OUTFILE: dist/${{ matrix.asset }}
-        run: GAUNTLET_VERSION="${GITHUB_REF_NAME#v}" bun scripts/bundle.ts
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then export GAUNTLET_VERSION="${GITHUB_REF_NAME#v}"; fi
+          bun scripts/bundle.ts
+      - name: Offline compile smoke
+        run: bun scripts/compile-smoke.ts
+      # Only the tag push being released: any other build's lookup can find a
+      # newer release and replace itself with it.
       - name: Verify self-update lookup
-        if: matrix.asset == 'gauntlet-darwin-arm64' || matrix.asset == 'gauntlet-linux-x64'
-        run: sh scripts/upgrade-compiled.test.sh dist/${{ matrix.asset }}
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        run: sh scripts/upgrade-compiled.test.sh "$GAUNTLET_OUTFILE"
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
@@ -57,17 +78,25 @@ jobs:
 
   release:
     needs: [build]
-    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           path: assets
           merge-multiple: true
       - name: Package agent skill
         run: cp .agents/skills/gauntlet-cli/SKILL.md assets/gauntlet-skill.md
-      - run: >
-          gh release create "$GITHUB_REF_NAME" assets/*
-          --generate-notes --repo "$GITHUB_REPOSITORY"
+      # docs/release-notes/<tag>.md, when a release has one, goes above the
+      # generated notes.
+      - run: |
+          notes="docs/release-notes/$GITHUB_REF_NAME.md"
+          if [ -f "$notes" ]; then set -- --notes-file "$notes"; fi
+          gh release create "$GITHUB_REF_NAME" assets/* --generate-notes "$@" --repo "$GITHUB_REPOSITORY"
         env:
           GH_TOKEN: ${{ github.token }}

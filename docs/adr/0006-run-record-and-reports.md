@@ -18,13 +18,11 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
   dossier.md               # human-readable Dossier
   receipt.json             # DeliveryReceipt, when delivery was attempted
   run.log                  # in-flight Effect log; full transcripts at debug level
-  transcripts/             # Mod runs: each claude -p child's own Claude transcript
 ```
 
-Amended per #181: a Run on the Claude Code Host also keeps each invocation's
-Claude Code transcript, moved in as Claude Code wrote it (its own JSONL, the
-one exception to the rule below), under
-`transcripts/<invocation id>.<session id>.jsonl`.
+Amended for v2 (ADR-0010): the Mod's `transcripts/` directory (#181) went
+with the Mod. A v2 Run records no `run.json` and no OpenCode session ids: its
+sessions are removed when each invocation ends, and nothing resumes them.
 
 The old repo's 14-file zoo (`job/status/frozen-preset/request/scope/
 candidates/result/handoff/presentation` + per-stage logs) dissolves into
@@ -130,10 +128,9 @@ objects.
 `Effect.log*` → one `run.log` per run (`Logger.toFile`), plus the #10 stderr
 progress lines. Stages are spans in one process — no per-stage log files, no
 subprocess stderr capture. Ordinary runs do not read or persist agent
-transcripts. With the existing global `--log-level debug` flag, invocation
-teardown writes Pi's complete in-memory session entries to `run.log` before
-disposing the session, including prompts, model messages, tool calls, and tool
-results. This is an opt-in diagnostic view, not a second transcript artifact or
+transcripts. With the existing global `--log-level debug` flag, each turn
+logs the Host session's entries to `run.log` as it ends: the user prompts,
+model messages, tool calls and tool results, but not the system prompt. This is an opt-in diagnostic view, not a second transcript artifact or
 a new retention system. Contract failures also log the exact decoder issue and
 raw validated emit payload. Tracing stays gated off by default (#2).
 
