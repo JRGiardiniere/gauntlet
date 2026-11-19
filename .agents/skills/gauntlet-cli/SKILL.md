@@ -47,7 +47,9 @@ verbatim. The Dossier lives on disk.
 5. **Specification.** Gauntlet fetches no issues itself. When the change has
    requirements — the issue it closes, its parent, acceptance criteria,
    explicit deferrals, local notes — fetch them yourself, write them as one
-   Markdown Caller Addendum and pass `--spec <path>`. Without it the review
+   Markdown Caller Addendum and pass `--spec <path>`. Head each part with what
+   it is (the current issue, its parent, deferred work), so the review can
+   tell what this change owes now from broader context. Without it the review
    runs specification-less. Write the file to a temporary location **outside
    the reviewed repository** (a scratch or temp directory), never into the
    worktree under review: an addendum inside the repo becomes an untracked

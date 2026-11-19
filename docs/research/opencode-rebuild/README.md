@@ -1,5 +1,10 @@
 # OpenCode rebuild: decisions and research brief (2026-11-18)
 
+> **Superseded in part.** These notes are the research snapshot behind spec
+> #195. Where they disagree with #195 and its "Amendments (2026-11-19)"
+> comment (for example, `gauntlet mcp`, `page-data.json` and the live PR
+> delivery check are out of v2.0.0), the spec and amendments win.
+
 Gauntlet is moving its harness to OpenCode (`@opencode/sdk` / `@opencode/core` 2.3.x, embedded) as a full top-to-bottom implementation. This is John's call: if real problems appear later, we back out. The earlier council plan, which leaned toward Pi plus `claude -p`, is superseded on the harness question only. Its other decisions stand, and are listed below. Spike evidence lives in `/home/silentverdict/Projects/gauntlet-spike-opencode/spike/` (`rebuild-plan.md`, `results/`, `cache/`, `memory/`, `embedded/`).
 
 ## The outcome

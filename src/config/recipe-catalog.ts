@@ -124,7 +124,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
   },
 )
 
-export const availableRecipeNames = (
+const availableRecipeNames = (
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<RecipeName> =>
   pipe(entries, Array.filter((entry) => entry._tag === "ValidRecipe"), Array.map((entry) => entry.name))

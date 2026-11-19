@@ -76,7 +76,7 @@ const describeEntry = (
 // the edit locations and the whole catalog — favorites in configured order,
 // the rest alphabetically — and explains inconsistencies instead of failing,
 // so a malformed settings file can still be found and repaired.
-export const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
+const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
   const path = yield* settingsPath()
   const pathService = yield* Path.Path
   const catalogPath = yield* recipesDirectory()

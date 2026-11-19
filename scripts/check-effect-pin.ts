@@ -36,7 +36,7 @@ const Manifest = Schema.fromJsonString(Schema.Struct({
 }))
 
 // Every resolved effect package in bun.lock, as `"effect@<version>"`.
-const lockedEffectPattern = /"effect@([^"]+)"/g
+const lockedEffectPattern = /"effect@[^"]+"/g
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -71,13 +71,12 @@ const program = Effect.gen(function* () {
     violations.push("overrides must pin effect so transitive dependents share one copy")
   }
 
-  const lockedVersions = new Set(
-    Array.flatMap([...lockfile.matchAll(lockedEffectPattern)], ([, version]) => version === undefined ? [] : [version]),
-  )
-  if (lockedVersions.size !== 1) {
+  const locked = new Set(lockfile.match(lockedEffectPattern) ?? [])
+  const pinned = `"effect@${manifest.overrides?.effect ?? ""}"`
+  if (locked.size !== 1 || !locked.has(pinned)) {
     violations.push(
-      `bun.lock must resolve exactly one effect; found ${
-        lockedVersions.size === 0 ? "none" : Array.join([...lockedVersions], ", ")
+      `bun.lock must resolve exactly one effect, the pinned ${pinned}; found ${
+        locked.size === 0 ? "none" : Array.join([...locked], ", ")
       }`,
     )
   }
