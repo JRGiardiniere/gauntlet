@@ -27,7 +27,6 @@ import {
 } from "../test-support/review.fixture.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import * as Run from "./run.ts"
-import { type RunMilestone, RunMilestones } from "./run-milestones.ts"
 import { SubmissionTargetRequest } from "./submission.ts"
 
 // The Run module's interface is the test seam for a Run's lifecycle
@@ -56,16 +55,10 @@ const review = (
   )
 
 describe("Run.review", () => {
-  it.effect("answers a review's run id, Dossier paths and digest, reporting its milestones on the way", () =>
+  it.effect("answers a review's run id, Dossier paths and digest, printing nothing itself", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
-      const reported: Array<RunMilestone> = []
-      const reviewed = yield* review(fixture, successfulScripted()).pipe(
-        Effect.provideService(RunMilestones, (milestone) =>
-          Effect.sync(() => {
-            reported.push(milestone)
-          })),
-      )
+      const reviewed = yield* review(fixture, successfulScripted())
 
       const path = yield* Path.Path
       expect(reviewed.paths.root).toBe(path.join(fixture.runsRoot, reviewed.runId))
@@ -75,24 +68,6 @@ describe("Run.review", () => {
       // The answer is data: a review prints no digest itself.
       const logLines = yield* TestConsole.logLines
       expect(logLines).toEqual([])
-
-      expect(Array.map(reported, (milestone) => milestone._tag)).toEqual([
-        "Started",
-        "SnapshotDirectoryMade",
-        "FindersFinished",
-        "Routed",
-        "Reviewed",
-      ])
-      const [started, , , routed, done] = reported
-      expect(started).toMatchObject({ runId: reviewed.runId, lenses: ["fixture-review"], skipped: [] })
-      expect(routed).toMatchObject({ bugClaims: 1, observations: 1 })
-      expect(done).toMatchObject({
-        entries: [
-          { tag: "confirmed", reviewPriority: "P2" },
-          { tag: "judgment", reviewPriority: "P2" },
-        ],
-        dossierMarkdown: reviewed.paths.dossierMarkdown,
-      })
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("answers a failed Judgment as a short coverage gap, keeping its provider diagnostics in run.log", () =>
@@ -202,7 +177,6 @@ describe("Run.deliver", () => {
       const github = gitHubLayer({
         ...unusedGitHubContract,
         viewPullRequest: () => Effect.succeed(prView(7, headCommit, baseCommit)),
-        viewClosingIssues: () => Effect.succeed([]),
         postComment: (_cwd, number) =>
           Effect.sync(() => {
             posts.push(number)
@@ -214,7 +188,7 @@ describe("Run.deliver", () => {
         fixture,
         successfulScripted(),
         {
-          target: SubmissionTargetRequest.PullRequest({ number: 7, githubSpecOnly: false }),
+          target: SubmissionTargetRequest.PullRequest({ number: 7 }),
         },
         github,
       )

@@ -1,71 +1,11 @@
-import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 
-export const IssueState = Schema.NonEmptyString
-export type IssueState = typeof IssueState.Type
-
-export const SpecificationDocumentRole = Schema.Literals([
-  "caller-addendum",
-  "parent",
-  "sibling",
-  "slice",
-])
-export type SpecificationDocumentRole = typeof SpecificationDocumentRole.Type
-
-// One retained requirement document with document-level provenance: enough to
-// cite where the text came from. `role` labels the document's standing.
-export const SpecificationDocument = Schema.Struct({
-  role: SpecificationDocumentRole,
-  provenance: Schema.NonEmptyString,
-  // Issue bodies are retained verbatim and may be empty; a Caller Addendum is
-  // rejected at load when empty, so it never arrives here blank.
-  text: Schema.String,
-  title: Schema.optionalKey(Schema.String),
-  state: Schema.optionalKey(IssueState),
-})
-export type SpecificationDocument = typeof SpecificationDocument.Type
-
-export const SpecificationComment = Schema.Struct({
-  provenance: Schema.NonEmptyString,
-  createdAt: Schema.NonEmptyString,
-  text: Schema.String,
-})
-export type SpecificationComment = typeof SpecificationComment.Type
-
-// Recorded when admitted comments exceeded the aggregate bound: what was
-// dropped, how much, and the cutoff (GLOSSARY.md).
-export const CommentOmission = Schema.Struct({
-  droppedCount: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
-  droppedCharacters: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
-  cutoff: Schema.NonEmptyString,
-})
-export type CommentOmission = typeof CommentOmission.Type
-
-// The source-neutral requirement material used to judge one ReviewTarget,
-// frozen in the ReviewPlan exactly once at submission (GLOSSARY.md). Later
-// stages consume the frozen value and never re-read issues, comments, or
-// files.
+// The requirement material used to judge one ReviewTarget: the Caller
+// Addendum's Markdown, frozen in the ReviewPlan exactly once at submission
+// (GLOSSARY.md). Later stages consume the frozen value and never re-read the
+// file. `provenance` is the file's resolved path.
 export const ReviewSpecification = Schema.Struct({
-  documents: Schema.NonEmptyArray(SpecificationDocument),
-  comments: Schema.Array(SpecificationComment).pipe(
-    Schema.withDecodingDefaultKey(Effect.succeed([])),
-  ),
-  commentOmission: Schema.optionalKey(CommentOmission),
+  provenance: Schema.NonEmptyString,
+  text: Schema.NonEmptyString,
 })
 export type ReviewSpecification = typeof ReviewSpecification.Type
-
-export const SpecificationSourceDiagnostic = Schema.Struct({
-  source: Schema.Literals(["Linear"]),
-  branch: Schema.NonEmptyString,
-  issueIdentifier: Schema.NonEmptyString,
-  reason: Schema.Literals([
-    "invalid-api-key",
-    "invalid-response",
-    "missing-api-key",
-    "unreachable",
-    "unresolvable-issue",
-  ]),
-  message: Schema.NonEmptyString,
-})
-export type SpecificationSourceDiagnostic =
-  typeof SpecificationSourceDiagnostic.Type

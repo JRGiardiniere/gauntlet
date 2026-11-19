@@ -11,15 +11,14 @@ import type { ReviewRequest } from "../run/run.ts"
 import { SubmissionTargetRequest } from "../run/submission.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 
-// The one command syntax both Hosts parse (#159): the CLI the words after
-// `gauntlet`, the Mod the words after `/gauntlet`.
+// The review and deliver command syntax (#159): the words after `gauntlet`.
 //
 //   review [target] [--working-tree] [--recipe <name>] [--lenses <a,b>]
-//          [--spec <file>] [--github-spec] [--related-files | --no-related-files]
+//          [--spec <file>] [--related-files | --no-related-files]
 //          [--destination local|pr] [--repo <path>]
 //   deliver <run-id>
 //
-// A Host hands in what it does with a parsed review request and its
+// The caller hands in what it does with a parsed review request and its
 // destination, and with a run id: the words become the Run module's typed
 // request here and nowhere else.
 
@@ -32,11 +31,11 @@ export class ReviewCommandError extends Schema.TaggedError<
 }) {}
 
 // Where a review's Dossier goes: local stays in the run directory, pr is also
-// posted on the reviewed pull request, by the Host delivering the Run once it
+// posted on the reviewed pull request, by the CLI delivering the Run once it
 // has shown the digest.
 export type Destination = "local" | "pr"
 
-export interface HostVerbs<E, R> {
+export interface CommandVerbs<E, R> {
   readonly review: (
     request: ReviewRequest,
     destination: Destination,
@@ -50,14 +49,13 @@ interface ReviewInput {
   readonly recipe: Option.Option<string>
   readonly lenses: Option.Option<string>
   readonly spec: Option.Option<string>
-  readonly githubSpec: boolean
   readonly relatedFiles: boolean
   readonly destination: Destination
   readonly repo: Option.Option<string>
 }
 
-// A path as the person wrote it: `~/…` from HOME, which the Mod's words reach
-// unexpanded, anything else from where the command runs.
+// A path as the person wrote it: `~/…` from HOME, anything else from where
+// the command runs.
 const resolveWritten = Effect.fn("Syntax.resolvePath")(function* (
   written: string,
 ) {
@@ -97,20 +95,12 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
       reason: "--destination pr needs a pull request target",
     })
   }
-  if (input.githubSpec && pullRequest === undefined) {
-    return yield* ReviewCommandError.make({
-      reason: "--github-spec needs a pull request target",
-    })
-  }
   return {
     directory: Option.isSome(input.repo)
       ? yield* resolveWritten(input.repo.value)
       : yield* InvocationDirectory,
     target: pullRequest !== undefined
-      ? SubmissionTargetRequest.PullRequest({
-        number: pullRequest,
-        githubSpecOnly: input.githubSpec,
-      })
+      ? SubmissionTargetRequest.PullRequest({ number: pullRequest })
       : target === undefined
       ? SubmissionTargetRequest.WorkingTree({ base: undefined })
       : input.workingTree
@@ -127,11 +117,9 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
   } satisfies ReviewRequest
 })
 
-// The review and deliver commands, with the Host's default for related files
-// (the CLI's off, the Mod's on) and what the Host does with each.
+// The review and deliver commands, and what the caller does with each.
 export const reviewSyntax = <E, R>(
-  defaults: { readonly relatedFiles: boolean },
-  verbs: HostVerbs<E, R>,
+  verbs: CommandVerbs<E, R>,
 ) =>
   [
     Command.make(
@@ -170,14 +158,8 @@ export const reviewSyntax = <E, R>(
             "Caller Addendum: a Markdown requirements file frozen into the plan and shown to interpretive finders, verification, and judgment",
           ),
         ),
-        githubSpec: Flag.Boolean("github-spec").pipe(
-          Flag.withDefault(false),
-          Flag.withDescription(
-            "Use only GitHub closing issues as the automatic ReviewSpecification source for this Run",
-          ),
-        ),
         relatedFiles: Flag.Boolean("related-files").pipe(
-          Flag.withDefault(defaults.relatedFiles),
+          Flag.withDefault(false),
           Flag.withDescription(
             "Also show Finders every touched file whole, plus the unchanged files that import or are imported by one, tests included (--no-related-files to leave them out)",
           ),

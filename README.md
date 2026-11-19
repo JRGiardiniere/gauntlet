@@ -58,26 +58,10 @@ gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post 
 - **Agent skill** — the installer keeps the shared skill in
   `~/.agents/skills/gauntlet-cli` so coding agents can run reviews from any repo.
 
-### In Claude Code, on your Claude plan
-
-Gauntlet also runs inside Claude Code as a mod, one plugin: each reviewer is a
-headless `claude -p` process of your Claude Code, not a subagent, progress
-shows above the prompt, and the digest is the one message that comes back to
-the agent that asked. It needs no CLI, only Claude Code and git:
-
-```sh
-claude plugin marketplace add JRGiardiniere/gauntlet
-claude plugin install gauntlet@gauntlet
-```
-
-`claude plugin update gauntlet` moves to the next release; [INSTALL.md](INSTALL.md)
-has the rest. Type `/gauntlet` to start a review yourself, or ask Claude for one.
-
 ## Debugging a review
 
 Run a review with `gauntlet --log-level debug review ...` to include each
 invocation's complete Pi session transcript in that Run's existing `run.log`.
 The transcript entries include prompts, model messages, tool calls, and tool
 results. Normal terminal output stays bounded, and ordinary CLI reviews do not
-read or persist transcripts. A Mod review always keeps each agent's own Claude
-Code transcript in its run directory's `transcripts/` folder.
+read or persist transcripts.

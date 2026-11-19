@@ -300,7 +300,6 @@ describe("gauntlet deliver", () => {
         gitHubLayer({
           ...unusedGitHubContract,
           viewPullRequest: () => Effect.succeed(prView(7, headCommit, baseCommit)),
-          viewClosingIssues: () => Effect.succeed([]),
           postComment: () =>
             posted
               ? Effect.succeed({ url })

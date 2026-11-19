@@ -22,8 +22,7 @@
     "**/dist/**",
     "**/build/**",
     "**/*.mjs",
-    ".convoy/**",
-    "mod/types/**"
+    ".convoy/**"
   ],
   "rules": {
     "typescript/no-unsafe-type-assertion": "off",
@@ -40,35 +39,13 @@
   },
   "overrides": [
     {
-      "files": ["mod/gauntlet/hooks/*.ts", "mod/platform.test.ts", "mod/engine.ts", "mod/session.ts", "mod/session.test.ts"],
-      "rules": {
-        "effecttsgo/async-function": "off",
-        "effecttsgo/global-date": "off",
-        "effecttsgo/global-timers": "off",
-        "effecttsgo/new-promise": "off"
-      }
-    },
-    {
-      // The hooks module ships as source and the host lets it import only
-      // "claude-code" and its own files (the engine bundle), so Effect's
-      // modules aren't available to it: `claude plugin validate` refuses an
-      // "effect/…" import there, and the Mod doesn't load.
-      "files": ["mod/gauntlet/hooks/*.ts"],
-      "rules": {
-        "effecttsgo/prefer-effect-array": "off",
-        "effecttsgo/prefer-effect-record": "off",
-        "effecttsgo/global-json": "off",
-        "eslint/no-restricted-imports": ["error", { "patterns": [{ "group": ["effect", "effect/*", "@effect/*"], "message": "The host refuses a hooks module that imports anything but \"claude-code\" and its own files; reach Effect through ../../engine.ts." }] }]
-      }
-    },
-    {
       "files": ["**/*.test.ts", "**/*.fixture.ts"],
       "rules": {
         "anti-slop-effect/no-manual-tag-comparison": "off"
       }
     },
     {
-      "files": ["src/run/review-executor.ts", "src/cli/upgrade.ts", "src/harness/live-gate.ts", "mod/engine.ts"],
+      "files": ["src/run/review-executor.ts", "src/cli/upgrade.ts", "src/harness/live-gate.ts"],
       "rules": {
         "effecttsgo/strict-effect-provide": "off"
       }

@@ -17,7 +17,7 @@ import {
 } from "../content/lens.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
 import type { Recipe } from "../domain/recipe.ts"
-import { INITIAL_DEFAULT_LENSES, writeInitialConfig } from "../config/initial-config.ts"
+import { INITIAL_DEFAULT_LENSES, INITIAL_DEFAULT_RECIPE, INITIAL_RECIPES, writeInitialConfig } from "../config/initial-config.ts"
 import type { LensName } from "../domain/review-plan.ts"
 import {
   type CatalogEntry,
@@ -208,17 +208,17 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
             `initial default-lenses are unusable — ${failure.reason} (${failure.path})`,
         })),
     )
-    const initial = yield* writeInitialConfig().pipe(
+    yield* writeInitialConfig().pipe(
       Effect.catchTag("PlatformError", (cause) =>
         ConfigCommandError.make({
           reason: `could not create ${catalogPath}: ${String(cause)}`,
         })),
     )
-    const names = pipe(initial.recipes, Array.map(([name]) => name), Array.join(", "))
+    const names = pipe(INITIAL_RECIPES, Array.map(([name]) => name), Array.join(", "))
     yield* Console.log(
       Array.join([
         `initialized ${catalogPath} with recipes ${names}`,
-        `default-recipe: ${initial.defaultRecipe} · default-lenses: ${
+        `default-recipe: ${INITIAL_DEFAULT_RECIPE} · default-lenses: ${
           Array.join(INITIAL_DEFAULT_LENSES, ", ")
         } · favorites: ${names}`,
         "the seeded files are yours to edit; init never touches them again",

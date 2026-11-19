@@ -12,12 +12,8 @@ work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 
 ## Expectations
 
-- `bun run lint && bun run typecheck && bun run test` stays green. A fresh
-  checkout runs `bun run mod-types` once first: Claude Code writes the
-  mod's plugin declarations into `mod/types/` (gitignored); rerun it after a
-  Claude Code update. The Mod carries its own copy of `content/` and the
-  Stage templates, so `bun run build-mod` after editing those too. The gate includes
-  custom rules that reject common Effect idioms (unbounded retries,
+- `bun run lint && bun run typecheck && bun run test` stays green; CI runs
+  the same gate on every PR. The gate includes custom rules that reject common Effect idioms (unbounded retries,
   `Effect.promise`, module-level mutable state…) — read the rule's message, don't fight it
 - Effect pinned **exactly** (enforced); single `effect` package, unstable
   subpaths fine; no new runtime dependencies without strong cause
@@ -73,8 +69,7 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
   directory. Tests use real temporary filesystems and fixture Git repositories,
   and filesystem-backed settings use fixture files through the injected home
   boundary.
-- Linear's GraphQL reads are POSTs and are retried; posting a delivery comment
-  is not. Linear's page limits bound its lookups.
+- Posting a delivery comment is not retried.
 - The update cache is disposable, so an unreadable one degrades to no notice.
 - Span names in existing code still use `gauntlet.<module>.<method>`; new code
   uses the skill's `Domain.operation`, and the renames are #126.

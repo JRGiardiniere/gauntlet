@@ -7,10 +7,8 @@ import * as Logger from "effect/Logger"
 import { assembleDossier } from "../assembly/dossier.ts"
 import { routeFinderResults } from "../assembly/finders.ts"
 import { Dossier } from "../domain/dossier.ts"
-import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { renderDigest } from "../render/digest.ts"
-import { viewDossier } from "../render/dossier-view.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
 import {
   DossierPageData,
@@ -35,7 +33,6 @@ import {
 } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
-import { reportMilestone, RunMilestone } from "./run-milestones.ts"
 
 export interface ReviewExecution {
   readonly plan: ReviewPlan
@@ -49,13 +46,6 @@ export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
   yield* Console.error(`gauntlet: run ${plan.runId}`)
-  const selection = selectRunnableFinders(plan)
-  yield* reportMilestone(RunMilestone.Started({
-    runId: plan.runId,
-    directory: paths.root,
-    lenses: Array.map(selection.runnable, (lens) => lens.name),
-    skipped: Array.map(selection.skipped, ({ lens, reason }) => ({ lens: lens.name, reason })),
-  }))
   return yield* Effect.scoped(
     Effect.gen(function* () {
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
@@ -79,7 +69,6 @@ export const executeReviewPlan = Effect.fn(
           `Finders finished — ${String(findersSeconds)}s`,
           cacheShare(Array.map(results, ({ outcome }) => outcome.usage)),
         )
-        yield* reportMilestone(RunMilestone.FindersFinished())
         const routed = routeFinderResults(results)
         for (const gap of routed.coverageGaps) {
           yield* runProgress(coverageGapLine(gap))
@@ -87,10 +76,6 @@ export const executeReviewPlan = Effect.fn(
         yield* runProgress(
           `${counted(routed.bugClaims.length, "BugClaim")} → Verification · ${counted(routed.observations.length, "Observation")} → Judgment`,
         )
-        yield* reportMilestone(RunMilestone.Routed({
-          bugClaims: routed.bugClaims.length,
-          observations: routed.observations.length,
-        }))
         // Judgment waits for Pool's clusters, so it can drop an Observation
         // that restates one, then runs beside Verification; neither sees the
         // other's decisions until Assembly joins them.
@@ -155,16 +140,6 @@ export const executeReviewPlan = Effect.fn(
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
-
-        const view = viewDossier(dossier)
-        yield* reportMilestone(RunMilestone.Reviewed({
-          entries: Array.map(
-            [...view.findings, ...view.unresolved],
-            ({ reviewPriority, tag }) => ({ tag, reviewPriority }),
-          ),
-          coverageGaps: dossier.coverageGaps,
-          dossierMarkdown: paths.dossierMarkdown,
-        }))
         return {
           digest: renderDigest(plan, dossier, accounting, paths),
           coverageGaps: dossier.coverageGaps,

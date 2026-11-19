@@ -40,8 +40,5 @@ export const loadCallerAddendum = Effect.fn(
       reason: "caller addendum is empty",
     })
   }
-  return ReviewSpecification.make({
-    documents: [{ role: "caller-addendum", provenance: resolved, text }],
-    comments: [],
-  })
+  return ReviewSpecification.make({ provenance: resolved, text })
 })

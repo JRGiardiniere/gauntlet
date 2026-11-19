@@ -85,12 +85,8 @@ const runVerification = (scripted: Scripted, seatless = false) =>
         : { verification: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
       specification: ReviewSpecification.make({
-        documents: [{
-          role: "caller-addendum",
-          provenance: "/fixture/addendum.md",
-          text: SPECIFICATION_NEEDLE,
-        }],
-        comments: [],
+        provenance: "/fixture/addendum.md",
+        text: SPECIFICATION_NEEDLE,
       }),
     }
     return yield* executeVerification({

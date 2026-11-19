@@ -16,24 +16,10 @@ import {
   FrozenLens,
   ReviewPlan,
 } from "../domain/review-plan.ts"
-import type {
-  ReviewSpecification,
-  SpecificationSourceDiagnostic,
-} from "../domain/review-specification.ts"
+import type { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
-import { combineReviewSpecifications } from "../specification/combine.ts"
-import { loadGitHubSpecification } from "../specification/github-source.ts"
-import {
-  LinearSpecificationResolution,
-  loadLinearSpecification,
-} from "../specification/linear-source.ts"
 import { resolveCommitsTarget } from "../target/commits.ts"
-import {
-  chompLine,
-  describeGitFailure,
-  runGit,
-  TargetUnresolvable,
-} from "../target/git.ts"
+import { TargetUnresolvable } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { resolvePullRequestTarget } from "../target/pull-request.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
@@ -65,14 +51,9 @@ const progress = Effect.fn("gauntlet.submission.progress")((text: string) =>
 )
 
 // The tagged request makes only the valid aims representable (ADR 0005): a
-// GitHub-pinned Specification Source belongs to a pull-request aim, and a
 // base range extends only a working-tree aim.
 export type SubmissionTargetRequest = Data.TaggedEnum<{
-  PullRequest: {
-    readonly number: number
-    // Use only GitHub closing issues as the Specification Source for this Run.
-    readonly githubSpecOnly: boolean
-  }
+  PullRequest: { readonly number: number }
   Commits: { readonly range: string }
   // A present base means the committed range extended to the working tree as
   // submitted; absent means the uncommitted changes against HEAD alone.
@@ -139,86 +120,6 @@ const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
     return yield* resolveWorkingTreeTarget(directory, undefined)
   },
 )
-
-const resolveSpecificationBranch = Effect.fn(
-  "gauntlet.submission.resolve_specification_branch",
-)(function* (repoRoot: string) {
-  return yield* runGit(repoRoot, ["branch", "--show-current"]).pipe(
-    Effect.mapBoth({
-      onSuccess: chompLine,
-      onFailure: (cause) =>
-        TargetUnresolvable.make({
-          reason: describeGitFailure("could not resolve the current branch", cause),
-          cause,
-        }),
-    }),
-  )
-})
-
-interface AcquiredSpecification {
-  readonly specification: ReviewSpecification | undefined
-  readonly diagnostic: SpecificationSourceDiagnostic | undefined
-}
-
-const acquireSpecification = Effect.fn(
-  "gauntlet.submission.acquire_specification",
-)(function* (
-  request: SubmissionTargetRequest,
-  target: ReviewTarget,
-  addendum: ReviewSpecification | undefined,
-) {
-  const githubOnly =
-    SubmissionTargetRequest.$is("PullRequest")(request) && request.githubSpecOnly
-  // The current branch feeds only the Linear source, so a GitHub-pinned
-  // submission never resolves it.
-  const linear = githubOnly
-    ? undefined
-    : yield* resolveSpecificationBranch(target.repoRoot).pipe(Effect.flatMap(loadLinearSpecification))
-  if (
-    linear !== undefined &&
-    LinearSpecificationResolution.$is("Resolved")(linear)
-  ) {
-    return {
-      specification: combineReviewSpecifications(
-        linear.specification,
-        addendum,
-      ),
-      diagnostic: undefined,
-    } satisfies AcquiredSpecification
-  }
-  const diagnostic = linear !== undefined &&
-      LinearSpecificationResolution.$is("Unreachable")(linear)
-    ? linear.diagnostic
-    : undefined
-  // Unpinned, GitHub unavailability is the quiet no-spec path (issue #74).
-  // Pinned, the refusal carries gh's own error: an unauthenticated gh must
-  // not read as "no closing issues".
-  const fetched = ReviewTarget.guards.PullRequest(target)
-    ? yield* loadGitHubSpecification(target.repoRoot, target.number).pipe(
-      Effect.map(Option.fromUndefinedOr),
-      Effect.catchTag("GitHubError", (failure) =>
-        githubOnly
-          ? Effect.fail(
-            SubmissionError.make({
-              reason:
-                `--github-spec could not read GitHub closing issues — ${failure.reason}`,
-            }),
-          )
-          : Effect.succeedNone),
-      Effect.map(Option.getOrUndefined),
-    )
-    : undefined
-  if (githubOnly && fetched === undefined) {
-    return yield* SubmissionError.make({
-      reason:
-        "--github-spec could not resolve a ReviewSpecification from GitHub closing issues",
-    })
-  }
-  return {
-    specification: combineReviewSpecifications(fetched, addendum),
-    diagnostic,
-  } satisfies AcquiredSpecification
-})
 
 export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   request: SubmissionRequest,
@@ -302,15 +203,6 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   })
 
 
-  const { diagnostic, specification } = yield* acquireSpecification(
-    request.target,
-    target,
-    request.addendum,
-  )
-  if (diagnostic !== undefined) {
-    yield* progress(`warning — ${diagnostic.message}`)
-  }
-
   // The run directory exists only once every resolution has succeeded: a
   // refused submission leaves nothing behind.
   const runsRoot = yield* resolveRunsRoot()
@@ -329,20 +221,9 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     },
     lenses: frozenLenses,
   }
-  const specified = specification === undefined
-    ? diagnostic === undefined
-      ? ReviewPlan.make(planFields)
-      : ReviewPlan.make({
-          ...planFields,
-          specificationSourceDiagnostic: diagnostic,
-        })
-    : diagnostic === undefined
-      ? ReviewPlan.make({ ...planFields, specification })
-      : ReviewPlan.make({
-          ...planFields,
-          specification,
-          specificationSourceDiagnostic: diagnostic,
-        })
+  const specified = request.addendum === undefined
+    ? ReviewPlan.make(planFields)
+    : ReviewPlan.make({ ...planFields, specification: request.addendum })
   const plan = request.relatedFiles === true
     ? ReviewPlan.make({ ...specified, relatedFiles: true })
     : specified

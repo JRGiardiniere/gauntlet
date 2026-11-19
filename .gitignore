@@ -18,9 +18,6 @@ docs/spec/default-lenses-and-recipe-selection.md
 docs/notes/issue-89-simplification-audit.md
 *.bun-build
 
-# Claude Code's plugin declarations for mod/: `bun run mod-types` writes them
-mod/types/claude-code*/
-
 # Design prototypes and /impeccable's context for the Dossier page: kept on
 # disk for reference, out of the tree so reviews of the shipped code skip them
 prototypes/

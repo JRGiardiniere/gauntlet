@@ -49,19 +49,10 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    Verdicts) and drops an Observation restating one as a BugClaim-path claim.
 
 A run whose plan froze no ReviewSpecification carries no absence text in any
-prompt — nothing announces that no specification was supplied. Before freeze,
-any target whose current branch contains one Linear issue ID first tries to
-acquire that Slice, one native parent, sibling titles/states, and human comments.
-A resolved Linear binding is authoritative when a PullRequest also has GitHub
-closing issues. When Linear is absent or unreachable, a PullRequest falls back
-to GitHub closing issues as current Slices (native parent one level,
-owner/member/collaborator comments, shared 20k comment budget). An unreachable
-Linear binding freezes its typed diagnostic beside any GitHub fallback material
-for progress and report presentation. `--github-spec` skips Linear for that Run,
-requires a PullRequest, and requires GitHub closing issues to produce a
-ReviewSpecification. Otherwise GitHub unavailability or no closing issues is
-the quiet no-spec path. A Caller Addendum is appended after fetched material and
-never replaces it.
+prompt — nothing announces that no specification was supplied. The Caller
+Addendum (`--spec <file>`) is the only Specification Source: the caller fetches
+any issue text itself and passes it there, and the file is read once and
+frozen into the plan.
 
 The selected `spec-conformance` Lens is the one applicability exception: when
 the plan froze no ReviewSpecification it creates no AgentInvocation and no

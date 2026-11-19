@@ -11,29 +11,27 @@
     "bun": ">=1.4.0"
   },
   "scripts": {
-    "build-mod": "bun scripts/build-mod.ts",
     "bundle": "bun scripts/bundle.ts",
     "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
-    "mod-types": "sh scripts/mod-types.sh",
     "prepare": "effect-tsgo patch --oxlint",
-    "test": "bun --bun vitest run src/ mod/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
+    "test": "bun --bun vitest run src/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
     "test:upgrade-compiled": "bun run bundle && sh scripts/upgrade-compiled.test.sh dist/gauntlet",
-    "typecheck": "tsc --noEmit && sh scripts/mod-types.sh --check && tsc --noEmit -p mod"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.5.2",
     "@earendil-works/pi-coding-agent": "1.5.2",
-    "@effect/platform-node": "4.1.4",
-    "effect": "4.1.4",
+    "@effect/platform-node": "4.1.0",
+    "effect": "4.1.0",
     "just-bash": "3.6.1",
     "markdown-it": "15.0.3",
     "typebox": "1.4.7"
   },
   "devDependencies": {
     "@effect/tsgo": "0.70.0",
-    "@effect/vitest": "4.1.4",
+    "@effect/vitest": "4.1.0",
     "@oxlint/plugins": "1.94.0",
     "@types/node": "26.6.6",
     "madge": "^8.0.0",
@@ -42,5 +40,9 @@
     "typescript": "7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
+  },
+  "overrides": {
+    "effect": "4.1.0",
+    "@effect/platform-node-shared": "4.1.0"
   }
 }

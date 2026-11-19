@@ -10,7 +10,6 @@ import {
 } from "../run/finder-cache-health.ts"
 import { describeFinderToolHealth } from "../run/finder-tool-health.ts"
 import type { RunAccounting } from "../run/run-accounting.ts"
-import { formatCommentOmission } from "../specification/comment-budget.ts"
 import {
   type DossierEntryView,
   viewDossier,
@@ -111,9 +110,6 @@ export const renderDossierMarkdown = (
   const warnings = plan.target.warnings.length === 0
     ? "none"
     : Array.join(plan.target.warnings, "; ")
-  const commentBudget = plan.specification?.commentOmission === undefined
-    ? undefined
-    : formatCommentOmission(plan.specification.commentOmission)
 
   const headerFacts = [
     `- Target: ${describeTargetIdentity(dossier.target)}`,
@@ -123,14 +119,6 @@ export const renderDossierMarkdown = (
     `- Coverage gaps: ${coverageGaps}`,
     `- Warnings: ${warnings}`,
   ]
-  if (commentBudget !== undefined) {
-    headerFacts.push(`- Comment budget: ${commentBudget}`)
-  }
-  if (plan.specificationSourceDiagnostic !== undefined) {
-    headerFacts.push(
-      `- Specification source: ${plan.specificationSourceDiagnostic.message}`,
-    )
-  }
   if (finderSelection.skipped.length > 0) {
     headerFacts.push(
       `- Skipped: ${

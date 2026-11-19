@@ -1,9 +1,6 @@
 import * as Schema from "effect/Schema"
 import { Seat } from "./recipe.ts"
-import {
-  ReviewSpecification,
-  SpecificationSourceDiagnostic,
-} from "./review-specification.ts"
+import { ReviewSpecification } from "./review-specification.ts"
 import { ReviewTarget } from "./review-target.ts"
 
 export const LensName = Schema.String.check(
@@ -62,15 +59,9 @@ export const ReviewPlan = Schema.Struct({
   // Finders also see the touched files whole and their related unchanged
   // files (`--related-files`); omission means they see the diff alone.
   relatedFiles: Schema.optionalKey(Schema.Literal(true)),
-  // Frozen exactly once at submission (issues #73, #74): no later stage
-  // re-fetches issues or re-reads the addendum file, and a run without a
-  // specification carries no specification field and no absence text.
+  // Frozen exactly once at submission (issue #73): no later stage re-reads
+  // the addendum file, and a run without a specification carries no
+  // specification field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),
-  // A branch binding is proof that a Specification Source exists. If Linear
-  // cannot be reached, retain the typed cause beside any GitHub fallback
-  // material or quiet absence so the run and report preserve that degradation.
-  specificationSourceDiagnostic: Schema.optionalKey(
-    SpecificationSourceDiagnostic,
-  ),
 })
 export type ReviewPlan = typeof ReviewPlan.Type

@@ -4,7 +4,6 @@ import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -14,23 +13,14 @@ import { standardsManifestPath } from "../config/standards-manifest.ts"
 import { ContentDirectory } from "../content/lens.ts"
 import { GOVERNING_STANDARDS_HEADING } from "../domain/finder-selection.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
+import { ReviewSpecification } from "../domain/review-specification.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
-import {
-  GitHubError,
-  gitHubLayer,
-  unusedGitHubContract,
-  unusedGitHubLayer,
-} from "../github/github.ts"
+import { unusedGitHubLayer } from "../github/github.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
-import { Linear, LinearError, unusedLinearLayer } from "../linear/linear.ts"
-import { runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import {
-  closingIssue,
   FIXTURE_SEAT,
-  githubComment,
   githubForPr,
-  linearBranchIssue,
   makeCommitRangeFixture,
   makeDirtyRepo,
   makePrReviewFixture,
@@ -64,7 +54,6 @@ const submitWith = (
   fixture: Fixture,
   request: SubmissionRequest,
   github = unusedGitHubLayer,
-  linear = unusedLinearLayer,
 ) =>
   submit(request).pipe(
     Effect.provideService(InvocationDirectory, fixture.repo),
@@ -73,7 +62,6 @@ const submitWith = (
       NodeServices.layer,
       ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
       github,
-      linear,
       scriptedLayer(makeScripted({ sessions: [] })),
     ]),
   )
@@ -226,12 +214,9 @@ describe("submission", () => {
       const loaded = yield* submitWith(
         fixture,
         exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: false,
-          }),
+          SubmissionTargetRequest.PullRequest({ number: 7 }),
         ),
-        githubForPr(prView(7, headCommit, baseCommit), []),
+        githubForPr(prView(7, headCommit, baseCommit)),
       )
 
       expect(ReviewTarget.guards.PullRequest(loaded.plan.target)).toBe(true)
@@ -326,29 +311,6 @@ describe("submission", () => {
       expect(runsRootExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("refuses a recipe that seats a provider this host cannot run, creating no Run", () =>
-    Effect.gen(function* () {
-      const fixture = yield* makeDirtyRepo
-      const fs = yield* FileSystem.FileSystem
-      // claude-code/ Seats belong in the Mod's catalog; the CLI's lists this
-      // recipe as invalid.
-      yield* writeRecipe(fixture, "fixture-claude", {
-        default: "fixture/default-model:low",
-        verification: "claude-code/sonnet:low",
-      })
-
-      const refusal = yield* Effect.flip(submitWith(fixture, {
-        target: SubmissionTargetRequest.WorkingTree({ base: undefined }),
-        recipeName: Option.some("fixture-claude"),
-        selectedLensNames: ["fixture-review"],
-        addendum: undefined,
-      }))
-      if (!Predicate.isTagged(refusal, "RecipeSelectionError")) return expect.unreachable(String(refusal))
-      expect(refusal.reason).toContain("claude-code/sonnet:low runs only in the Mod")
-      const runsRootExists = yield* fs.exists(fixture.runsRoot)
-      expect(runsRootExists).toBe(false)
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
   it.effect("freezes per-stage seats from the named Recipe for every stage and both finder classes", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
@@ -391,230 +353,21 @@ describe("submission", () => {
       )
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  // The Specification Source permutations (preference order, comment
-  // admission, budget arithmetic) are proven in src/specification/*; what
-  // stays here is the run-dir observability contract — the frozen plan.json
-  // records which source was resolved, its diagnostic, and that an omission
-  // happened.
-  it.effect("freezes a resolved Linear source into plan.json, never consulting GitHub", () =>
+  it.effect("freezes the caller addendum into plan.json", () =>
     Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
-      let githubSpecificationCalls = 0
-      const github = gitHubLayer({
-        ...unusedGitHubContract,
-        viewPullRequest: () => Effect.succeed(prView(7, headCommit, baseCommit)),
-        viewClosingIssues: () => {
-          githubSpecificationCalls += 1
-          return Effect.succeed([
-            closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
-          ])
-        },
+      const fixture = yield* makeDirtyRepo
+      const specification = ReviewSpecification.make({
+        provenance: "/tmp/addendum.md",
+        text: "ADDENDUM-REQUIREMENT: keep the caller note\n",
       })
-      const requested: Array<string> = []
 
-      const loaded = yield* submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: false,
-          }),
-        ),
-        github,
-        Linear.Fake({
-          viewIssue: (identifier) => {
-            requested.push(identifier)
-            return Effect.succeed(linearBranchIssue())
-          },
-        }),
-      )
-
-      expect(requested).toEqual(["ENG-75"])
-      expect(githubSpecificationCalls).toBe(0)
+      const loaded = yield* submitWith(fixture, {
+        ...exactLenses(SubmissionTargetRequest.WorkingTree({ base: undefined })),
+        addendum: specification,
+      })
 
       const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
-      expect(plan).toEqual(loaded.plan)
-      expect(Array.map(plan.specification?.documents ?? [], ({ text }) => text))
-        .toContain("LINEAR-SLICE-BODY")
-      expect(plan.specification?.comments.length).toBeGreaterThan(0)
-      expect(plan.specificationSourceDiagnostic).toBeUndefined()
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("freezes an unreachable Linear diagnostic, with and without GitHub material", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      yield* fs.writeFileString(
-        path.join(fixture.repo, "alpha.txt"),
-        "first line\nneedle-added-line\nuncommitted-line\n",
-      )
-
-      // No fallback source: the review is never blocked, and the diagnostic
-      // is the only record of the matching branch's Linear attempt.
-      const bare = yield* submitWith(
-        fixture,
-        exactLenses(SubmissionTargetRequest.WorkingTree({ base: undefined })),
-        unusedGitHubLayer,
-        missingApiKeyLinear,
-      )
-      const barePlan = (yield* persistedPlan(fixture, bare.plan.runId)).plan
-      expect(barePlan.specification).toBeUndefined()
-      expect(barePlan.specificationSourceDiagnostic?.reason).toBe(
-        "missing-api-key",
-      )
-      expect(barePlan.specificationSourceDiagnostic?.message).toContain(
-        "LINEAR_API_KEY is not set",
-      )
-
-      // A pull request falls back to GitHub closing issues and keeps the
-      // diagnostic beside the fetched material.
-      const fallback = yield* submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: false,
-          }),
-        ),
-        githubForPr(prView(7, headCommit, baseCommit), [
-          closingIssue(74, "GitHub source", "GITHUB-SLICE-BODY"),
-        ]),
-        missingApiKeyLinear,
-      )
-      const fallbackPlan =
-        (yield* persistedPlan(fixture, fallback.plan.runId)).plan
-      expect(Array.map(fallbackPlan.specification?.documents ?? [], ({ text }) => text))
-        .toContain("GITHUB-SLICE-BODY")
-      expect(fallbackPlan.specificationSourceDiagnostic?.reason).toBe(
-        "missing-api-key",
-      )
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("pins GitHub, appends the caller addendum, and freezes the comment omission", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-      // A Linear-shaped branch that the pin must leave unread.
-      yield* createAndSwitchBranch(fixture, "john/eng-75-linear-source")
-      let linearCalls = 0
-      const parent = closingIssue(70, "parent spec", "PARENT-BODY")
-      const issues = [
-        closingIssue(74, "github source", "SLICE-BODY-INTACT", [
-          githubComment("OWNER", "2026-01-01T00:00:00Z", "o".repeat(8_000)),
-          githubComment("OWNER", "2026-01-02T00:00:00Z", "m".repeat(8_000)),
-          githubComment("OWNER", "2026-01-03T00:00:00Z", "n".repeat(8_000)),
-        ], parent),
-      ]
-
-      const loaded = yield* submitWith(
-        fixture,
-        {
-          target: SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: true,
-          }),
-          recipeName: Option.none(),
-          selectedLensNames: ["fixture-review"],
-          addendum: {
-            documents: [{
-              role: "caller-addendum",
-              provenance: "/tmp/addendum.md",
-              text: "ADDENDUM-REQUIREMENT: keep the caller note\n",
-            }],
-            comments: [],
-          },
-        },
-        githubForPr(prView(7, headCommit, baseCommit), issues),
-        Linear.Fake({
-          viewIssue: () => {
-            linearCalls += 1
-            return Effect.succeed(linearBranchIssue())
-          },
-        }),
-      )
-
-      expect(linearCalls).toBe(0)
-      const { plan } = yield* persistedPlan(fixture, loaded.plan.runId)
-      expect(Array.map(plan.specification?.documents ?? [], ({ role }) => role)).toEqual([
-        "parent",
-        "slice",
-        "caller-addendum",
-      ])
-      const specification = pipe(
-        plan.specification?.documents ?? [],
-        Array.map(({ text }) => text),
-        Array.join("\n"),
-      )
-      expect(specification).not.toContain("LINEAR-SLICE-BODY")
-      expect(specification).toContain("ADDENDUM-REQUIREMENT: keep the caller note")
-      expect(plan.specification?.commentOmission).toBeDefined()
-      expect(plan.specificationSourceDiagnostic).toBeUndefined()
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
-  it.effect("refuses a GitHub-pinned submission with no closing issues, creating no Run", () =>
-    Effect.gen(function* () {
-      const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
-
-      const refusal = yield* Effect.flip(submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: true,
-          }),
-        ),
-        githubForPr(prView(7, headCommit, baseCommit), []),
-      ))
-
-      expect(refusal).toBeInstanceOf(SubmissionError)
-      if (!Predicate.isTagged(refusal, "SubmissionError")) return
-      expect(refusal.reason).toContain("--github-spec")
-      const fs = yield* FileSystem.FileSystem
-      const runsRootExists = yield* fs.exists(fixture.runsRoot)
-      expect(runsRootExists).toBe(false)
-
-      // An unreadable GitHub is quiet without the pin (issue #74) and named
-      // in the refusal with it, never mistaken for "no closing issues".
-      const unauthenticated = gitHubLayer({
-        ...unusedGitHubContract,
-        viewPullRequest: () =>
-          Effect.succeed(prView(7, headCommit, baseCommit)),
-        viewClosingIssues: () =>
-          Effect.fail(
-            GitHubError.make({
-              operation: "specification",
-              reason: "gh auth login required",
-            }),
-          ),
-      })
-      const pinned = yield* Effect.flip(submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: true,
-          }),
-        ),
-        unauthenticated,
-      ))
-      expect(pinned).toMatchObject({
-        _tag: "SubmissionError",
-        reason:
-          "--github-spec could not read GitHub closing issues — gh auth login required",
-      })
-      const unpinned = yield* submitWith(
-        fixture,
-        exactLenses(
-          SubmissionTargetRequest.PullRequest({
-            number: 7,
-            githubSpecOnly: false,
-          }),
-        ),
-        unauthenticated,
-      )
-      expect(unpinned.plan.specification).toBeUndefined()
+      expect(plan.specification).toEqual(specification)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("bakes the Standards Manifest documents into the frozen standards prompt", () =>
@@ -726,16 +479,3 @@ const writeStandardsManifest = (
       ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
     ]),
   )
-
-const createAndSwitchBranch = (fixture: Fixture, branch: string) =>
-  runGit(fixture.repo, ["switch", "-c", branch])
-
-const missingApiKeyLinear = Linear.Fake({
-  viewIssue: () =>
-    Effect.fail(
-      LinearError.make({
-        reason: "missing-api-key",
-        detail: "LINEAR_API_KEY is not set",
-      }),
-    ),
-})

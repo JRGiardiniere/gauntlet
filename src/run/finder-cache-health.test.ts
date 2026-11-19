@@ -61,12 +61,8 @@ const outcome = (
 })
 
 const specification: ReviewSpecification = {
-  documents: [{
-    role: "caller-addendum",
-    provenance: "cache health test",
-    text: "aggregate cache health across the run",
-  }],
-  comments: [],
+  provenance: "cache health test",
+  text: "aggregate cache health across the run",
 }
 
 const standardStarter = lens("standard-starter")
