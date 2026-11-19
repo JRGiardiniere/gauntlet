@@ -6,16 +6,19 @@
 //   2. a mixed Recipe: Claude Finders (haiku:low) with OpenAI Pool,
 //      Verification and Judgment.
 //
-// Logins are used in place, never copied: the fresh HOME's
-// `.gauntlet/opencode` is a symlink to the store under GAUNTLET_LIVE_HOME
-// (default: HOME), and `claude` keeps its own login through CLAUDE_CONFIG_DIR.
-// Set OPENCODE_CLAUDE_PATH when `claude` on PATH is a shim. A review that
-// exits non-zero or reports a coverage gap fails the gate. The temp root is
+// Logins are used in place, never copied: when GAUNTLET_LIVE_HOME (default:
+// HOME) has a Gauntlet store, the fresh HOME's `.gauntlet/opencode` is a
+// symlink to it; without one the store starts empty and OpenAI needs
+// OPENAI_API_KEY. `claude` keeps its own login through CLAUDE_CONFIG_DIR. Set
+// OPENCODE_CLAUDE_PATH when `claude` on PATH is a shim. A review passes when
+// it exits 0 and its dossier.json has no coverage gap and a verdict from
+// Verification, which runs on OpenAI in both Recipes. The temp root is
 // removed only on success, leaving debris behind for inspection.
 //
 //   bun run live-gate-compiled [openai|mixed]   (both when omitted)
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
+import * as Array from "effect/Array"
 import * as Config from "effect/Config"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
@@ -70,11 +73,23 @@ const runStep = (
     }
   })
 
+// What the gate reads from a Run's dossier.json.
+const DossierFacts = Schema.fromJsonString(Schema.Struct({
+  findings: Schema.Array(Schema.Struct({ _tag: Schema.String })),
+  rejected: Schema.Struct({ refutedClaims: Schema.Array(Schema.Unknown) }),
+  coverageGaps: Schema.Array(Schema.Unknown),
+}))
+
+const MODES = ["openai", "mixed"] as const
+
 // One review through the binary. Exit 0 alone admits a fully degraded review
-// (failed Finders still produce a Dossier); the gate exists to prove live
-// invocations, so a coverage gap fails it.
+// (failed Finders still produce a Dossier), and an empty Finder stage skips
+// every OpenAI Stage; the gate exists to prove live invocations, so it needs
+// no coverage gap and at least one verdict on the seeded bug.
 const review = (step: string, binary: string, recipe: string, cwd: string, env: Record<string, string>) =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
     yield* Console.log(`\n[live-gate-compiled] ${step}`)
     const result = yield* Effect.scoped(
       Effect.gen(function* () {
@@ -91,11 +106,22 @@ const review = (step: string, binary: string, recipe: string, cwd: string, env: 
       }),
     )
     yield* Console.log(result.stdout)
-    if (result.exitCode !== 0 || result.stdout.includes("coverage gap")) {
-      return yield* LiveGateStepFailed.make({
-        step,
-        reason: result.exitCode === 0 ? "degraded (coverage gap)" : `exited ${String(result.exitCode)}`,
-      })
+    if (result.exitCode !== 0) {
+      return yield* LiveGateStepFailed.make({ step, reason: `exited ${String(result.exitCode)}` })
+    }
+    const dossierMd = /^dossier\.md: (.+)$/m.exec(result.stdout)?.[1]
+    if (dossierMd === undefined) {
+      return yield* LiveGateStepFailed.make({ step, reason: "the digest named no dossier.md" })
+    }
+    const text = yield* fs.readFileString(path.join(path.dirname(dossierMd), "dossier.json"))
+    const dossier = yield* Schema.decodeEffect(DossierFacts)(text)
+    if (dossier.coverageGaps.length > 0) {
+      return yield* LiveGateStepFailed.make({ step, reason: `degraded (${String(dossier.coverageGaps.length)} coverage gaps)` })
+    }
+    const verdicts = Array.filter(dossier.findings, (finding) => finding._tag === "Confirmed").length +
+      dossier.rejected.refutedClaims.length
+    if (verdicts === 0) {
+      return yield* LiveGateStepFailed.make({ step, reason: "no confirmed or refuted BugClaim: Verification did not run" })
     }
   })
 
@@ -106,15 +132,13 @@ const program = Effect.gen(function* () {
   const liveHome = yield* Config.String("GAUNTLET_LIVE_HOME").pipe(Config.withDefault(realHome))
   const claudeConfig = yield* Config.option(Config.String("CLAUDE_CONFIG_DIR"))
   const which = process.argv[2]
-
-  const store = path.join(liveHome, ".gauntlet", "opencode")
-  const storePresent = yield* fs.exists(store)
-  if (!storePresent) {
-    return yield* LiveGateStepFailed.make({
-      step: "find the login store",
-      reason: `${store} does not exist — run \`gauntlet login\` with that HOME first`,
-    })
+  const modes = which === undefined ? MODES : Array.filter(MODES, (mode) => mode === which)
+  if (modes.length === 0) {
+    return yield* LiveGateStepFailed.make({ step: "read the mode", reason: `unknown mode ${which ?? ""}: use openai or mixed` })
   }
+
+  const store = path.resolve(liveHome, ".gauntlet", "opencode")
+  const storePresent = yield* fs.exists(store)
 
   yield* runStep("build binary", "bun", ["scripts/bundle.ts"], { cwd: repoRoot })
   const binary = path.join(repoRoot, "dist", "gauntlet")
@@ -122,7 +146,7 @@ const program = Effect.gen(function* () {
   const root = yield* fs.makeTempDirectory({ prefix: "gauntlet-live-gate-compiled-" })
   const home = path.join(root, "home")
   yield* fs.makeDirectory(path.join(home, ".gauntlet"), { recursive: true })
-  yield* fs.symlink(store, path.join(home, ".gauntlet", "opencode"))
+  if (storePresent) yield* fs.symlink(store, path.join(home, ".gauntlet", "opencode"))
   const env = {
     HOME: home,
     CLAUDE_CONFIG_DIR: Option.getOrElse(claudeConfig, () => path.join(realHome, ".claude")),
@@ -151,11 +175,11 @@ const program = Effect.gen(function* () {
   yield* git("commit", "-m", "base")
   yield* fs.writeFileString(path.join(repo, "discount.ts"), source(`  return Math.round(totalCents * (1 - percent / 10))\n`))
 
-  if (which === undefined || which === "openai") {
+  if (modes.includes("openai")) {
     yield* review("OpenAI review, cold cache", binary, "live-openai", repo, env)
     yield* review("OpenAI review, warm cache", binary, "live-openai", repo, env)
   }
-  if (which === undefined || which === "mixed") {
+  if (modes.includes("mixed")) {
     yield* review("mixed review: Claude Finders, OpenAI Pool, Verification and Judgment", binary, "live-mixed", repo, env)
   }
 

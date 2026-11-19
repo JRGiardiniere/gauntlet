@@ -99,9 +99,10 @@ verbatim. The Dossier lives on disk.
    stderr says to check the PR before retrying with `gauntlet deliver <id>`. When
    the reason says to run `gauntlet login` or sign in to `claude`, hand that
    to the user — each is an interactive browser sign-in only they can
-   complete — then, once they confirm, launch the review again. A Claude
-   Finder that failed with "Not logged in" shows as a coverage gap; the
-   reason is in `dossier.md`.
+   complete — then, once they confirm, launch the review again. A Finder
+   whose provider failed (a logged-out `claude`, for one) shows as a coverage
+   gap, `finder provider failed`; its reason is in the diagnostics of
+   `finder-stage.json`, beside `dossier.md`.
 
    If a run was interrupted (killed shell, crash), launch the same review
    again.

@@ -21,7 +21,7 @@ names OpenAI's `<model>-fast` model rather than setting a service tier.
 ## Verbs
 
 ```
-gauntlet review [target] [--working-tree] [--recipe <name>] [--lenses <a,b>] [--spec <file>] [--github-spec]
+gauntlet review [target] [--working-tree] [--recipe <name>] [--lenses <a,b>] [--spec <file>]
                 [--related-files | --no-related-files] [--destination local|pr] [--repo <path>]
   [target] = <number>                 a pull request
            | <base>[..<head>]         a commit range, any committish on either end
@@ -47,12 +47,10 @@ with a `<base>` target is the one combined form — a branch's committed work
 plus its current uncommitted state; with no target it is redundant and
 accepted, and with a pull request or a `<base>..<head>` range it is refused,
 because those have their own head. `--spec <file>` supplies a Caller Addendum
-per the specification-ingress spec (#70). `--github-spec` is an exact per-Run
-source override admitted only with a pull request target: it skips Linear and
-requires GitHub closing issues to produce the automatic ReviewSpecification
-before Run creation. `--repo <path>` reviews another local checkout (absolute,
-`~/…`, or from where the command runs). Related files are each Host's default
-(the CLI's off, the Mod's on), which the flags override.
+per the specification-ingress spec (#70); it is the only Specification
+Source (v2). `--repo <path>` reviews another local checkout (absolute, `~/…`,
+or from where the command runs). Related files are off unless
+`--related-files` is passed.
 
 - `review` runs the pipeline to completion — running *is* waiting; there is no
   `--wait`, `start`, `execute`, `status`, or bare `wait`. The CLI process (or

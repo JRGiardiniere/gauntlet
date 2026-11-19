@@ -42,7 +42,7 @@ declare const Bun: {
   }) => Promise<{ readonly success: boolean; readonly logs: ReadonlyArray<unknown> }>
 }
 
-export class CompileFailed extends Schema.TaggedError<
+class CompileFailed extends Schema.TaggedError<
   CompileFailed,
   { readonly brand: unique symbol }
 >()("CompileFailed", {
@@ -82,7 +82,7 @@ const plugins: ReadonlyArray<BunPlugin> = [
   stubPackage("@ff-labs/fff-bun", "export const FileFinder = undefined"),
 ]
 
-export interface CompileOptions {
+interface CompileOptions {
   // The entry module's source, compiled from the working directory.
   readonly entrySource: string
   readonly outfile: string

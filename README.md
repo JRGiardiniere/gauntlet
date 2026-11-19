@@ -19,7 +19,8 @@ Findings arrive in a report called a dossier, every bug claim carries a verdict
 Runs on an embedded OpenCode Host, so Claude and OpenAI models mix freely across
 a review's stages, and special care was taken to make sure it caches well.
 Agents get at most read-only `read`, `grep` and `glob` over a frozen snapshot
-of your change: no shell, no writes, no network.
+of your change: no shell, no writes, no network. That is a permission fence,
+not hardened isolation for reviewing a hostile repository.
 
 ## How it works
 

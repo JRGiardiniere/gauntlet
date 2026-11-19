@@ -63,13 +63,14 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then export GAUNTLET_VERSION="${GITHUB_REF_NAME#v}"; fi
           bun scripts/bundle.ts
       - name: Offline compile smoke
-        run: bun scripts/compile-smoke.ts "$GAUNTLET_OUTFILE"
-      # Only a tagged build: a dev build's lookup would find an older release
-      # and replace itself with it.
+        run: bun scripts/compile-smoke.ts
+      # Only the tag push being released: any other build's lookup can find a
+      # newer release and replace itself with it.
       - name: Verify self-update lookup
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'push' && github.ref_type == 'tag'
         run: sh scripts/upgrade-compiled.test.sh "$GAUNTLET_OUTFILE"
       - uses: actions/upload-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
@@ -83,6 +84,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           path: assets

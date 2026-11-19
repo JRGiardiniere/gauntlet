@@ -18,7 +18,7 @@
     "live-hostile-probe": "bun scripts/live-hostile-probe.ts",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "bun --bun vitest run src/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
-    "test:compile-smoke": "bun run bundle && bun scripts/compile-smoke.ts dist/gauntlet",
+    "test:compile-smoke": "bun run bundle && bun scripts/compile-smoke.ts",
     "test:upgrade-compiled": "bun run bundle && sh scripts/upgrade-compiled.test.sh dist/gauntlet",
     "typecheck": "tsc --noEmit"
   },

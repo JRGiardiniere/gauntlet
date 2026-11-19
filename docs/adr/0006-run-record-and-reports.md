@@ -128,10 +128,9 @@ objects.
 `Effect.log*` → one `run.log` per run (`Logger.toFile`), plus the #10 stderr
 progress lines. Stages are spans in one process — no per-stage log files, no
 subprocess stderr capture. Ordinary runs do not read or persist agent
-transcripts. With the existing global `--log-level debug` flag, invocation
-teardown writes the Host session's complete transcript to `run.log` before
-removing the session, including prompts, model messages, tool calls, and tool
-results. This is an opt-in diagnostic view, not a second transcript artifact or
+transcripts. With the existing global `--log-level debug` flag, each turn
+logs the Host session's entries to `run.log` as it ends: the user prompts,
+model messages, tool calls and tool results, but not the system prompt. This is an opt-in diagnostic view, not a second transcript artifact or
 a new retention system. Contract failures also log the exact decoder issue and
 raw validated emit payload. Tracing stays gated off by default (#2).
 

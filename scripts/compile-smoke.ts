@@ -1,9 +1,11 @@
 // The offline compile smoke's runMain boundary: given a compiled gauntlet
 // binary, check its cheap commands from a fresh HOME, then compile
 // scripts/compile-smoke-entry.ts for the same target and run it. Nothing
-// reaches a model or models.dev. Prints the binary's size and timings.
+// reaches a model, models.dev or GitHub's release lookup (the update cache is
+// seeded fresh); grep uses `rg` from PATH, or OpenCode fetches it once.
+// Prints the binary's size and timings.
 //
-//   bun scripts/compile-smoke.ts dist/gauntlet   (GAUNTLET_TARGET as for bundle.ts)
+//   bun scripts/compile-smoke.ts   (GAUNTLET_OUTFILE and GAUNTLET_TARGET as for bundle.ts)
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Clock from "effect/Clock"
@@ -71,8 +73,8 @@ const expectOutput = (step: string, stdout: string, expected: string) =>
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const [binaryArgument = "dist/gauntlet"] = process.argv.slice(2)
-  const binary = path.resolve(binaryArgument)
+  const outfile = yield* Config.String("GAUNTLET_OUTFILE").pipe(Config.withDefault("dist/gauntlet"))
+  const binary = path.resolve(outfile)
   const targetSetting = yield* Config.option(Config.String("GAUNTLET_TARGET"))
   const target = Option.getOrUndefined(targetSetting)
   const smokeBinary = `${binary}-compile-smoke`
@@ -86,13 +88,15 @@ const program = Effect.gen(function* () {
   })
 
   const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-compile-smoke-home-" })
+  const now = yield* Clock.currentTimeMillis
+  yield* fs.makeDirectory(path.join(home, ".gauntlet"))
+  yield* fs.writeFileString(path.join(home, ".gauntlet", "update-check.json"), `{"checked-at":${String(now)}}\n`)
   const version = yield* run("--version", binary, ["--version"], home)
   yield* expectOutput("--version", version.stdout, "gauntlet v")
-  // The embedded content catalog: shipped Recipes and Lenses.
+  // The embedded content catalog: seeded Recipes and the shipped Lenses.
   yield* run("config init", binary, ["config", "init"], home)
   const config = yield* run("config", binary, ["config"], home)
-  yield* expectOutput("config", config.stdout, "claude-medium")
-  yield* expectOutput("config", config.stdout, "diff-scan")
+  yield* expectOutput("config", config.stdout, "(default Lens)")
 
   const smoke = yield* run("Host smoke", smokeBinary, [catalog], home)
   yield* expectOutput("Host smoke", smoke.stdout, "compile smoke ok")
