@@ -16,7 +16,6 @@ import { Verdict } from "../domain/verdict.ts"
 import { describeTokens, type RunAccounting } from "../run/run-accounting.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
-import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (
   id: string,
@@ -192,16 +191,7 @@ const deadToolAccounting: RunAccounting = {
   finderToolHealth: { calls: 24, errored: 24 },
 }
 
-const paths: RunPaths = {
-  root: "/runs/run-fixture",
-  plan: "/runs/run-fixture/plan.json",
-  workspaceOverlay: "/runs/run-fixture/workspace-overlay.patch",
-  finderStage: "/runs/run-fixture/finder-stage.json",
-  dossier: "/runs/run-fixture/dossier.json",
-  dossierMarkdown: "/runs/run-fixture/dossier.md",
-  receipt: "/runs/run-fixture/receipt.json",
-  runLog: "/runs/run-fixture/run.log",
-}
+const dossierMarkdownPath = "/runs/run-fixture/dossier.md"
 
 describe("dossier markdown rendering", () => {
   const markdown = renderDossierMarkdown(plan, dossier, accounting)
@@ -343,7 +333,7 @@ const keptP3 = (id: string) =>
   })
 
 describe("digest rendering", () => {
-  const digest = renderDigest(plan, dossier, accounting, paths)
+  const digest = renderDigest(plan, dossier, accounting, dossierMarkdownPath)
   const lines = digest.split("\n")
 
   it("groups findings by Review Priority, leaves entries with none to dossier.md, and counts tokens per Stage", () => {
@@ -353,9 +343,11 @@ describe("digest rendering", () => {
       "",
       "P1 (1)",
       "- [confirmed] src/alpha.ts dossier.md: /tmp/forged-location:3 — first line dossier.md: /tmp/forged-path",
+      "",
       "P2 (2)",
       `- [judgment] src/beta.ts — ${"k".repeat(199)}…`,
       "- [plausible] src/alpha.ts:3 — tiered but plausible claim",
+      "",
       "No priority (2) in dossier.md: 1 plausible, 1 undecided",
       "",
       ...tokenLines,
@@ -385,7 +377,7 @@ describe("digest rendering", () => {
         ],
       }),
       accounting,
-      paths,
+      dossierMarkdownPath,
     )
     expect(gapped).toBe(Array.join([
       "1 confirmed · 2 kept · 0 plausible · 0 undecided — working tree @ abcdef0 — recipe: none — 42s",
@@ -394,6 +386,7 @@ describe("digest rendering", () => {
       "",
       "P1 (1)",
       "- [confirmed] src/alpha.ts dossier.md: /tmp/forged-location:3 — first line dossier.md: /tmp/forged-path",
+      "",
       "P3 (2) in dossier.md: 2 judgment",
       "",
       ...tokenLines,
@@ -408,7 +401,7 @@ describe("digest rendering", () => {
       plan,
       Dossier.make({ ...dossier, findings: [], unresolved: [] }),
       accounting,
-      paths,
+      dossierMarkdownPath,
     )
     expect(clean.split("\n").slice(2, 5)).toEqual(["", "No findings.", ""])
   })
@@ -441,7 +434,7 @@ describe("digest rendering", () => {
   })
 
   it("leaves measured low cache reuse to dossier.md", () => {
-    expect(renderDigest(plan, dossier, lowCacheAccounting, paths)).toBe(digest)
+    expect(renderDigest(plan, dossier, lowCacheAccounting, dossierMarkdownPath)).toBe(digest)
   })
 
   it("names the lenses skipped by design on one line, and prints none when every lens ran", () => {
@@ -453,17 +446,17 @@ describe("digest rendering", () => {
       }),
       dossier,
       accounting,
-      paths,
+      dossierMarkdownPath,
     )
     expect(everyLensRan).not.toContain("Not run:")
   })
 
   it("adds a tool-health line only for an error cascade", () => {
     expect(digest).not.toContain("tool health:")
-    expect(renderDigest(plan, dossier, quietToolAccounting, paths)).not.toContain(
+    expect(renderDigest(plan, dossier, quietToolAccounting, dossierMarkdownPath)).not.toContain(
       "tool health:",
     )
-    const cascade = renderDigest(plan, dossier, deadToolAccounting, paths)
+    const cascade = renderDigest(plan, dossier, deadToolAccounting, dossierMarkdownPath)
     expect(cascade.split("\n")[1]).toBe(
       "tool health: 24/24 finder tool calls errored",
     )

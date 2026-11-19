@@ -124,7 +124,7 @@ export const executeReviewPlan = Effect.fn(
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
         return {
-          digest: renderDigest(plan, dossier, accounting, paths),
+          digest: renderDigest(plan, dossier, accounting, paths.dossierMarkdown),
           coverageGaps: dossier.coverageGaps,
         }
       }).pipe(Effect.provide(Logger.layer([fileLogger])))

@@ -1,7 +1,8 @@
 import * as Array from "effect/Array"
-import type { SeatedStageName } from "../domain/stage.ts"
+import { SeatedStageName } from "../domain/stage.ts"
 import type { FinderCacheHealth } from "./finder-cache-health.ts"
 import type { FinderToolHealth } from "./finder-tool-health.ts"
+import { cacheHitPercent } from "./progress-text.ts"
 
 // Tokens over a Run's invocations. `input` excludes cached tokens, so the
 // whole prompt is input + cacheRead + cacheWrite.
@@ -20,25 +21,18 @@ export const sumTokens = (usages: ReadonlyArray<TokenTotals>): TokenTotals =>
     cacheWrite: sum.cacheWrite + usage.cacheWrite,
   }))
 
-export type StageTokens = { readonly [Stage in SeatedStageName]: TokenTotals }
-
 export interface RunAccounting {
-  readonly stageTokens: StageTokens
+  readonly stageTokens: { readonly [Stage in SeatedStageName]: TokenTotals }
   readonly invocationCount: number
   readonly wallTimeSeconds: number
   readonly finderCacheHealth: FinderCacheHealth | undefined
   readonly finderToolHealth: FinderToolHealth | undefined
 }
 
-export const totalTokens = (stageTokens: StageTokens): TokenTotals =>
-  sumTokens([
-    stageTokens.finders,
-    stageTokens.pool,
-    stageTokens.verification,
-    stageTokens.judgment,
-  ])
+export const totalTokens = (stageTokens: RunAccounting["stageTokens"]): TokenTotals =>
+  sumTokens(Array.map(SeatedStageName.literals, (stage) => stageTokens[stage]))
 
-const thousands = (count: number): string =>
+const formatTokenCount = (count: number): string =>
   count >= 1_000_000
     ? `${(count / 1_000_000).toFixed(2).replace(/\.?0+$/, "")}M`
     : count >= 1000
@@ -49,8 +43,9 @@ const thousands = (count: number): string =>
 // the hit rate is the share of it read from the provider's cache.
 export const describeTokens = (tokens: TokenTotals): string => {
   const prompted = tokens.input + tokens.cacheRead + tokens.cacheWrite
-  const cache = prompted === 0
+  const percent = cacheHitPercent([tokens])
+  const cache = percent === undefined
     ? ""
-    : ` (${thousands(tokens.cacheRead)} cache read, ${String(Math.round((tokens.cacheRead / prompted) * 100))}%)`
-  return `${thousands(prompted)} in${cache} · ${thousands(tokens.output)} out`
+    : ` (${formatTokenCount(tokens.cacheRead)} cache read, ${String(percent)}%)`
+  return `${formatTokenCount(prompted)} in${cache} · ${formatTokenCount(tokens.output)} out`
 }

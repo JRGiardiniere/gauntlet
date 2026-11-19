@@ -65,7 +65,7 @@ const renderEntries = (
   empty: string,
 ): string => entries.length === 0 ? empty : pipe(entries, Array.map(findingLine), Array.join("\n"))
 
-export const describeRecipe = (plan: ReviewPlan): string => {
+const describeRecipe =(plan: ReviewPlan): string => {
   const seatList = pipe(
     Record.toEntries<string, string | undefined>(plan.seats),
     Array.map(([stage, seat]) => `${stage}: ${seat}`),
@@ -78,7 +78,7 @@ export const describeRecipe = (plan: ReviewPlan): string => {
     : `${plan.recipeName} (${seatList})`
 }
 
-export const describeRunNotes = (
+const describeRunNotes =(
   accounting: RunAccounting,
 ): ReadonlyArray<string> => [
   ...(accounting.finderCacheHealth === undefined ? [] : [

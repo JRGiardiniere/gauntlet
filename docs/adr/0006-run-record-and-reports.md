@@ -111,7 +111,8 @@ story. Both files are representations of the same Dossier, not separate domain
 objects.
 
 - Header: target identity, recipe + seats, runnable lens list with seats,
-  the one cost/duration line, coverage gaps, and one skipped line when the
+  the one usage line (tokens, cache hit rate, invocations, wall time),
+  coverage gaps, and one skipped line when the
   selected `spec-conformance` Lens had no ReviewSpecification.
 - Optional Run notes: low run-wide Finder cache reuse (omitted when the
   soft-warning threshold is not met) and Finder tool call counts (omitted only

@@ -101,8 +101,8 @@ verbatim. The Dossier lives on disk.
 ## Dossier
 
 Human detail: read `dossier.md` on disk, and only for findings you will act on;
-the digest lists P1 and P2 findings and only counts P3s and those with no
-priority. Machine truth: parse `dossier.json`, beside `dossier.md`. Stdout is
+the digest lists every P1 and P2 entry, Unresolved ones included, and only
+counts P3s and entries with no priority. Machine truth: parse `dossier.json`, beside `dossier.md`. Stdout is
 the digest, not the Dossier.
 
 A finding may carry a "suggested tests" line — existing repository tests the

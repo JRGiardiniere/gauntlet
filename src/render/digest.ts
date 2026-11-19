@@ -3,7 +3,7 @@ import { pipe } from "effect/Function"
 import type { Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import type { SeatedStageName } from "../domain/stage.ts"
+import { SeatedStageName } from "../domain/stage.ts"
 import {
   describeFinderToolHealth,
   isFinderToolCascade,
@@ -13,7 +13,6 @@ import {
   type RunAccounting,
   totalTokens,
 } from "../run/run-accounting.ts"
-import type { RunPaths } from "../run/run-record.ts"
 import {
   type DossierEntryView,
   type DossierView,
@@ -51,47 +50,39 @@ const tagCounts = (entries: ReadonlyArray<DossierEntryView>): string =>
     Array.join(", "),
   )
 
-const collapsed = (
-  heading: string,
-  entries: ReadonlyArray<DossierEntryView>,
-): ReadonlyArray<string> =>
-  entries.length === 0
-    ? []
-    : [`${heading} (${String(entries.length)}) in dossier.md: ${tagCounts(entries)}`]
-
-// Findings then Unresolved, grouped P1 and P2 in full; P3 and entries with
-// no Review Priority are counted, their lines left to dossier.md.
-const findingLines = (view: DossierView): ReadonlyArray<string> => {
+// Findings then Unresolved, grouped by Review Priority: P1 and P2 entries in
+// full, P3 and entries with none as one count line each, their lines left to
+// dossier.md. Groups are blank-line separated, so a relayed digest rendered
+// as Markdown never folds a group's heading into the item above it.
+const priorityGroups = (view: DossierView): ReadonlyArray<ReadonlyArray<string>> => {
   const entries = [...view.findings, ...view.unresolved]
-  if (entries.length === 0) return ["No findings."]
-  const listed = Array.flatMap(["P1", "P2"] as const, (priority) => {
+  if (entries.length === 0) return [["No findings."]]
+  const groups = [
+    { heading: "P1", priority: "P1", listed: true },
+    { heading: "P2", priority: "P2", listed: true },
+    { heading: "P3", priority: "P3", listed: false },
+    { heading: "No priority", priority: undefined, listed: false },
+  ] as const
+  return Array.flatMap(groups, ({ heading, priority, listed }) => {
     const group = Array.filter(entries, (entry) => entry.reviewPriority === priority)
-    return group.length === 0
-      ? []
-      : [`${priority} (${String(group.length)})`, ...Array.map(group, entryLine)]
+    if (group.length === 0) return []
+    const counted = `${heading} (${String(group.length)})`
+    return [
+      listed
+        ? [counted, ...Array.map(group, entryLine)]
+        : [`${counted} in dossier.md: ${tagCounts(group)}`],
+    ]
   })
-  return [
-    ...listed,
-    ...collapsed("P3", Array.filter(entries, (entry) => entry.reviewPriority === "P3")),
-    ...collapsed(
-      "No priority",
-      Array.filter(entries, (entry) => entry.reviewPriority === undefined),
-    ),
-  ]
 }
 
-const stageLabels: ReadonlyArray<readonly [SeatedStageName, string]> = [
-  ["finders", "Finders"],
-  ["pool", "Pool"],
-  ["verification", "Verification"],
-  ["judgment", "Judgment"],
-]
+const stageLabel = (stage: SeatedStageName): string =>
+  `${stage.charAt(0).toUpperCase()}${stage.slice(1)}`
 
 // Tokens, never dollars: one line per seated Stage plus the Run's total.
 const tokenLines = (accounting: RunAccounting): ReadonlyArray<string> => [
   "Tokens:",
-  ...Array.map(stageLabels, ([stage, label]) =>
-    `- ${label}: ${describeTokens(accounting.stageTokens[stage])}`),
+  ...Array.map(SeatedStageName.literals, (stage) =>
+    `- ${stageLabel(stage)}: ${describeTokens(accounting.stageTokens[stage])}`),
   `- Total: ${describeTokens(totalTokens(accounting.stageTokens))}`,
 ]
 
@@ -104,7 +95,7 @@ export const renderDigest = (
   plan: ReviewPlan,
   dossier: Dossier,
   accounting: RunAccounting,
-  paths: RunPaths,
+  dossierMarkdownPath: string,
 ): string => {
   const view = viewDossier(dossier)
   const recipeName = plan.recipeName ?? "none"
@@ -145,11 +136,10 @@ export const renderDigest = (
     ...coverageGaps,
     ...toolHealth,
     ...notRun,
-    "",
-    ...findingLines(view),
+    ...Array.flatMap(priorityGroups(view), (group) => ["", ...group]),
     "",
     ...tokenLines(accounting),
     "",
-    `dossier.md: ${paths.dossierMarkdown}`,
+    `dossier.md: ${dossierMarkdownPath}`,
   ], "\n")
 }
