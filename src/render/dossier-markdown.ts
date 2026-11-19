@@ -9,7 +9,11 @@ import {
   describeFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
 import { describeFinderToolHealth } from "../run/finder-tool-health.ts"
-import { describeTokens, type RunAccounting } from "../run/run-accounting.ts"
+import {
+  describeTokens,
+  type RunAccounting,
+  totalTokens,
+} from "../run/run-accounting.ts"
 import {
   type DossierEntryView,
   viewDossier,
@@ -61,7 +65,7 @@ const renderEntries = (
   empty: string,
 ): string => entries.length === 0 ? empty : pipe(entries, Array.map(findingLine), Array.join("\n"))
 
-export const describeRecipe = (plan: ReviewPlan): string => {
+const describeRecipe =(plan: ReviewPlan): string => {
   const seatList = pipe(
     Record.toEntries<string, string | undefined>(plan.seats),
     Array.map(([stage, seat]) => `${stage}: ${seat}`),
@@ -74,7 +78,7 @@ export const describeRecipe = (plan: ReviewPlan): string => {
     : `${plan.recipeName} (${seatList})`
 }
 
-export const describeRunNotes = (
+const describeRunNotes =(
   accounting: RunAccounting,
 ): ReadonlyArray<string> => [
   ...(accounting.finderCacheHealth === undefined ? [] : [
@@ -115,7 +119,7 @@ export const renderDossierMarkdown = (
     `- Target: ${describeTargetIdentity(dossier.target)}`,
     `- Recipe: ${describeRecipe(plan)}`,
     `- Lenses: ${lensList}`,
-    `- Usage: ${describeTokens(accounting.tokens)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
+    `- Usage: ${describeTokens(totalTokens(accounting.stageTokens))} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
     `- Coverage gaps: ${coverageGaps}`,
     `- Warnings: ${warnings}`,
   ]

@@ -16,9 +16,6 @@ records. The rewrite therefore keeps the data and deletes the infrastructure.
   finder-stage.json        # every Finder outcome, in plan order
   dossier.json             # machine-readable Dossier side artifact
   dossier.md               # human-readable Dossier
-  dossier.html             # the Dossier page: a reading of it for a person
-  page-data.json           # what the page is drawn from beyond the Dossier
-  briefs/                  # agent-written briefs, one per finding, when asked for
   receipt.json             # DeliveryReceipt, when delivery was attempted
   run.log                  # in-flight Effect log; full transcripts at debug level
   transcripts/             # Mod runs: each claude -p child's own Claude transcript
@@ -52,17 +49,10 @@ retained.
 `dossier.md` is written last: a run directory without it is a Run that never
 finished. `dossier.json` is an additive machine-readable artifact.
 
-Amended for the Dossier page: `dossier.html` is written just before
-`dossier.md`, from the same plan, Dossier and accounting. It shows each finding
-beside the reviewed code, so the files its exhibits cite are read from the
-review worktree and kept, with the accounting, in `page-data.json`, written
-before the page. That lets
-`gauntlet page <run-id>` redraw it later with the briefs agents write into
-`briefs/<finding id>.md` (markdown, drawn on the finding's exhibit) without
-reading the live checkout. The page is a presentation like `dossier.md`; the
-diff is still stored once, in the plan. The page and its data are the run
-directory's largest files (about 250KB and 170KB for a 23-finding Run, most of
-it reviewed code).
+Amended per #200: the Dossier page is gone. `dossier.html`, `page-data.json`,
+the `briefs/` directory and the `page` and `brief` commands that drew and fed
+them are removed; `dossier.md` and the stdout digest are the two readings of a
+Dossier.
 
 ## No aggregate store
 
@@ -91,6 +81,10 @@ durably in the Dossier header
 (`cost $0.84 · 12 invocations · 6m 10s`). The run's stdout digest
 repeats the wall time but not the cost (#146: the digest reaches agents and
 people, and cost is a debugging figure), and is not another accounting store.
+Amended per #198 and #200: dollars are gone. The Dossier header carries the
+Run's tokens and cache hit rate, and the digest carries one token line per
+seated Stage plus the total (input with its cache reads and hit rate, and
+output), still never a dollar figure.
 Live stderr may echo the duration already present on an AgentOutcome, plus
 stage wall time, as progress narration. Any future cost model is a script over run
 artifacts.
@@ -117,7 +111,8 @@ story. Both files are representations of the same Dossier, not separate domain
 objects.
 
 - Header: target identity, recipe + seats, runnable lens list with seats,
-  the one cost/duration line, coverage gaps, and one skipped line when the
+  the one usage line (tokens, cache hit rate, invocations, wall time),
+  coverage gaps, and one skipped line when the
   selected `spec-conformance` Lens had no ReviewSpecification.
 - Optional Run notes: low run-wide Finder cache reuse (omitted when the
   soft-warning threshold is not met) and Finder tool call counts (omitted only

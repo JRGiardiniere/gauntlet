@@ -10,17 +10,10 @@ import { Dossier } from "../domain/dossier.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { renderDigest } from "../render/digest.ts"
 import { renderDossierMarkdown } from "../render/dossier-markdown.ts"
-import {
-  DossierPageData,
-  dossierPageData,
-  dossierPageFiles,
-  renderDossierPage,
-} from "../render/dossier-page.ts"
 import { executeJudgment } from "../stages/judgment/judgment.ts"
 import { executePool } from "../stages/pool/pool.ts"
 import { executeVerification } from "../stages/verification/verification.ts"
 import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
-import { readReviewedFiles } from "./reviewed-files.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
@@ -112,12 +105,12 @@ export const executeReviewPlan = Effect.fn(
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
         const accounting = {
-          tokens: sumTokens([
-            ...Array.map(results, (result) => result.outcome.usage),
-            ...pooled.usages,
-            ...verification.usages,
-            ...judgment.usages,
-          ]),
+          stageTokens: {
+            finders: sumTokens(Array.map(results, (result) => result.outcome.usage)),
+            pool: sumTokens(pooled.usages),
+            verification: sumTokens(verification.usages),
+            judgment: sumTokens(judgment.usages),
+          },
           invocationCount:
             results.length +
             pooled.invocationCount +
@@ -127,23 +120,11 @@ export const executeReviewPlan = Effect.fn(
           finderCacheHealth: measureLowFinderCacheHealth(plan, results),
           finderToolHealth: measureFinderToolHealth(results),
         }
-        // The page reads the reviewed files while the review worktree still
-        // holds them, so its code is what the Run saw.
-        const sources = yield* readReviewedFiles(
-          reviewWorkingDirectory,
-          dossierPageFiles(plan, dossier),
-        )
-        const data = dossierPageData(accounting, sources)
-        yield* writeArtifactJson(paths.pageData, DossierPageData, data)
-        yield* writeArtifactText(
-          paths.dossierPage,
-          renderDossierPage({ plan, dossier, data, runDirectory: paths.root }).html,
-        )
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
         return {
-          digest: renderDigest(plan, dossier, accounting, paths),
+          digest: renderDigest(plan, dossier, accounting, paths.dossierMarkdown),
           coverageGaps: dossier.coverageGaps,
         }
       }).pipe(Effect.provide(Logger.layer([fileLogger])))

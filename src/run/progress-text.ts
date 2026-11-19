@@ -31,16 +31,21 @@ export const logDiagnostics = Effect.fn("Progress.logDiagnostics")(function* (
 export const counted =(count: number, singular: string): string =>
   `${String(count)} ${count === 1 ? singular : `${singular}s`}`
 
-// The share of prompt tokens read from the provider's cache, over one or
+// The percentage of prompt tokens read from the provider's cache, over one or
 // many invocations; undefined when nothing was prompted.
+export const cacheHitPercent = (
+  usages: ReadonlyArray<Pick<AgentUsage, "input" | "cacheRead" | "cacheWrite">>,
+): number | undefined => {
+  const read = Array.reduce(usages, 0, (total, usage) => total + usage.cacheRead)
+  const prompted = Array.reduce(usages, 0, (total, usage) => total + usage.input + usage.cacheRead + usage.cacheWrite)
+  return prompted === 0 ? undefined : Math.round((read / prompted) * 100)
+}
+
 export const cacheShare = (
   usages: ReadonlyArray<Pick<AgentUsage, "input" | "cacheRead" | "cacheWrite">>,
 ): string | undefined => {
-  const read = Array.reduce(usages, 0, (total, usage) => total + usage.cacheRead)
-  const prompted = Array.reduce(usages, 0, (total, usage) => total + usage.input + usage.cacheRead + usage.cacheWrite)
-  return prompted === 0
-    ? undefined
-    : `cache ${String(Math.round((read / prompted) * 100))}%`
+  const percent = cacheHitPercent(usages)
+  return percent === undefined ? undefined : `cache ${String(percent)}%`
 }
 
 export const invocationTrail = (outcome: {

@@ -285,6 +285,13 @@ stdout never carries the review, it lands it:
   code is unchanged: a review with gaps is still a review produced.
   Amended per #138: the cache-health line leaves the digest for `dossier.md`'s
   Run notes; relayed verbatim, it was called out as if it were a finding.
+  Amended per #200: after the tally and its gap, tool-health and "Not run"
+  lines, Findings and Unresolved entries are grouped by Review Priority. P1
+  and P2 entries keep one line each; P3 entries and those with no priority
+  collapse to one count line each, their detail left to `dossier.md`. Then
+  one token line per seated Stage plus the total (tokens and cache hit rate,
+  never dollars), and the path to `dossier.md` alone: `dossier.json` sits
+  beside it.
 - **stderr**: progress narration only. Amended per #138: its lines carry no
   cache share; `run.log` keeps it.
 - **exit code**: 0 = review produced (even with zero findings), 1 = could not
