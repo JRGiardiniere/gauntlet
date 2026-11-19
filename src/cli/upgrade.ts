@@ -15,7 +15,7 @@ import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
 import { type CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
 import { Host, HostError } from "../host/host.ts"
-import { hostAccepts } from "../host/model-ref.ts"
+import { hostAccepts, toModelRef } from "../host/model-ref.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
@@ -81,8 +81,9 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
     (seat) => hostAccepts(models, seat),
   )
   // OpenAI lists no models without a ChatGPT sign-in or OPENAI_API_KEY, which
-  // would read as "current" without anything being compared.
-  if (!Array.some(models, (model) => model.providerID === "openai")) {
+  // would read as "current" for a Recipe with an OpenAI Seat without anything
+  // being compared.
+  if (Array.some(entries, hasOpenAISeat) && !Array.some(models, (model) => model.providerID === "openai")) {
     yield* Console.log("OpenAI seats were not checked: no OpenAI models are listed — run `gauntlet login` or set OPENAI_API_KEY")
   }
   yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
@@ -97,6 +98,16 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
         reportSeatFailure(`could not write ${failure.path}`),
     }),
   ))
+
+// The retired openai-codex provider's Seats upgrade onto OpenAI's models too.
+const OPENAI_PROVIDERS: ReadonlySet<string> = new Set(["openai", "openai-codex"])
+
+const hasOpenAISeat = (entry: CatalogEntry) => {
+  if (entry._tag !== "ValidRecipe") return false
+  const { recipe } = entry
+  const seats = [recipe.default, recipe.finders, recipe["interpretive-finders"], recipe.pool, recipe.verification, recipe.judgment]
+  return Array.some(seats, (seat) => seat !== undefined && OPENAI_PROVIDERS.has(toModelRef(seat).providerID))
+}
 
 const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
   Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))

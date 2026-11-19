@@ -8,7 +8,7 @@ import * as Schedule from "effect/Schedule"
 import * as Schema from "effect/Schema"
 import * as Terminal from "effect/Terminal"
 import * as Command from "effect/cli/Command"
-import { type ConnectionState, Host, type SignInStatus } from "../host/host.ts"
+import { type ConnectionState, Host, type PasteResult, type SignInStatus } from "../host/host.ts"
 import { progress } from "./progress.ts"
 
 export class LoginError extends Schema.TaggedError<
@@ -34,7 +34,9 @@ const awaitSettled = Effect.fn("Login.awaitSettled")(function* (attemptID: strin
 
 // The browser's redirect reaches a callback on this Machine's loopback, so a
 // browser elsewhere (Tailscale, SSH) cannot deliver it: pasting the URL it
-// was redirected to hands the code over instead. A rejected paste asks again.
+// was redirected to hands the code over instead. A rejected or failed paste
+// asks again; a Host that cannot then report the attempt is broken, and
+// fails the login.
 const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: string) {
   const host = yield* Host
   const terminal = yield* Terminal.Terminal
@@ -42,7 +44,13 @@ const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: str
     yield* progress("if the browser can't reach this machine, paste the URL it was redirected to:")
     const pasted = (yield* terminal.readLine).trim()
     if (pasted === "") continue
-    const result = yield* host.chatGptSignIn.paste(attemptID, pasted)
+    const result = yield* host.chatGptSignIn.paste(attemptID, pasted).pipe(
+      Effect.catchTag("HostError", (failure) =>
+        host.chatGptSignIn.status(attemptID).pipe(
+          Effect.mapError(() => failure),
+          Effect.as<PasteResult>({ _tag: "Rejected", reason: failure.reason }),
+        )),
+    )
     if (result._tag === "Accepted") return
     yield* progress(`that URL was not accepted — ${result.reason}`)
   }
