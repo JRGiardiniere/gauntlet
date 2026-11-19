@@ -71,5 +71,11 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
   boundary.
 - Posting a delivery comment is not retried.
 - The update cache is disposable, so an unreadable one degrades to no notice.
+- The OpenCode Host loads only through `src/host/live-host.ts`'s dynamic
+  import of `src/host/opencode-host.ts`, the one module that imports
+  `@opencode/*` at runtime, so commands that never use the Host never load
+  OpenCode. Its store and every OpenCode global path live under
+  `~/.gauntlet/opencode`; session resume is replaced with a no-op because a
+  claim has no owner on a shared store.
 - Span names in existing code still use `gauntlet.<module>.<method>`; new code
   uses the skill's `Domain.operation`, and the renames are #126.

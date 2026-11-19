@@ -44,6 +44,21 @@ describe("newerSeat", () => {
   })
 })
 
+describe("newerSeat with the Host's acceptance", () => {
+  // The Host lists gpt-10-sol without low, and gpt-6.2-terra without a fast model.
+  const accepts = (seat: string) =>
+    seat !== "acme/gpt-10-sol:low" && seat !== "acme/gpt-6.2-terra:high+fast"
+  it.each([
+    ["acme/gpt-6-sol:low", undefined],
+    ["acme/gpt-6-sol:high", "acme/gpt-10-sol:high"],
+    ["acme/gpt-6.1-terra:high+fast", undefined],
+    ["acme/gpt-6.1-terra:high", "acme/gpt-6.2-terra:high"],
+    ["acme/gpt-5.6-luna:high", "acme/gpt-6-luna:high"],
+  ])("%s → %s", (seat, expected) => {
+    expect(Option.getOrUndefined(newerSeat(seat, providerModelIds, accepts))).toBe(expected)
+  })
+})
+
 describe("upgradeRecipeSeats", () => {
   it.effect("rewrites only outdated seats in place and reports each move", () =>
     Effect.gen(function* () {

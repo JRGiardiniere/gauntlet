@@ -42,34 +42,51 @@ const compareVersions = (
   return 0
 }
 
-// The newest same-family model in `modelIds`; the model itself when it is not
-// Luna/Terra/Sol or is already newest.
-const newestFamilyModel = (modelId: string, modelIds: ReadonlyArray<string>): string => {
+// The newest same-family model in `modelIds` that `accepts` admits; the model
+// itself when it is not Luna/Terra/Sol or is already newest.
+const newestFamilyModel = (
+  modelId: string,
+  modelIds: ReadonlyArray<string>,
+  accepts: (modelId: string) => boolean,
+): string => {
   const current = parseFamilyModel(modelId)
   if (Option.isNone(current)) return modelId
   let newest = { id: modelId, version: current.value.version }
   for (const id of modelIds) {
     const candidate = parseFamilyModel(id)
     if (Option.isNone(candidate) || candidate.value.family !== current.value.family) continue
-    if (compareVersions(candidate.value.version, newest.version) > 0) {
+    if (compareVersions(candidate.value.version, newest.version) > 0 && accepts(id)) {
       newest = { id, version: candidate.value.version }
     }
   }
   return newest.id
 }
 
+// Whether a Seat could run; the Host's model list answers it (`hostAccepts`).
+export type SeatAcceptance = (seat: Seat) => boolean
+
+const acceptsAny: SeatAcceptance = () => true
+
 // The seat on its successor provider, then on the newest same-family model
-// there, keeping the thinking level; none when neither step moves it.
+// there that `accepts` admits with the same effort and Fast mode; none when
+// neither step moves it.
 export const newerSeat = (
   seat: Seat,
   providerModelIds: (provider: string) => ReadonlyArray<string>,
+  accepts: SeatAcceptance = acceptsAny,
 ): Option.Option<Seat> => {
   const providerSeparator = seat.indexOf("/")
   const effortSeparator = seat.lastIndexOf(":")
   const model = seat.slice(providerSeparator + 1, effortSeparator)
   const seatProvider = seat.slice(0, providerSeparator)
   const provider = successorProviders.get(seatProvider) ?? seatProvider
-  const next = `${provider}/${newestFamilyModel(model, providerModelIds(provider))}${seat.slice(effortSeparator)}`
+  const effort = seat.slice(effortSeparator)
+  const newest = newestFamilyModel(
+    model,
+    providerModelIds(provider),
+    (candidate) => accepts(`${provider}/${candidate}${effort}`),
+  )
+  const next = `${provider}/${newest}${effort}`
   return next === seat ? Option.none() : Option.some(next)
 }
 
@@ -94,7 +111,10 @@ const seatModel = (seat: Seat): string => seat.slice(0, seat.lastIndexOf(":"))
 // each change as provider/model pairs. Invalid recipes are never rewritten;
 // they are named as skipped so "current" never covers an unchecked file.
 export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
-  function* (providerModelIds: (provider: string) => ReadonlyArray<string>) {
+  function* (
+    providerModelIds: (provider: string) => ReadonlyArray<string>,
+    accepts: SeatAcceptance = acceptsAny,
+  ) {
     const changes: Array<SeatChange> = []
     const skipped: Array<string> = []
     for (const entry of yield* listRecipes()) {
@@ -104,7 +124,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
       }
       const upgradedSeats = Array.flatMap(seatFields, (field) => {
         const seat = entry.recipe[field]
-        const next = seat === undefined ? Option.none() : newerSeat(seat, providerModelIds)
+        const next = seat === undefined ? Option.none() : newerSeat(seat, providerModelIds, accepts)
         if (seat === undefined || Option.isNone(next)) return []
         changes.push({ recipe: entry.name, from: seatModel(seat), to: seatModel(next.value) })
         return [[field, next.value] as const]

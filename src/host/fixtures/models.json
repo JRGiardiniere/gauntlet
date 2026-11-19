@@ -1,0 +1,843 @@
+{
+ "openai": {
+  "id": "openai",
+  "name": "OpenAI",
+  "doc": "https://platform.openai.com/docs/models",
+  "env": [
+   "OPENAI_API_KEY"
+  ],
+  "models": {
+   "gpt-6-luna": {
+    "id": "gpt-6-luna",
+    "type": "chat",
+    "name": "GPT-6 Luna",
+    "family": "gpt-luna",
+    "release_date": "2026-09-22",
+    "modalities": {
+     "input": [
+      "text",
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "application/pdf"
+     ],
+     "output": [
+      "text"
+     ]
+    },
+    "capabilities": {
+     "tools": {
+      "supported": true
+     },
+     "reasoning": {
+      "supported": true,
+      "effort": [
+       "none",
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "cache": {
+      "implicit": {
+       "min_tokens": 1024
+      },
+      "explicit": {
+       "ttl": [
+        "30m"
+       ],
+       "max_breakpoints": 4,
+       "min_tokens": 1024
+      }
+     },
+     "structured_output": true,
+     "temperature": false,
+     "top_p": false,
+     "top_k": false,
+     "system_updates": false,
+     "effort_updates": false,
+     "store": true,
+     "prompt_cache_key": true,
+     "service_tier": [
+      "flex",
+      "priority"
+     ]
+    },
+    "limit": {
+     "context": 1050000,
+     "input": 922000,
+     "output": 128000
+    },
+    "cost": {
+     "text": {
+      "input": {
+       "price": 0.1,
+       "cache": {
+        "read": 0.01,
+        "write": 0.125
+       },
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 0.2,
+         "cache": {
+          "read": 0.02,
+          "write": 0.25
+         }
+        }
+       ]
+      },
+      "output": {
+       "price": 0.5,
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 0.75
+        }
+       ]
+      }
+     },
+     "web_search": {
+      "price": 10
+     },
+     "multipliers": [
+      {
+       "when": {
+        "service_tier": {
+         "equals": "priority"
+        }
+       },
+       "factor": {
+        "text": 2
+       }
+      },
+      {
+       "when": {
+        "service_tier": {
+         "equals": "flex"
+        }
+       },
+       "factor": {
+        "text": 0.5
+       }
+      }
+     ]
+    },
+    "api": {
+     "responses": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/responses"
+      },
+      "capabilities": {
+       "system_updates": true,
+       "effort_updates": true,
+       "tools": {
+        "strict": true,
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "search": true,
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": true
+       }
+      }
+     },
+     "chat-completions": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/chat"
+      },
+      "capabilities": {
+       "system_updates": true,
+       "tools": {
+        "strict": true,
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": false
+       }
+      }
+     },
+     "decisions": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/protocols/openai-decisions"
+      },
+      "capabilities": {
+       "tools": {
+        "updates": false
+       }
+      }
+     }
+    },
+    "experimental": {
+     "modes": {
+      "fast": {
+       "service_tier": "priority",
+       "body": {
+        "service_tier": "priority"
+       }
+      },
+      "pro": {
+       "body": {
+        "reasoning": {
+         "mode": "pro"
+        }
+       }
+      }
+     }
+    }
+   },
+   "gpt-6.1-terra": {
+    "id": "gpt-6.1-terra",
+    "type": "chat",
+    "name": "GPT-6.1 Terra",
+    "family": "gpt-terra",
+    "release_date": "2026-10-26",
+    "modalities": {
+     "input": [
+      "text",
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "application/pdf"
+     ],
+     "output": [
+      "text"
+     ]
+    },
+    "capabilities": {
+     "tools": {
+      "supported": true
+     },
+     "reasoning": {
+      "supported": true,
+      "effort": [
+       "none",
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "cache": {
+      "implicit": {
+       "min_tokens": 1024
+      },
+      "explicit": {
+       "ttl": [
+        "30m"
+       ],
+       "max_breakpoints": 4,
+       "min_tokens": 1024
+      }
+     },
+     "structured_output": true,
+     "temperature": false,
+     "top_p": false,
+     "top_k": false,
+     "system_updates": true,
+     "effort_updates": false,
+     "store": true,
+     "prompt_cache_key": true,
+     "service_tier": [
+      "flex",
+      "priority"
+     ]
+    },
+    "limit": {
+     "context": 1050000,
+     "input": 922000,
+     "output": 128000
+    },
+    "cost": {
+     "text": {
+      "input": {
+       "price": 1,
+       "cache": {
+        "read": 0.05,
+        "write": 1.25
+       },
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 2,
+         "cache": {
+          "read": 0.1,
+          "write": 2.5
+         }
+        }
+       ]
+      },
+      "output": {
+       "price": 5,
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 7.5
+        }
+       ]
+      }
+     },
+     "web_search": {
+      "price": 10
+     },
+     "multipliers": [
+      {
+       "when": {
+        "service_tier": {
+         "equals": "priority"
+        }
+       },
+       "factor": {
+        "text": 2
+       }
+      },
+      {
+       "when": {
+        "service_tier": {
+         "equals": "flex"
+        }
+       },
+       "factor": {
+        "text": 0.5
+       }
+      }
+     ]
+    },
+    "api": {
+     "responses": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/responses"
+      },
+      "capabilities": {
+       "effort_updates": true,
+       "tools": {
+        "strict": true,
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "search": true,
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": true
+       }
+      }
+     },
+     "chat-completions": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/chat"
+      },
+      "capabilities": {
+       "tools": {
+        "strict": true,
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "search": true,
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": false
+       }
+      }
+     }
+    },
+    "experimental": {
+     "modes": {
+      "fast": {
+       "service_tier": "priority",
+       "body": {
+        "service_tier": "priority"
+       }
+      },
+      "pro": {
+       "body": {
+        "reasoning": {
+         "mode": "pro"
+        }
+       }
+      }
+     }
+    }
+   },
+   "gpt-6.1-sol": {
+    "id": "gpt-6.1-sol",
+    "type": "chat",
+    "name": "GPT-6.1 Sol",
+    "family": "gpt-sol",
+    "release_date": "2026-09-29",
+    "modalities": {
+     "input": [
+      "text",
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "application/pdf"
+     ],
+     "output": [
+      "text"
+     ]
+    },
+    "capabilities": {
+     "tools": {
+      "supported": true
+     },
+     "reasoning": {
+      "supported": true,
+      "effort": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "cache": {
+      "implicit": {
+       "min_tokens": 1024
+      },
+      "explicit": {
+       "ttl": [
+        "30m"
+       ],
+       "max_breakpoints": 4,
+       "min_tokens": 1024
+      }
+     },
+     "structured_output": true,
+     "temperature": false,
+     "top_p": false,
+     "top_k": false,
+     "system_updates": true,
+     "effort_updates": false,
+     "store": true,
+     "prompt_cache_key": true,
+     "service_tier": [
+      "flex",
+      "priority",
+      "ultrafast"
+     ]
+    },
+    "limit": {
+     "context": 1050000,
+     "input": 922000,
+     "output": 128000
+    },
+    "cost": {
+     "text": {
+      "input": {
+       "price": 2,
+       "cache": {
+        "read": 0.1,
+        "write": 2.5
+       },
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 4,
+         "cache": {
+          "read": 0.2,
+          "write": 5
+         }
+        }
+       ]
+      },
+      "output": {
+       "price": 10,
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 15
+        }
+       ]
+      }
+     },
+     "web_search": {
+      "price": 10
+     },
+     "multipliers": [
+      {
+       "when": {
+        "service_tier": {
+         "equals": "priority"
+        }
+       },
+       "factor": {
+        "text": 2
+       }
+      },
+      {
+       "when": {
+        "service_tier": {
+         "equals": "ultrafast"
+        }
+       },
+       "factor": {
+        "text": 6
+       }
+      },
+      {
+       "when": {
+        "service_tier": {
+         "equals": "flex"
+        }
+       },
+       "factor": {
+        "text": 0.5
+       }
+      }
+     ]
+    },
+    "api": {
+     "responses": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/responses"
+      },
+      "capabilities": {
+       "effort_updates": true,
+       "tools": {
+        "strict": true,
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "search": true,
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": true
+       }
+      }
+     },
+     "chat-completions": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/chat"
+      },
+      "capabilities": {
+       "tools": {
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": false
+       }
+      }
+     }
+    },
+    "experimental": {
+     "modes": {
+      "fast": {
+       "service_tier": "priority",
+       "body": {
+        "service_tier": "priority"
+       }
+      },
+      "pro": {
+       "body": {
+        "reasoning": {
+         "mode": "pro"
+        }
+       }
+      },
+      "ultrafast": {
+       "body": {
+        "service_tier": "ultrafast"
+       }
+      }
+     }
+    }
+   },
+   "gpt-6.2-sol": {
+    "id": "gpt-6.2-sol",
+    "type": "chat",
+    "name": "GPT-6.2 Sol",
+    "family": "gpt-sol",
+    "release_date": "2026-09-29",
+    "modalities": {
+     "input": [
+      "text",
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "application/pdf"
+     ],
+     "output": [
+      "text"
+     ]
+    },
+    "capabilities": {
+     "tools": {
+      "supported": true
+     },
+     "reasoning": {
+      "supported": true,
+      "effort": [
+       "low",
+       "medium",
+       "high",
+       "xhigh",
+       "max"
+      ]
+     },
+     "cache": {
+      "implicit": {
+       "min_tokens": 1024
+      },
+      "explicit": {
+       "ttl": [
+        "30m"
+       ],
+       "max_breakpoints": 4,
+       "min_tokens": 1024
+      }
+     },
+     "structured_output": true,
+     "temperature": false,
+     "top_p": false,
+     "top_k": false,
+     "system_updates": true,
+     "effort_updates": false,
+     "store": true,
+     "prompt_cache_key": true,
+     "service_tier": [
+      "flex",
+      "priority",
+      "ultrafast"
+     ]
+    },
+    "limit": {
+     "context": 1050000,
+     "input": 922000,
+     "output": 128000
+    },
+    "cost": {
+     "text": {
+      "input": {
+       "price": 2,
+       "cache": {
+        "read": 0.1,
+        "write": 2.5
+       },
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 4,
+         "cache": {
+          "read": 0.2,
+          "write": 5
+         }
+        }
+       ]
+      },
+      "output": {
+       "price": 10,
+       "overrides": [
+        {
+         "when": {
+          "context": {
+           "gt": 272000
+          }
+         },
+         "price": 15
+        }
+       ]
+      }
+     },
+     "web_search": {
+      "price": 10
+     },
+     "multipliers": [
+      {
+       "when": {
+        "service_tier": {
+         "equals": "priority"
+        }
+       },
+       "factor": {
+        "text": 2
+       }
+      },
+      {
+       "when": {
+        "service_tier": {
+         "equals": "ultrafast"
+        }
+       },
+       "factor": {
+        "text": 6
+       }
+      },
+      {
+       "when": {
+        "service_tier": {
+         "equals": "flex"
+        }
+       },
+       "factor": {
+        "text": 0.5
+       }
+      }
+     ]
+    },
+    "api": {
+     "responses": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/responses"
+      },
+      "capabilities": {
+       "effort_updates": true,
+       "tools": {
+        "strict": true,
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "search": true,
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": true
+       }
+      }
+     },
+     "chat-completions": {
+      "base_url": "https://api.openai.com/v1",
+      "sdk": {
+       "aisdk": "@ai-sdk/openai",
+       "opencodeai": "@opencode/ai/providers/openai/chat"
+      },
+      "capabilities": {
+       "tools": {
+        "choice": [
+         "auto",
+         "none",
+         "required",
+         "tool"
+        ],
+        "freeform": [
+         "text",
+         "lark",
+         "regex"
+        ],
+        "updates": false
+       }
+      }
+     }
+    },
+    "experimental": {
+     "modes": {
+      "fast": {
+       "service_tier": "priority",
+       "body": {
+        "service_tier": "priority"
+       }
+      },
+      "pro": {
+       "body": {
+        "reasoning": {
+         "mode": "pro"
+        }
+       }
+      },
+      "ultrafast": {
+       "body": {
+        "service_tier": "ultrafast"
+       }
+      }
+     }
+    }
+   }
+  }
+ }
+}

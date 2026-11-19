@@ -340,3 +340,23 @@ describe("gauntlet deliver", () => {
       expect((yield* TestConsole.logLines).at(-1)).toBe(url)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
+
+// The fixture's Host dies on any use, so each of these exiting cleanly shows
+// it never booted (#197): only login and upgrade load OpenCode.
+describe("commands that never boot the Host", () => {
+  it.effect.each([
+    { argv: ["--help"] },
+    { argv: ["--version"] },
+    { argv: ["config"] },
+    { argv: ["config", "init"] },
+    { argv: ["login", "--help"] },
+  ])("gauntlet $argv", ({ argv }) =>
+    Effect.gen(function* () {
+      const fixture = yield* makeDirtyRepo
+      const run = runCommand(fixture, argv, makeScripted({ sessions: [] }))
+      const exitCode = yield* run.effect
+      expect(exitCode).toBe(0)
+      const output = yield* TestConsole.logLines
+      expect(output).not.toEqual([])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+})

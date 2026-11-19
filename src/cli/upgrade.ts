@@ -1,5 +1,6 @@
 // Self-upgrade: replace this executable with the latest release binary, then
-// move recipe seats off legacy providers and onto the newest Luna/Terra/Sol (#121).
+// move recipe seats off legacy providers and onto the newest Luna/Terra/Sol
+// the Host's model list accepts (#121, #197).
 // Settings, runs (~/.gauntlet) and project lenses (.gauntlet/lenses) survive
 // by construction — the shipped lens catalog is embedded in the binary, so
 // swapping the file swaps the catalog atomically (ADR 0004).
@@ -12,7 +13,8 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
-import { refreshedModelCatalog } from "../harness/pi-catalog.ts"
+import { Host } from "../host/host.ts"
+import { hostAccepts } from "../host/model-ref.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
@@ -55,18 +57,24 @@ export const renderSeatUpgrade = (
   return lines.length === 0 ? ["recipe seats are current"] : lines
 }
 
-// Runs after the binary step in this (pre-upgrade) process. A seat upgrade
+// Runs after the binary step in this (pre-upgrade) process. The Host's model
+// list is OpenCode's own catalog, which it keeps fresh itself, filtered to
+// what the person's logins can run; nothing is refetched here. A seat upgrade
 // failure is reported and never fails the command: the binary step already
 // succeeded, and the next `gauntlet upgrade` retries the seats.
-const upgradeSeats = Effect.fn("gauntlet.cli.upgrade_seats")(function* () {
-  const catalog = yield* refreshedModelCatalog()
-  const upgrade = yield* upgradeRecipeSeats(catalog)
+export const upgradeSeats = Effect.fn("Cli.upgradeSeats")(function* () {
+  const host = yield* Host
+  const models = yield* host.listModels
+  const upgrade = yield* upgradeRecipeSeats(
+    (provider) => Array.flatMap(models, (model) => (model.providerID === provider ? [model.id] : [])),
+    (seat) => hostAccepts(models, seat),
+  )
   yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
 }, (effect) =>
   effect.pipe(
     Effect.catchTags({
-      ModelCatalogRefreshError: (failure) =>
-        reportSeatFailure(`model catalog refresh failed: ${failure.reason}`),
+      HostError: (failure) =>
+        reportSeatFailure(`the model list is unavailable: ${failure.reason}`),
       RecipeCatalogError: (failure) =>
         reportSeatFailure(`${failure.reason} (${failure.path})`),
       ArtifactWriteError: (failure) =>
@@ -157,6 +165,6 @@ export const upgradeCommand = Command.make(
   () => executeUpgrade(),
 ).pipe(
   Command.withDescription(
-    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Terra/Sol. Settings, runs, and project lenses are never touched",
+    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Terra/Sol the model list accepts. Settings, runs, and project lenses are never touched",
   ),
 )

@@ -15,6 +15,7 @@ import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { runGit } from "../target/git.ts"
 import { runGauntlet } from "./main.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
+import { untouchedHostLayer } from "../host/host.ts"
 
 interface Fixture {
   readonly home: string
@@ -82,6 +83,7 @@ const configAt = (
       ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
       scriptedLayer(makeScripted({ sessions: [] })),
       unusedGitHubLayer,
+      untouchedHostLayer,
     ]),
   )
 
@@ -112,6 +114,9 @@ describe("gauntlet config init", () => {
       const path = yield* Path.Path
       const entries = yield* fs.readDirectory(fixture.recipesDirectory)
       expect(entries.sort()).toEqual([
+        "claude-high.json",
+        "claude-low.json",
+        "claude-medium.json",
         "high.json",
         "low.json",
         "medium.json",
@@ -139,11 +144,17 @@ describe("gauntlet config init", () => {
       expect(highRecipe).toEqual({
         default: "openai/gpt-6.2-sol:high",
       })
+      const claudeLow = yield* readRecipe("claude-low")
+      expect(claudeLow).toEqual({ default: "claude-code/sonnet:medium" })
+      const claudeMedium = yield* readRecipe("claude-medium")
+      expect(claudeMedium).toEqual({ default: "claude-code/opus:medium" })
+      const claudeHigh = yield* readRecipe("claude-high")
+      expect(claudeHigh).toEqual({ default: "claude-code/opus:high" })
       const settings = yield* readSettings(fixture)
       expect(settings).toEqual({
         "default-recipe": "medium",
         "default-lenses": INITIAL_DEFAULT_LENSES,
-        favorites: ["quick", "low", "medium", "high"],
+        favorites: ["quick", "low", "medium", "high", "claude-low", "claude-medium", "claude-high"],
       })
       const initOutput = yield* stdout()
       expect(initOutput).toContain("initialized")
@@ -156,6 +167,47 @@ describe("gauntlet config init", () => {
       expect(secondInitOutput).toContain("already initialized")
       const settingsAfter = yield* fs.readFileString(fixture.settingsFile)
       expect(settingsAfter).toBe(settingsBefore)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("adds shipped recipes an existing configuration lacks, leaving its files untouched", () =>
+    Effect.gen(function* () {
+      const fixture = yield* makeFixture
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      yield* fs.makeDirectory(fixture.recipesDirectory, { recursive: true })
+      const edited = '{"default":"openai/gpt-6.1-sol:low"}\n'
+      yield* fs.writeFileString(path.join(fixture.recipesDirectory, "medium.json"), edited)
+      yield* fs.writeFileString(path.join(fixture.recipesDirectory, "mine.json"), edited)
+      yield* writeSettings(fixture, {
+        "default-recipe": "medium",
+        "default-lenses": [],
+        favorites: ["mine"],
+      })
+      const settingsBefore = yield* fs.readFileString(fixture.settingsFile)
+
+      const exit = yield* config(fixture, "init")
+      expect(exit).toBe(0)
+      const output = yield* stdout()
+      expect(output).toContain("added recipes quick, low, high, claude-low, claude-medium, claude-high")
+      expect((yield* fs.readDirectory(fixture.recipesDirectory)).sort()).toEqual([
+        "claude-high.json",
+        "claude-low.json",
+        "claude-medium.json",
+        "high.json",
+        "low.json",
+        "medium.json",
+        "mine.json",
+        "quick.json",
+      ])
+      const medium = yield* fs.readFileString(path.join(fixture.recipesDirectory, "medium.json"))
+      expect(medium).toBe(edited)
+      const settingsAfter = yield* fs.readFileString(fixture.settingsFile)
+      expect(settingsAfter).toBe(settingsBefore)
+
+      // The bare listing shows the Claude recipes beside the others.
+      yield* config(fixture)
+      const listing = yield* stdout()
+      expect(listing).toContain("- claude-medium — default claude-code/opus:medium")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("refuses a partial configuration with repair guidance, never healing it", () =>

@@ -8,15 +8,20 @@ import { writeArtifactJson } from "../run/artifact.ts"
 import { recipesDirectory, writeSettings } from "./settings.ts"
 
 // What a fresh configuration holds: `config init` writes it. After that the
-// files are user-owned; nothing re-reads or replenishes them, and only
-// `gauntlet upgrade` touches them, moving Luna/Terra/Sol seats forward (#121).
-// Every recipe runs one seat top to bottom (John's 2026-08-10 uniform-preset
-// call); quick is Terra in Fast mode (2026-11-18).
+// files are user-owned and never overwritten: `config init` only adds a
+// shipped recipe whose file does not exist yet, and `gauntlet upgrade` moves
+// Luna/Terra/Sol seats forward (#121). Every recipe runs one seat top to
+// bottom (John's 2026-08-10 uniform-preset call); quick is Terra in Fast mode
+// (2026-11-18). The Claude recipes keep the retired Mod's low, medium and
+// high, on aliases the installed `claude` moves forward itself (#197).
 export const INITIAL_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
   ["quick", Recipe.make({ default: "openai/gpt-6.1-terra:high+fast" })],
   ["low", Recipe.make({ default: "openai/gpt-6-luna:high" })],
   ["medium", Recipe.make({ default: "openai/gpt-6.2-sol:medium" })],
   ["high", Recipe.make({ default: "openai/gpt-6.2-sol:high" })],
+  ["claude-low", Recipe.make({ default: "claude-code/sonnet:medium" })],
+  ["claude-medium", Recipe.make({ default: "claude-code/opus:medium" })],
+  ["claude-high", Recipe.make({ default: "claude-code/opus:high" })],
 ]
 export const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
 
@@ -36,6 +41,23 @@ export const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
   "standards",
   "subjective",
 ]
+
+// Writes the shipped recipes missing from an existing catalog, never touching
+// a file that exists; returns the names it added.
+export const addMissingRecipes = Effect.fn("InitialConfig.addMissingRecipes")(function* (
+  existing: ReadonlyArray<string>,
+) {
+  const path = yield* Path.Path
+  const catalogPath = yield* recipesDirectory()
+  const present = new Set(existing)
+  const missing = Array.filter(INITIAL_RECIPES, ([name]) => !present.has(name))
+  yield* Effect.forEach(
+    missing,
+    ([name, recipe]) => writeArtifactJson(path.join(catalogPath, `${name}.json`), Recipe, recipe),
+    { concurrency: 1 },
+  )
+  return Array.map(missing, ([name]) => name)
+})
 
 // Writes the initial recipes and settings; callers check freshness first.
 export const writeInitialConfig = Effect.fn("InitialConfig.write")(function* () {

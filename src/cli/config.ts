@@ -17,7 +17,13 @@ import {
 } from "../content/lens.ts"
 import { resolveLensNames } from "../domain/lens-selection.ts"
 import type { Recipe } from "../domain/recipe.ts"
-import { INITIAL_DEFAULT_LENSES, INITIAL_DEFAULT_RECIPE, INITIAL_RECIPES, writeInitialConfig } from "../config/initial-config.ts"
+import {
+  addMissingRecipes,
+  INITIAL_DEFAULT_LENSES,
+  INITIAL_DEFAULT_RECIPE,
+  INITIAL_RECIPES,
+  writeInitialConfig,
+} from "../config/initial-config.ts"
 import type { LensName } from "../domain/review-plan.ts"
 import {
   type CatalogEntry,
@@ -182,8 +188,9 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
 })
 
 // `config init` is the one explicit creator of configuration: it seeds a
-// fresh catalog and settings, is a no-op when they are already valid, and
-// refuses a partial state with repair guidance — never an overwrite (ADR 0005).
+// fresh catalog and settings, only adds missing shipped recipes when they are
+// already valid, and refuses a partial state with repair guidance — never an
+// overwrite (ADR 0005).
 const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const fs = yield* FileSystem.FileSystem
   const settingsFile = yield* settingsPath()
@@ -272,6 +279,15 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
           `default-lenses are unusable — ${failure.reason} (${failure.path})`,
       })),
   )
+  // A valid configuration gains the recipes shipped since it was created,
+  // such as the Claude recipes (#197); existing files stay as they are.
+  const added = yield* addMissingRecipes(Array.map(entries, (entry) => entry.name))
+  if (added.length > 0) {
+    yield* Console.log(
+      `added recipes ${Array.join(added, ", ")} to ${catalogPath}; existing recipes and settings are untouched`,
+    )
+    return
+  }
   yield* Console.log(
     "configuration already initialized — nothing to do (run `gauntlet config` to inspect it)",
   )
@@ -457,7 +473,7 @@ const init = Command.make(
   () => runInit().pipe(Effect.catchTag("ArtifactWriteError", configWriteError)),
 ).pipe(
   Command.withDescription(
-    "Create the initial recipe catalog and settings (no-op when already valid)",
+    "Create the initial recipe catalog and settings; on a valid configuration, add only shipped recipes it lacks",
   ),
 )
 
