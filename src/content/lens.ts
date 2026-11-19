@@ -1,9 +1,9 @@
-import { parseFrontmatter } from "@earendil-works/pi-coding-agent"
 import * as Array from "effect/Array"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -62,6 +62,25 @@ export const ContentDirectory = Context.Reference<string>(
 const contentLoadError = (path: string, reason: string) => (cause?: unknown) =>
   ContentLoadError.make({ path, reason, cause })
 
+// Lens frontmatter is flat `key: value` lines: a value may be quoted, and
+// an unquoted one may end in a `# comment`.
+const FRONTMATTER_LINE = /^([A-Za-z][\w-]*):[ \t]*(?:"([^"]*)"|'([^']*)'|(.*?))[ \t]*(?:[ \t]#.*)?$/
+
+const parseFrontmatterLine = (line: string): Option.Option<readonly [string, string]> =>
+  Option.map(
+    Option.fromNullishOr(FRONTMATTER_LINE.exec(line)),
+    ([, key = "", double, single, plain = ""]) => [key, double ?? single ?? plain] as const,
+  )
+
+const splitFrontmatter = (normalized: string) => {
+  const end = normalized.startsWith("---\n") ? normalized.indexOf("\n---", 3) : -1
+  if (end === -1) return { lines: Array.empty<string>(), body: normalized }
+  return {
+    lines: Array.filter(normalized.slice(4, end).split("\n"), (line) => line.trim() !== "" && !line.trimStart().startsWith("#")),
+    body: normalized.slice(end + 4).trim(),
+  }
+}
+
 const decodeLensSource = (
   path: string,
   source: string,
@@ -80,12 +99,21 @@ const decodeLensSource = (
         reason: "frontmatter has no closing --- delimiter",
       })
     }
-    const parsed = yield* Effect.try({
-      try: () => parseFrontmatter(source),
-      catch: contentLoadError(path, "frontmatter is not valid YAML"),
-    })
+    const parsed = splitFrontmatter(normalized.replace(/^\uFEFF/, ""))
+    const entries: Array<readonly [string, string]> = []
+    for (const line of parsed.lines) {
+      const entry = parseFrontmatterLine(line)
+      if (Option.isNone(entry)) {
+        return yield* ContentLoadError.make({
+          path,
+          reason: `frontmatter line is not \`key: value\`: ${line}`,
+        })
+      }
+      entries.push(entry.value)
+    }
+    const fields = Record.fromEntries(entries)
     const allowed = new Set(["finder-class", "category"])
-    for (const key of Record.keys(parsed.frontmatter)) {
+    for (const key of Record.keys(fields)) {
       if (!allowed.has(key)) {
         return yield* ContentLoadError.make({
           path,
@@ -94,13 +122,13 @@ const decodeLensSource = (
       }
     }
 
-    const finderClass = parsed.frontmatter["finder-class"]
+    const finderClass = fields["finder-class"]
     const reason =
       Predicate.isString(finderClass) && finderClass !== "interpretive"
         ? `finder-class admits exactly "interpretive" (specific is by omission); got "${finderClass}"`
         : "frontmatter does not match the lens format"
     const frontmatter = yield* Schema.decodeEffect(LensFrontmatter)(
-      parsed.frontmatter,
+      fields,
     ).pipe(
       Effect.mapError(contentLoadError(path, reason)),
     )

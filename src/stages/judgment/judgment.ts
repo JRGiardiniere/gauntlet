@@ -9,7 +9,8 @@ import type {
 } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Judgment } from "../../domain/judgment.ts"
-import { HarnessSessionFactory } from "../../harness/harness-session.ts"
+import type { AgentUsage } from "../../domain/agent-outcome.ts"
+import { INSPECTION_TOOLS } from "../../harness/harness-session.ts"
 import {
   counted,
   coverageGapLine,
@@ -25,7 +26,7 @@ import {
 } from "./prompt.ts"
 import { indexObservations, resolveJudgment } from "./resolution.ts"
 
-export const JUDGMENT_TOOLS = ["read", "bash"] as const
+export const JUDGMENT_TOOLS = INSPECTION_TOOLS
 
 const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
   notes.length === 0
@@ -43,7 +44,7 @@ export interface JudgmentExecution {
 export interface JudgmentResult {
   readonly observations: ReadonlyArray<JudgedObservation>
   readonly coverageGaps: ReadonlyArray<CoverageGap>
-  readonly costUsd: number
+  readonly usages: ReadonlyArray<AgentUsage>
   readonly invocationCount: number
 }
 
@@ -63,7 +64,7 @@ export const executeJudgment = Effect.fn(
     return {
       observations: [],
       coverageGaps: [],
-      costUsd: 0,
+      usages: [],
       invocationCount: 0,
     } satisfies JudgmentResult
   }
@@ -77,22 +78,17 @@ export const executeJudgment = Effect.fn(
     return {
       observations: repair.observations,
       coverageGaps: [{ stage: "judgment", reason }],
-      costUsd: 0,
+      usages: [],
       invocationCount: 0,
     } satisfies JudgmentResult
   }
 
   const judgmentStartedAt = yield* DateTime.now
-  const host = yield* HarnessSessionFactory
-  const promptTemplates = yield* loadJudgmentPromptTemplates(
-    host.workspacePrompt,
-  )
-  // The prompt shows the root the host's tools expose (Pi's stable virtual
-  // root); cwd carries the snapshot path itself.
+  const promptTemplates = yield* loadJudgmentPromptTemplates()
   const prompt = yield* assembleJudgmentPrompt(
     promptTemplates,
     plan.target,
-    host.workspaceRoot(reviewWorkingDirectory),
+    reviewWorkingDirectory,
     indexed,
     plan.specification,
     pooled,
@@ -100,8 +96,9 @@ export const executeJudgment = Effect.fn(
   const outcome = yield* invokeStageAgent({
     label: "Judgment",
     invocationId: `${plan.runId}-judgment`,
+    role: "judge",
     seat,
-    cwd: reviewWorkingDirectory,
+    workspace: reviewWorkingDirectory,
     prompt,
     contract: EmitJudgments,
     tools: JUDGMENT_TOOLS,
@@ -127,7 +124,7 @@ export const executeJudgment = Effect.fn(
     coverageGaps: reason === undefined
       ? []
       : [{ stage: "judgment", reason }],
-    costUsd: outcome.usage.costUsd,
+    usages: [outcome.usage],
     invocationCount: 1,
   } satisfies JudgmentResult
 })

@@ -1,184 +1,107 @@
 import * as Context from "effect/Context"
+import * as Data from "effect/Data"
 import type * as Effect from "effect/Effect"
 import type * as JsonSchema from "effect/JsonSchema"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
+import type { AgentToolCalls } from "../domain/agent-outcome.ts"
 import type { Seat } from "../domain/recipe.ts"
 
-// The adapter seam between Gauntlet and the Pi harness (ADR 0002, #4, #13).
-// `HarnessSession` deliberately mirrors Pi's literal surface — push-callback
-// subscribe returning an unsubscribe thunk, a Promise `prompt` that resolves
-// at end-of-run, an `abort` that may hang forever, a synchronous `dispose`,
-// and a usage sweep that must precede dispose — so the live adapter stays a
-// pure mapping and the scripted adapter implements the identical shape. The
-// bridge under test is the bridge that ships.
-
-// Pi's full stop-reason vocabulary, mirrored exactly. Anything outside this
-// set is contract drift, never coerced to a plausible default.
-export const StopReason = Schema.Literals([
-  "pending",
-  "stop",
-  "length",
-  "toolUse",
-  "error",
-  "aborted",
-  "deferred",
-])
-export type StopReason = typeof StopReason.Type
+// The seam between an AgentInvocation and the Host that runs it: one session
+// per invocation, driven one turn at a time. The live layer drives an
+// embedded OpenCode session (src/host/); the scripted layer replays a script
+// of turns for tests. Everything about corrective turns, the deadline and
+// outcomes lives above it, in invoke.ts.
 
 const usageNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 
-// The subset of Pi's per-turn Usage that accounting reads, decoded at the
-// boundary. A drifted shape silently reads as $0 and looks healthy — the
-// demonstrated hazard (#4 §8) — so every field must decode finite and
-// non-negative. `reasoning` is a subset of `output` (never summed in) and is
-// genuinely absent for many providers. This is the DECODED accounting subset;
-// the untouched `unknown` values retained by the invocation accumulator remain
-// available to persisted Finder outcomes and runtime Dossier accounting
-// (ADR 0006).
+// One model request's usage, as the Host recorded it. `output` includes
+// `reasoning`; `input` excludes cached tokens, so `cacheRead` and
+// `cacheWrite` add to it for the whole prompt.
 export const UsageRow = Schema.Struct({
   input: usageNumber,
   output: usageNumber,
+  reasoning: usageNumber,
   cacheRead: usageNumber,
   cacheWrite: usageNumber,
-  // Genuinely absent for many providers — and possibly present-but-undefined
-  // on Pi's in-memory rows, which is not a JSON boundary.
-  reasoning: Schema.optional(usageNumber),
-  cost: Schema.Struct({ total: usageNumber }),
 })
 export type UsageRow = typeof UsageRow.Type
 
-// The three events production consumes (#4 §3) — liveness, terminal message
-// state, and raw pre-validation tool args (the salvage path) — plus the
-// channel an adapter uses to report its own boundary-decode failures.
-// Listeners are called synchronously, so a `contract_violation` can never
-// lose a race with the events it poisons.
-export type HarnessEvent =
-  | { readonly type: "message_start" }
-  | {
-      readonly type: "message_end"
-      readonly stopReason: StopReason
-      readonly errorMessage?: string
-      readonly usage: UsageRow
-    }
-  | {
-      readonly type: "tool_execution_start"
-      readonly toolName: string
-      readonly args: unknown
-    }
-  | {
-      readonly type: "tool_execution_end"
-      readonly toolName: string
-      readonly isError: boolean
-      readonly detail?: string
-    }
-  | { readonly type: "contract_violation"; readonly reason: string }
-  // The turn was stopped from outside the run (a signal the run did not send
-  // ended the `claude -p` child): the invocation ends Interrupted. Pi never
-  // sends it.
-  | { readonly type: "interrupted"; readonly reason: string }
+// How one turn ended.
+export type TurnEnd = Data.TaggedEnum<{
+  // A validated emit landed; the Host sent no further model request.
+  Emitted: { readonly raw: Schema.Json }
+  // The model ended its turn without a valid emit.
+  Stopped: {}
+  ContextLimit: {}
+  ProviderFailed: { readonly reason: string }
+  // Something outside the Run stopped the session.
+  Interrupted: { readonly reason: string }
+}>
+export const TurnEnd = Data.taggedEnum<TurnEnd>()
 
-export interface HarnessSession {
-  readonly subscribe: (listener: (event: HarnessEvent) => void) => () => void
-  readonly prompt: (text: string) => Promise<void>
-  // May never settle: Pi's abort awaits waitForIdle (#4 §4). Never awaited
-  // by the invocation itself — Gauntlet never re-prompts an aborted session
-  // (stall retry is a fresh invocation; corrective turns re-prompt only after
-  // a clean stop); teardown gives it a bounded wait before the usage sweep,
-  // since the Claude Code host's abort settles once its child is gone.
-  readonly abort: () => Promise<void>
-  readonly dispose: () => void
-  // Terminal accounting sweep over the session's assistant messages, raw and
-  // verbatim. MUST be called before dispose — dispose disconnects the session
-  // from the agent that owns the messages. Rows decode against UsageRow in
-  // invoke; drift fails loudly there.
-  readonly usageRows: () => ReadonlyArray<unknown>
-  // Pi's complete in-memory session record. Invocation reads it only when the
-  // global debug log level is enabled, before dispose disconnects the agent,
-  // and writes each entry to the Run's existing run.log.
-  readonly transcriptEntries: () => ReadonlyArray<unknown>
+export interface TurnResult {
+  readonly end: TurnEnd
+  // One row per model request the turn made, read once when it ended.
+  readonly usage: ReadonlyArray<UsageRow>
+  // Inspection tool calls; emit calls are not counted.
+  readonly toolCalls: AgentToolCalls
+  // Emits the strict decoder rejected (they went back to the model as tool
+  // errors), and anything else the Host noticed.
+  readonly diagnostics: ReadonlyArray<string>
 }
 
-// The terminating emit tool's validated arguments, delivered by Pi after its
-// JSON-Schema coercion pass (#4 §5). JSON by construction, but still
-// untrusted: each stage re-decodes them against its own OutputContract.
-export type EmitToolArgs = Schema.Json
+export const INSPECTION_TOOLS = ["read", "grep", "glob"] as const
+export type InspectionTool = (typeof INSPECTION_TOOLS)[number]
 
-// The terminating emit tool as the seam sees it: parameters are an already
-// projected plain JSON Schema (Pi detects the missing TypeBox.Kind symbol and
-// runs its JSON-Schema coercion path, #4 §5), and `execute` is called only
-// when the harness validated the arguments — a failed validation surfaces
-// only as tool_execution_start.
+// The emit tool as the Host registers it: the contract's JSON Schema
+// projection, and the strict decoder, which answers a rejection reason or
+// undefined when the arguments decode.
 export interface EmitToolSpec {
   readonly name: string
   readonly description: string
   readonly parameters: JsonSchema.JsonSchema
-  readonly execute: (args: EmitToolArgs) => void
-  // The strict OutputContract decode, for hosts whose own validation of
-  // `parameters` is not the authority (Claude Code's --json-schema validator
-  // checks the projection, not the decoder). Answers the rejection reason, or
-  // undefined when the arguments decode.
-  readonly check: (args: EmitToolArgs) => string | undefined
+  readonly check: (raw: Schema.Json) => string | undefined
 }
 
-export interface SessionConfig {
-  // Stable identity for attribution, scripted selection, and diagnostics.
-  // It names no shared cache partition; an adapter without a cacheGroupId
-  // may still use it as this session's own (unshared) identity.
+export interface AgentSpec {
+  // Names the invocation in diagnostics and scripts.
   readonly invocationId: string
-  // The invocation's resolved seat, frozen in ReviewPlan. The live adapter
-  // resolves it through Pi; the factory carries no independently configured
-  // ambient model.
+  // The Stage role this invocation plays in its Run (`finder-1`, `pool`…).
+  // Invocations sharing a role share one Host agent, so they must share the
+  // system prompt, tools and emit tool.
+  readonly role: string
   readonly seat: Seat
-  // Host path of the Run's frozen snapshot worktree. Filesystem-facing tools
-  // observe it only through a per-invocation ReviewWorkspace overlay, and
-  // Pi's non-tool plumbing (resource loader, session manager) keeps the real
-  // path host-side; it is never model-visible.
-  readonly cwd: string
-  // Overrides Pi's stock system prompt. Must be non-empty: Pi treats an empty
-  // string as "use the stock prompt" (#4 §2).
+  // The Run's frozen snapshot, the root every inspection tool sees.
+  readonly workspace: string
   readonly systemPrompt: string
-  // Provider-neutral cache partition identity. An adapter may map this to a
-  // native session/cache key. Ordinary invocations leave it absent.
-  readonly cacheGroupId?: string
-  readonly emitTool: EmitToolSpec
-  // The complete non-emit capability set — which tools the session gets,
-  // always ReviewWorkspace-backed. These are recreated as custom Pi tools
-  // so their deadlines remain caller-owned.
-  readonly tools: ReadonlyArray<"read" | "bash">
-  readonly toolTimeoutMillis: number
-  readonly bashTimeoutMillis: number
+  readonly tools: ReadonlyArray<InspectionTool>
+  readonly emit: EmitToolSpec
+  // Finders in one partition share it, so the Host sends them one provider
+  // cache key.
+  readonly cacheGroup?: string
 }
 
-// The distinct steps an adapter's `open` can fail in — the coarse-error
-// operation discriminator. The seam enumerates every
-// adapter's operations so the union stays a closed, typo-proof set.
-export const InvocationSetupOperation = Schema.Literals([
-  "validate-config",
-  "model-runtime",
-  "resolve-model",
-  "session-construction",
-  "open",
-  "prompt",
-])
-export type InvocationSetupOperation = typeof InvocationSetupOperation.Type
+export interface HarnessSession {
+  readonly turn: (text: string) => Effect.Effect<TurnResult, AdapterContractViolation>
+  // Completes when the session's first model response streams its first token.
+  readonly firstToken: Effect.Effect<void>
+  // Stops the session and returns the usage of steps no turn has returned:
+  // what the turn a deadline cut short had already spent.
+  readonly cutShort: Effect.Effect<ReadonlyArray<UsageRow>>
+}
 
-// "No outcome can exist" — session construction failed (GLOSSARY.md: Failure).
-// `cause` retains the original thrown value for diagnosis at this multi-step
-// external boundary; `reason` is the human-readable rendering.
+// "No outcome can exist": the session could not be opened or prompted.
 export class InvocationSetupError extends Schema.TaggedError<
   InvocationSetupError,
   { readonly brand: unique symbol }
 >()("InvocationSetupError", {
-  operation: InvocationSetupOperation,
   reason: Schema.String,
   cause: Schema.optionalKey(Schema.Defect()),
 }) {}
 
-// "No outcome can exist" — the adapter broke its contract: a drifted usage
-// shape, an event that no longer decodes. Raised even when an emit was
-// captured, because a silently-$0 invocation is indistinguishable from a
-// healthy one (ADR 0001, #4 §8).
+// "No outcome can exist": the Host broke its contract, e.g. a turn ended
+// with no assistant message, or a validated emit failed the decoder.
 export class AdapterContractViolation extends Schema.TaggedError<
   AdapterContractViolation,
   { readonly brand: unique symbol }
@@ -191,29 +114,11 @@ export type InvocationFailure =
   | AdapterContractViolation
 
 export interface HarnessSessionFactoryContract {
-  // `open` may do blocking work (credential/catalog reads), so invocation
-  // gives it a narrower startup bound inside the absolute overall deadline.
-  // Interruptibility of the acquire is the invocation engine's job.
-  readonly open: (
-    config: SessionConfig,
-  ) => Effect.Effect<HarnessSession, InvocationSetupError, Scope.Scope>
-  // The repository root as this host's filesystem tools show it to the model,
-  // given the Run's snapshot worktree: Pi's ReviewWorkspace mounts it at a
-  // stable virtual root; Claude Code's own tools see the snapshot path itself.
-  readonly workspaceRoot: (snapshot: string) => string
-  // The content/prompts/ file that tells the model what those tools are:
-  // Pi's read and simulated bash over writable scratch, or Claude Code's
-  // read-only Read, Grep and Glob.
-  readonly workspacePrompt: string
-  // The name the prompts give a contract's emit tool on this host, given the
-  // contract's own name: Pi registers the tool under that name, and Claude
-  // Code serves every contract as its StructuredOutput tool.
-  readonly emitToolName: (toolName: string) => string
+  // The session lives until the scope closes; closing it stops and removes
+  // the Host's session.
+  readonly open: (spec: AgentSpec) => Effect.Effect<HarnessSession, InvocationSetupError, Scope.Scope>
 }
 
-// The single primary testing seam. Live layer: pi-live.ts. Test layer: the
-// scripted adapter (scripted.ts) — behavior-parameterized, so it plays the
-// role a static Fake would.
 export class HarnessSessionFactory extends Context.Service<
   HarnessSessionFactory,
   HarnessSessionFactoryContract

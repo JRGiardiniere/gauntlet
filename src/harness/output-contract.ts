@@ -26,10 +26,10 @@ const outputContractParseOptions = {
   onExcessProperty: "error",
 } as const
 
-// Pi validates model-authored arguments against this projection before
+// The Host validates model-authored arguments against this projection before
 // invoking the emit tool. Keep its excess-property policy identical to the
-// strict decoder below the adapter seam: otherwise Pi can accept a payload
-// that Gauntlet must immediately reject.
+// strict decoder: otherwise the Host can accept a payload that Gauntlet must
+// immediately reject.
 export const projectOutputContract = (
   contract: { readonly schema: Schema.Constraint },
 ) =>
@@ -49,7 +49,7 @@ const canonicalizeInlineText = (value: string): string =>
 
 // Model-authored text used by the line-oriented stage prompts is normalized at
 // the OutputContract seam so capture, persistence, and every consumer agree.
-// The projected pattern rejects blank text at tool validation, on Pi as in the
+// The projected pattern rejects blank text at tool validation, as in the
 // strict decode, instead of failing the run after a blank emit is accepted.
 export const inlineText = (description: string) =>
   described(Schema.String.check(Schema.isPattern(/\S/u)), description).pipe(

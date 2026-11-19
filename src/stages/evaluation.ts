@@ -1,6 +1,6 @@
 import * as Effect from "effect/Effect"
 import { invoke, type InvokeInput } from "../harness/invoke.ts"
-import { REVIEW_INVOCATION_DEADLINES } from "../run/invocation-policy.ts"
+import { REVIEW_INVOCATION_DEADLINE_MILLIS } from "../run/invocation-policy.ts"
 import {
   cacheShare,
   invocationTrail,
@@ -16,7 +16,7 @@ const EVALUATION_SYSTEM_PROMPT =
 
 export interface StageInvocation<O> extends Pick<
   InvokeInput<O>,
-  "invocationId" | "seat" | "cwd" | "prompt" | "contract" | "tools"
+  "invocationId" | "role" | "seat" | "workspace" | "prompt" | "contract" | "tools"
 > {
   // How the progress lines and run.log name the invocation.
   readonly label: string
@@ -29,7 +29,7 @@ export const invokeStageAgent = Effect.fn("StageAgent.invoke")(function* <O>(
   const outcome = yield* invoke({
     ...invocation,
     systemPrompt: EVALUATION_SYSTEM_PROMPT,
-    deadlines: REVIEW_INVOCATION_DEADLINES,
+    deadlineMillis: REVIEW_INVOCATION_DEADLINE_MILLIS,
   })
   yield* runProgress(
     `${label} done — ${invocationTrail(outcome)}`,

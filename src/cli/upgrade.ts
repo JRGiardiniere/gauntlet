@@ -101,8 +101,7 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
 const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
   Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))
 
-// The Host's own waits are bounded; this bounds the step as a whole, as the
-// Pi catalog refresh it replaces was.
+// The Host's own waits are bounded; this bounds the step as a whole.
 const MODEL_LIST_TIMEOUT = "90 seconds"
 
 const reportSeatFailure = (reason: string) =>

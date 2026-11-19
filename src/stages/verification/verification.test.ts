@@ -14,7 +14,6 @@ import {
   type ScriptedSession,
   usageRow,
 } from "../../harness/scripted.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { indexBugClaims } from "../pool/pool.ts"
 import type { VerdictsOutput } from "./output-contract.ts"
 import { executeVerification } from "./verification.ts"
@@ -60,19 +59,7 @@ const verdictSession = (
   verdicts: VerdictsOutput["verdicts"],
 ): ScriptedSession => ({
   forSession,
-  prompts: [{
-    events: [
-      { afterMillis: 0, kind: "message_start" },
-      { afterMillis: 0, kind: "emit", valid: true, args: { verdicts } },
-      {
-        afterMillis: 0,
-        kind: "message_end",
-        stopReason: "toolUse",
-        usage: usageRow(),
-      },
-    ],
-    settles: "after-events",
-  }],
+  turns: [{ emits: [{ verdicts }] }],
 })
 
 const runVerification = (scripted: Scripted, seatless = false) =>
@@ -152,14 +139,16 @@ describe("Verification stage interface", () => {
         bugClaimIds: ["five"],
       }])
       expect(result.coverageGaps).toEqual([])
-      expect(result.costUsd).toBe(0.1)
+      expect(result.usages).toEqual([
+        expect.objectContaining({ rawRows: [usageRow()] }),
+        expect.objectContaining({ rawRows: [usageRow()] }),
+      ])
       expect(result.invocationCount).toBe(2)
 
-      expect(scripted.configs).toHaveLength(2)
-      for (const config of scripted.configs) {
-        expect(config.cwd).toBe(REVIEW_ROOT)
-        expect(config.tools).toEqual(["read", "bash"])
-        expect(config.emitTool.name).toBe("emit_verdicts")
+      expect(scripted.specs).toHaveLength(2)
+      for (const spec of scripted.specs) {
+        expect(spec).toMatchObject({ role: "verifier", workspace: REVIEW_ROOT, tools: ["read", "grep", "glob"] })
+        expect(spec.emit.name).toBe("emit_verdicts")
       }
 
       // The real shipped templates, asserted structurally: every placeholder
@@ -173,8 +162,7 @@ describe("Verification stage interface", () => {
         )
       const first = promptFor("1")
       expect(first).not.toContain("{{")
-      expect(first).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
-      expect(first).not.toContain(REVIEW_ROOT)
+      expect(first).toContain(`Repo root: ${REVIEW_ROOT}`)
       expect(first.indexOf(SPECIFICATION_NEEDLE)).toBeGreaterThan(
         first.indexOf("+added-line"),
       )
@@ -207,8 +195,8 @@ describe("Verification stage interface", () => {
             "verification has no seat frozen in the review plan; retained every claim as plausible without examination",
         },
       ])
-      expect(result.costUsd).toBe(0)
+      expect(result.usages).toEqual([])
       expect(result.invocationCount).toBe(0)
-      expect(scripted.configs).toHaveLength(0)
+      expect(scripted.specs).toHaveLength(0)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

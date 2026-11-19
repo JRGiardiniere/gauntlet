@@ -1,52 +1,39 @@
 import { describe, expect, it } from "@effect/vitest"
-import * as Array from "effect/Array"
-import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import * as Logger from "effect/Logger"
-import * as References from "effect/References"
 import * as TestClock from "effect/testing/TestClock"
 import { Termination } from "../domain/agent-outcome.ts"
-import {
-  AdapterContractViolation,
-  type EmitToolArgs,
-  InvocationSetupError,
-} from "./harness-session.ts"
 import {
   invoke,
   invokeSignaled,
   type InvokeInput,
   PrefixSignal,
-  type RunningInvocation,
 } from "./invoke.ts"
-import {
-  EmitFindings,
-  type FindingsOutput,
-} from "./output-contract.ts"
+import { EmitFindings, type FindingsOutput } from "./output-contract.ts"
 import {
   makeScripted,
   scriptedLayer,
   type ScriptedBehavior,
-  type ScriptedPrompt,
+  type ScriptedTurn,
   usageRow,
 } from "./scripted.ts"
 
+// One AgentInvocation at the turn seam: the scripted Host plays turns, and
+// the invocation decides corrective turns, the deadline and the outcome.
+
+const DEADLINE_MILLIS = 60_000
+
 const INPUT: InvokeInput<FindingsOutput> = {
   invocationId: "fixture-invocation",
+  role: "finder-1",
   seat: "fixture/fixture-model:low",
-  cwd: "/fixture/repo",
+  workspace: "/fixture/snapshot",
   systemPrompt: "finder system prompt",
   prompt: "review this diff",
   contract: EmitFindings,
-  tools: ["read", "bash"],
-  deadlines: {
-    overallMillis: 60_000,
-    startupMillis: 5_000,
-    firstResponseMillis: 10_000,
-    toolMillis: 2_000,
-    bashMillis: 20_000,
-  },
+  tools: ["read", "grep", "glob"],
+  deadlineMillis: DEADLINE_MILLIS,
 }
 
 const GOOD_EMIT: FindingsOutput = {
@@ -61,825 +48,193 @@ const GOOD_EMIT: FindingsOutput = {
   ],
 }
 
-const OTHER_EMIT: FindingsOutput = {
-  findings: [{ file: "src/new.ts", summary: "newer recoverable output" }],
-}
+const emitting: ScriptedTurn = { afterMillis: 300, emits: [GOOD_EMIT] }
+const stopping: ScriptedTurn = { afterMillis: 300 }
 
-const completedPrompt = (emit: EmitToolArgs = GOOD_EMIT): ScriptedPrompt => ({
-  events: [
-    { afterMillis: 100, kind: "message_start" },
-    { afterMillis: 200, kind: "emit", args: emit, valid: true },
-    { afterMillis: 300, kind: "message_end", stopReason: "toolUse" },
-  ],
-  settles: "after-events",
-})
-
-const advanceUntilComplete = <A, E>(
-  fiber: Fiber.Fiber<A, E>,
-  maxMillis: number,
-) =>
+const run = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutput> = INPUT) =>
   Effect.gen(function* () {
-    const stepMillis = 250
-    for (let elapsed = 0; elapsed <= maxMillis; elapsed += stepMillis) {
-      if (fiber.pollUnsafe() !== undefined) {
-        return yield* Fiber.join(fiber)
-      }
-      yield* TestClock.adjust(Duration.millis(stepMillis))
-      yield* Effect.yieldNow
-    }
+    const scripted = makeScripted(behavior)
+    const fiber = yield* invoke(input).pipe(Effect.provide(scriptedLayer(scripted)), Effect.forkChild)
+    yield* TestClock.adjust(Duration.millis(input.deadlineMillis + 1))
+    return { outcome: yield* Fiber.join(fiber), scripted }
+  })
+
+const runFailure = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutput> = INPUT) =>
+  Effect.gen(function* () {
+    const scripted = makeScripted(behavior)
+    const fiber = yield* invoke(input).pipe(Effect.provide(scriptedLayer(scripted)), Effect.flip, Effect.forkChild)
+    yield* TestClock.adjust(Duration.millis(input.deadlineMillis + 1))
     return yield* Fiber.join(fiber)
   })
 
-const run = (
-  behavior: ScriptedBehavior,
-  input: InvokeInput<FindingsOutput> = INPUT,
-) => {
-  const scripted = makeScripted(behavior)
-  return Effect.gen(function* () {
-    const fiber = yield* Effect.forkChild(
-      invoke(input).pipe(Effect.provide(scriptedLayer(scripted))),
-    )
-    const outcome = yield* advanceUntilComplete(
-      fiber,
-      input.deadlines.overallMillis + input.deadlines.startupMillis + 1,
-    )
-    return { outcome, scripted }
-  })
-}
+describe("invoke", () => {
+  it.effect("completes on a validated emit and keeps its decoded output, usage and tool calls", () =>
+    Effect.gen(function* () {
+      const { outcome, scripted } = yield* run({
+        sessions: [{
+          turns: [{
+            afterMillis: 300,
+            emits: [GOOD_EMIT],
+            usage: [usageRow({ input: 10 }), usageRow({ input: 20, cacheRead: 5 })],
+            toolCalls: { total: 3, errored: 1 },
+          }],
+        }],
+      })
 
-const runFailure = (
-  behavior: ScriptedBehavior,
-  input: InvokeInput<FindingsOutput> = INPUT,
-) => {
-  const scripted = makeScripted(behavior)
-  return Effect.gen(function* () {
-    const fiber = yield* Effect.forkChild(
-      invoke(input).pipe(
-        Effect.provide(scriptedLayer(scripted)),
-        Effect.flip,
-      ),
-    )
-    const failure = yield* advanceUntilComplete(
-      fiber,
-      input.deadlines.overallMillis + input.deadlines.startupMillis + 1,
-    )
-    return { failure, scripted }
-  })
-}
+      expect(outcome.termination).toEqual(Termination.cases.Completed.make({}))
+      expect(outcome.output).toEqual(GOOD_EMIT)
+      expect(outcome.usage).toMatchObject({ input: 30, output: 400, cacheRead: 805, cacheWrite: 200, reasoning: 100 })
+      expect(outcome.usage.rawRows).toHaveLength(2)
+      expect(outcome.toolCalls).toEqual({ total: 3, errored: 1 })
+      expect(outcome.durationMillis).toBe(300)
+      expect(outcome.diagnostics).toEqual([])
+      expect(scripted.log).toEqual(["open:1", "turn:1.1", "close:1"])
+      expect(scripted.specs[0]).toMatchObject({
+        role: "finder-1",
+        workspace: "/fixture/snapshot",
+        systemPrompt: "finder system prompt",
+        tools: ["read", "grep", "glob"],
+      })
+      expect(scripted.specs[0]?.emit.name).toBe("emit_findings")
+    }))
 
-const cleanStop = (): ScriptedPrompt => ({
-  events: [
-    { afterMillis: 100, kind: "message_start" },
-    { afterMillis: 200, kind: "message_end", stopReason: "stop" },
-  ],
-  settles: "after-events",
+  it.effect("returns an emit the strict decoder rejects to the model inside the same turn", () =>
+    Effect.gen(function* () {
+      const { outcome, scripted } = yield* run({
+        sessions: [{
+          turns: [{ emits: [{ findings: [{ file: "a.ts", summary: "s", extra: true }] }, GOOD_EMIT] }],
+        }],
+      })
+
+      expect(outcome.termination._tag).toBe("Completed")
+      expect(outcome.output).toEqual(GOOD_EMIT)
+      expect(scripted.prompts).toHaveLength(1)
+      expect(outcome.diagnostics).toHaveLength(1)
+      expect(outcome.diagnostics[0]).toMatch(/^emit_findings rejected: /)
+    }))
+
+  it.effect("re-prompts the same session up to twice when a turn ends without an emit", () =>
+    Effect.gen(function* () {
+      const { outcome, scripted } = yield* run({
+        sessions: [{ turns: [stopping, stopping, emitting] }],
+      })
+
+      expect(outcome.termination._tag).toBe("Completed")
+      expect(outcome.output).toEqual(GOOD_EMIT)
+      expect(outcome.usage.rawRows).toHaveLength(3)
+      expect(scripted.log).toEqual(["open:1", "turn:1.1", "turn:1.2", "turn:1.3", "close:1"])
+      expect(scripted.prompts[1]?.text).toContain("You ended without calling emit_findings")
+      expect(outcome.diagnostics).toEqual(["validated emit succeeded after 2 corrective turns"])
+    }))
+
+  it.effect("ends MissingEmit after two corrective turns without an emit", () =>
+    Effect.gen(function* () {
+      const { outcome, scripted } = yield* run({
+        sessions: [{ turns: [stopping, stopping, stopping, emitting] }],
+      })
+
+      expect(outcome.termination).toEqual(Termination.cases.MissingEmit.make({ correctiveTurns: 2 }))
+      expect(outcome.output).toBeUndefined()
+      expect(scripted.prompts).toHaveLength(3)
+      expect(outcome.usage.rawRows).toHaveLength(3)
+    }))
+
+  it.effect.each([
+    { ending: { _tag: "ContextLimit" }, termination: "ContextLimit", diagnostic: "context limit reached" },
+    {
+      ending: { _tag: "ProviderFailed", reason: "529 overloaded" },
+      termination: "ProviderFailed",
+      diagnostic: "provider failed: 529 overloaded",
+    },
+    {
+      ending: { _tag: "Interrupted", reason: "stopped from outside" },
+      termination: "Interrupted",
+      diagnostic: "interrupted: stopped from outside",
+    },
+  ] as const)("ends $termination with no corrective turn, keeping the turn's usage", ({ ending, termination, diagnostic }) =>
+    Effect.gen(function* () {
+      const { outcome, scripted } = yield* run({ sessions: [{ turns: [{ ending }, emitting] }] })
+
+      expect(outcome.termination._tag).toBe(termination)
+      expect(outcome.output).toBeUndefined()
+      expect(outcome.diagnostics).toEqual([diagnostic])
+      expect(outcome.usage.rawRows).toHaveLength(1)
+      expect(scripted.prompts).toHaveLength(1)
+    }))
+
+  it.effect("ends BudgetExhausted at the one overall deadline, corrective turns included, and closes the session", () =>
+    Effect.gen(function* () {
+      const { outcome, scripted } = yield* run({
+        sessions: [{
+          turns: [
+            { afterMillis: 20_000 },
+            { afterMillis: 20_000 },
+            { ending: { _tag: "Hangs" }, usage: [usageRow({ input: 7 }), usageRow({ input: 9 })] },
+          ],
+        }],
+      })
+
+      expect(outcome.termination).toEqual(Termination.cases.BudgetExhausted.make({}))
+      expect(outcome.durationMillis).toBe(DEADLINE_MILLIS)
+      // The two turns that ended, then what the cut turn had already spent.
+      expect(outcome.usage.rawRows).toHaveLength(4)
+      expect(outcome.usage.input).toBe(2_016)
+      expect(outcome.diagnostics).toEqual(["overall invocation deadline exhausted"])
+      expect(scripted.log).toEqual(["open:1", "turn:1.1", "turn:1.2", "turn:1.3", "cut:1", "close:1"])
+    }))
+
+  it.effect("fails with InvocationSetupError when the session cannot open", () =>
+    Effect.gen(function* () {
+      const failure = yield* runFailure({ sessions: [{ failOpen: "agent not available", turns: [] }] })
+      expect(failure).toMatchObject({ _tag: "InvocationSetupError", reason: "agent not available" })
+    }))
+
+  it.effect("fails with AdapterContractViolation when the Host breaks its contract", () =>
+    Effect.gen(function* () {
+      const failure = yield* runFailure({ sessions: [{ turns: [stopping] }] })
+      expect(failure).toMatchObject({ _tag: "AdapterContractViolation", reason: "no scripted turn 2 for open 1" })
+    }))
+
+  it.effect("rejects an empty prompt before opening a session", () =>
+    Effect.gen(function* () {
+      const failure = yield* runFailure({ sessions: [{ turns: [emitting] }] }, { ...INPUT, prompt: "  " })
+      expect(failure).toMatchObject({ _tag: "InvocationSetupError", reason: "prompt must be non-empty" })
+    }))
 })
 
-const startSignaled = (scripted: ReturnType<typeof makeScripted>) =>
-  Effect.gen(function* () {
-    const started = yield* Deferred.make<RunningInvocation<FindingsOutput>>()
-    const owner = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const running = yield* invokeSignaled(INPUT).pipe(
-          Effect.provide(scriptedLayer(scripted)),
-        )
-        yield* Deferred.succeed(started, running)
-        return yield* Effect.never
-      }),
-    ).pipe(Effect.forkChild)
-    return { running: yield* Deferred.await(started), owner }
-  })
-
-describe("invoke (scripted HarnessSession, TestClock)", () => {
-  it.effect(
-    "signals the first metered response, then not-observed once the invocation is interrupted, settles unmetered, or cannot start",
-    () =>
-      Effect.gen(function* () {
-        const metered = makeScripted({
-          sessions: [{
-            prompts: [{
-              events: [
-                { afterMillis: 100, kind: "message_start" },
-                { afterMillis: 200, kind: "message_end", stopReason: "stop" },
-              ],
-              settles: "never",
-            }],
-          }],
-        })
-        const observed = yield* startSignaled(metered)
-        const observedSignal = yield* Effect.forkChild(
-          observed.running.firstResponse,
-        )
-        for (
-          let step = 0;
-          step < 8 && observedSignal.pollUnsafe() === undefined;
-          step += 1
-        ) {
-          yield* TestClock.adjust("100 millis")
-          yield* Effect.yieldNow
-        }
-        const observedPrefix = yield* Fiber.join(observedSignal)
-        expect(PrefixSignal.$is("PrefixObserved")(observedPrefix)).toBe(true)
-        // Still running: the signal never waits for session teardown.
-        expect(metered.log).not.toContain("dispose:1")
-        yield* Fiber.interrupt(observed.owner)
-
-        // A tool call before any message_end signals too: the response that
-        // asked for it has finished.
-        const tooled = makeScripted({
-          sessions: [{
-            prompts: [{
-              events: [{
-                afterMillis: 100,
-                kind: "emit",
-                args: { findings: [] },
-                valid: true,
-              }],
-              settles: "never",
-            }],
-          }],
-        })
-        const tooledRun = yield* startSignaled(tooled)
-        const tooledSignal = yield* Effect.forkChild(
-          tooledRun.running.firstResponse,
-        )
-        for (
-          let step = 0;
-          step < 4 && tooledSignal.pollUnsafe() === undefined;
-          step += 1
-        ) {
-          yield* TestClock.adjust("100 millis")
-          yield* Effect.yieldNow
-        }
-        const tooledPrefix = yield* Fiber.join(tooledSignal)
-        expect(PrefixSignal.$is("PrefixObserved")(tooledPrefix)).toBe(true)
-        yield* Fiber.interrupt(tooledRun.owner)
-
-        const stalled = makeScripted({
-          sessions: [{ prompts: [{ events: [], settles: "never" }] }],
-        })
-        const pending = yield* startSignaled(stalled)
-        const pendingSignal = yield* Effect.forkChild(
-          pending.running.firstResponse,
-        )
-        for (
-          let step = 0;
-          step < 8 && !stalled.log.includes("prompt:1.1");
-          step += 1
-        ) {
-          yield* Effect.yieldNow
-        }
-        expect(stalled.log).toContain("prompt:1.1")
-        yield* Fiber.interrupt(pending.owner)
-        const pendingPrefix = yield* Fiber.join(pendingSignal)
-        expect(PrefixSignal.$is("PrefixNotObserved")(pendingPrefix)).toBe(true)
-
-        // A prompt that starts and then settles with no terminal or metered
-        // event: the lifecycle finalizer, not a response, resolves the signal.
-        const unmetered = makeScripted({
-          sessions: [{
-            prompts: [{
-              events: [{ afterMillis: 0, kind: "message_start" }],
-              settles: "after-events",
-            }],
-          }],
-        })
-        const settled = yield* invokeSignaled(INPUT).pipe(
-          Effect.provide(scriptedLayer(unmetered)),
-        )
-        const settledPrefix = yield* settled.firstResponse
-        expect(PrefixSignal.$is("PrefixNotObserved")(settledPrefix)).toBe(true)
-        const settledFailure = yield* Effect.flip(settled.outcome)
-        expect(settledFailure).toBeInstanceOf(AdapterContractViolation)
-
-        const unavailable = makeScripted({
-          sessions: [{ failOpen: "provider unavailable", prompts: [] }],
-        })
-        const failed = yield* invokeSignaled(INPUT).pipe(
-          Effect.provide(scriptedLayer(unavailable)),
-        )
-        const failedPrefix = yield* failed.firstResponse
-        expect(PrefixSignal.$is("PrefixNotObserved")(failedPrefix)).toBe(true)
-        const failedFailure = yield* Effect.flip(failed.outcome)
-        expect(failedFailure).toBeInstanceOf(InvocationSetupError)
-      }),
-  )
-
-  it.effect(
-    "signals not-observed and retains the FirstResponseTimeout ending when the fresh retry cannot start",
-    () =>
-      Effect.gen(function* () {
-        const scripted = makeScripted({
-          sessions: [
-            {
-              prompts: [{ events: [], settles: "never" }],
-              abortBehavior: "hangs",
-            },
-            { failOpen: "retry unavailable", prompts: [] },
-          ],
-        })
-        const running = yield* invokeSignaled(INPUT).pipe(
-          Effect.provide(scriptedLayer(scripted)),
-        )
-        const signalFiber = yield* Effect.forkChild(running.firstResponse)
-        yield* TestClock.adjust("20 seconds")
-        yield* Effect.yieldNow
-
-        const prefix = yield* Fiber.join(signalFiber)
-        expect(PrefixSignal.$is("PrefixNotObserved")(prefix)).toBe(true)
-        const outcome = yield* running.outcome.pipe(Effect.orDie)
-        expect(
-          Termination.guards.FirstResponseTimeout(outcome.termination),
-        ).toBe(true)
-        expect(
-          Array.filter(scripted.log, (entry) => entry.startsWith("open:")),
-        ).toEqual(["open:1", "open:2"])
-        expect(Array.join(outcome.diagnostics, " ")).toContain("retry unavailable")
-        expect(Array.join(outcome.diagnostics, " ")).toContain(
-          "retained the first-response timeout outcome",
-        )
-
-        // The fresh retry opens but stalls too: still one retry, then the
-        // FirstResponseTimeout ending, with the signal finalized.
-        const twiceStalled = makeScripted({
-          sessions: [
-            { prompts: [{ events: [], settles: "never" }] },
-            { prompts: [{ events: [], settles: "never" }] },
-          ],
-        })
-        const stalledRun = yield* invokeSignaled(INPUT).pipe(
-          Effect.provide(scriptedLayer(twiceStalled)),
-        )
-        const stalledSignal = yield* Effect.forkChild(stalledRun.firstResponse)
-        yield* TestClock.adjust("20 seconds")
-        yield* Effect.yieldNow
-        const stalledPrefix = yield* Fiber.join(stalledSignal)
-        expect(PrefixSignal.$is("PrefixNotObserved")(stalledPrefix)).toBe(true)
-        const stalledOutcome = yield* stalledRun.outcome.pipe(Effect.orDie)
-        expect(
-          Termination.guards.FirstResponseTimeout(stalledOutcome.termination),
-        ).toBe(true)
-        expect(
-          Array.filter(twiceStalled.log, (entry) => entry.startsWith("open:")),
-        ).toEqual(["open:1", "open:2"])
-      }),
-  )
-
-  it.effect(
-    "retries a first-response stall, and a startup stall, in one fresh session",
-    () =>
-      Effect.gen(function* () {
-        const stalled = yield* run({
-          sessions: [
-            {
-              prompts: [{ events: [], settles: "never" }],
-              abortBehavior: "hangs",
-            },
-            { prompts: [completedPrompt()] },
-          ],
-        })
-
-        expect(Termination.guards.Completed(stalled.outcome.termination)).toBe(
-          true,
-        )
-        expect(
-          Array.filter(stalled.scripted.log, (entry) => entry.startsWith("open:")),
-        ).toEqual(["open:1", "open:2"])
-        expect(stalled.scripted.log).toContain("abort:1")
-        expect(stalled.scripted.log).toContain("prompt:1.1")
-        expect(stalled.scripted.log).toContain("prompt:2.1")
-        expect(Array.join(stalled.outcome.diagnostics, " ")).toContain("fresh session")
-
-        const startup = yield* run({
-          sessions: [
-            { openDelayMillis: 10_000, prompts: [] },
-            { prompts: [completedPrompt()] },
-          ],
-        })
-
-        expect(Termination.guards.Completed(startup.outcome.termination)).toBe(
-          true,
-        )
-        expect(
-          Array.filter(startup.scripted.log, (entry) => entry.startsWith("open:")),
-        ).toEqual(["open:1", "open:2"])
-        expect(startup.scripted.log).not.toContain("dispose:1")
-      }),
-  )
-
-  it.effect("uses corrective turns on the same clean session", () =>
+describe("invokeSignaled", () => {
+  const signaled = (behavior: ScriptedBehavior) =>
     Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [{ prompts: [cleanStop(), completedPrompt()] }],
-      })
-      expect(Termination.guards.Completed(outcome.termination)).toBe(true)
-      expect(Array.filter(scripted.log, (entry) => entry.startsWith("open:"))).toEqual([
-        "open:1",
-      ])
-      expect(Array.filter(scripted.log, (entry) => entry.startsWith("prompt:"))).toEqual([
-        "prompt:1.1",
-        "prompt:1.2",
-      ])
-      expect(scripted.prompts[1]?.text).toContain(
-        `You ended without calling ${scripted.factory.emitToolName(EmitFindings.toolName)}.`,
-      )
-      expect(Array.join(outcome.diagnostics, " ")).toContain("1 corrective turn")
-    }))
+      const scripted = makeScripted(behavior)
+      const running = yield* invokeSignaled(INPUT).pipe(Effect.provide(scriptedLayer(scripted)))
+      const signal = yield* running.firstResponse.pipe(Effect.forkChild)
+      return { running, signal }
+    })
 
-  it.effect("records missing emit after exactly two corrective turns", () =>
+  it.effect("signals PrefixObserved at the first streamed token, before the invocation ends", () =>
     Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [{ prompts: [cleanStop(), cleanStop(), cleanStop()] }],
+      const { running, signal } = yield* signaled({
+        sessions: [{ firstTokenAfterMillis: 100, turns: [{ afterMillis: 5_000, emits: [GOOD_EMIT] }] }],
       })
-      expect(outcome.termination).toEqual({
-        _tag: "MissingEmit",
-        correctiveTurns: 2,
-      })
-      expect(Array.filter(scripted.log, (entry) => entry.startsWith("prompt:"))).toHaveLength(3)
-    }))
+      const outcome = yield* running.outcome.pipe(Effect.forkChild)
+      yield* TestClock.adjust(Duration.millis(100))
+      const observed = yield* Fiber.join(signal)
+      expect(observed).toEqual(PrefixSignal.PrefixObserved())
+      expect(outcome.pollUnsafe()).toBeUndefined()
+      yield* TestClock.adjust(Duration.millis(5_000))
+      const ended = yield* Fiber.join(outcome)
+      expect(ended.termination._tag).toBe("Completed")
+    }).pipe(Effect.scoped))
 
-  it.effect("keeps output and usage beside provider failure", () =>
+  it.effect("signals PrefixNotObserved when the invocation ends without a first token", () =>
     Effect.gen(function* () {
-      const { outcome } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 150,
-                    kind: "emit",
-                    args: GOOD_EMIT,
-                    valid: true,
-                  },
-                  {
-                    afterMillis: 200,
-                    kind: "message_end",
-                    stopReason: "error",
-                    errorMessage: "upstream 529",
-                    usage: usageRow({ cost: { total: 0.01 } }),
-                  },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
+      const { running, signal } = yield* signaled({
+        sessions: [{ firstTokenAfterMillis: "never", turns: [{ afterMillis: 1_000, ending: { _tag: "ProviderFailed", reason: "down" } }] }],
       })
-      expect(Termination.guards.ProviderFailed(outcome.termination)).toBe(true)
-      expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(outcome.usage.costUsd).toBeCloseTo(0.01)
-      expect(Array.join(outcome.diagnostics, " ")).toContain("upstream 529")
-    }))
-
-  it.effect("keeps captured output when the absolute budget wins", () =>
-    Effect.gen(function* () {
-      const { outcome, scripted } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 200,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                  },
-                  {
-                    afterMillis: 300,
-                    kind: "emit",
-                    args: GOOD_EMIT,
-                    valid: true,
-                  },
-                ],
-                settles: "never",
-              },
-            ],
-            abortBehavior: "hangs",
-          },
-        ],
-      })
-      expect(Termination.guards.BudgetExhausted(outcome.termination)).toBe(true)
-      expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(outcome.usage.costUsd).toBeCloseTo(0.05)
-      expect(scripted.log).toContain("abort:1")
-      expect(scripted.log.slice(-3)).toEqual([
-        "unsubscribe:1",
-        "usage-read:1",
-        "dispose:1",
-      ])
-    }))
-
-  it.effect("maps only explicit cancellation provenance to Interrupted", () =>
-    Effect.gen(function* () {
-      // This signal represents cancellation from the caller, outside Effect.
-      // @effect-diagnostics-next-line abortControllerInEffect:off -- the test stands in for a caller outside Effect that cancels through its own signal
-      const controller = new AbortController()
-      const scripted = makeScripted({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 200,
-                    kind: "emit",
-                    args: GOOD_EMIT,
-                    valid: true,
-                  },
-                  {
-                    afterMillis: 300,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                  },
-                ],
-                settles: "never",
-              },
-            ],
-          },
-        ],
-      })
-      const fiber = yield* Effect.forkChild(
-        invoke({ ...INPUT, signal: controller.signal }).pipe(
-          Effect.provide(scriptedLayer(scripted)),
-        ),
-      )
-      for (let step = 0; step < 8; step += 1) {
-        yield* TestClock.adjust("250 millis")
-        yield* Effect.yieldNow
-        if (scripted.log.includes("event:1.1:emit")) break
-      }
-      expect(scripted.log).toContain("event:1.1:emit")
-      controller.abort("user requested cancellation")
-      const outcome = yield* Fiber.join(fiber)
-      expect(Termination.guards.Interrupted(outcome.termination)).toBe(true)
-      expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(outcome.diagnostics).toContain("explicit cancellation requested")
-    }))
-
-  it.effect(
-    "ends a context limit at once, on the newest salvage candidate that strictly decodes",
-    () =>
-      Effect.gen(function* () {
-        const { outcome, scripted } = yield* run({
-          sessions: [
-            {
-              prompts: [
-                {
-                  events: [
-                    { afterMillis: 100, kind: "message_start" },
-                    { afterMillis: 150, kind: "emit", args: GOOD_EMIT, valid: false },
-                    { afterMillis: 175, kind: "emit", args: OTHER_EMIT, valid: false },
-                    { afterMillis: 200, kind: "emit", args: { findings: [{ nope: true }] }, valid: false },
-                    { afterMillis: 250, kind: "message_end", stopReason: "length" },
-                  ],
-                  settles: "after-events",
-                },
-              ],
-            },
-          ],
-        })
-        expect(Termination.guards.ContextLimit(outcome.termination)).toBe(true)
-        expect(outcome.output).toEqual(OTHER_EMIT)
-        expect(Array.join(outcome.diagnostics, " ")).toContain("pre-validation")
-        // A context limit is never retried in a fresh session or corrected.
-        expect(
-          Array.filter(scripted.log, (entry) => entry.startsWith("open:")),
-        ).toHaveLength(1)
-        expect(
-          Array.filter(scripted.log, (entry) => entry.startsWith("prompt:")),
-        ).toHaveLength(1)
-      }),
-  )
-
-  it.effect("validated output wins and duplicate calls retain the first", () =>
-    Effect.gen(function* () {
-      const { outcome } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  { afterMillis: 150, kind: "emit", args: OTHER_EMIT, valid: false },
-                  { afterMillis: 200, kind: "emit", args: GOOD_EMIT, valid: true },
-                  { afterMillis: 250, kind: "emit", args: OTHER_EMIT, valid: true },
-                  { afterMillis: 300, kind: "message_end", stopReason: "toolUse" },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(outcome.output).toEqual(GOOD_EMIT)
-      expect(Array.join(outcome.diagnostics, " ")).toContain("retained the first")
-    }))
-
-  it.effect("reports the exact validated-output issue and logs its raw payload", () =>
-    Effect.gen(function* () {
-      const raw = {
-        findings: [
-          {
-            file: "src/a.ts",
-            summary: "extra field",
-            review_priority: "P1",
-          },
-        ],
-      }
-      const messages: Array<unknown> = []
-      const collector = Logger.make<unknown, void>(({ message }) => {
-        messages.push(message)
-      })
-      const scripted = makeScripted({
-        sessions: [{ prompts: [completedPrompt(raw)] }],
-      })
-      const fiber = yield* Effect.forkChild(
-        invoke(INPUT).pipe(
-          Effect.provide([
-            scriptedLayer(scripted),
-            Logger.layer([collector]),
-          ]),
-          Effect.flip,
-        ),
-      )
-      const failure = yield* advanceUntilComplete(
-        fiber,
-        INPUT.deadlines.overallMillis + INPUT.deadlines.startupMillis + 1,
-      )
-
-      expect(failure).toBeInstanceOf(AdapterContractViolation)
-      expect(failure.reason).toContain("review_priority")
-      expect(messages).toContainEqual([
-        "validated emit output contract violation",
-        expect.objectContaining({
-          invocationId: INPUT.invocationId,
-          toolName: EmitFindings.toolName,
-          raw,
-        }),
-      ])
-    }))
-
-  it.effect("reads and logs the complete session transcript only at debug level", () =>
-    Effect.gen(function* () {
-      const transcript = [
-        { type: "message", message: { role: "user", content: "review this diff" } },
-        {
-          type: "message",
-          message: {
-            role: "assistant",
-            content: [{ type: "toolCall", name: "emit_findings", arguments: GOOD_EMIT }],
-          },
-        },
-      ]
-      const ordinary = yield* run({
-        sessions: [{ prompts: [completedPrompt()], transcriptEntries: transcript }],
-      })
-      expect(ordinary.scripted.log).not.toContain("transcript-read:1")
-
-      const messages: Array<unknown> = []
-      const collector = Logger.make<unknown, void>(({ message }) => {
-        messages.push(message)
-      })
-      const scripted = makeScripted({
-        sessions: [{ prompts: [completedPrompt()], transcriptEntries: transcript }],
-      })
-      const fiber = yield* Effect.forkChild(
-        invoke(INPUT).pipe(
-          Effect.provide([
-            scriptedLayer(scripted),
-            Logger.layer([collector]),
-          ]),
-          Effect.provideService(References.MinimumLogLevel, "Debug"),
-        ),
-      )
-      yield* advanceUntilComplete(
-        fiber,
-        INPUT.deadlines.overallMillis + INPUT.deadlines.startupMillis + 1,
-      )
-
-      expect(scripted.log).toContain("transcript-read:1")
-      for (const [index, entry] of transcript.entries()) {
-        expect(messages).toContainEqual([
-          "agent transcript",
-          {
-            invocationId: INPUT.invocationId,
-            entryIndex: index + 1,
-            entry,
-          },
-        ])
-      }
-    }))
-
-  it.effect("rejects assistant activity after a validated final emit", () =>
-    Effect.gen(function* () {
-      const { failure } = yield* runFailure({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 200,
-                    kind: "emit",
-                    args: GOOD_EMIT,
-                    valid: true,
-                  },
-                  {
-                    afterMillis: 300,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                  },
-                  { afterMillis: 400, kind: "message_start" },
-                  {
-                    afterMillis: 500,
-                    kind: "message_end",
-                    stopReason: "stop",
-                  },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-
-      expect(failure).toBeInstanceOf(AdapterContractViolation)
-      expect(failure.reason).toContain(
-        "assistant activity continued after validated emit_findings",
-      )
-    }))
-
-  it.effect("fails loudly on usage drift even after a validated emit", () =>
-    Effect.gen(function* () {
-      const { failure } = yield* runFailure({
-        sessions: [
-          {
-            prompts: [completedPrompt()],
-            sweptUsageRows: [{ input: 1, tokenUsage: 2 }],
-          },
-        ],
-      })
-      expect(failure).toBeInstanceOf(AdapterContractViolation)
-      expect(failure.reason).toContain("accounting contract")
-    }))
-
-  it.effect("classifies prompt rejection from causal activity and evidence", () =>
-    Effect.gen(function* () {
-      const before = yield* runFailure({
-        sessions: [
-          {
-            prompts: [
-              { events: [], settles: "after-events", reject: "not accepted" },
-            ],
-          },
-        ],
-      })
-      expect(before.failure).toBeInstanceOf(InvocationSetupError)
-
-      const after = yield* runFailure({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [{ afterMillis: 100, kind: "message_start" }],
-                settles: "after-events",
-                reject: "rejected after activity",
-              },
-            ],
-          },
-        ],
-      })
-      expect(after.failure).toBeInstanceOf(AdapterContractViolation)
-
-      // Recorded violation evidence outranks the rejection itself.
-      const evidence = yield* runFailure({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  {
-                    afterMillis: 100,
-                    kind: "violation",
-                    reason: "message_start did not decode",
-                  },
-                ],
-                settles: "after-events",
-                reject: "prompt rejected",
-              },
-            ],
-          },
-        ],
-      })
-      expect(evidence.failure).toBeInstanceOf(AdapterContractViolation)
-      expect(evidence.failure.reason).toContain("message_start did not decode")
-    }))
-
-  it.effect("treats uncaused aborted and missing terminal evidence as drift", () =>
-    Effect.gen(function* () {
-      const aborted = yield* runFailure({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  { afterMillis: 200, kind: "message_end", stopReason: "aborted" },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(aborted.failure).toBeInstanceOf(AdapterContractViolation)
-
-      const missing = yield* runFailure({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [{ afterMillis: 100, kind: "message_start" }],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(missing.failure).toBeInstanceOf(AdapterContractViolation)
-      expect(missing.failure.reason).toContain("terminal assistant evidence")
-    }))
-
-  it.effect("retains raw usage in JSON-safe serialized form", () =>
-    Effect.gen(function* () {
-      const row = usageRow({ reasoning: undefined })
-      const { outcome } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  { afterMillis: 200, kind: "emit", args: GOOD_EMIT, valid: true },
-                  {
-                    afterMillis: 300,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                    usage: row,
-                  },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(outcome.usage.reasoning).toBe(0)
-      expect(outcome.usage.rawRows[0]).toEqual({
-        input: 1000,
-        output: 200,
-        cacheRead: 800,
-        cacheWrite: 100,
-        cost: { total: 0.05 },
-      })
-    }))
-
-  it.effect("counts inspection tool calls and their errors, never the emit", () =>
-    Effect.gen(function* () {
-      const { outcome } = yield* run({
-        sessions: [
-          {
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 100, kind: "message_start" },
-                  {
-                    afterMillis: 150,
-                    kind: "tool_error",
-                    toolName: "bash",
-                    detail: "critical patches failed",
-                  },
-                  {
-                    afterMillis: 175,
-                    kind: "tool_error",
-                    toolName: "read",
-                    detail: "no such file",
-                  },
-                  { afterMillis: 200, kind: "emit", args: GOOD_EMIT, valid: true },
-                  { afterMillis: 300, kind: "message_end", stopReason: "toolUse" },
-                ],
-                settles: "after-events",
-              },
-            ],
-          },
-        ],
-      })
-      expect(outcome.toolCalls).toEqual({ total: 2, errored: 2 })
-      expect(Array.join(outcome.diagnostics, " ")).toContain("tool read failed: no such file")
-    }))
+      yield* TestClock.adjust(Duration.millis(1_000))
+      const observed = yield* Fiber.join(signal)
+      expect(observed).toEqual(PrefixSignal.PrefixNotObserved())
+      const outcome = yield* running.outcome
+      expect(outcome.termination._tag).toBe("ProviderFailed")
+    }).pipe(Effect.scoped))
 })

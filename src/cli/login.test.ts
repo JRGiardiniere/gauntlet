@@ -34,6 +34,7 @@ const fakeHost = (
     const checks = yield* Ref.make(0)
     const untouched = Effect.die("unused")
     return hostLayer({
+      openSession: () => untouched,
       listModels: untouched,
       connection: (id) =>
         id === "claude-agent"

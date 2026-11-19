@@ -10,7 +10,6 @@ const emptyUsage = {
   cacheRead: 0,
   cacheWrite: 0,
   reasoning: 0,
-  costUsd: 0,
   rawRows: [],
 }
 
@@ -93,31 +92,5 @@ describe("finder assembly", () => {
       }],
       coverageGaps: [],
     })
-  })
-
-  it("uses a timeout diagnostic to explain a missing finder output", () => {
-    const routed = routeFinderResults([
-      {
-        lens: fixtureLens(),
-        outcome: {
-          termination: Termination.cases.FirstResponseTimeout.make({}),
-          usage: emptyUsage,
-      toolCalls: { total: 0, errored: 0 },
-          durationMillis: 120_000,
-          diagnostics: [
-            "attempt 1 completed",
-            "session construction exceeded 60000ms",
-          ],
-        },
-      },
-    ])
-
-    expect(routed.coverageGaps).toEqual([
-      {
-        stage: "finders",
-        lens: "fixture-lens",
-        reason: "session construction exceeded 60000ms",
-      },
-    ])
   })
 })

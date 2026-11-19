@@ -144,16 +144,17 @@ semantics.
 Every runnable planned Finder is partitioned by the complete resolved Seat and
 shared context shape: ordinary context, or ordinary context plus the frozen
 ReviewSpecification. A singleton runs directly. A larger partition starts one
-ordinary Finder first. Its first
-successfully decoded usage-bearing assistant `message_end` produces the total
+ordinary Finder first. Its first streamed token produces the total
 `PrefixObserved` scheduling signal. If the invocation settles or fails before
 that evidence, finalization produces `PrefixNotObserved` instead, so the
 partition cannot deadlock. `PrefixObserved` starts a fixed 1,500 ms best-effort
 settle delay; then every remaining ordinary Finder starts while the first
-continues concurrently. `PrefixNotObserved` skips only the delay.
+continues concurrently. `PrefixNotObserved` skips only the delay. The
+followers wait at most 120 s for either signal; past that they start beside
+the first without the delay.
 
-One provider-neutral cache-group identifier names the partition; an adapter may
-map it to a native key. Every Finder receives a complete prompt whose system
+One provider-neutral cache-group identifier names the partition; the Host sends
+it as every partition request's OpenAI `prompt_cache_key` and session headers. Every Finder receives a complete prompt whose system
 prompt (finder system prompt plus shared block) and tools are byte-identical;
 only the user message, the Lens tail, differs.
 A missing or failed cache changes cost only: all Finders retain the ordinary

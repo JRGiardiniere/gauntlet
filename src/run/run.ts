@@ -128,7 +128,7 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
     case "InvocationSetupError":
       return RunRefusal.make({
         reason:
-          `could not review — invocation ${failure.operation}: ${failure.reason}`,
+          `could not review — invocation could not start: ${failure.reason}`,
       })
     case "PlatformError":
       return RunRefusal.make({

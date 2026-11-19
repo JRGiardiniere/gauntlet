@@ -21,7 +21,6 @@ const emptyUsage = {
   cacheRead: 0,
   cacheWrite: 0,
   reasoning: 0,
-  costUsd: 0,
   rawRows: [],
 }
 

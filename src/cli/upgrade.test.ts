@@ -30,6 +30,7 @@ const models: ReadonlyArray<HostModel> = [
 const hostListing = (listModels: Effect.Effect<ReadonlyArray<HostModel>, HostError>) => {
   const untouched = Effect.die("unused")
   return hostLayer({
+    openSession: () => untouched,
     listModels,
     connection: () => untouched,
     chatGptSignIn: { start: untouched, status: () => untouched, paste: () => untouched, cancel: () => untouched },

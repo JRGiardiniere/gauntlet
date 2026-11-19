@@ -18,10 +18,19 @@ import {
 } from "./prompt-template.ts"
 import { renderSpecificationSection } from "./specification-section.ts"
 import type { RelatedFiles } from "../workspace/related-files.ts"
+import { INSPECTION_TOOLS } from "../harness/harness-session.ts"
+import { EmitFindings } from "../harness/output-contract.ts"
+
+// What every Stage with tools is told about them.
+export const WORKSPACE_PROMPT = "workspace.md"
+
+// The repo root as a Finder's prompt names it: the session's working
+// directory is the snapshot, and a path in the prefix would differ per Run.
+export const RELATIVE_REPO_ROOT = "your working directory (give tools paths relative to it)"
 
 export { PromptAssemblyError }
 
-export const FINDER_TOOLS = ["read", "bash"] as const
+export const FINDER_TOOLS = INSPECTION_TOOLS
 
 export interface FinderPromptTemplates {
   readonly systemPrompt: string
@@ -73,20 +82,20 @@ const promptReader = Effect.fn("FinderPrompt.promptReader")(
 
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
-)(function* (workspacePrompt: string, emitToolName: string) {
+)(function* () {
   const readPrompt = yield* promptReader()
   const [systemTemplate, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
     [
       readPrompt("finder-system.md"),
       readPrompt("finder-shared-block.md"),
-      readPrompt(workspacePrompt),
+      readPrompt(WORKSPACE_PROMPT),
     ],
     { concurrency: 3 },
   )
   const systemPrompt = yield* renderPromptTemplate(
     "finder system",
     systemTemplate,
-    [["EMIT_TOOL", emitToolName]],
+    [["EMIT_TOOL", EmitFindings.toolName]],
   )
   return {
     // Rendering trims the template's end. Restoring the final newline keeps

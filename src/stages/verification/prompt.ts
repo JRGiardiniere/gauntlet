@@ -34,9 +34,9 @@ export interface VerifierPromptTemplates extends StageScopeTemplates {
 
 export const loadVerifierPromptTemplates = Effect.fn(
   "Verification.loadPromptTemplates",
-)(function* (workspacePrompt: string) {
+)(function* () {
   const [verifier, scope] = yield* Effect.all(
-    [readPromptTemplate(templatePath), loadStageScopeTemplates(workspacePrompt)],
+    [readPromptTemplate(templatePath), loadStageScopeTemplates()],
     { concurrency: 2 },
   )
   return { verifier, ...scope } satisfies VerifierPromptTemplates

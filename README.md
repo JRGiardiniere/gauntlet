@@ -16,8 +16,8 @@ Set combinations of models and reasoning effort, save them as review levels
 Findings arrive in a report called a dossier, every bug claim carries a verdict
 (confirmed / plausible / refuted) to help steer your review.
 
-Built on the Pi Agent SDK. Works out of the box with all models, And special care was
-taken to make sure it caches well with OpenAI, Deepseek and other popular providers.
+Runs on an embedded OpenCode Host, so Claude and OpenAI models mix freely across
+a review's stages, and special care was taken to make sure it caches well.
 
 ## How it works
 
@@ -53,9 +53,8 @@ store under `~/.gauntlet/opencode`; your own OpenCode, Codex and Pi logins are
 never read or touched. On a machine you reach remotely, paste the URL the
 browser was redirected to when it asks. To use an OpenAI API key instead, set
 `OPENAI_API_KEY` in the environment; no login is needed. The Claude recipes
-(`claude-low`, `claude-medium`, `claude-high`) will use your installed `claude`
-login once reviews run on the embedded OpenCode Host (#198); until then reviews
-run on Pi and read Pi's own login. On an existing, valid configuration,
+(`claude-low`, `claude-medium`, `claude-high`) use your installed `claude`
+login. On an existing, valid configuration,
 `gauntlet config init` adds the Claude recipes if they are missing, and never
 overwrites a recipe you have.
 
@@ -72,7 +71,7 @@ overwrites a recipe you have.
 ## Debugging a review
 
 Run a review with `gauntlet --log-level debug review ...` to include each
-invocation's complete Pi session transcript in that Run's existing `run.log`.
+invocation's complete session transcript in that Run's existing `run.log`.
 The transcript entries include prompts, model messages, tool calls, and tool
 results. Normal terminal output stays bounded, and ordinary CLI reviews do not
-read or persist transcripts.
+log or persist transcripts.

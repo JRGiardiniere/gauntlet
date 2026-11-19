@@ -39,6 +39,7 @@ export const liveHostLayer = (catalog: ModelCatalog = { _tag: "Fetch" }) =>
         ),
       )
       return Host.of({
+        openSession: (spec) => Effect.flatMap(booted, (host) => host.openSession(spec)),
         listModels: Effect.flatMap(booted, (host) => host.listModels),
         connection: (integration) => Effect.flatMap(booted, (host) => host.connection(integration)),
         chatGptSignIn: {

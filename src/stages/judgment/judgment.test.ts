@@ -12,7 +12,6 @@ import {
   type ScriptedSession,
   usageRow,
 } from "../../harness/scripted.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../../workspace/review-workspace.ts"
 import { executeJudgment } from "./judgment.ts"
 
 const REPO_ROOT = "/fixture/repo"
@@ -37,14 +36,8 @@ const observations = globalThis.Array.from({ length: 2 }, (_, index) =>
   }))
 
 const keepingSession = (): ScriptedSession => ({
-  prompts: [{
-    events: [
-      { afterMillis: 0, kind: "message_start" },
-      {
-        afterMillis: 0,
-        kind: "emit",
-        valid: true,
-        args: {
+  turns: [{
+    emits: [{
           decisions: [
             {
               index: 1,
@@ -61,16 +54,7 @@ const keepingSession = (): ScriptedSession => ({
               reason: "the same root observation",
             },
           ],
-        },
-      },
-      {
-        afterMillis: 0,
-        kind: "message_end",
-        stopReason: "toolUse",
-        usage: usageRow(),
-      },
-    ],
-    settles: "after-events",
+    }],
   }],
 })
 
@@ -125,15 +109,18 @@ describe("Judgment stage interface", () => {
         mergedCandidateIds: ["fixture/2"],
       })
       expect(result.coverageGaps).toEqual([])
-      expect(result.costUsd).toBe(0.05)
+      expect(result.usages).toEqual([expect.objectContaining({ rawRows: [usageRow()] })])
       expect(result.invocationCount).toBe(1)
 
-      expect(scripted.configs).toHaveLength(1)
-      expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(scripted.configs[0]?.cwd).toBe(REVIEW_ROOT)
-      expect(scripted.configs[0]?.cacheGroupId).toBeUndefined()
-      expect(scripted.configs[0]?.tools).toEqual(["read", "bash"])
-      expect(scripted.configs[0]?.emitTool.name).toBe("emit_judgments")
+      expect(scripted.specs).toHaveLength(1)
+      expect(scripted.specs[0]).toMatchObject({
+        role: "judge",
+        seat: "openai-codex/gpt-5.6-luna:low",
+        workspace: REVIEW_ROOT,
+        tools: ["read", "grep", "glob"],
+      })
+      expect(scripted.specs[0]?.cacheGroup).toBeUndefined()
+      expect(scripted.specs[0]?.emit.name).toBe("emit_judgments")
 
       // The real shipped templates, asserted structurally: every placeholder
       // resolved, the candidate lines and scope block present — never wording.
@@ -148,9 +135,8 @@ describe("Judgment stage interface", () => {
       expect(prompt).toContain(
         "- [c1] alpha.txt:2 — the added line breaks parsing",
       )
-      // The prompt shows the stable virtual root, never a host path (#58).
-      expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
-      expect(prompt).not.toContain(REVIEW_ROOT)
+      // The prompt shows the snapshot the tools see, never the checkout.
+      expect(prompt).toContain(`Repo root: ${REVIEW_ROOT}`)
       expect(prompt).not.toContain(REPO_ROOT)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -171,9 +157,9 @@ describe("Judgment stage interface", () => {
             "judgment has no seat frozen in the review plan; retained every observation as undecided",
         },
       ])
-      expect(result.costUsd).toBe(0)
+      expect(result.usages).toEqual([])
       expect(result.invocationCount).toBe(0)
-      expect(scripted.configs).toHaveLength(0)
+      expect(scripted.specs).toHaveLength(0)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps an off-spec emit visible as undecided with the missing-output reason", () =>
@@ -181,29 +167,14 @@ describe("Judgment stage interface", () => {
       const scripted = makeScripted({
         sessions: [
           {
-            prompts: globalThis.Array.from({ length: 3 }, () => ({
-              events: [
-                { afterMillis: 0, kind: "message_start" as const },
-                {
-                  afterMillis: 0,
-                  kind: "emit" as const,
-                  valid: false,
-                  args: {
-                    decisions: [{
-                      index: 1,
-                      decision: "keep",
-                      reason: "missing the required keep fields",
-                    }],
-                  },
-                },
-                {
-                  afterMillis: 0,
-                  kind: "message_end" as const,
-                  stopReason: "toolUse" as const,
-                  usage: usageRow(),
-                },
-              ],
-              settles: "after-events" as const,
+            turns: globalThis.Array.from({ length: 3 }, () => ({
+              emits: [{
+                decisions: [{
+                  index: 1,
+                  decision: "keep",
+                  reason: "missing the required keep fields",
+                }],
+              }],
             })),
           },
         ],

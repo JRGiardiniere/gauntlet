@@ -77,10 +77,8 @@ _Avoid_: host (that's the agent platform), host path, host file
 
 **ReviewWorkspace**:
 The confined repository view exposed to filesystem-capable AgentInvocations,
-over the Run's frozen snapshot. On Pi it is, per invocation, a copy-on-write
-overlay behind a stable virtual root, with invocation-local disposable
-scratch writes; on Claude Code it is read-only tools fenced to the snapshot
-itself. Either way the snapshot stays unmodified, and the machine is out of
+over the Run's frozen snapshot: the Host's read-only `read`, `grep` and `glob`
+tools, rooted at the snapshot itself. The snapshot stays unmodified, and the machine is out of
 reach by capability reduction — no guest git, machine processes, or network —
 not by hardened isolation against a hostile repository.
 _Avoid_: sandbox (a future project-execution environment has a materially
@@ -204,8 +202,8 @@ endings live here, never in the error channel.
 _Avoid_: agent result, agent error, response
 
 **Termination**:
-How an invocation ended (completed, missing emit, first-response timeout,
-budget exhausted, context limit, provider failed, interrupted). A mode on an
+How an invocation ended (completed, missing emit, budget exhausted, context
+limit, provider failed, interrupted). A mode on an
 AgentOutcome, not a failure.
 _Avoid_: failure, crash, timeout (as a noun for the ending)
 

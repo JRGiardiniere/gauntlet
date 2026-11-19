@@ -1,8 +1,9 @@
 // The compiled live gate's runMain boundary: build the single-file binary,
 // then prove it end to end from a fresh HOME — `config init` seeds against
 // the embedded catalog, and one real working-tree review runs the whole
-// pipeline through the binary. Pi credentials are the one thing carried over
-// from the real HOME; everything else starts empty. The temp root is removed
+// pipeline through the binary. Logins are the one thing carried over from the
+// real HOME: Claude's through CLAUDE_CONFIG_DIR, and a copy of Gauntlet's own
+// OpenCode store when it exists; everything else starts empty. The temp root is removed
 // only on success, leaving debris behind for inspection when a step fails.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
@@ -62,18 +63,21 @@ const program = Effect.gen(function* () {
 
   const root = yield* fs.makeTempDirectory({ prefix: "gauntlet-live-gate-compiled-" })
   const home = path.join(root, "home")
-  yield* fs.makeDirectory(path.join(home, ".pi", "agent"), { recursive: true })
+  const store = path.join(".gauntlet", "opencode")
+  yield* fs.makeDirectory(path.join(home, store), { recursive: true })
   yield* Effect.forEach(
-    ["auth.json", "models-store.json", "settings.json"],
+    ["gauntlet.db", "gauntlet.db-wal", "gauntlet.db-shm"],
     (file) =>
-      fs.copyFile(
-        path.join(realHome, ".pi", "agent", file),
-        path.join(home, ".pi", "agent", file),
+      fs.exists(path.join(realHome, store, file)).pipe(
+        Effect.flatMap((present) =>
+          present
+            ? fs.copyFile(path.join(realHome, store, file), path.join(home, store, file))
+            : Effect.void),
       ),
   )
 
   const binary = path.join(repoRoot, "dist", "gauntlet")
-  const env = { HOME: home }
+  const env = { HOME: home, CLAUDE_CONFIG_DIR: path.join(realHome, ".claude") }
   yield* runStep("config init in a fresh HOME", binary, ["config", "init"], { env })
 
   const repo = path.join(root, "repo")

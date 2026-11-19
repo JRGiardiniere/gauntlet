@@ -3,6 +3,7 @@ import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
+import * as Hash from "effect/Hash"
 import * as HashMap from "effect/HashMap"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
@@ -17,6 +18,7 @@ import {
   FINDER_TOOLS,
   loadFinderPromptTemplates,
   loadRelatedFilesTemplate,
+  RELATIVE_REPO_ROOT,
   renderRelatedFiles,
 } from "../content/finder-prompt.ts"
 import {
@@ -24,9 +26,9 @@ import {
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import {
+import type {
   HarnessSessionFactory,
-  type InvocationFailure,
+  InvocationFailure,
 } from "../harness/harness-session.ts"
 import {
   invoke,
@@ -38,7 +40,7 @@ import {
   type FindingsOutput,
 } from "../harness/output-contract.ts"
 import { writeArtifactJson } from "./artifact.ts"
-import { REVIEW_INVOCATION_DEADLINES } from "./invocation-policy.ts"
+import { FINDER_FOLLOWER_WAIT_MILLIS, REVIEW_INVOCATION_DEADLINE_MILLIS } from "./invocation-policy.ts"
 import {
   finderInvocationsInPlan,
   finderPartitionsInPlan,
@@ -60,6 +62,20 @@ export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
     defaultValue: () => FinderCacheSettleDelay,
   },
 )
+
+// One Finder partition: its Host agent, its provider cache key, and the
+// shared context every one of its system prompts carries.
+interface Partition {
+  readonly role: string
+  readonly label: string
+  readonly cacheGroup: string
+  readonly sharedContext: string
+}
+
+// The provider cache key comes from the prefix itself, not the Run, so a
+// later Run over the same change finds the cache an earlier one warmed.
+const cacheGroupFor = (seat: string, sharedContext: string) =>
+  `gauntlet-finders-${(Hash.string(`${seat}\n${sharedContext}`) >>> 0).toString(36)}`
 
 interface FinderExecutionInput {
   readonly plan: ReviewPlan
@@ -93,13 +109,7 @@ export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
   const invocations = finderInvocationsInPlan(plan)
-  const host = yield* HarnessSessionFactory
-  const templates = yield* Effect.cached(
-    loadFinderPromptTemplates(
-      host.workspacePrompt,
-      host.emitToolName(EmitFindings.toolName),
-    ),
-  )
+  const templates = yield* Effect.cached(loadFinderPromptTemplates())
   // Gathered once, by the first partition that needs it.
   const relatedFilesSection = yield* Effect.cached(
     Effect.gen(function* () {
@@ -126,24 +136,24 @@ export const executeFinders = Effect.fn(
     "gauntlet.finder_execution.make_finder_input",
   )(function* (
     invocation: (typeof invocations)[number],
-    cacheGroupId: string,
-    sharedContext: string,
+    partition: Partition,
   ) {
     const promptTemplates = yield* templates
     return {
-      invocationId: `${cacheGroupId}-${invocation.invocationKey}`,
+      invocationId: `${partition.label}-${invocation.invocationKey}`,
+      role: partition.role,
       seat: invocation.seat,
-      cwd: reviewWorkingDirectory,
+      workspace: reviewWorkingDirectory,
       // The shared block rides in the system prompt, not the first user
       // message: OpenAI Codex shares a cached prefix across requests only for
       // `instructions`, and a user-message prefix is reused only within one
       // conversation (measured 2026-09-10: 0/3 vs 3/3 followers cached).
-      systemPrompt: `${promptTemplates.systemPrompt}\n\n${sharedContext}`,
+      systemPrompt: `${promptTemplates.systemPrompt}\n\n${partition.sharedContext}`,
       prompt: assembleFinderAssignment(invocation.lens),
-      cacheGroupId,
+      cacheGroup: partition.cacheGroup,
       contract: EmitFindings,
       tools: FINDER_TOOLS,
-      deadlines: REVIEW_INVOCATION_DEADLINES,
+      deadlineMillis: REVIEW_INVOCATION_DEADLINE_MILLIS,
     }
   })
 
@@ -167,15 +177,10 @@ export const executeFinders = Effect.fn(
     "gauntlet.finder_execution.execute_finder",
   )(function* (
     invocation: (typeof invocations)[number],
-    cacheGroupId: string,
-    sharedContext: string,
+    partition: Partition,
   ) {
     yield* runProgress(`invoking finder ${invocation.lens.name}`)
-    const input = yield* makeFinderInput(
-      invocation,
-      cacheGroupId,
-      sharedContext,
-    )
+    const input = yield* makeFinderInput(invocation, partition)
     return yield* finishFinder(invocation, invoke(input))
   })
 
@@ -184,24 +189,31 @@ export const executeFinders = Effect.fn(
     groups,
     (group, groupIndex) =>
       Effect.gen(function* () {
-        const cacheGroupId = `${plan.runId}-finders-${String(groupIndex + 1)}`
         const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
+        // The Host's tools resolve relative paths in the snapshot, so the
+        // prefix names no per-Run path.
         const baseContext = yield* assembleFinderContext(
           promptTemplates,
           plan.target,
-          host.workspaceRoot(reviewWorkingDirectory),
+          RELATIVE_REPO_ROOT,
           starter.context,
         )
         const relatedFiles = yield* relatedFilesSection
         const sharedContext = relatedFiles === undefined
           ? baseContext
           : `${baseContext}\n\n${relatedFiles}`
+        const partition: Partition = {
+          role: `finder-${String(groupIndex + 1)}`,
+          label: `${plan.runId}-finders-${String(groupIndex + 1)}`,
+          cacheGroup: cacheGroupFor(starter.seat, sharedContext),
+          sharedContext,
+        }
         if (group.length === 1) {
           const [completed, failed] = yield* Effect.partition(
             group,
             (invocation) =>
-              executeFinder(invocation, cacheGroupId, sharedContext).pipe(
+              executeFinder(invocation, partition).pipe(
                 Effect.mapError((error) => ({ invocation, error })),
               ),
           )
@@ -209,14 +221,16 @@ export const executeFinders = Effect.fn(
         }
 
         yield* runProgress(`invoking finder ${starter.lens.name}`)
-        const starterInput = yield* makeFinderInput(
-          starter,
-          cacheGroupId,
-          sharedContext,
-        )
+        const starterInput = yield* makeFinderInput(starter, partition)
         const running = yield* invokeSignaled(starterInput)
-        const signal = yield* running.firstResponse
-        if (PrefixSignal.$is("PrefixObserved")(signal)) {
+        const signal = yield* running.firstResponse.pipe(
+          Effect.timeoutOption(Duration.millis(FINDER_FOLLOWER_WAIT_MILLIS)),
+        )
+        if (Option.isNone(signal)) {
+          yield* runProgress(
+            `finder ${starter.lens.name} streamed nothing within ${String(FINDER_FOLLOWER_WAIT_MILLIS / 1000)}s; starting the rest of its partition`,
+          )
+        } else if (PrefixSignal.$is("PrefixObserved")(signal.value)) {
           yield* (yield* FinderCacheSettle)
         }
 
@@ -225,7 +239,7 @@ export const executeFinders = Effect.fn(
           (invocation) =>
             (invocation === starter
               ? finishFinder(starter, running.outcome)
-              : executeFinder(invocation, cacheGroupId, sharedContext)
+              : executeFinder(invocation, partition)
             ).pipe(Effect.mapError((error) => ({ invocation, error }))),
           { concurrency: "unbounded" },
         )

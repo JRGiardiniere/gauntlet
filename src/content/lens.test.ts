@@ -52,6 +52,23 @@ describe("lens content", () => {
       }),
     ).pipe(Effect.provide(NodeServices.layer)))
 
+  it.effect("reads quoted values and trailing comments, and takes a leading --- rule as prose", () =>
+    withFixtureDirectory((directory) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem
+        yield* fs.writeFileString(
+          `${directory}/fixture-lens.md`,
+          "---\nfinder-class: interpretive # the lens judges\ncategory: 'fixture # category'\n---\nfixture body\n",
+        )
+        const commented = yield* loadLens(directory, "fixture-lens")
+        expect(commented.finderClass).toBe("interpretive")
+
+        yield* fs.writeFileString(`${directory}/fixture-lens.md`, "----\nfixture body after a rule\n")
+        const ruled = yield* loadLens(directory, "fixture-lens")
+        expect(ruled.promptText).toBe("----\nfixture body after a rule\n")
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)))
+
   it.effect("rejects lens-owned seats and unsupported finder classes", () =>
     withFixtureDirectory((directory) =>
       Effect.gen(function* () {

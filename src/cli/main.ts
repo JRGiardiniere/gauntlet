@@ -26,7 +26,7 @@ const gauntlet = Command.make("gauntlet").pipe(
     loginCommand,
     upgradeCommand,
   ]),
-  Command.withDescription("Effect-native, Pi-harnessed code-review agent"),
+  Command.withDescription("Effect-native code-review agent on an embedded OpenCode Host"),
 )
 
 // The daily notice is claimed after the exit code is decided: by then a

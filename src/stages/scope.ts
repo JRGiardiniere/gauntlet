@@ -1,3 +1,4 @@
+import { WORKSPACE_PROMPT } from "../content/finder-prompt.ts"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Path from "effect/Path"
@@ -26,13 +27,13 @@ export interface StageScopeTemplates {
 }
 
 export const loadStageScopeTemplates = Effect.fn("StageScope.loadTemplates")(
-  function* (workspacePrompt: string) {
+  function* () {
     const path = yield* Path.Path
     const contentDirectory = yield* ContentDirectory
     const workspacePromptPath = path.join(
       contentDirectory,
       "prompts",
-      workspacePrompt,
+      WORKSPACE_PROMPT,
     )
     const [stageScope, workspaceTools] = yield* Effect.all(
       [readPromptTemplate(templatePath), readPromptTemplate(workspacePromptPath)],

@@ -13,6 +13,7 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+import { GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
 import {
   type ConnectionState,
   type HostContract,
@@ -27,8 +28,9 @@ import {
 
 // What a Run needs from OpenCode: an agent, the two providers, three read
 // tools and the prompt and config plugins they lean on. `-*` also drops SDK
-// plugins, so Gauntlet's own plugin joins this list when it arrives (#198).
+// plugins, so Gauntlet's own plugin is listed too.
 export const KEPT_PLUGINS = [
+  GAUNTLET_PLUGIN_ID,
   "opencode.agent",
   "opencode.config.agent",
   "opencode.config.provider",
@@ -93,7 +95,14 @@ const catalogOptions = (catalog: ModelCatalog) =>
     ? { file: catalog.path, fetch: false, snapshot: false }
     : { snapshot: false }
 
-const hostOptions = (paths: HostPaths, catalog: ModelCatalog, path: Path.Path, content: string) => ({
+const hostOptions = (
+  paths: HostPaths,
+  catalog: ModelCatalog,
+  path: Path.Path,
+  content: string,
+  registry: ReturnType<typeof makeRegistry>,
+) => ({
+  plugins: [gauntletPlugin(registry)],
   app: { name: "gauntlet", channel: "gauntlet" },
   database: { path: paths.database },
   config: {
@@ -149,16 +158,21 @@ const toSignInStatus = (
   }
 }
 
+// Tests replace OpenCode services, such as its language model client.
+export type HostOverrides = ReturnType<typeof hostOverrides>
+
 export const bootHost = Effect.fn("Host.boot")(function* (
   paths: HostPaths,
   catalog: ModelCatalog,
+  testOverrides: HostOverrides = [],
 ) {
   const path = yield* Path.Path
   const fs = yield* FileSystem.FileSystem
   yield* fs.makeDirectory(paths.location, { recursive: true }).pipe(Effect.mapError(hostError("boot")))
   const content = yield* encodeJson(HOST_CONFIG).pipe(Effect.mapError(hostError("boot")))
-  const client = yield* OpenCode.create(hostOptions(paths, catalog, path, content), {
-    overrides: hostOverrides(paths, path, content),
+  const registry = makeRegistry()
+  const client = yield* OpenCode.create(hostOptions(paths, catalog, path, content, registry), {
+    overrides: [...hostOverrides(paths, path, content), ...testOverrides],
   }).pipe(Effect.mapError(hostError("boot")))
   const location = { directory: AbsolutePath.make(paths.location) }
 
@@ -255,7 +269,10 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     return { _tag: "Connected" } satisfies ConnectionState
   })
 
+  const sessions = makeSessions(client, registry)
+
   const contract: HostContract = {
+    openSession: sessions.open,
     listModels: models,
     connection,
     chatGptSignIn: {
@@ -290,6 +307,6 @@ export const bootHost = Effect.fn("Host.boot")(function* (
         client.integration.oauth.cancel({ location, integrationID: OPENAI, attemptID: attempt(attemptID) }).pipe(Effect.ignore),
     },
   }
-  // The raw client serves the next ticket's sessions and the Host's own tests.
+  // The raw client serves the Host's own tests.
   return { ...contract, client, location }
 })

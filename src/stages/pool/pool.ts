@@ -11,6 +11,7 @@ import {
   renderPromptTemplate,
 } from "../../content/prompt-template.ts"
 import { describeMissingOutput } from "../../assembly/outcome.ts"
+import type { AgentUsage } from "../../domain/agent-outcome.ts"
 import type { BugClaim } from "../../domain/candidate.ts"
 import type { CoverageGap } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
@@ -66,7 +67,7 @@ export interface PoolExecution {
 
 export interface PoolResult extends PooledBugClaims {
   readonly coverageGaps: ReadonlyArray<CoverageGap>
-  readonly costUsd: number
+  readonly usages: ReadonlyArray<AgentUsage>
   readonly invocationCount: number
 }
 
@@ -171,7 +172,7 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
       claims,
       clusters: numberClusters(singletonClusters(claims)),
       coverageGaps: [],
-      costUsd: 0,
+      usages: [],
       invocationCount: 0,
     } satisfies PoolResult
   }
@@ -185,7 +186,7 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
       claims,
       clusters: numberClusters(singletonClusters(claims)),
       coverageGaps: [{ stage: "pool", reason }],
-      costUsd: 0,
+      usages: [],
       invocationCount: 0,
     } satisfies PoolResult
   }
@@ -200,8 +201,9 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   const outcome = yield* invokeStageAgent({
     label: "Pool",
     invocationId: `${plan.runId}-pool`,
+    role: "pool",
     seat,
-    cwd: reviewWorkingDirectory,
+    workspace: reviewWorkingDirectory,
     prompt,
     contract: EmitPool,
     tools: POOL_TOOLS,
@@ -220,7 +222,7 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
     claims,
     clusters: numberClusters(repair.clusters),
     coverageGaps: reason === undefined ? [] : [{ stage: "pool", reason }],
-    costUsd: outcome.usage.costUsd,
+    usages: [outcome.usage],
     invocationCount: 1,
   } satisfies PoolResult
 })
