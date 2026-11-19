@@ -188,8 +188,8 @@ const printConfiguration = Effect.fn("gauntlet.cli.config_print")(function* () {
 })
 
 // `config init` is the one explicit creator of configuration: it seeds a
-// fresh catalog and settings, only adds missing shipped recipes when they are
-// already valid, and refuses a partial state with repair guidance — never an
+// fresh catalog and settings, only adds the recipes shipped since when they
+// are already valid, and refuses a partial state with repair guidance — never an
 // overwrite (ADR 0005).
 const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -279,9 +279,9 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
           `default-lenses are unusable — ${failure.reason} (${failure.path})`,
       })),
   )
-  // A valid configuration gains the recipes shipped since it was created,
-  // such as the Claude recipes (#197); existing files stay as they are.
-  const added = yield* addMissingRecipes(Array.map(entries, (entry) => entry.name))
+  // A valid configuration gains the recipes shipped since configurations
+  // existed, the Claude recipes (#197); existing files stay as they are.
+  const added = yield* addMissingRecipes()
   if (added.length > 0) {
     yield* Console.log(
       `added recipes ${Array.join(added, ", ")} to ${catalogPath}; existing recipes and settings are untouched`,
@@ -473,7 +473,7 @@ const init = Command.make(
   () => runInit().pipe(Effect.catchTag("ArtifactWriteError", configWriteError)),
 ).pipe(
   Command.withDescription(
-    "Create the initial recipe catalog and settings; on a valid configuration, add only shipped recipes it lacks",
+    "Create the initial recipe catalog and settings; on a valid configuration, add only newly shipped recipes it lacks",
   ),
 )
 

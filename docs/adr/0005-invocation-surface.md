@@ -188,6 +188,17 @@ loads with none (Sonnet medium, Opus medium, Opus high; Default Recipe
 Standards Manifests and the update cache stay shared, and both Hosts' runs land
 in `~/.gauntlet/runs` unless that Host's own `runs-root` moves them.
 
+Amended per #197 (v2, embedded OpenCode Host): with the Mod retired, one Recipe
+Catalog holds Seats for both providers. A `claude-code/` Seat names a Claude
+model alias run through OpenCode's `claude-agent` provider on the installed
+`claude` login; `+fast` names OpenAI's `<model>-fast` model. `config init`
+seeds `claude-low`, `claude-medium` and `claude-high` (Sonnet medium, Opus
+medium, Opus high) beside the OpenAI four, and on an already valid
+configuration it adds only those three recipes, shipped after configurations
+existed, when their files are missing: earlier presets a person deleted are not
+restored, and no existing file is overwritten. `gauntlet upgrade` picks Seat
+upgrades from the Host's model list instead of refreshing Pi's catalog.
+
 Lens selections express membership, not priority or execution order. Planning
 produces a deterministic invocation array and the ReviewPlan records that
 resolved array because downstream candidate indexes consume it. The array's

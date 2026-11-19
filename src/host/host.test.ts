@@ -11,6 +11,7 @@ import * as Exit from "effect/Exit"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
+import * as Schedule from "effect/Schedule"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
@@ -23,6 +24,8 @@ import { bootHost } from "./opencode-host.ts"
 
 const FIXTURE_CATALOG = `${import.meta.dirname}/fixtures/models.json`
 const BOOT_SCRIPT = `${import.meta.dirname}/fixtures/boot-host.ts`
+const TRACE_PRELOAD = `${import.meta.dirname}/fixtures/trace-opencode.mjs`
+const GAUNTLET = `${import.meta.dirname}/../../bin/gauntlet.ts`
 const SLOW = 60_000
 
 const Booted = Schema.fromJsonString(Schema.Struct({
@@ -174,12 +177,12 @@ const claim = (paths: HostPaths, sessionID: string) =>
 const sessionState = (paths: HostPaths, sessionID: string) =>
   Effect.sync(() => {
     const database = new DatabaseSync(paths.database)
-    const row = database.prepare("select time_suspended from session_v2 where id = ?").get(sessionID)
+    const row = database.prepare("select time_suspended is not null as claimed from session_v2 where id = ?").get(sessionID)
     const notices = database
       .prepare("select count(*) as count from session_message where session_id = ? and data like ?")
       .get(sessionID, '%"notice":"restart"%')
     database.close()
-    return { claimed: row?.["time_suspended"] !== null, restartNotices: Number(notices?.["count"]) }
+    return { claimed: row?.["claimed"] === 1, restartNotices: Number(notices?.["count"]) }
   })
 
 const resumeHome = Effect.gen(function* () {
@@ -190,15 +193,17 @@ const resumeHome = Effect.gen(function* () {
   )
 })
 
+// Each Host in its own scope, closed with the test's if not closed sooner.
 const bootScoped = (paths: HostPaths) =>
   Effect.gen(function* () {
-    const scope = yield* Scope.make()
+    const testScope = yield* Effect.scope
+    const scope = yield* Scope.fork(testScope)
     const host = yield* bootHost(paths, { _tag: "File", path: FIXTURE_CATALOG }).pipe(Scope.provide(scope))
     return { host, close: Scope.close(scope, Exit.void) }
   })
 
-// How long a Host takes to resume what it finds claimed at start, with room;
-// the control below shows OpenCode's own resume lands well inside it.
+// How long the no-resume test watches; the control below shows OpenCode's
+// own resume landing well inside it.
 const RESUME_WINDOW = "2 seconds"
 
 describe("the Host on a shared store", () => {
@@ -250,8 +255,51 @@ describe("the Host on a shared store", () => {
           ],
         },
       )
-      yield* Effect.sleep(RESUME_WINDOW)
-      expect((yield* sessionState(paths, session.id)).restartNotices).toBe(1)
+      const resumed = yield* sessionState(paths, session.id).pipe(
+        Effect.repeat({ schedule: Schedule.spaced("50 millis"), until: (state) => state.restartNotices > 0 }),
+        Effect.timeout(RESUME_WINDOW),
+      )
+      expect(resumed.restartNotices).toBe(1)
       yield* first.close
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+})
+
+// The production entry point under a preload that reports `@opencode/*`
+// imports: commands that never use the Host never load OpenCode at all.
+const traceImports = Effect.fn("test.traceImports")(function* (args: ReadonlyArray<string>) {
+  const fs = yield* FileSystem.FileSystem
+  const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-host-startup-" })
+  const handle = yield* ChildProcess.make(process.execPath, ["--preload", TRACE_PRELOAD, ...args], {
+    cwd: home,
+    extendEnv: true,
+    env: { HOME: home },
+  })
+  const [, stderr, exitCode] = yield* Effect.all(
+    [
+      Stream.decodeText(handle.stdout).pipe(Stream.mkString),
+      Stream.decodeText(handle.stderr).pipe(Stream.mkString),
+      handle.exitCode,
+    ],
+    { concurrency: 3 },
+  )
+  return { imports: Array.filter(stderr.split("\n"), (line) => line.startsWith("opencode-import")), exitCode }
+}, Effect.scoped)
+
+describe("startup", () => {
+  it.live.each([
+    { argv: ["--help"] },
+    { argv: ["--version"] },
+    { argv: ["config"] },
+    { argv: ["config", "init"] },
+  ])("gauntlet $argv never loads OpenCode", ({ argv }) =>
+    Effect.gen(function* () {
+      const traced = yield* traceImports([GAUNTLET, ...argv])
+      expect(traced).toEqual({ imports: [], exitCode: 0 })
+    }).pipe(Effect.provide(NodeServices.layer)), SLOW)
+
+  it.live("is observed: the preload reports an OpenCode import", () =>
+    Effect.gen(function* () {
+      const traced = yield* traceImports(["-e", 'await import("@opencode/sdk/effect")'])
+      expect(traced.imports).not.toEqual([])
+    }).pipe(Effect.provide(NodeServices.layer)), SLOW)
 })

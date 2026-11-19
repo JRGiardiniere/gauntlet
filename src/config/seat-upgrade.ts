@@ -65,15 +65,13 @@ const newestFamilyModel = (
 // Whether a Seat could run; the Host's model list answers it (`hostAccepts`).
 export type SeatAcceptance = (seat: Seat) => boolean
 
-const acceptsAny: SeatAcceptance = () => true
-
 // The seat on its successor provider, then on the newest same-family model
-// there that `accepts` admits with the same effort and Fast mode; none when
-// neither step moves it.
+// there, keeping effort and Fast mode; none when neither step moves it or
+// `accepts` refuses where it would land.
 export const newerSeat = (
   seat: Seat,
   providerModelIds: (provider: string) => ReadonlyArray<string>,
-  accepts: SeatAcceptance = acceptsAny,
+  accepts: SeatAcceptance,
 ): Option.Option<Seat> => {
   const providerSeparator = seat.indexOf("/")
   const effortSeparator = seat.lastIndexOf(":")
@@ -87,7 +85,7 @@ export const newerSeat = (
     (candidate) => accepts(`${provider}/${candidate}${effort}`),
   )
   const next = `${provider}/${newest}${effort}`
-  return next === seat ? Option.none() : Option.some(next)
+  return next === seat || !accepts(next) ? Option.none() : Option.some(next)
 }
 
 export interface SeatChange {
@@ -113,7 +111,7 @@ const seatModel = (seat: Seat): string => seat.slice(0, seat.lastIndexOf(":"))
 export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
   function* (
     providerModelIds: (provider: string) => ReadonlyArray<string>,
-    accepts: SeatAcceptance = acceptsAny,
+    accepts: SeatAcceptance,
   ) {
     const changes: Array<SeatChange> = []
     const skipped: Array<string> = []

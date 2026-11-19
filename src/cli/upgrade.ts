@@ -13,7 +13,8 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
-import { Host } from "../host/host.ts"
+import { type CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
+import { Host, HostError } from "../host/host.ts"
 import { hostAccepts } from "../host/model-ref.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
@@ -62,13 +63,28 @@ export const renderSeatUpgrade = (
 // what the person's logins can run; nothing is refetched here. A seat upgrade
 // failure is reported and never fails the command: the binary step already
 // succeeded, and the next `gauntlet upgrade` retries the seats.
-export const upgradeSeats = Effect.fn("Cli.upgradeSeats")(function* () {
+export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
+  const entries = yield* listRecipes()
+  if (!Array.some(entries, (entry) => entry._tag === "ValidRecipe")) {
+    yield* Console.log(Array.join(renderSeatUpgrade({ changes: [], skipped: invalidNames(entries) }), "\n"))
+    return
+  }
   const host = yield* Host
-  const models = yield* host.listModels
+  const models = yield* host.listModels.pipe(
+    Effect.timeoutOrElse({
+      duration: MODEL_LIST_TIMEOUT,
+      orElse: () => Effect.fail(HostError.make({ operation: "list models", reason: "timed out" })),
+    }),
+  )
   const upgrade = yield* upgradeRecipeSeats(
     (provider) => Array.flatMap(models, (model) => (model.providerID === provider ? [model.id] : [])),
     (seat) => hostAccepts(models, seat),
   )
+  // OpenAI lists no models without a ChatGPT sign-in or OPENAI_API_KEY, which
+  // would read as "current" without anything being compared.
+  if (!Array.some(models, (model) => model.providerID === "openai")) {
+    yield* Console.log("OpenAI seats were not checked: no OpenAI models are listed — run `gauntlet login` or set OPENAI_API_KEY")
+  }
   yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
 }, (effect) =>
   effect.pipe(
@@ -81,6 +97,13 @@ export const upgradeSeats = Effect.fn("Cli.upgradeSeats")(function* () {
         reportSeatFailure(`could not write ${failure.path}`),
     }),
   ))
+
+const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
+  Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))
+
+// The Host's own waits are bounded; this bounds the step as a whole, as the
+// Pi catalog refresh it replaces was.
+const MODEL_LIST_TIMEOUT = "90 seconds"
 
 const reportSeatFailure = (reason: string) =>
   Console.error(`gauntlet: could not upgrade recipe seats — ${reason}`)

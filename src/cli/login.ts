@@ -9,7 +9,7 @@ import * as Schema from "effect/Schema"
 import * as Terminal from "effect/Terminal"
 import * as Command from "effect/cli/Command"
 import { type ConnectionState, Host, type SignInStatus } from "../host/host.ts"
-import { progress } from "./review.ts"
+import { progress } from "./progress.ts"
 
 export class LoginError extends Schema.TaggedError<
   LoginError,
@@ -22,7 +22,7 @@ export class LoginError extends Schema.TaggedError<
 // attempt lives in this process's Host, so a check is an in-memory read.
 const STATUS_INTERVAL = "500 millis"
 
-const awaitSettled = Effect.fn("Cli.login.awaitSettled")(function* (attemptID: string) {
+const awaitSettled = Effect.fn("Login.awaitSettled")(function* (attemptID: string) {
   const host = yield* Host
   return yield* host.chatGptSignIn.status(attemptID).pipe(
     Effect.repeat({
@@ -35,18 +35,16 @@ const awaitSettled = Effect.fn("Cli.login.awaitSettled")(function* (attemptID: s
 // The browser's redirect reaches a callback on this Machine's loopback, so a
 // browser elsewhere (Tailscale, SSH) cannot deliver it: pasting the URL it
 // was redirected to hands the code over instead. A rejected paste asks again.
-const pasteRedirect = Effect.fn("Cli.login.paste")(function* (attemptID: string) {
+const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: string) {
   const host = yield* Host
   const terminal = yield* Terminal.Terminal
   while (true) {
     yield* progress("if the browser can't reach this machine, paste the URL it was redirected to:")
     const pasted = (yield* terminal.readLine).trim()
     if (pasted === "") continue
-    const accepted = yield* host.chatGptSignIn.paste(attemptID, pasted).pipe(
-      Effect.as(true),
-      Effect.catchTag("HostError", (failure) => progress(`that URL was not accepted — ${failure.reason}`).pipe(Effect.as(false))),
-    )
-    if (accepted) return
+    const result = yield* host.chatGptSignIn.paste(attemptID, pasted)
+    if (result._tag === "Accepted") return
+    yield* progress(`that URL was not accepted — ${result.reason}`)
   }
 })
 
@@ -61,7 +59,7 @@ const describeClaude = (state: ConnectionState): string => {
   }
 }
 
-const executeLogin = Effect.fn("Cli.login")(function* () {
+const executeLogin = Effect.fn("Login.run")(function* () {
   const host = yield* Host
   const attempt = yield* host.chatGptSignIn.start
   yield* Effect.addFinalizer(() => host.chatGptSignIn.cancel(attempt.attemptID))
@@ -83,8 +81,12 @@ const executeLogin = Effect.fn("Cli.login")(function* () {
       break
   }
   yield* Console.log("signed in to ChatGPT")
-  const claude = yield* host.connection("claude-agent")
-  yield* Console.log(describeClaude(claude))
+  // Sign-in has succeeded; a Claude status that can't be read is only reported.
+  const claude = yield* host.connection("claude-agent").pipe(
+    Effect.map(describeClaude),
+    Effect.catchTag("HostError", (failure) => Effect.succeed(`Claude status unavailable — ${failure.reason}`)),
+  )
+  yield* Console.log(claude)
 }, Effect.scoped)
 
 export const loginCommand = Command.make(

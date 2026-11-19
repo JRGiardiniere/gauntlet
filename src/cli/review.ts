@@ -3,6 +3,7 @@ import * as Effect from "effect/Effect"
 import * as Command from "effect/cli/Command"
 import * as CliError from "effect/cli/CliError"
 import * as Run from "../run/run.ts"
+import { progress } from "./progress.ts"
 import {
   type Destination,
   reviewSyntax,
@@ -13,9 +14,7 @@ import {
 // module, worded as the CLI's output contract (ADR 0005) — the digest on
 // stdout, `gauntlet: ` lines on stderr, and an exit code.
 
-export const progress = Effect.fn("gauntlet.cli.progress")((text: string) =>
-  Console.error(`gauntlet: ${text}`),
-)
+export { progress }
 
 // The digest is on stdout before the post starts, so a post that hangs or
 // fails never withholds it; a failed post still exits 1, as the post was asked

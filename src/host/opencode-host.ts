@@ -20,6 +20,7 @@ import {
   type HostModel,
   type HostPaths,
   type ModelCatalog,
+  type PasteResult,
   type SignInAttempt,
   type SignInStatus,
 } from "./host.ts"
@@ -251,10 +252,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     if (first.status !== undefined) {
       return { _tag: "NeedsAuth", message: first.status.message } satisfies ConnectionState
     }
-    return {
-      _tag: "Connected",
-      via: first.type === "env" ? first.name : first.method,
-    } satisfies ConnectionState
+    return { _tag: "Connected" } satisfies ConnectionState
   })
 
   const contract: HostContract = {
@@ -283,7 +281,9 @@ export const bootHost = Effect.fn("Host.boot")(function* (
         ),
       paste: (attemptID, code) =>
         client.integration.oauth.complete({ location, integrationID: OPENAI, attemptID: attempt(attemptID), code }).pipe(
-          Effect.asVoid,
+          Effect.as<PasteResult>({ _tag: "Accepted" }),
+          Effect.catchTag("InvalidRequestError", (refused) =>
+            Effect.succeed<PasteResult>({ _tag: "Rejected", reason: refused.message })),
           Effect.mapError(hostError("complete sign-in")),
         ),
       cancel: (attemptID) =>

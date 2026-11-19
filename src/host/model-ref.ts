@@ -1,5 +1,5 @@
 import * as Array from "effect/Array"
-import type { Seat } from "../domain/recipe.ts"
+import { type Seat, seatSpeed } from "../domain/recipe.ts"
 import type { HostModel } from "./host.ts"
 
 // OpenCode's name for a Seat's model: `provider/model:effort[+fast]` becomes
@@ -11,20 +11,18 @@ export interface ModelRef {
   readonly variant: string
 }
 
-const FAST = "+fast"
 const providerAliases: ReadonlyMap<string, string> = new Map([["claude-code", "claude-agent"]])
 
 export const toModelRef = (seat: Seat): ModelRef => {
-  const slash = seat.indexOf("/")
-  const colon = seat.lastIndexOf(":")
-  const provider = seat.slice(0, slash)
-  const model = seat.slice(slash + 1, colon)
-  const effort = seat.slice(colon + 1)
-  const fast = effort.endsWith(FAST)
+  const { seat: plain, fast } = seatSpeed(seat)
+  const slash = plain.indexOf("/")
+  const colon = plain.lastIndexOf(":")
+  const provider = plain.slice(0, slash)
+  const model = plain.slice(slash + 1, colon)
   return {
     providerID: providerAliases.get(provider) ?? provider,
     modelID: fast ? `${model}-fast` : model,
-    variant: fast ? effort.slice(0, -FAST.length) : effort,
+    variant: plain.slice(colon + 1),
   }
 }
 

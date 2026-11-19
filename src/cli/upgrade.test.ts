@@ -9,7 +9,7 @@ import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
 import { Recipe } from "../domain/recipe.ts"
-import { HostError, type HostModel, hostLayer } from "../host/host.ts"
+import { HostError, type HostModel, hostLayer, untouchedHostLayer } from "../host/host.ts"
 import { upgradeSeats } from "./upgrade.ts"
 
 // The seat step of `gauntlet upgrade` against a Host fake: the binary step
@@ -94,5 +94,26 @@ describe("upgradeSeats", () => {
       expect(medium).toBe(original)
       const errorLines = yield* TestConsole.errorLines
       expect(lines(errorLines)).toContain("could not upgrade recipe seats — the model list is unavailable: offline")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("never boots the Host when there is no valid recipe to upgrade", () =>
+    Effect.gen(function* () {
+      const { home } = yield* withRecipes({ broken: '{"default":"openai/gpt-6.1-sol:medium","typo":1}\n' })
+      yield* upgradeSeats().pipe(
+        Effect.provide([untouchedHostLayer, ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))]),
+      )
+      const logLines = yield* TestConsole.logLines
+      expect(lines(logLines)).toContain("skipped invalid recipes broken")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("says OpenAI seats went unchecked when the Host lists no OpenAI models", () =>
+    Effect.gen(function* () {
+      const { home } = yield* withRecipes({ medium: '{"default":"openai/gpt-6.1-sol:medium"}\n' })
+      const claudeOnly = Array.filter(models, (model) => model.providerID !== "openai")
+      yield* upgradeSeats().pipe(
+        Effect.provide([hostListing(Effect.succeed(claudeOnly)), ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))]),
+      )
+      const logLines = yield* TestConsole.logLines
+      expect(lines(logLines)).toContain("OpenAI seats were not checked")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

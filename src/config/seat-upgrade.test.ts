@@ -27,6 +27,8 @@ const catalog = new Map<string, ReadonlyArray<string>>([
   ["openai", ["gpt-6-sol", "gpt-6.1-sol"]],
 ])
 const providerModelIds = (provider: string) => catalog.get(provider) ?? []
+// The family rules alone, without a Host to refuse anything.
+const acceptsAny = () => true
 const decodeRecipe = Schema.decodeUnknownEffect(Schema.fromJsonString(Recipe))
 
 describe("newerSeat", () => {
@@ -40,7 +42,7 @@ describe("newerSeat", () => {
     ["openai-codex/gpt-6-sol:high", "openai/gpt-6.1-sol:high"],
     ["acme/gpt-6.1-terra:high+fast", "acme/gpt-6.2-terra:high+fast"],
   ])("%s → %s", (seat, expected) => {
-    expect(Option.getOrUndefined(newerSeat(seat, providerModelIds))).toBe(expected)
+    expect(Option.getOrUndefined(newerSeat(seat, providerModelIds, acceptsAny))).toBe(expected)
   })
 })
 
@@ -54,8 +56,13 @@ describe("newerSeat with the Host's acceptance", () => {
     ["acme/gpt-6.1-terra:high+fast", undefined],
     ["acme/gpt-6.1-terra:high", "acme/gpt-6.2-terra:high"],
     ["acme/gpt-5.6-luna:high", "acme/gpt-6-luna:high"],
+    // A legacy provider moves only where the Host would run the result.
+    ["openai-codex/gpt-6-sol:low", "openai/gpt-6.1-sol:low"],
   ])("%s → %s", (seat, expected) => {
     expect(Option.getOrUndefined(newerSeat(seat, providerModelIds, accepts))).toBe(expected)
+  })
+  it("leaves a legacy-provider seat alone when the Host refuses where it would land", () => {
+    expect(Option.getOrUndefined(newerSeat("openai-codex/gpt-6-sol:high", providerModelIds, (seat) => seat === "openai-codex/gpt-6-sol:high"))).toBeUndefined()
   })
 })
 
@@ -77,7 +84,7 @@ describe("upgradeRecipeSeats", () => {
       const invalid = '{"default":"acme/gpt-5.6-luna:high","typo":true}\n'
       yield* fs.writeFileString(path.join(recipes, "broken.json"), invalid)
 
-      const upgrade = yield* upgradeRecipeSeats(providerModelIds).pipe(
+      const upgrade = yield* upgradeRecipeSeats(providerModelIds, acceptsAny).pipe(
         Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))),
       )
 

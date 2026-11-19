@@ -1,0 +1,6 @@
+{
+  "name": "empty-package",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Stands in for the Claude Agent SDK's per-platform claude binaries: OpenCode runs the installed claude instead."
+}

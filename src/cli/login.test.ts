@@ -12,7 +12,7 @@ import * as TestClock from "effect/testing/TestClock"
 import * as TestConsole from "effect/testing/TestConsole"
 import { unusedGitHubLayer } from "../github/github.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
-import { HostError, hostLayer, type SignInStatus } from "../host/host.ts"
+import { hostLayer, type SignInStatus } from "../host/host.ts"
 import { runGauntlet } from "./main.ts"
 
 // `gauntlet login` against a fake ChatGPT integration: the Host's sign-in
@@ -54,8 +54,8 @@ const fakeHost = (
           }),
         paste: (_attemptID, url) =>
           url === REDIRECT
-            ? Ref.update(integration.pasted, (all) => [...all, url])
-            : Effect.fail(HostError.make({ operation: "complete sign-in", reason: "invalid redirect URL" })),
+            ? Ref.update(integration.pasted, (all) => [...all, url]).pipe(Effect.as({ _tag: "Accepted" } as const))
+            : Effect.succeed({ _tag: "Rejected", reason: "invalid redirect URL" } as const),
         cancel: (attemptID) => Ref.update(integration.cancelled, (all) => [...all, attemptID]),
       },
     })

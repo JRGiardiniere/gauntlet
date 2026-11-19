@@ -25,7 +25,7 @@ export interface HostModel {
 }
 
 export type ConnectionState =
-  | { readonly _tag: "Connected"; readonly via: string }
+  | { readonly _tag: "Connected" }
   | { readonly _tag: "NeedsAuth"; readonly message: string }
   | { readonly _tag: "NotConnected" }
 
@@ -43,6 +43,8 @@ export type SignInStatus =
   | { readonly _tag: "Failed"; readonly message: string }
   | { readonly _tag: "Expired" }
 
+export type PasteResult = { readonly _tag: "Accepted" } | { readonly _tag: "Rejected"; readonly reason: string }
+
 export interface HostContract {
   readonly listModels: Effect.Effect<ReadonlyArray<HostModel>, HostError>
   readonly connection: (
@@ -51,8 +53,9 @@ export interface HostContract {
   readonly chatGptSignIn: {
     readonly start: Effect.Effect<SignInAttempt, HostError>
     readonly status: (attemptID: string) => Effect.Effect<SignInStatus, HostError>
-    // Hands over the pasted redirect URL; the outcome still arrives through status.
-    readonly paste: (attemptID: string, redirectUrl: string) => Effect.Effect<void, HostError>
+    // Hands over the pasted redirect URL; the outcome still arrives through
+    // status. Rejected means the URL was refused and another paste can help.
+    readonly paste: (attemptID: string, redirectUrl: string) => Effect.Effect<PasteResult, HostError>
     readonly cancel: (attemptID: string) => Effect.Effect<void>
   }
 }
