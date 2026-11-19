@@ -1,7 +1,7 @@
 # Gauntlet
 
-The domain language for Gauntlet: an Effect-native, Pi-harnessed, model-agnostic
-code-review agent. This is a glossary only — no implementation detail belongs here.
+The domain language for Gauntlet: an Effect-native, model-agnostic code-review
+agent on an embedded OpenCode Host. This is a glossary only — no implementation detail belongs here.
 
 ## Language
 
@@ -32,21 +32,21 @@ ReviewTarget, distinct from sibling work described by broader material.
 _Avoid_: child issue, subtask, ticket
 
 **Specification Source**:
-Where a ReviewSpecification's material comes from. The Caller Addendum is the
-only one; Gauntlet fetches no issues itself.
+Where a ReviewSpecification's material comes from. The Caller Addendum, passed
+with `--spec`, is the only one; Gauntlet fetches no issues itself.
 _Avoid_: issue provider, tracker integration, spec resolver
 
 **AgentInvocation**:
-One bounded request to an agent for one structured output — inclusive of
-harness-internal retries and corrective turns on the same session. Warmup calls
-are invocations too (paid, metered, deadlined), with a trivial output contract.
-_Avoid_: agent run, agent call, session (a session is the harness resource an
+One bounded request to an agent for one structured output — inclusive of the
+Host's own provider retries and corrective turns on the same session.
+_Avoid_: agent run, agent call, session (a session is the Host resource an
 invocation uses, not the invocation itself)
 
 **Host**:
-The agent platform a Run's AgentInvocations execute on: Pi or Claude Code.
-Each Host runs only its own Seats, and each way of starting a Run is bound to
-one Host; the review program is the same on both.
+The agent platform a Run's AgentInvocations execute on: OpenCode, embedded in
+the CLI as Gauntlet's own instance, isolated from the person's OpenCode. It
+runs Claude and OpenAI Seats through the same tools, fence and usage
+accounting, so one Recipe can mix them.
 _Avoid_: harness, backend, runtime, provider (a provider serves models; a Host
 runs invocations), agent host (that's the Caller)
 
@@ -54,21 +54,19 @@ runs invocations), agent host (that's the Caller)
 The person or agent that starts a Run and receives its result: a person at a
 shell, or a coding agent such as Codex or Claude Code. The Caller is
 independent of the Host — Claude Code can call the CLI, whose Run executes on
-Pi.
+the OpenCode Host.
 _Avoid_: agent host, client, user
 
 **CLI**:
-Gauntlet's standalone command-line program, `gauntlet`, whose Runs execute on
-the Pi Host.
+Gauntlet's standalone command-line program, `gauntlet`: the only way to start
+a Run. Its Runs execute on the embedded OpenCode Host.
 _Avoid_: `gauntlet review` as the program's name (it is one of its commands),
 the Pi version
 
 **Mod**:
-Gauntlet inside Claude Code, started with `/gauntlet` or its review tool,
-whose Runs execute on the Claude Code Host. Someone using only the Mod knows
-it as Gauntlet; beside it, the CLI's agent skill carries the qualifier.
-_Avoid_: gc-cli (its former name), beta (a release status, not a name), the
-Claude version, Claude Code Host (that's where its Runs execute)
+Retired in v2. Gauntlet inside Claude Code, started with `/gauntlet`, whose
+Runs executed as `claude -p` children. Claude Seats now run on the CLI's Host.
+_Avoid_: using it for the CLI's agent skill or for Claude Seats
 
 **Machine**:
 The computer a Run executes on, outside any ReviewWorkspace — its real files,
@@ -76,11 +74,13 @@ processes, and credentials.
 _Avoid_: host (that's the agent platform), host path, host file
 
 **ReviewWorkspace**:
-The confined repository view exposed to filesystem-capable AgentInvocations,
-over the Run's frozen snapshot: the Host's read-only `read`, `grep` and `glob`
-tools, rooted at the snapshot itself. The snapshot stays unmodified, and the machine is out of
-reach by capability reduction — no guest git, machine processes, or network —
-not by hardened isolation against a hostile repository.
+The permission fence over the Run's frozen snapshot that filesystem-capable
+AgentInvocations see: the Host's read-only `read`, `grep` and `glob` tools,
+allowed inside the snapshot and refused on `.git`, `.env*` and any path that
+leaves it, through a symlink included. The reviewed repository's own agent
+configuration never loads. The snapshot stays unmodified, and the Machine is
+out of reach by capability reduction — no shell, writes, or network — not by
+hardened isolation against a hostile repository.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 
@@ -109,8 +109,8 @@ _Avoid_: preset, tier, model config
 One concrete provider, model, and inference-effort assignment for an
 AgentInvocation, written `provider/model:effort`, with `+fast` after the
 effort for OpenAI's Fast mode. A `claude-code/` Seat names
-a Claude model and effort run by the Claude Code Host, on the person's Claude
-plan.
+a Claude model alias and effort, run through the installed `claude` on the
+person's Claude plan.
 _Avoid_: model (omits provider and effort), model config
 
 **Default Seat**:

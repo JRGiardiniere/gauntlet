@@ -169,7 +169,10 @@ describe("gauntlet review", () => {
         expect(spec.workspace).not.toBe(fixture.repo)
         expect(spec.tools).toEqual(["read", "grep", "glob"])
       }
-      expect(Array.map(run.scripted.specs, (spec) => spec.role)).toEqual(["finder-1", "verifier", "judge"])
+      // Verification and Judgment run side by side, so their order varies.
+      expect(Array.map(run.scripted.specs, (spec) => spec.role)).toEqual(
+        expect.arrayContaining(["finder-1", "verifier", "judge"]),
+      )
 
       // Finders name the root relatively, so their prefix holds no per-Run
       // path; the later stages carry the snapshot root in the user prompt.

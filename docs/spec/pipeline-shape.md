@@ -32,7 +32,10 @@ Finders ──► (BugClaims)   ──► Pool ──► Verification ──┐
    siblings; within each tier, more distinct touched files linked ranks
    higher, then the smaller file. They are kept in that order up to 240K
    characters, skipping any file over a quarter of that; the kept set renders
-   in path order. Each emits Candidates via
+   in path order. Lockfiles (one list of names, such as `bun.lock`) keep
+   only their diff headers in the inlined diff and are left out of touched
+   and related files; the size cap applies to touched files too. Agents can
+   still read them in the snapshot. Each emits Candidates via
    `emit_findings`.
 2. **Pool** — receives the BugClaims only. Clusters duplicates. May cluster,
    never delete. Text-only: no file reads, no ReviewSpecification.
@@ -137,9 +140,8 @@ portion and reuse a user-message prefix only within one conversation. An Interpr
 sits between the shared block and the tail: it is identical for every
 interpretive lens in the run, so it extends the shared prefix rather than
 breaking it (interpretive finders simply share a longer prefix than specific
-ones). Warmup/fan-out sequencing, session-key sharing,
-and cache diagnostics are operational mechanics (ADR 0002), not review
-semantics.
+ones). Fan-out sequencing, cache-key sharing and cache diagnostics are
+operational mechanics (ADR 0002), not review semantics.
 
 Every runnable planned Finder is partitioned by the complete resolved Seat and
 shared context shape: ordinary context, or ordinary context plus the frozen

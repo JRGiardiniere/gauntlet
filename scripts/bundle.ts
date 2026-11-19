@@ -3,11 +3,7 @@
 // `compile.assets` embeds the content/ tree wholesale; stage-owned markdown
 // scattered under src/ still needs per-file `with { type: "file" }` imports
 // (assets take literal directories — no globs or extension filtering, so it
-// cannot target src/). The entry module carrying those imports is handed to
-// Bun.build as an in-memory virtual file — it never touches disk.
-// `autoloadBunfig: false` keeps a stray bunfig.toml in a user's cwd from
-// crashing the binary; `naming.asset` preserves the content/ and src/ paths
-// the loaders resolve against the bundle root.
+// cannot target src/).
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
@@ -18,34 +14,9 @@ import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import * as ChildProcess from "effect/process/ChildProcess"
+import { compileBinary } from "./compile.ts"
 
-// Bun's bundler API, typed minimally — the project compiles against
-// @types/node only, without bun-types.
-declare const Bun: {
-  readonly build: (options: {
-    readonly entrypoints: ReadonlyArray<string>
-    readonly files: Record<string, string>
-    readonly naming: { readonly asset: string }
-    readonly define?: Record<string, string> | undefined
-    readonly compile: {
-      readonly outfile: string
-      readonly assets: ReadonlyArray<string>
-      readonly autoloadBunfig: boolean
-      readonly target?: string | undefined
-    }
-  }) => Promise<{ readonly success: boolean }>
-}
-
-class BundleFailed extends Schema.TaggedError<
-  BundleFailed,
-  { readonly brand: unique symbol }
->()("BundleFailed", {
-  cause: Schema.Defect(),
-}) {}
-
-const repoRoot = `${import.meta.dirname}/..`
-process.chdir(repoRoot)
+process.chdir(`${import.meta.dirname}/..`)
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
@@ -64,11 +35,7 @@ const program = Effect.gen(function* () {
   // define — src/cli/version.ts references the identifier whenever
   // isCompiledBinary holds.
   const define = {
-    GAUNTLET_VERSION: yield* Schema.encodeEffect(
-      Schema.fromJsonString(Schema.String),
-    )(version).pipe(
-      Effect.mapError((cause) => BundleFailed.make({ cause })),
-    ),
+    GAUNTLET_VERSION: yield* Schema.encodeEffect(Schema.fromJsonString(Schema.String))(version),
   }
 
   // Stage-owned prompt templates (markdown living with its Stage module,
@@ -89,48 +56,8 @@ const program = Effect.gen(function* () {
   ], "\n")
 
   yield* fs.makeDirectory("dist", { recursive: true })
-  const compileBase = { outfile, assets: ["content"], autoloadBunfig: false }
-  const build = yield* Effect.tryPromise({
-    try: () =>
-      Bun.build({
-        entrypoints: ["./bundle-entry.virtual.mjs"],
-        files: { "./bundle-entry.virtual.mjs": entrySource },
-        naming: { asset: "[dir]/[name].[ext]" },
-        define,
-        // Bun rejects an explicit `target: undefined`; the host-platform
-        // build omits the key entirely.
-        compile: target === undefined
-          ? compileBase
-          : { ...compileBase, target },
-      }),
-    catch: (cause) => BundleFailed.make({ cause }),
-  })
-  if (!build.success) {
-    return yield* BundleFailed.make({ cause: "Bun.build reported failure" })
-  }
+  yield* compileBinary({ entrySource, outfile, target, define })
   yield* Console.log(`compiled ${outfile}`)
-
-  // Bun 1.4.0's compile emits an invalid ad-hoc signature on macOS and the
-  // binary is SIGKILLed on launch; re-sign until the upstream regression is
-  // fixed. Only a darwin host can codesign, so the release workflow builds
-  // darwin targets on macOS runners.
-  const targetsDarwin =
-    target === undefined ? process.platform === "darwin" : target.includes("darwin")
-  if (targetsDarwin && process.platform === "darwin") {
-    const exitCode = yield* Effect.scoped(
-      Effect.gen(function* () {
-        const handle = yield* ChildProcess.make(
-          "codesign",
-          ["--sign", "-", "--force", outfile],
-          { cwd: repoRoot, stdout: "inherit", stderr: "inherit" },
-        )
-        return yield* handle.exitCode
-      }),
-    )
-    if (exitCode !== 0) {
-      return yield* BundleFailed.make({ cause: `codesign exited ${String(exitCode)}` })
-    }
-  }
 })
 
 NodeRuntime.runMain(program.pipe(Effect.provide(NodeServices.layer)))

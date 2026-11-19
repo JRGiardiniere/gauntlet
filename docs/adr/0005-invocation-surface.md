@@ -7,6 +7,17 @@ invocation was always one shape (`start --repo $PWD --preset X --destination Y
 --wait`), with `status`/`wait`, `--runs-root`, `--config`, and the seat-override
 flags documented-but-unexercised.
 
+**Amended for v2 (#196–#201, ADR-0010).** There is one Host and one way to
+start a Run, the CLI, so where this ADR speaks of "both Hosts" or the Mod
+(`/gauntlet`, `~/.gauntlet/mod/`, per-Host Recipe Catalogs and Seat schemas),
+read the CLI alone. The commands are `review`, `deliver`, `config`, `login`
+and `upgrade`; there is no `gauntlet mcp` (#202), `page` or `brief`. `--spec`
+is the only Specification Source: `--github-spec` and the automatic Linear
+and GitHub closing-issue resolution are gone, and the Caller fetches any issue
+itself. Related files are off unless `--related-files` is passed. Pi is gone:
+`gauntlet upgrade` picks Seat upgrades from the Host's model list, and `+fast`
+names OpenAI's `<model>-fast` model rather than setting a service tier.
+
 ## Verbs
 
 ```

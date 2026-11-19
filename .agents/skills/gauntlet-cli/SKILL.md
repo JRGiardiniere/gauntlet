@@ -12,6 +12,16 @@ description: >-
 One long-running command that you manage. Stdout is a bounded digest to relay
 verbatim. The Dossier lives on disk.
 
+## Prerequisites
+
+- **OpenAI Seats** (`quick`, `low`, `medium`, `high`): a ChatGPT sign-in from
+  `gauntlet login`, or `OPENAI_API_KEY` in the environment.
+- **Claude Seats** (`claude-low`, `claude-medium`, `claude-high`): Claude
+  Code's `claude` installed and logged in (`claude auth login`). Gauntlet
+  finds it on PATH; set `OPENCODE_CLAUDE_PATH` to the real executable when
+  PATH lacks it or `claude` is a shim, such as mise's, that breaks under a
+  different environment.
+
 ## Review
 
 1. **Aim.** Point the review at what you mean; there is no autodetect.
@@ -87,9 +97,11 @@ verbatim. The Dossier lives on disk.
    Exit 0 means a review was produced (zero findings included). Exit 1 means
    it could not review, or a PR comment failed after the review landed; then
    stderr says to check the PR before retrying with `gauntlet deliver <id>`. When
-   the reason says to run `gauntlet login <provider>`, hand that command to
-   the user — it is an interactive browser sign-in only they can complete —
-   then, once they confirm, launch the review again.
+   the reason says to run `gauntlet login` or sign in to `claude`, hand that
+   to the user — each is an interactive browser sign-in only they can
+   complete — then, once they confirm, launch the review again. A Claude
+   Finder that failed with "Not logged in" shows as a coverage gap; the
+   reason is in `dossier.md`.
 
    If a run was interrupted (killed shell, crash), launch the same review
    again.

@@ -1,5 +1,16 @@
 # Pi owns transient-error retry; Gauntlet retries only the first-response stall
 
+**Amended per #198 (v2, ADR-0010): the Host owns transient retry, and
+Gauntlet retries nothing.** OpenCode retries provider errors inside a
+session, as Pi did, so the reasoning below still holds with "the Host" for
+"Pi". Across 2,583 v1 attempts no stall retry or first-response timeout ever
+fired, so both are gone, with the startup deadline and salvage: each
+AgentInvocation has one overall deadline (10 minutes, corrective turns
+included) and up to two corrective turns for a missing emit. Under
+**Finder prefix warmup** below, the followers' wait on the starter's first
+streamed token is bounded on its own (2 minutes) and releases on that token,
+on the starter's exit, or on the timeout; the 1,500 ms settle delay stays.
+
 Pi already retries transient provider errors inside `prompt()` (agent-level,
 3 attempts, exponential backoff), and its own docs warn that provider-level
 retries above 0 can absorb quota errors invisibly — so agent-level retry stays

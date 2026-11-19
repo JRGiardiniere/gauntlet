@@ -9,6 +9,15 @@ exhausted, context limit, provider failed, interrupted) is data on
 inability to truthfully produce an outcome at all (invalid configuration,
 adapter contract violation, corrupted session). Defects stay defects.
 
+Amended per #198 (v2, OpenCode Host, ADR-0010): the terminations are
+completed, missing emit, budget exhausted, context limit, provider failed and
+interrupted; first-response timeout went with the stall retry (ADR-0002). The
+rule is unchanged: a provider ending, an overall-deadline hit or a missing emit
+is `AgentOutcome.termination` data, with the usage and output available beside
+it. Pi is gone; the salvage of pre-validation emit arguments went with it,
+since an emit that fails strict decoding goes back to the model in the same
+turn.
+
 Why: a binary success/failure branch erases the legitimate coexistence of
 output, usage, and error — the `better-result` research names "flattening rich
 durable outcomes into an error channel" as the primary risk of going

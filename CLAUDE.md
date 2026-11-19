@@ -1,12 +1,14 @@
 # Gauntlet
 
-Effect-v4-native code-review agent on an embedded OpenCode Host. Spec is decision-complete;
-work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
+Effect-v4-native code-review agent on an embedded OpenCode Host. Work arrives
+as tickets against a decision-complete spec. Don't re-litigate settled
+decisions.
 
 ## Read first
 
 - `GLOSSARY.md` — the domain terms and their avoid-lists are **binding on naming**
-- Spec: issue #15. Rationale: `docs/adr/` (binding)
+- Spec: issue #195 (v2) and its amendments comment, which win where they
+  conflict. Rationale: `docs/adr/` (binding)
 - `docs/spec/pipeline-shape.md`, `docs/spec/emit-tools.md` — normative specs
 - The `effect` skill for Effect code, with the House rules below
 
@@ -79,3 +81,17 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
   claim has no owner on a shared store.
 - Span names in existing code still use `gauntlet.<module>.<method>`; new code
   uses the skill's `Domain.operation`, and the renames are #126.
+
+### Build and release
+
+- Every compiled binary goes through `scripts/compile.ts`: its Bun plugins
+  stub `@opencode/pty` and `@ff-labs/fff-bun` (the Host runs with
+  `fs.fff: false`) and fix the NodeWS `ws` re-export. A Host that boots under
+  `bun` can still fail compiled, so `bun run test:compile-smoke` (PR CI, and
+  each release runner) opens it inside a compiled binary.
+- Bun is pinned in `package.json`'s `packageManager` and in both workflows;
+  change all three together.
+- A release is a `v<major>.<minor>.<patch>` tag on `main`, pushed only with
+  John's OK. `docs/release-notes/<tag>.md`, when present, goes above the
+  generated notes.
+- Live gates run by hand, never in CI: `docs/live-gates.md`.

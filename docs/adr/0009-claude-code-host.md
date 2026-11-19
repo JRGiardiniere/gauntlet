@@ -1,5 +1,8 @@
 # Claude Code is a second Host, running the same review program
 
+**Superseded by ADR-0010 (v2).** The Mod is retired; Claude Seats run on the
+CLI's embedded OpenCode Host. Kept as the record of v1.
+
 The Mod, `/gauntlet`, runs Gauntlet inside Claude Code (#134, #135). We bundle the CLI's
 own review program into a Claude Code mod and run it in process: Submission,
 the snapshot, `invoke.ts`, the Stages, the Run record and the digest are the
