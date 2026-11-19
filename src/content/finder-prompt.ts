@@ -24,6 +24,10 @@ import { EmitFindings } from "../harness/output-contract.ts"
 // What every Stage with tools is told about them.
 export const WORKSPACE_PROMPT = "workspace.md"
 
+// The repo root as a Finder's prompt names it: the session's working
+// directory is the snapshot, and a path in the prefix would differ per Run.
+export const RELATIVE_REPO_ROOT = "your working directory (give tools paths relative to it)"
+
 export { PromptAssemblyError }
 
 export const FINDER_TOOLS = INSPECTION_TOOLS

@@ -216,10 +216,13 @@ describe("Finder stage interface", () => {
           invocationId.endsWith(`-finder-${selectedLens.name}`))
         expect(Option.exists(prompt, ({ text }) => text.endsWith(`\n\n${selectedLens.promptText}`))).toBe(true)
       }
-      for (const suffix of ["-finders-1", "-finders-2"]) {
-        const specs = Array.filter(scripted.specs, ({ cacheGroup }) => cacheGroup?.endsWith(suffix) ?? false)
+      for (const role of ["finder-1", "finder-2"]) {
+        const specs = Array.filter(scripted.specs, (spec) => spec.role === role)
         expect(specs).toHaveLength(2)
-        expect(specs[1]?.role).toBe(specs[0]?.role)
+        expect(specs[1]?.cacheGroup).toBe(specs[0]?.cacheGroup)
+        // The key and prefix are the change's, not the Run's or snapshot's.
+        expect(specs[0]?.cacheGroup).not.toContain(fixture.plan.runId)
+        expect(specs[0]?.systemPrompt).not.toContain(specs[0]?.workspace ?? "")
         expect(specs[1]?.systemPrompt).toBe(specs[0]?.systemPrompt)
         expect(specs[1]?.tools).toEqual(specs[0]?.tools)
         expect(specs[1]?.emit).toMatchObject({

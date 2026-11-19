@@ -7,6 +7,7 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as TestConsole from "effect/testing/TestConsole"
+import { RELATIVE_REPO_ROOT } from "../content/finder-prompt.ts"
 import { Dossier } from "../domain/dossier.ts"
 import { ReviewPlan } from "../domain/review-plan.ts"
 import {
@@ -172,10 +173,11 @@ describe("gauntlet review", () => {
       }
       expect(Array.map(run.scripted.specs, (spec) => spec.role)).toEqual(["finder-1", "verifier", "judge"])
 
-      // Finders carry the snapshot root in the system prompt; the later
-      // stages carry it in the user prompt.
+      // Finders name the root relatively, so their prefix holds no per-Run
+      // path; the later stages carry the snapshot root in the user prompt.
       const [finderSystemPrompt = ""] = systemPromptsFor(run.scripted, "-finders")
-      expect(finderSystemPrompt).toContain(`repo=${snapshot}`)
+      expect(finderSystemPrompt).toContain(`repo=${RELATIVE_REPO_ROOT}`)
+      expect(finderSystemPrompt).not.toContain(snapshot)
       for (const suffix of ["-verification", "-judgment"] as const) {
         const [prompt = ""] = promptTextsFor(run.scripted, suffix)
         expect(prompt).toContain(`Repo root: ${snapshot}`)

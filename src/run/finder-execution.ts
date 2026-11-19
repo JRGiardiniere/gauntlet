@@ -3,6 +3,7 @@ import * as Context from "effect/Context"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
+import * as Hash from "effect/Hash"
 import * as HashMap from "effect/HashMap"
 import * as Option from "effect/Option"
 import * as Result from "effect/Result"
@@ -17,6 +18,7 @@ import {
   FINDER_TOOLS,
   loadFinderPromptTemplates,
   loadRelatedFilesTemplate,
+  RELATIVE_REPO_ROOT,
   renderRelatedFiles,
 } from "../content/finder-prompt.ts"
 import {
@@ -65,9 +67,15 @@ export const FinderCacheSettle = Context.Reference<Effect.Effect<void>>(
 // shared context every one of its system prompts carries.
 interface Partition {
   readonly role: string
+  readonly label: string
   readonly cacheGroup: string
   readonly sharedContext: string
 }
+
+// The provider cache key comes from the prefix itself, not the Run, so a
+// later Run over the same change finds the cache an earlier one warmed.
+const cacheGroupFor = (seat: string, sharedContext: string) =>
+  `gauntlet-finders-${(Hash.string(`${seat}\n${sharedContext}`) >>> 0).toString(36)}`
 
 interface FinderExecutionInput {
   readonly plan: ReviewPlan
@@ -132,7 +140,7 @@ export const executeFinders = Effect.fn(
   ) {
     const promptTemplates = yield* templates
     return {
-      invocationId: `${partition.cacheGroup}-${invocation.invocationKey}`,
+      invocationId: `${partition.label}-${invocation.invocationKey}`,
       role: partition.role,
       seat: invocation.seat,
       workspace: reviewWorkingDirectory,
@@ -183,19 +191,23 @@ export const executeFinders = Effect.fn(
       Effect.gen(function* () {
         const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
+        // The Host's tools resolve relative paths in the snapshot, so the
+        // prefix names no per-Run path.
         const baseContext = yield* assembleFinderContext(
           promptTemplates,
           plan.target,
-          reviewWorkingDirectory,
+          RELATIVE_REPO_ROOT,
           starter.context,
         )
         const relatedFiles = yield* relatedFilesSection
+        const sharedContext = relatedFiles === undefined
+          ? baseContext
+          : `${baseContext}\n\n${relatedFiles}`
         const partition: Partition = {
           role: `finder-${String(groupIndex + 1)}`,
-          cacheGroup: `${plan.runId}-finders-${String(groupIndex + 1)}`,
-          sharedContext: relatedFiles === undefined
-            ? baseContext
-            : `${baseContext}\n\n${relatedFiles}`,
+          label: `${plan.runId}-finders-${String(groupIndex + 1)}`,
+          cacheGroup: cacheGroupFor(starter.seat, sharedContext),
+          sharedContext,
         }
         if (group.length === 1) {
           const [completed, failed] = yield* Effect.partition(
