@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
+import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import { Candidate } from "../domain/candidate.ts"
 import { FrozenLens } from "../domain/review-plan.ts"
@@ -65,5 +66,34 @@ describe("finder and candidate prompt text", () => {
       expect(finder).toContain("````diff\n")
       expect(finder).toContain("\n ```\n")
       expect(finder).toContain("\n````")
+    }))
+
+  it.effect("names a touched bun.lock instead of inlining its diff", () =>
+    Effect.gen(function* () {
+      const diff = Array.join([
+        "diff --git a/src/app.ts b/src/app.ts",
+        "--- a/src/app.ts",
+        "+++ b/src/app.ts",
+        "@@ -1 +1 @@",
+        "-old",
+        "+new",
+        "diff --git a/bun.lock b/bun.lock",
+        "--- a/bun.lock",
+        "+++ b/bun.lock",
+        "@@ -1 +1 @@",
+        `-"effect": "4.0.0"`,
+        `+"effect": "4.1.0"`,
+      ], "\n")
+      const finder = yield* assembleFinderPrompt(
+        { sharedPromptTemplate: "{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{REPO_ROOT}}{{WORKSPACE_TOOLS}}{{MAX_PER_LENS}}", workspaceTools: "{{REPO_ROOT}}" },
+        ReviewTarget.cases.WorkingTree.make({ ...target, changedFiles: ["src/app.ts", "bun.lock"], diff }),
+        reviewRoot,
+        FrozenLens.make({ name: "fixture", promptText: "fixture lens", seat: "fixture/model:low", candidateCap: 6 }),
+        undefined,
+      )
+      expect(finder).toContain("+new")
+      expect(finder).not.toContain("4.1.0")
+      expect(finder).toContain("diff --git a/bun.lock b/bun.lock\n")
+      expect(finder).toContain("with their changed lines left out: bun.lock.")
     }))
 })

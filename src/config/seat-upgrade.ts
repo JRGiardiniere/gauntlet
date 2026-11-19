@@ -62,6 +62,12 @@ const newestFamilyModel = (
   return newest.id
 }
 
+// The provider whose models a Seat upgrades onto: its successor's, if any.
+export const upgradeProvider = (seat: Seat): string => {
+  const provider = seat.slice(0, seat.indexOf("/"))
+  return successorProviders.get(provider) ?? provider
+}
+
 // Whether a Seat could run; the Host's model list answers it (`hostAccepts`).
 export type SeatAcceptance = (seat: Seat) => boolean
 
@@ -73,11 +79,9 @@ export const newerSeat = (
   providerModelIds: (provider: string) => ReadonlyArray<string>,
   accepts: SeatAcceptance,
 ): Option.Option<Seat> => {
-  const providerSeparator = seat.indexOf("/")
   const effortSeparator = seat.lastIndexOf(":")
-  const model = seat.slice(providerSeparator + 1, effortSeparator)
-  const seatProvider = seat.slice(0, providerSeparator)
-  const provider = successorProviders.get(seatProvider) ?? seatProvider
+  const model = seat.slice(seat.indexOf("/") + 1, effortSeparator)
+  const provider = upgradeProvider(seat)
   const effort = seat.slice(effortSeparator)
   const newest = newestFamilyModel(
     model,
@@ -94,7 +98,7 @@ export interface SeatChange {
   readonly to: string
 }
 
-const seatFields = [
+export const seatFields = [
   "default",
   "finders",
   "interpretive-finders",

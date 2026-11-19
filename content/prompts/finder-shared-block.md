@@ -1,7 +1,7 @@
 # Code review — candidate finding pass
 
-You are reviewing one change. The complete diff is below, with 50 lines of
-context per hunk. It is already in your context: do NOT run `git diff`,
+You are reviewing one change. The diff is below (lockfiles by their headers
+only), with 50 lines of context per hunk. It is already in your context: do NOT run `git diff`,
 `git show`, or `git log` to fetch what is already here.
 
 Repo root: {{REPO_ROOT}}

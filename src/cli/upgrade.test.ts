@@ -117,4 +117,16 @@ describe("upgradeSeats", () => {
       const logLines = yield* TestConsole.logLines
       expect(lines(logLines)).toContain("OpenAI seats were not checked")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("says nothing about OpenAI when no Recipe has an OpenAI Seat", () =>
+    Effect.gen(function* () {
+      const { home } = yield* withRecipes({ "claude-high": '{"default":"claude-code/opus:high"}\n' })
+      const claudeOnly = Array.filter(models, (model) => model.providerID !== "openai")
+      yield* upgradeSeats().pipe(
+        Effect.provide([hostListing(Effect.succeed(claudeOnly)), ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))]),
+      )
+      const logLines = yield* TestConsole.logLines
+      expect(lines(logLines)).not.toContain("OpenAI")
+      expect(lines(logLines)).toContain("recipe seats are current")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

@@ -12,7 +12,7 @@ import * as TestClock from "effect/testing/TestClock"
 import * as TestConsole from "effect/testing/TestConsole"
 import { unusedGitHubLayer } from "../github/github.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
-import { hostLayer, type SignInStatus } from "../host/host.ts"
+import { HostError, hostLayer, type SignInStatus } from "../host/host.ts"
 import { runGauntlet } from "./main.ts"
 
 // `gauntlet login` against a fake ChatGPT integration: the Host's sign-in
@@ -25,13 +25,19 @@ interface FakeIntegration {
   readonly pasted: Ref.Ref<ReadonlyArray<string>>
 }
 
+// A paste the Host fails on, rather than refusing.
+const FAILING_PASTE = "http://localhost:1455/auth/callback?code=expired"
+
 const fakeHost = (
   integration: FakeIntegration,
   // The attempt's status on each check, given what has been pasted so far.
   status: (checks: number, pasted: ReadonlyArray<string>) => SignInStatus,
+  // After a failed paste, the Host cannot report the attempt either.
+  broken = false,
 ) =>
   Layer.unwrap(Effect.gen(function* () {
     const checks = yield* Ref.make(0)
+    const failed = yield* Ref.make(false)
     const untouched = Effect.die("unused")
     return hostLayer({
       openSession: () => untouched,
@@ -49,6 +55,9 @@ const fakeHost = (
         }),
         status: () =>
           Effect.gen(function* () {
+            if (broken && (yield* Ref.get(failed))) {
+              return yield* HostError.make({ operation: "sign-in status", reason: "the Host stopped" })
+            }
             const count = yield* Ref.updateAndGet(checks, (n) => n + 1)
             const pasted = yield* Ref.get(integration.pasted)
             return status(count, pasted)
@@ -56,6 +65,10 @@ const fakeHost = (
         paste: (_attemptID, url) =>
           url === REDIRECT
             ? Ref.update(integration.pasted, (all) => [...all, url]).pipe(Effect.as({ _tag: "Accepted" } as const))
+            : url === FAILING_PASTE
+            ? Ref.set(failed, true).pipe(
+              Effect.andThen(HostError.make({ operation: "complete sign-in", reason: "token exchange failed" })),
+            )
             : Effect.succeed({ _tag: "Rejected", reason: "invalid redirect URL" } as const),
         cancel: (attemptID) => Ref.update(integration.cancelled, (all) => [...all, attemptID]),
       },
@@ -125,6 +138,35 @@ describe("gauntlet login", () => {
       expect(stdout).toContain("Claude Seats need `claude`: Claude Code is not logged in.")
       const cancelled = yield* Ref.get(integration.cancelled)
       expect(cancelled).toEqual(["con_1"])
+    }))
+
+  it.effect("asks again after a paste the Host fails on, while the Host still answers", () =>
+    Effect.gen(function* () {
+      const integration = yield* makeIntegration
+      const host = fakeHost(integration, (_checks, pasted) =>
+        pasted.length > 0 ? { _tag: "Complete" } : { _tag: "Pending" })
+      const running = yield* Effect.forkChild(login(host, [FAILING_PASTE, REDIRECT]))
+      yield* TestClock.adjust("2 seconds")
+      const exitCode = yield* Fiber.join(running)
+      expect(exitCode).toBe(0)
+      const pasted = yield* Ref.get(integration.pasted)
+      expect(pasted).toEqual([REDIRECT])
+      const errorLines = yield* TestConsole.errorLines
+      expect(text(errorLines)).toContain("that URL was not accepted — token exchange failed")
+    }))
+
+  it.effect("exits 1 when a failed paste leaves a Host that cannot report the attempt", () =>
+    Effect.gen(function* () {
+      const integration = yield* makeIntegration
+      const host = fakeHost(integration, () => ({ _tag: "Pending" }), true)
+      const running = yield* Effect.forkChild(login(host, [FAILING_PASTE, REDIRECT]))
+      yield* TestClock.adjust("2 seconds")
+      const exitCode = yield* Fiber.join(running)
+      expect(exitCode).toBe(1)
+      const pasted = yield* Ref.get(integration.pasted)
+      expect(pasted).toEqual([])
+      const errorLines = yield* TestConsole.errorLines
+      expect(text(errorLines)).toContain("could not sign in — token exchange failed")
     }))
 
   it.effect("finishes when the browser completes the sign-in, with nothing pasted", () =>

@@ -10,7 +10,8 @@ import * as TestConsole from "effect/testing/TestConsole"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
-import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
+import { commitAll, fixtureGit, makeGitFixture } from "../test-support/git.fixture.ts"
+import { makeHostileRepo, markersWritten } from "../test-support/hostile-repo.fixture.ts"
 import {
   acquireReviewWorkingDirectory,
   captureWorkspaceOverlay,
@@ -173,6 +174,48 @@ describe("PR review working directory", () => {
       expect(existsAfterInterrupt).toBe(false)
       const worktreesAfterInterrupt = yield* countWorktrees(repo)
       expect(worktreesAfterInterrupt).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+})
+
+describe("snapshot creation on a hostile repo", () => {
+  it.effect("never runs the reviewed commit's husky post-checkout hook, and keeps the snapshot's .git file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { repo, markers, target } = yield* makeHostileRepo
+
+      const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+      const afterSnapshot = yield* markersWritten(markers)
+      expect(afterSnapshot).toEqual([])
+      const gitFile = yield* fs.stat(path.join(directory, ".git"))
+      expect(gitFile.type).toBe("File")
+
+      // The control: the same hook does run on an ordinary checkout.
+      yield* fixtureGit(repo, ["checkout", "--detach", target.headCommit])
+      const afterCheckout = yield* markersWritten(markers)
+      expect(afterCheckout).toContain("husky-post-checkout")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("never runs the reviewed working tree's post-index-change hook while freezing its overlay", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { repo, markers } = yield* makeHostileRepo
+      yield* fs.writeFileString(path.join(repo, "pkg/x.ts"), "export const allowed = 2\n")
+
+      const target = yield* resolveWorkingTreeTarget(repo, undefined)
+      const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-hostile-overlay-" })
+      const overlayPath = yield* freezeOverlay(target, scratch)
+      const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlayPath)
+      const edited = yield* fs.readFileString(path.join(directory, "pkg/x.ts"))
+      expect(edited).toBe("export const allowed = 2\n")
+      const written = yield* markersWritten(markers)
+      expect(written).toEqual([])
+
+      // The control: an ordinary index write does run it.
+      yield* fixtureGit(repo, ["add", "pkg/x.ts"])
+      const afterAdd = yield* markersWritten(markers)
+      expect(afterAdd).toEqual(["husky-post-index-change"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 

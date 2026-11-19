@@ -10,7 +10,6 @@ bundle-entry.generated.mjs
 .env.*
 
 # In-flight design drafts (published as issues; local copies transient)
-docs/research/just-bash-limits-and-cancellation.md
 docs/research/opentui-hunk-turso-lint-inbox.md
 docs/research/effect-v4-lint-inbox-backend.md
 docs/research/oxlint-event-emission-options.md

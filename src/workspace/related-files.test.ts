@@ -5,7 +5,9 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Record from "effect/Record"
+import { acquireReviewWorkingDirectory } from "../run/review-working-directory.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
+import { ALLOWED_FILE, makeHostileRepo, SECRET, toJson } from "../test-support/hostile-repo.fixture.ts"
 import { gatherRelatedFiles } from "./related-files.ts"
 
 // Commits `files` to a fresh repository and gathers for `changed`; returns
@@ -87,6 +89,48 @@ describe("gatherRelatedFiles", () => {
       }, ["app/main.py"])
       expect(related).toEqual(["a/models/account.py", "b/models/account.py", "c/models/account.py"])
     }))
+
+  it.effect("names touched lockfiles and oversized touched files instead of inlining them, and never relates a lockfile", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { repo } = yield* makeGitFixture()
+      const files = {
+        "src/app.ts": `import "./util.ts"\n`,
+        "src/util.ts": "export const util = 1\n",
+        "bun.lock": `{ "app": "./src/app.ts" }\n`,
+        "src/generated.ts": "x".repeat(70_000),
+        // Linked to the oversized touched file, which still finds it.
+        "src/use-generated.ts": `import "./generated.ts"\n`,
+        // Mentions the touched stem, but a lockfile is never related.
+        "packages/web/yarn.lock": `"../../src/app.ts"\n`,
+      }
+      for (const [file, text] of Record.toEntries(files)) {
+        yield* fs.makeDirectory(path.dirname(path.join(repo, file)), { recursive: true })
+        yield* fs.writeFileString(path.join(repo, file), text)
+      }
+      yield* commitAll(repo, "fixture")
+      const gathered = yield* gatherRelatedFiles(repo, ["src/app.ts", "bun.lock", "src/generated.ts"])
+      expect(Array.map(gathered.touched, ({ file }) => file)).toEqual(["src/app.ts"])
+      expect(gathered.omitted).toEqual([
+        { file: "bun.lock", reason: "lockfile" },
+        { file: "src/generated.ts", reason: "70000 characters" },
+      ])
+      expect(Array.map(gathered.related, ({ file }) => file)).toEqual(["src/use-generated.ts", "src/util.ts"])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("inlines nothing the ReviewWorkspace fence refuses: secrets, .git, outbound symlinks", () =>
+    Effect.gen(function* () {
+      const { target } = yield* makeHostileRepo
+      const snapshot = yield* acquireReviewWorkingDirectory(target, "related-files-test", "/nonexistent/overlay.patch")
+      const gathered = yield* gatherRelatedFiles(snapshot, [...target.changedFiles, ".git"])
+      const inlined = [...gathered.touched, ...gathered.related]
+      expect(Array.map(inlined, ({ file }) => file)).toContain(ALLOWED_FILE)
+      for (const refused of [".env", "pkg/.env.local", ".git", "gitlink", "out", "up"]) {
+        expect(Array.map(inlined, ({ file }) => file)).not.toContain(refused)
+      }
+      expect(toJson(inlined)).not.toContain(SECRET)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps dependencies, then the most-linked and smallest files, within the budget", () =>
     Effect.gen(function* () {

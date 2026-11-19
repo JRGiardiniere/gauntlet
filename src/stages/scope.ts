@@ -1,10 +1,9 @@
-import { WORKSPACE_PROMPT } from "../content/finder-prompt.ts"
+import { diffSection, WORKSPACE_PROMPT } from "../content/finder-prompt.ts"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Path from "effect/Path"
 import { ContentDirectory, isCompiledBinary } from "../content/lens.ts"
 import {
-  fenceMarkdownBlock,
   type PromptAssemblyError,
   readPromptTemplate,
   renderPromptTemplate,
@@ -64,7 +63,7 @@ export const assembleStageScope = (
       ],
       [
         "DIFF_SECTION",
-        `## Diff under review\n\n${fenceMarkdownBlock("diff", target.diff)}`,
+        diffSection("Diff under review", target.diff),
       ],
     ])
     return specification === undefined

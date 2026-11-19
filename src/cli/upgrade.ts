@@ -11,7 +11,7 @@ import * as Schema from "effect/Schema"
 import * as Command from "effect/cli/Command"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
-import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
+import { type SeatChange, seatFields, upgradeProvider, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
 import { type CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
 import { Host, HostError } from "../host/host.ts"
@@ -81,8 +81,9 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
     (seat) => hostAccepts(models, seat),
   )
   // OpenAI lists no models without a ChatGPT sign-in or OPENAI_API_KEY, which
-  // would read as "current" without anything being compared.
-  if (!Array.some(models, (model) => model.providerID === "openai")) {
+  // would read as "current" for a Recipe with an OpenAI Seat without anything
+  // being compared.
+  if (Array.some(entries, hasOpenAISeat) && !Array.some(models, (model) => model.providerID === "openai")) {
     yield* Console.log("OpenAI seats were not checked: no OpenAI models are listed — run `gauntlet login` or set OPENAI_API_KEY")
   }
   yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
@@ -97,6 +98,13 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
         reportSeatFailure(`could not write ${failure.path}`),
     }),
   ))
+
+const hasOpenAISeat = (entry: CatalogEntry) =>
+  entry._tag === "ValidRecipe" &&
+  Array.some(seatFields, (field) => {
+    const seat = entry.recipe[field]
+    return seat !== undefined && upgradeProvider(seat) === "openai"
+  })
 
 const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
   Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))

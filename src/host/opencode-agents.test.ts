@@ -3,7 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import { LLMClient, LLMEvent } from "@opencode/ai/effect"
 import { TestLLM } from "@opencode/ai/testing"
 import { llmClient } from "@opencode/core/effect/app-node-platform"
-import { AbsolutePath, Agent, Integration, Model, Provider } from "@opencode/sdk/effect"
+import { AbsolutePath, Agent, Integration, Model, Provider, Session } from "@opencode/sdk/effect"
 import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
@@ -19,7 +19,19 @@ import { EmitFindings } from "../harness/output-contract.ts"
 import type { AgentSpec } from "../harness/harness-session.ts"
 import { EmitPool } from "../stages/pool/output-contract.ts"
 import { hostPaths } from "./host.ts"
-import { rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
+import { Permission } from "@opencode/core/permission"
+import * as Schema from "effect/Schema"
+import { acquireReviewWorkingDirectory } from "../run/review-working-directory.ts"
+import {
+  ALLOWED_FILE,
+  ALLOWED_TEXT,
+  CANARY,
+  makeHostileRepo,
+  markersWritten,
+  SECRET,
+  toJson,
+} from "../test-support/hostile-repo.fixture.ts"
+import { permissionsFor, rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
 import { bootHost } from "./opencode-host.ts"
 
 // The embedded Host, offline: OpenCode's fake language model answers every
@@ -49,13 +61,10 @@ const textStop = (text: string, tokens = usage(900, 100, 20)) =>
     LLMEvent.textEnd({ id: "t" }),
   )
 
-// A booted Host whose model requests go to a fake, and a Run snapshot.
-const embedded = Effect.gen(function* () {
+// A booted Host whose model requests go to a fake.
+const bootEmbedded = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
-  const path = yield* Path.Path
   const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-agents-home-" })
-  const workspace = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-agents-snapshot-" })
-  yield* fs.writeFileString(path.join(workspace, "alpha.txt"), "first line\n")
   const paths = yield* hostPaths().pipe(
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))),
   )
@@ -69,6 +78,16 @@ const embedded = Effect.gen(function* () {
     integrationID: Integration.ID.make("openai"),
     key: "sk-test",
   })
+  return { host, llm }
+})
+
+// A Run snapshot and Finder specs for it.
+const embedded = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+  const workspace = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-agents-snapshot-" })
+  yield* fs.writeFileString(path.join(workspace, "alpha.txt"), "first line\n")
+  const { host, llm } = yield* bootEmbedded
   const finder = (): AgentSpec => ({
     invocationId: "fixture-finder",
     role: "finder-1",
@@ -256,4 +275,164 @@ describe("the partition cache key on an outgoing request", () => {
       expect(new TextDecoder().decode(decode(new Uint8Array(sent)))).toBe(keyed)
       expect(rewritten.headers.get("content-encoding")).toBe(encoding ?? null)
     }))
+})
+
+describe("the ReviewWorkspace permission rules", () => {
+  const rules = [...permissionsFor({ tools: ["read", "grep", "glob"], emit: "emit_findings" })]
+  const Segment = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,12}$/))
+
+  it.prop(
+    "never fall through to asking, whatever the action or resource",
+    { action: Schema.String, resource: Schema.String },
+    ({ action, resource }) => {
+      expect(Permission.evaluate(action, resource, rules).effect).not.toBe("ask")
+    },
+  )
+
+  it.prop(
+    "allow reading a path only when no segment is .git or starts with .env",
+    { segments: Schema.NonEmptyArray(Segment) },
+    ({ segments }) => {
+      const sensitive = Array.some(segments, (segment) => segment === ".git" || segment.startsWith(".env"))
+      expect(Permission.evaluate("read", Array.join(segments, "/"), rules).effect).toBe(sensitive ? "deny" : "allow")
+    },
+  )
+
+  it.each([
+    ["grep", "anything", "allow"],
+    ["glob", "**/*", "allow"],
+    ["emit_findings", "*", "allow"],
+    ["write", "src/x.ts", "deny"],
+    ["edit", "src/x.ts", "deny"],
+    ["shell", "touch x", "deny"],
+    ["webfetch", "https://example.com", "deny"],
+    ["external_directory", "/etc/*", "deny"],
+  ])("%s %s → %s", (action, resource, effect) => {
+    expect(Permission.evaluate(action, resource, rules).effect).toBe(effect)
+  })
+
+  it("give Pool its emit tool and nothing else", () => {
+    const pool = [...permissionsFor({ tools: [], emit: "emit_pool" })]
+    expect(Permission.evaluate("emit_pool", "*", pool).effect).toBe("allow")
+    for (const action of ["read", "grep", "glob", "emit_findings"]) {
+      expect(Permission.evaluate(action, "src/x.ts", pool).effect).toBe("deny")
+    }
+  })
+})
+
+type ToolOutcome = { readonly status: string; readonly text: string }
+
+// Each tool call's ending in a session, by call id.
+const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], sessionID: string) =>
+  host.client.message.list({ sessionID: Session.ID.make(sessionID) }).pipe(
+    Effect.map((page) => {
+      const outcomes = new Map<string, ToolOutcome>()
+      for (const message of page.data) {
+        if (message.type !== "assistant") continue
+        for (const part of message.content) {
+          if (part.type !== "tool") continue
+          const state = part.state
+          switch (state.status) {
+            case "error":
+              outcomes.set(part.id, { status: state.status, text: state.error.message })
+              break
+            case "completed":
+              outcomes.set(part.id, {
+                status: state.status,
+                text: Array.join(Array.map(state.content, (item) => (item.type === "text" ? item.text : item.uri)), "\n"),
+              })
+              break
+            case "running":
+            case "streaming":
+              outcomes.set(part.id, { status: state.status, text: "" })
+          }
+        }
+      }
+      return outcomes
+    }),
+  )
+
+describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
+  it.live("serves reads inside the snapshot, refuses every escape, and lets nothing from the repo reach a model", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path
+      const { markers, outside, target } = yield* makeHostileRepo
+      const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-test", "/nonexistent/overlay.patch")
+      const afterSnapshot = yield* markersWritten(markers)
+      expect(afterSnapshot).toEqual([])
+      const { host, llm } = yield* bootEmbedded
+
+      // [call id, tool, input, served].
+      const calls: ReadonlyArray<readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]> = [
+        ["read-allowed", "read", { path: ALLOWED_FILE }, true],
+        ["read-directory", "read", { path: "pkg" }, true],
+        ["grep-walk", "grep", { pattern: "TOKEN=|gitdir" }, true],
+        ["glob-walk", "glob", { pattern: "**/*", hidden: true }, true],
+        ["write", "write", { path: "new.txt", content: "x" }, false],
+        ["edit", "edit", { path: ALLOWED_FILE, oldString: "allowed", newString: "x" }, false],
+        ["shell", "shell", { command: `touch ${markers}/shell` }, false],
+        ["bash", "bash", { command: `touch ${markers}/bash` }, false],
+        ["read-parent", "read", { path: path.relative(snapshot, path.join(outside, "secret")) }, false],
+        ["read-absolute", "read", { path: path.join(outside, "secret") }, false],
+        ["read-home", "read", { path: "~/.bashrc" }, false],
+        ["read-symlink", "read", { path: "out" }, false],
+        ["read-symlinked-directory", "read", { path: "dirout/secret" }, false],
+        ["read-up", "read", { path: "up" }, false],
+        ["read-recovered-symlink", "read", { path: "pkg/link’s.ts" }, false],
+        ["grep-symlink", "grep", { pattern: "TOKEN", path: "out" }, false],
+        ["grep-symlinked-directory", "grep", { pattern: "TOKEN", path: "dirout" }, false],
+        ["glob-symlinked-directory", "glob", { pattern: "*", path: "dirout" }, false],
+        ["read-git", "read", { path: ".git" }, false],
+        ["read-git-symlink", "read", { path: "gitlink" }, false],
+        ["grep-git", "grep", { pattern: "gitdir", path: ".git" }, false],
+        ["read-env", "read", { path: ".env" }, false],
+        ["read-nested-env", "read", { path: "pkg/.env.local" }, false],
+        ["grep-env", "grep", { pattern: "TOKEN", path: "pkg/.env.local" }, false],
+      ]
+      yield* llm.push(
+        TestLLM.complete(
+          { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
+          ...Array.map(calls, ([id, name, input]) => LLMEvent.toolCall({ id, name, input })),
+        ),
+        emitCall("emit-1", "emit_findings", FINDINGS),
+      )
+      const session = yield* host.openSession({
+        invocationId: "fence-finder",
+        role: "finder-1",
+        seat: SEAT,
+        workspace: snapshot,
+        systemPrompt: "fixture finder system prompt",
+        tools: ["read", "grep", "glob"],
+        emit: emitToolSpec(EmitFindings),
+      })
+      const turn = yield* session.turn("review")
+      expect(turn.end).toEqual({ _tag: "Emitted", raw: FINDINGS })
+
+      const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
+      const opened = Array.findFirst(sessions.data, (info) => info.title === "fence-finder")
+      const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
+      const served = Array.map(calls, ([id, name, , allowed]) => [id, name, outcomes.get(id)?.status === "completed", allowed])
+      expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed, allowed]))
+      expect(outcomes.get("read-allowed")?.text).toContain(ALLOWED_TEXT)
+      expect(outcomes.get("grep-walk")?.text).toBe("No matches found")
+      expect(outcomes.get("read-symlink")?.text).toBe("Refused: out is outside the review snapshot.")
+      expect(outcomes.get("read-env")?.text).toBe("Refused: .env is not readable in the review snapshot.")
+
+      // Nothing the repo wrote reached a model: no config, plugin, MCP
+      // server, skill or instructions (root, nested next to the allowed
+      // read, or CLAUDE.md), and no secret through any tool.
+      const requests = yield* llm.requests()
+      expect(requests).toHaveLength(2)
+      const sent = toJson(requests)
+      expect(sent).not.toContain(CANARY)
+      expect(sent).not.toContain(SECRET)
+      expect(sent).not.toContain("BANANA")
+      expect(Array.map(requests, toolNames)).toEqual([
+        ["emit_findings", "glob", "grep", "read"],
+        ["emit_findings", "glob", "grep", "read"],
+      ])
+      expect(Array.map(requests[0]?.system ?? [], (part) => part.text)).toEqual(["fixture finder system prompt"])
+      const afterRun = yield* markersWritten(markers)
+      expect(afterRun).toEqual([])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 })
