@@ -28,8 +28,6 @@ import {
   describeArtifactWrite,
   describePlatformError,
 } from "./artifact.ts"
-import { BriefError, briefRequest } from "./brief-request.ts"
-import { PageError, redrawDossierPage } from "./dossier-page-redraw.ts"
 import { executeReviewPlan } from "./review-executor.ts"
 import { loadRun, type RunError, type RunPaths } from "./run-record.ts"
 import {
@@ -79,12 +77,10 @@ export class RunRefusal extends Schema.TaggedError<
 export type RunFailure =
   | AdapterContractViolation
   | ArtifactWriteError
-  | BriefError
   | Config.ConfigError
   | ContentLoadError
   | DeliveryError
   | InvocationSetupError
-  | PageError
   | PlatformError.PlatformError
   | PromptAssemblyError
   | RecipeCatalogError
@@ -134,10 +130,6 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
       return RunRefusal.make({
         reason: `could not review — ${describePlatformError(failure)}`,
       })
-    case "PageError":
-      return RunRefusal.make({ reason: `could not draw the page — ${failure.reason}` })
-    case "BriefError":
-      return RunRefusal.make({ reason: `could not ask for a brief — ${failure.reason}` })
     case "ConfigError":
       return RunRefusal.make({ reason: `could not review — ${failure.message}` })
     case "SubmissionError":
@@ -199,30 +191,6 @@ export const deliver = Effect.fn("Run.deliver")(
         })),
     )
     return yield* deliverCompletedRun(loaded)
-  },
-  Effect.mapError(refusalOf),
-)
-
-// Redraws a completed Run's dossier.html with the briefs agents have written
-// into its briefs/ directory, answering what the page could not draw.
-export const page = Effect.fn("Run.page")(
-  function* (runId: string) {
-    const runsRoot = yield* resolveRunsRoot()
-    const loaded = yield* loadRun(runsRoot, runId).pipe(
-      Effect.mapError((cause) => PageError.make({ reason: cause.reason, cause })),
-    )
-    return yield* redrawDossierPage(loaded)
-  },
-  Effect.mapError(refusalOf),
-)
-
-export const brief = Effect.fn("Run.brief")(
-  function* (runId: string, findingId: string) {
-    const runsRoot = yield* resolveRunsRoot()
-    const loaded = yield* loadRun(runsRoot, runId).pipe(
-      Effect.mapError((cause) => BriefError.make({ reason: cause.reason, cause })),
-    )
-    return yield* briefRequest(loaded, findingId)
   },
   Effect.mapError(refusalOf),
 )

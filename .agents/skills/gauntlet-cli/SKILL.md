@@ -100,9 +100,10 @@ verbatim. The Dossier lives on disk.
 
 ## Dossier
 
-Human detail: read `dossier.md` on disk, and only for findings you will act on.
-Machine truth: parse `dossier.json` on disk. Stdout is the digest, not the
-Dossier.
+Human detail: read `dossier.md` on disk, and only for findings you will act on;
+the digest lists P1 and P2 findings and only counts P3s and those with no
+priority. Machine truth: parse `dossier.json`, beside `dossier.md`. Stdout is
+the digest, not the Dossier.
 
 A finding may carry a "suggested tests" line — existing repository tests the
 verifier believes would increase confidence. Running them is optional: run a

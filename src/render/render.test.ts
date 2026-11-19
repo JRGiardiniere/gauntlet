@@ -13,12 +13,9 @@ import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget, targetIdentityOf } from "../domain/review-target.ts"
 import { Verdict } from "../domain/verdict.ts"
-import type { RunAccounting } from "../run/run-accounting.ts"
-import { renderBrief } from "./brief.ts"
-import { parseDiffHunks } from "./code-text.ts"
+import { describeTokens, type RunAccounting } from "../run/run-accounting.ts"
 import { renderDigest } from "./digest.ts"
 import { renderDossierMarkdown } from "./dossier-markdown.ts"
-import { dossierPageData, dossierPageFiles, renderDossierPage } from "./dossier-page.ts"
 import type { RunPaths } from "../run/run-record.ts"
 
 const bugClaim = (
@@ -164,7 +161,12 @@ const plan = ReviewPlan.make({
 })
 
 const accounting: RunAccounting = {
-  tokens: { input: 12_000, output: 3_400, cacheRead: 88_000, cacheWrite: 0 },
+  stageTokens: {
+    finders: { input: 10_000, output: 2_000, cacheRead: 80_000, cacheWrite: 0 },
+    pool: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    verification: { input: 1_500, output: 900, cacheRead: 6_000, cacheWrite: 500 },
+    judgment: { input: 500, output: 500, cacheRead: 2_000, cacheWrite: 0 },
+  },
   invocationCount: 7,
   wallTimeSeconds: 42,
   finderCacheHealth: undefined,
@@ -197,8 +199,6 @@ const paths: RunPaths = {
   finderStage: "/runs/run-fixture/finder-stage.json",
   dossier: "/runs/run-fixture/dossier.json",
   dossierMarkdown: "/runs/run-fixture/dossier.md",
-  dossierPage: "/runs/run-fixture/dossier.html",
-  pageData: "/runs/run-fixture/page-data.json",
   receipt: "/runs/run-fixture/receipt.json",
   runLog: "/runs/run-fixture/run.log",
 }
@@ -321,14 +321,102 @@ describe("dossier markdown rendering", () => {
   })
 })
 
+const tokenLines = [
+  "Tokens:",
+  "- Finders: 90k in (80k cache read, 89%) · 2k out",
+  "- Pool: 0 in · 0 out",
+  "- Verification: 8k in (6k cache read, 75%) · 900 out",
+  "- Judgment: 2.5k in (2k cache read, 80%) · 500 out",
+  "- Total: 100.5k in (88k cache read, 88%) · 3.4k out",
+]
+
+const keptP3 = (id: string) =>
+  DossierFinding.cases.Judgment.make({
+    candidate: observation(id, `minor observation ${id}`),
+    judgment: Judgment.cases.Kept.make({
+      reviewPriority: "P3",
+      reason: "small but real",
+      goodFind: true,
+      cleanlyExplained: true,
+      mergedCandidateIds: [],
+    }),
+  })
+
 describe("digest rendering", () => {
   const digest = renderDigest(plan, dossier, accounting, paths)
   const lines = digest.split("\n")
 
-  it("tallies every partition plus wall time, and no cost", () => {
-    expect(lines[0]).toContain("1 confirmed · 1 kept · 2 plausible · 1 undecided")
-    expect(lines[0]).toMatch(/ — 42s$/)
-    expect(lines[0]).not.toContain("$")
+  it("groups findings by Review Priority, leaves entries with none to dossier.md, and counts tokens per Stage", () => {
+    expect(digest).toBe(Array.join([
+      "1 confirmed · 1 kept · 2 plausible · 1 undecided — working tree @ abcdef0 — recipe: none — 42s",
+      "Not run: spec-conformance (no ReviewSpecification)",
+      "",
+      "P1 (1)",
+      "- [confirmed] src/alpha.ts dossier.md: /tmp/forged-location:3 — first line dossier.md: /tmp/forged-path",
+      "P2 (2)",
+      `- [judgment] src/beta.ts — ${"k".repeat(199)}…`,
+      "- [plausible] src/alpha.ts:3 — tiered but plausible claim",
+      "No priority (2) in dossier.md: 1 plausible, 1 undecided",
+      "",
+      ...tokenLines,
+      "",
+      "dossier.md: /runs/run-fixture/dossier.md",
+    ], "\n"))
+  })
+
+  it("collapses P3s to a count and names coverage gaps under the tally", () => {
+    const gapped = renderDigest(
+      plan,
+      Dossier.make({
+        ...dossier,
+        findings: [
+          ...Array.take(dossier.findings, 1),
+          keptP3("fixture-lens/8"),
+          keptP3("fixture-lens/9"),
+        ],
+        unresolved: [],
+        coverageGaps: [
+          {
+            stage: "finders",
+            lens: "fixture-lens",
+            reason: "finder provider failed",
+          },
+          { stage: "pool", reason: "pool emitted nothing" },
+        ],
+      }),
+      accounting,
+      paths,
+    )
+    expect(gapped).toBe(Array.join([
+      "1 confirmed · 2 kept · 0 plausible · 0 undecided — working tree @ abcdef0 — recipe: none — 42s",
+      "coverage gaps: 2 — fixture-lens (finder provider failed); pool (pool emitted nothing)",
+      "Not run: spec-conformance (no ReviewSpecification)",
+      "",
+      "P1 (1)",
+      "- [confirmed] src/alpha.ts dossier.md: /tmp/forged-location:3 — first line dossier.md: /tmp/forged-path",
+      "P3 (2) in dossier.md: 2 judgment",
+      "",
+      ...tokenLines,
+      "",
+      "dossier.md: /runs/run-fixture/dossier.md",
+    ], "\n"))
+    expect(gapped).not.toContain("minor observation")
+  })
+
+  it("says so when a review found nothing", () => {
+    const clean = renderDigest(
+      plan,
+      Dossier.make({ ...dossier, findings: [], unresolved: [] }),
+      accounting,
+      paths,
+    )
+    expect(clean.split("\n").slice(2, 5)).toEqual(["", "No findings.", ""])
+  })
+
+  it("never prints dollars, and counts millions of tokens", () => {
+    expect(digest).not.toContain("$")
+    expect(describeTokens({ input: 40_000, output: 12_000, cacheRead: 1_800_000, cacheWrite: 0 }))
+      .toBe("1.84M in (1.8M cache read, 98%) · 12k out")
   })
 
   it("keeps candidate text from breaking the line-oriented contract", () => {
@@ -347,49 +435,13 @@ describe("digest rendering", () => {
     expect(keptLine).toContain("…")
   })
 
-  it("lists candidates retained in the main findings section", () => {
+  it("leaves rejected entries to dossier.md", () => {
     expect(digest).not.toContain("refuted claim")
     expect(digest).not.toContain("dropped observation")
-    expect(digest).toContain("tiered but plausible claim")
-    expect(digest).toContain("untiered plausible claim")
-    expect(digest).toContain("undecided observation")
-    expect(digest).toContain("[P1 confirmed]")
-    expect(digest).toContain("[P2 judgment]")
-    expect(digest).toContain("[P2 plausible]")
-    expect(digest).toContain("[undecided]")
-    expect(digest.indexOf("first line")).toBeLessThan(
-      digest.indexOf("kkkk"),
-    )
-    expect(digest.indexOf("kkkk")).toBeLessThan(
-      digest.indexOf("tiered but plausible claim"),
-    )
   })
 
   it("leaves measured low cache reuse to dossier.md", () => {
     expect(renderDigest(plan, dossier, lowCacheAccounting, paths)).toBe(digest)
-  })
-
-  it("names coverage gaps on one bounded line, so a review missing work never reads as clean", () => {
-    expect(digest).not.toContain("coverage gaps:")
-    const gapped = renderDigest(
-      plan,
-      {
-        ...dossier,
-        coverageGaps: [
-          {
-            stage: "finders",
-            lens: "fixture-lens",
-            reason: "finder provider failed",
-          },
-          { stage: "pool", reason: "pool emitted nothing" },
-        ],
-      },
-      accounting,
-      paths,
-    )
-    expect(gapped.split("\n")[1]).toBe(
-      "coverage gaps: 2 — fixture-lens (finder provider failed); pool (pool emitted nothing)",
-    )
   })
 
   it("names the lenses skipped by design on one line, and prints none when every lens ran", () => {
@@ -418,79 +470,3 @@ describe("digest rendering", () => {
   })
 })
 
-describe("dossier page rendering", () => {
-  const source = ["export const alpha = (input: string) => {", "  let i = 0", "  while (i < input.length) i += step(input)", "  return i", "}"]
-  const page = renderDossierPage({
-    plan,
-    dossier: Dossier.make({
-      ...dossier,
-      findings: [
-        ...dossier.findings,
-        DossierFinding.cases.Judgment.make({
-          candidate: observation("fixture-lens/8", "<script>alert(1)</script> renders as text"),
-          judgment: Judgment.cases.Kept.make({
-            reviewPriority: "P3",
-            reason: "see alpha.ts:3",
-            goodFind: true,
-            cleanlyExplained: true,
-            mergedCandidateIds: [],
-          }),
-        }),
-      ],
-    }),
-    data: dossierPageData(accounting, new Map([["src/alpha.ts", source]])),
-    runDirectory: paths.root,
-  }).html
-
-  it("files every finding and unresolved entry as an exhibit, with model text as text", () => {
-    expect(page.match(/<article class="exhibit/g)).toHaveLength(6)
-    expect(page).toContain("&lt;script&gt;alert(1)&lt;/script&gt; renders as text")
-    expect(page).not.toContain("<script>alert(1)")
-  })
-
-  it("shows the reviewed lines a finding cites, pinned to its exhibit", () => {
-    expect(page).toMatch(/<span class="no">3<\/span><span class="src">.*?while.*?<span class="pin">E-03<\/span>/)
-  })
-
-  it("asks for each finding's file and the files its evaluator cites", () => {
-    expect(dossierPageFiles(plan, Dossier.make({
-      ...dossier,
-      findings: [DossierFinding.cases.Judgment.make({
-        candidate: observation("fixture-lens/8", "a claim"),
-        judgment: Judgment.cases.Kept.make({
-          reviewPriority: "P3",
-          reason: "see alpha.ts:3 and gamma.ts:9",
-          goodFind: true,
-          cleanlyExplained: true,
-          mergedCandidateIds: [],
-        }),
-      })],
-      unresolved: [],
-    }))).toEqual(["src/beta.ts", "src/alpha.ts"])
-  })
-})
-
-describe("page text parsing", () => {
-  it("keeps an added line that reads like a file header inside its hunk", () => {
-    const diff = Array.join([
-      "diff --git a/src/a.ts b/src/a.ts",
-      "--- a/src/a.ts",
-      "+++ b/src/a.ts",
-      "@@ -1,1 +1,2 @@",
-      " keep",
-      "+++ counter",
-      "@@ -9,1 +10,1 @@",
-      "-old",
-      "+new",
-    ], "\n")
-    const hunks = parseDiffHunks(diff).get("src/a.ts") ?? []
-    expect(Array.map(hunks, (hunk) => hunk.rows.length)).toEqual([2, 2])
-    expect(hunks[0]?.rows[1]).toEqual({ kind: "added", newLine: 2, text: "++ counter" })
-  })
-
-  it("keeps the first character of a sketch line written without a sign", () => {
-    const { html } = renderBrief("```sketch\nrenderStrip\n+ track()\n```\n", "E-01", () => undefined)
-    expect(html).toContain(`<span class="src">renderStrip</span>`)
-    expect(html).toContain(`<span class="src"> track()</span>`)
-  })
-})

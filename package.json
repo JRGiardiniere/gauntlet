@@ -28,8 +28,7 @@
     "@opencode/plugin": "2.3.2",
     "@opencode/sdk": "2.3.2",
     "@opencode/util": "2.3.2",
-    "effect": "4.1.0",
-    "markdown-it": "15.0.3"
+    "effect": "4.1.0"
   },
   "devDependencies": {
     "@effect/tsgo": "0.70.0",

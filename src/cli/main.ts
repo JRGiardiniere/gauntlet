@@ -2,10 +2,8 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
 import * as Command from "effect/cli/Command"
-import { briefCommand } from "./brief.ts"
 import { configCommand } from "./config.ts"
 import { loginCommand } from "./login.ts"
-import { pageCommand } from "./page.ts"
 import {
   deliverCommand,
   progress,
@@ -20,8 +18,6 @@ const gauntlet = Command.make("gauntlet").pipe(
   Command.withSubcommands([
     reviewCommand,
     deliverCommand,
-    pageCommand,
-    briefCommand,
     configCommand,
     loginCommand,
     upgradeCommand,
