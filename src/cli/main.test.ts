@@ -21,7 +21,6 @@ import { viewDossier } from "../render/dossier-view.ts"
 import {
   emittingSession,
   FINDER_OUTPUT,
-  inspectionsFor,
   JUDGMENT_OUTPUT,
   makeDirtyRepo,
   makePrReviewFixture,
@@ -33,7 +32,6 @@ import {
   VERIFIER_OUTPUT,
   type Fixture,
 } from "../test-support/review.fixture.ts"
-import { REVIEW_WORKSPACE_ROOT } from "../workspace/review-workspace.ts"
 import { runGauntlet } from "./main.ts"
 
 // The CLI's own contracts: argv in, the stdout digest, `gauntlet: ` lines on
@@ -70,12 +68,9 @@ describe("gauntlet review", () => {
         fixture,
         makeScripted({
           sessions: [
-            emittingSession(FINDER_OUTPUT, "-finders", {
-              bash: ["pwd"],
-              read: ["alpha.txt"],
-            }),
-            emittingSession(VERIFIER_OUTPUT, "-verification", { bash: ["pwd"] }),
-            emittingSession(JUDGMENT_OUTPUT, "-judgment", { bash: ["pwd"] }),
+            emittingSession(FINDER_OUTPUT, "-finders", 2),
+            emittingSession(VERIFIER_OUTPUT, "-verification", 1),
+            emittingSession(JUDGMENT_OUTPUT, "-judgment", 1),
           ],
         }),
       )
@@ -168,47 +163,22 @@ describe("gauntlet review", () => {
       expect(runRecordText.split("needle-added-line").length - 1).toBe(1)
       expect(runRecordText).not.toContain("not in the diff")
 
-      expect(run.scripted.configs).toHaveLength(3)
-      const snapshot = run.scripted.configs[0]?.cwd ?? "worktree path missing"
-      for (const config of run.scripted.configs) {
-        expect(config.cwd).toBe(snapshot)
-        expect(config.cwd).not.toBe(fixture.repo)
-        expect(config.tools).toEqual(["read", "bash"])
+      expect(run.scripted.specs).toHaveLength(3)
+      const snapshot = run.scripted.specs[0]?.workspace ?? "worktree path missing"
+      for (const spec of run.scripted.specs) {
+        expect(spec.workspace).toBe(snapshot)
+        expect(spec.workspace).not.toBe(fixture.repo)
+        expect(spec.tools).toEqual(["read", "grep", "glob"])
       }
-      const finderInspections = inspectionsFor(run.scripted, "-finders")
-      expect(finderInspections).toHaveLength(2)
-      expect(finderInspections[0]).toMatchObject({
-        toolName: "bash",
-        isError: false,
-      })
-      expect(finderInspections[0]?.text).toContain(REVIEW_WORKSPACE_ROOT)
-      expect(finderInspections[0]?.text).not.toContain(snapshot)
-      expect(finderInspections[1]).toMatchObject({
-        toolName: "read",
-        isError: false,
-      })
-      expect(finderInspections[1]?.text).toContain("needle-added-line")
-      expect(finderInspections[1]?.text).not.toContain(snapshot)
+      expect(Array.map(run.scripted.specs, (spec) => spec.role)).toEqual(["finder-1", "verifier", "judge"])
 
-      for (const suffix of ["-verification", "-judgment"] as const) {
-        const [pwd] = inspectionsFor(run.scripted, suffix)
-        expect(pwd).toMatchObject({
-          toolName: "bash",
-          isError: false,
-          text: expect.stringContaining(REVIEW_WORKSPACE_ROOT),
-        })
-        expect(pwd).toMatchObject({ text: expect.not.stringContaining(snapshot) })
-      }
-
-      // Finders carry the repo root in the system prompt; the later stages
-      // carry it in the user prompt.
+      // Finders carry the snapshot root in the system prompt; the later
+      // stages carry it in the user prompt.
       const [finderSystemPrompt = ""] = systemPromptsFor(run.scripted, "-finders")
-      expect(finderSystemPrompt).toContain(`repo=${REVIEW_WORKSPACE_ROOT}`)
-      expect(finderSystemPrompt).not.toContain(snapshot)
+      expect(finderSystemPrompt).toContain(`repo=${snapshot}`)
       for (const suffix of ["-verification", "-judgment"] as const) {
         const [prompt = ""] = promptTextsFor(run.scripted, suffix)
-        expect(prompt).toContain(`Repo root: ${REVIEW_WORKSPACE_ROOT}`)
-        expect(prompt).not.toContain(snapshot)
+        expect(prompt).toContain(`Repo root: ${snapshot}`)
       }
 
       const runLog = yield* fs.readFileString(path.join(runDir, "run.log"))

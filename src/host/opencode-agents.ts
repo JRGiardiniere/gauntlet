@@ -1,0 +1,462 @@
+import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
+import { Plugin } from "@opencode/plugin/effect"
+import { AbsolutePath, Agent, Model, type OpenCode, Provider, type Session, Tool } from "@opencode/sdk/effect"
+import * as Array from "effect/Array"
+import * as LogLevel from "effect/LogLevel"
+import * as Option from "effect/Option"
+import * as Deferred from "effect/Deferred"
+import * as Duration from "effect/Duration"
+import * as Effect from "effect/Effect"
+import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
+import * as Semaphore from "effect/Semaphore"
+import * as Stream from "effect/Stream"
+import type { AgentToolCalls } from "../domain/agent-outcome.ts"
+import {
+  AdapterContractViolation,
+  type AgentSpec,
+  type HarnessSession,
+  type InspectionTool,
+  TurnEnd,
+  type TurnResult,
+  type UsageRow,
+} from "../harness/harness-session.ts"
+import { HostError } from "./host.ts"
+import { toModelRef } from "./model-ref.ts"
+
+// AgentInvocations on the embedded Host: the Gauntlet plugin that holds the
+// Host-side policy, and the sessions an invocation drives through it.
+
+export const GAUNTLET_PLUGIN_ID = "gauntlet"
+
+// Bounds the wait for a Run's Location to activate the plugin and list the
+// Seat's model, so a stuck plugin fails the invocation instead of hanging it.
+const AGENT_READY_TIMEOUT = Duration.seconds(60)
+// The spike's grep default: enough matches to locate code, small enough that
+// a broad pattern does not flood the context.
+const GREP_DEFAULT_LIMIT = 30
+// Bounds paging through a session's assistant messages.
+const MESSAGE_PAGE = 200
+
+const READ_DESCRIPTION = Array.join([
+  "Read lines of a file, or a directory's entries. Each text line is prefixed by its 1-based line number as <line>: <content>; the prefix is not part of the file.",
+  "Read only the region you need: find it with grep first, then pass offset and limit (usually 40-150 lines). The change's diff and touched files are already in your context, so do not re-read them.",
+  "Output is capped at 2000 lines or 50 KB.",
+], " ")
+
+const GREP_DESCRIPTION = Array.join([
+  `Search file contents with ripgrep regular expressions (or literal text). Returns matching lines without context, grouped by file, at most \`limit\` lines (default ${String(GREP_DEFAULT_LIMIT)}).`,
+  "Combine related searches into one call with alternation (a|b|c) instead of several calls, and narrow with path and include. Then read only the lines around a match with offset and limit.",
+], " ")
+
+interface AgentDefinition {
+  readonly system: string
+  readonly tools: ReadonlyArray<InspectionTool>
+  readonly emit: string
+}
+
+interface EmitDefinition {
+  readonly description: string
+  readonly parameters: AgentSpec["emit"]["parameters"]
+}
+
+// What the plugin knows about one open session.
+interface SessionRoute {
+  readonly emit: AgentSpec["emit"]
+  readonly cacheGroup: string | undefined
+  readonly firstToken: Deferred.Deferred<void>
+  // The first emit that passed the strict decoder; once set, the session
+  // sends no further model request.
+  emitted: Schema.Json | undefined
+  rejections: Array<string>
+}
+
+// State shared between the plugin's hooks and the sessions, one per Host.
+// Hooks and tool callbacks are OpenCode's, so these cells are plain maps.
+interface Registry {
+  readonly agents: Map<string, Map<string, AgentDefinition>>
+  readonly emitTools: Map<string, EmitDefinition>
+  readonly contexts: Map<string, Plugin.Context>
+  readonly sessions: Map<string, SessionRoute>
+}
+
+export const makeRegistry = (): Registry => ({
+  agents: new Map(),
+  emitTools: new Map(),
+  contexts: new Map(),
+  sessions: new Map(),
+})
+
+// Last match wins: everything denied, then the read tools the Stage uses and
+// its own emit tool. A wholly denied tool never reaches the model.
+const permissionsFor = (definition: AgentDefinition) => [
+  { action: "*", resource: "*", effect: "deny" as const },
+  ...Array.map(definition.tools, (tool) => ({ action: tool, resource: "*", effect: "allow" as const })),
+  { action: definition.emit, resource: "*", effect: "allow" as const },
+]
+
+const agentID = (role: string) => `gauntlet-${role}`
+
+const decodeEmitArguments = Schema.decodeUnknownOption(Schema.Json)
+
+const emitExecute = (registry: Registry, name: string) =>
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- OpenCode hands a tool its arguments untyped; they are parsed as JSON, then by the strict decoder
+  (input: unknown, context: Tool.Context) =>
+    Effect.suspend(() => {
+      const route = registry.sessions.get(context.sessionID)
+      if (route === undefined || route.emit.name !== name) {
+        return Effect.fail(Tool.Error.make({ message: `${name} is not this session's emit tool` }))
+      }
+      const raw = decodeEmitArguments(input)
+      const rejection = Option.match(raw, { onNone: () => "the arguments are not JSON", onSome: route.emit.check })
+      if (rejection !== undefined || Option.isNone(raw)) {
+        route.rejections.push(`${name} rejected: ${rejection ?? "the arguments are not JSON"}`)
+        return Effect.fail(Tool.Error.make({ message: `${name} arguments are invalid: ${rejection ?? ""}. Fix them and call ${name} again.` }))
+      }
+      route.emitted ??= raw.value
+      return Effect.succeed({ content: "Recorded." })
+    })
+
+// OpenAI's prompt cache key, wherever the request carries it.
+const CACHE_KEY_HEADERS = ["session-id", "x-session-affinity", "X-Session-Id", "x-opencode-session"]
+// OpenAI's limit on prompt_cache_key.
+const CACHE_KEY_LENGTH = 64
+
+const RequestBody = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json))
+const decodeRequestBody = Schema.decodeUnknownOption(RequestBody)
+const encodeRequestBody = Schema.encodeOption(RequestBody)
+
+// The body with its prompt_cache_key replaced, or none when it has none.
+export const rewriteCacheKey = (json: string, key: string): Option.Option<string> =>
+  decodeRequestBody(json).pipe(
+    Option.filter((body) => "prompt_cache_key" in body),
+    Option.flatMap((body) => encodeRequestBody({ ...body, prompt_cache_key: key.slice(0, CACHE_KEY_LENGTH) })),
+  )
+
+const decompress = (bytes: Uint8Array, encoding: string | null): Uint8Array => {
+  switch (encoding ?? "identity") {
+    case "zstd":
+      return zstdDecompressSync(bytes)
+    case "gzip":
+      return gunzipSync(bytes)
+    default:
+      return bytes
+  }
+}
+
+const compress = (bytes: Uint8Array, encoding: string | null): Uint8Array => {
+  switch (encoding ?? "identity") {
+    case "zstd":
+      return zstdCompressSync(bytes)
+    case "gzip":
+      return gzipSync(bytes)
+    default:
+      return bytes
+  }
+}
+
+// A Finder partition's requests carry the partition's cache group as their
+// one OpenAI prompt cache key, in the headers and the body. OpenCode keys
+// each session on its own; child sessions would share a key but wake their
+// parent when they finish.
+export const withCacheKey = (request: Request, key: string) =>
+  Effect.tryPromise({ try: () => request.clone().arrayBuffer(), catch: String }).pipe(
+    Effect.flatMap((buffer) => {
+      const encoding = request.headers.get("content-encoding")
+      return Effect.try({
+        try: () => new TextDecoder().decode(decompress(new Uint8Array(buffer), encoding)),
+        catch: String,
+      }).pipe(
+        Effect.map((text) =>
+          Option.match(rewriteCacheKey(text, key), {
+            onNone: () => request,
+            onSome: (rewritten) => {
+              const headers = new Headers(request.headers)
+              headers.delete("content-length")
+              return new Request(request.url, {
+                method: request.method,
+                headers,
+                body: compress(new TextEncoder().encode(rewritten), encoding),
+              })
+            },
+          })),
+      )
+    }),
+    // An unreadable body goes out as it was: the key costs cache, not
+    // correctness.
+    Effect.orElseSucceed(() => request),
+  )
+
+const decodeGrepInput = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))
+
+export const gauntletPlugin = (registry: Registry) =>
+  Plugin.define({
+    id: GAUNTLET_PLUGIN_ID,
+    effect: (ctx) =>
+      Effect.gen(function* () {
+        const directory = ctx.location.directory
+        registry.contexts.set(directory, ctx)
+        yield* Effect.addFinalizer(() => Effect.sync(() => registry.contexts.delete(directory)))
+
+        yield* ctx.tool.transform((editor) => {
+          for (const [name, emit] of registry.emitTools) {
+            editor.add({
+              name,
+              description: emit.description,
+              input: emit.parameters,
+              options: { codemode: false },
+              execute: emitExecute(registry, name),
+            })
+          }
+          editor.update("read", (tool) => {
+            tool.description = READ_DESCRIPTION
+          })
+          editor.update("grep", (tool) => {
+            tool.description = GREP_DESCRIPTION
+            const execute = tool.execute
+            tool.execute = (input, context) =>
+              execute(
+                Option.match(decodeGrepInput(input), {
+                  onNone: () => input,
+                  onSome: (fields) => (fields["limit"] === undefined ? { ...fields, limit: GREP_DEFAULT_LIMIT } : fields),
+                }),
+                context,
+              )
+          })
+          editor.remove("skill")
+        })
+
+        yield* ctx.agent.transform((editor) => {
+          for (const [id, definition] of registry.agents.get(directory) ?? []) {
+            editor.update(id, (agent) => {
+              agent.system = definition.system
+              agent.mode = "primary"
+              agent.hidden = true
+              agent.permissions = permissionsFor(definition)
+            })
+          }
+        })
+
+        // Before every model request: once a session's emit has landed, stop
+        // it here, so the request after the emit is never built or sent.
+        yield* ctx.session.hook("context", (event) =>
+          registry.sessions.get(event.sessionID)?.emitted === undefined
+            ? Effect.void
+            // @effect-diagnostics-next-line anyUnknownInErrorContext:off -- OpenCode's plugin API types its failures as unknown; ignored here
+            : ctx.session.interrupt({ sessionID: event.sessionID }).pipe(Effect.ignore, Effect.andThen(Effect.never)))
+
+        // OpenAI's per-request extras (date, environment, discovered
+        // instructions) follow the agent's own system prompt; Gauntlet's
+        // prompts carry everything a Stage needs, so only that stays.
+        yield* ctx.session.hook(
+          "context",
+          (event) =>
+            Effect.sync(() => {
+              if (registry.sessions.has(event.sessionID)) event.system = event.system.slice(0, 1)
+            }),
+          { providerID: "openai" },
+        )
+
+        yield* ctx.session.hook("model.request", (event) =>
+          Effect.sync(() => {
+            const key = registry.sessions.get(event.sessionID)?.cacheGroup
+            if (key === undefined) return
+            for (const name of CACHE_KEY_HEADERS) event.headers[name] = key
+          }))
+        yield* ctx.session.hook("http.request", (event) => {
+          const key = registry.sessions.get(event.sessionID)?.cacheGroup
+          if (key === undefined || event.request.body === null) return Effect.void
+          return withCacheKey(event.request, key).pipe(
+            Effect.map((request) => {
+              event.request = request
+            }),
+          )
+        })
+        yield* ctx.session.hook("experimental.ws.send", (event) =>
+          Effect.sync(() => {
+            const key = registry.sessions.get(event.sessionID)?.cacheGroup
+            if (key === undefined) return
+            event.frame = Option.getOrElse(rewriteCacheKey(event.frame, key), () => event.frame)
+          }))
+
+        yield* ctx.event.subscribe({ types: ["session.step.first-token"] }).pipe(
+          Stream.runForEach((event) =>
+            Effect.suspend(() => {
+              const route = registry.sessions.get(event.data.sessionID)
+              return route === undefined ? Effect.void : Deferred.succeed(route.firstToken, undefined)
+            })),
+          Effect.ignore,
+          Effect.forkScoped,
+        )
+      }),
+  })
+
+type Client = OpenCode.Interface
+
+const hostError = (operation: string) => (cause: unknown) =>
+  HostError.make({ operation, reason: cause instanceof Error ? cause.message : String(cause), cause })
+
+const violation = (reason: string) => (cause: unknown) =>
+  AdapterContractViolation.make({ reason: `${reason}: ${cause instanceof Error ? cause.message : String(cause)}` })
+
+const toUsageRow = (tokens: { readonly input: number; readonly output: number; readonly reasoning: number; readonly cache: { readonly read: number; readonly write: number } }): UsageRow => ({
+  input: tokens.input,
+  output: tokens.output + tokens.reasoning,
+  reasoning: tokens.reasoning,
+  cacheRead: tokens.cache.read,
+  cacheWrite: tokens.cache.write,
+})
+
+type Assistant = Extract<Effect.Success<ReturnType<Client["message"]["list"]>>["data"][number], { readonly type: "assistant" }>
+
+const isAssistant = (message: { readonly type: string }): message is Assistant => message.type === "assistant"
+
+const contextLimited = (message: Assistant) =>
+  message.finish === "length" ||
+  (message.error !== undefined && /context|too long|overflow/i.test(`${message.error.type} ${message.error.message}`))
+
+const endOf = (route: SessionRoute, last: Assistant): TurnEnd => {
+  if (route.emitted !== undefined) return TurnEnd.Emitted({ raw: route.emitted })
+  if (contextLimited(last)) return TurnEnd.ContextLimit()
+  if (last.error !== undefined) {
+    return /abort|interrupt/i.test(last.error.type)
+      ? TurnEnd.Interrupted({ reason: last.error.message })
+      : TurnEnd.ProviderFailed({ reason: `${last.error.type}: ${last.error.message}` })
+  }
+  return TurnEnd.Stopped()
+}
+
+const toolCallsOf = (messages: ReadonlyArray<Assistant>, emit: string): AgentToolCalls => {
+  const calls = Array.flatMap(messages, (message) =>
+    Array.filter(message.content, (part) => part.type === "tool" && part.name !== emit))
+  return {
+    total: calls.length,
+    errored: Array.filter(calls, (part) => part.type === "tool" && part.state.status === "error").length,
+  }
+}
+
+export const makeSessions = (client: Client, registry: Registry) => {
+  const registering = Semaphore.makeUnsafe(1)
+
+  // Declares the role's agent (and its emit tool) for the Location, reloading
+  // an already active plugin, and answers once the agent and the Seat's model
+  // are listed there.
+  const ensureAgent = Effect.fn("Host.ensureAgent")(function* (spec: AgentSpec) {
+    const id = agentID(spec.role)
+    const definition: AgentDefinition = { system: spec.systemPrompt, tools: spec.tools, emit: spec.emit.name }
+    yield* registering.withPermits(1)(Effect.gen(function* () {
+      const newTool = !registry.emitTools.has(spec.emit.name)
+      if (newTool) {
+        registry.emitTools.set(spec.emit.name, { description: spec.emit.description, parameters: spec.emit.parameters })
+      }
+      const agents = registry.agents.get(spec.workspace) ?? new Map<string, AgentDefinition>()
+      registry.agents.set(spec.workspace, agents)
+      const existing = agents.get(id)
+      if (existing !== undefined) {
+        if (existing.system !== definition.system || existing.emit !== definition.emit ||
+          Array.join(existing.tools, ",") !== Array.join(definition.tools, ",")) {
+          return yield* HostError.make({ operation: "define agent", reason: `role ${spec.role} was already defined differently in this Run` })
+        }
+        return
+      }
+      agents.set(id, definition)
+      const ctx = registry.contexts.get(spec.workspace)
+      if (ctx === undefined) return
+      if (newTool) yield* ctx.tool.reload()
+      yield* ctx.agent.reload()
+    }))
+
+    const location = { directory: spec.workspace }
+    const ref = toModelRef(spec.seat)
+    const ready = Effect.zipWith(
+      client.agent.list({ location }),
+      client.model.list({ location }),
+      (agents, models) =>
+        Array.some(agents.data, (agent) => agent.id === id) &&
+        Array.some(models.data, (model) => model.providerID === ref.providerID && model.id === ref.modelID),
+    ).pipe(Effect.mapError(hostError("list agents")))
+    // The subscription opens before the first check, so no change between
+    // the two goes unseen.
+    yield* client.event.subscribe({ types: ["plugin.updated", "agent.updated", "model.updated", "integration.updated"] }).pipe(
+      Stream.mapError(hostError("await agent")),
+      Stream.filterEffect(() => ready),
+      Stream.runHead,
+      Effect.timeoutOrElse({
+        duration: AGENT_READY_TIMEOUT,
+        orElse: () =>
+          Effect.fail(HostError.make({
+            operation: "await agent",
+            reason: `agent ${id} or model ${ref.providerID}/${ref.modelID} not available after ${Duration.format(AGENT_READY_TIMEOUT)}`,
+          })),
+      }),
+    )
+    return { id, ref }
+  })
+
+  const assistantMessages = (sessionID: Session.ID) =>
+    client.message.list({ sessionID, type: "assistant", order: "asc", limit: MESSAGE_PAGE }).pipe(
+      Effect.map((page) => Array.filter(page.data, isAssistant)),
+    )
+
+  const open = Effect.fn("Host.openSession")(function* (spec: AgentSpec) {
+    const { id, ref } = yield* ensureAgent(spec)
+    const session = yield* client.sessions.create({
+      location: { directory: AbsolutePath.make(spec.workspace) },
+      agent: Agent.ID.make(id),
+      model: Model.Ref.make({ providerID: Provider.ID.make(ref.providerID), id: Model.ID.make(ref.modelID), variant: Model.VariantID.make(ref.variant) }),
+      title: spec.invocationId,
+    }).pipe(Effect.mapError(hostError("create session")))
+    const route: SessionRoute = {
+      emit: spec.emit,
+      cacheGroup: spec.cacheGroup,
+      firstToken: yield* Deferred.make<void>(),
+      emitted: undefined,
+      rejections: [],
+    }
+    registry.sessions.set(session.id, route)
+    // Stopping and removing the session is best effort: the Run goes on.
+    yield* Effect.addFinalizer(() =>
+      client.sessions.interrupt({ sessionID: session.id }).pipe(
+        Effect.ignore,
+        Effect.andThen(client.sessions.remove({ sessionID: session.id }).pipe(Effect.ignore)),
+        Effect.ensuring(Effect.sync(() => registry.sessions.delete(session.id))),
+      ))
+
+    const seen = new Set<string>()
+    let logged = 0
+    // At debug level the Run's log gets the session's transcript: each prompt
+    // and each assistant message, tool calls and results included.
+    const logTranscript = (entries: ReadonlyArray<object>) =>
+      Effect.forEach(entries, (entry) => {
+        logged += 1
+        return Effect.logDebug("agent transcript", { invocationId: spec.invocationId, entryIndex: logged, entry })
+      }, { discard: true }).pipe(Effect.when(LogLevel.isEnabled("Debug")))
+    const turn = (text: string) =>
+      Effect.gen(function* () {
+        yield* client.sessions.prompt({ sessionID: session.id, text }).pipe(Effect.mapError(violation("prompt failed")))
+        yield* client.experimental.session.wait({ sessionID: session.id }).pipe(Effect.mapError(violation("wait failed")))
+        const messages = yield* assistantMessages(session.id).pipe(Effect.mapError(violation("reading messages failed")))
+        const fresh = Array.filter(messages, (message) => !seen.has(message.id))
+        for (const message of fresh) seen.add(message.id)
+        yield* logTranscript([{ role: "user", text }, ...fresh])
+        const last = Array.last(fresh)
+        if (last._tag === "None") {
+          return yield* AdapterContractViolation.make({ reason: "the turn ended with no assistant message" })
+        }
+        const diagnostics = route.rejections
+        route.rejections = []
+        return {
+          end: endOf(route, last.value),
+          usage: Array.flatMap(fresh, (message) => (message.tokens === undefined ? [] : [toUsageRow(message.tokens)])),
+          toolCalls: toolCallsOf(fresh, spec.emit.name),
+          diagnostics,
+        } satisfies TurnResult
+      })
+
+    return { turn, firstToken: Deferred.await(route.firstToken) } satisfies HarnessSession
+  })
+
+  return {
+    open: (spec: AgentSpec): Effect.Effect<HarnessSession, HostError, Scope.Scope> => open(spec),
+  }
+}

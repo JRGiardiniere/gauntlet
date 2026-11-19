@@ -1,6 +1,6 @@
 # Gauntlet
 
-Effect-v4-native, Pi-harnessed code-review agent. Spec is decision-complete;
+Effect-v4-native code-review agent on an embedded OpenCode Host. Spec is decision-complete;
 work arrives as tickets (#16–#26). Don't re-litigate settled decisions.
 
 ## Read first
@@ -42,28 +42,27 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
 - `scripts/check-effect-pin.ts` enforces the exact pin. A CLI switch whose
   omission means false is `Flag.boolean(...).pipe(Flag.withDefault(false))`;
   `Flag.optional` is for an absence with its own meaning.
-- Service ids are `gauntlet/Name`. `HarnessSessionFactory` has separate live and
-  scripted Layers instead of `Default`/`Fake`, because both adapters share Pi's
-  Promise and callback contract.
+- Service ids are `gauntlet/Name`. `HarnessSessionFactory` has separate live
+  (`hostHarnessLayer`) and scripted Layers instead of `Default`/`Fake`: its seam
+  is one AgentInvocation turn, and the live one is the Host's session driver.
 - Node globals and `node:*` imports are fine at runtime and SDK adapter
   boundaries; application logic uses the `FileSystem` and `Path` services.
 - The executable boundary is `bin/gauntlet.ts`; `runGauntlet` renders typed
-  failures as CLI messages and exit codes. Pi's Promise and callback contracts
-  are bridged in its adapters (`src/harness/pi-live.ts`), whose mutable cells
-  belong to that contract.
+  failures as CLI messages and exit codes. The Gauntlet plugin's per-Host
+  registry (`src/host/opencode-agents.ts`) is plain mutable Maps, because
+  OpenCode's plugin hooks read it synchronously.
 - Expected invocation endings (provider endings, timeouts, missing emits) are
   `AgentOutcome.termination` data, as `GLOSSARY.md` defines, not errors.
   `invoke.ts` keeps usage and available output beside an unsuccessful
-  termination, and relies on `Effect.raceFirst` for its watchdogs.
-- Finder partitions and evaluation scheduling are deliberate, and Pi owns
+  termination; its one watchdog is the overall deadline.
+- Finder partitions and evaluation scheduling are deliberate, and the Host owns
   provider retries (ADR-0002): don't add concurrency limits or retries there.
   `concurrency: "unbounded"` is allowed in the pipeline; partial work still
   produces an explicit coverage gap or a typed failure.
 - Durable Run artifacts and delivery effects are outside finalizer rollback.
   Artifact writes go to a sibling temporary file and rename.
 - A tool or domain contract's schema is authoritative for its TypeScript type,
-  decoder and JSON Schema projection. Pi events can carry an explicit
-  `undefined`, so adapter schemas allow it; persisted JSON uses
+  decoder and JSON Schema projection. Persisted JSON uses
   `Schema.optionalKey`.
 - `runGit` scrubs the Git environment variables that could redirect its working
   directory. Tests use real temporary filesystems and fixture Git repositories,
@@ -72,7 +71,8 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
 - Posting a delivery comment is not retried.
 - The update cache is disposable, so an unreadable one degrades to no notice.
 - The OpenCode Host loads only through `src/host/live-host.ts`'s dynamic
-  import of `src/host/opencode-host.ts`, the one module that imports
+  import of `src/host/opencode-host.ts`, which with the Gauntlet plugin it
+  imports (`src/host/opencode-agents.ts`) is the only code that imports
   `@opencode/*` at runtime, so commands that never use the Host never load
   OpenCode. Its store and every OpenCode global path live under
   `~/.gauntlet/opencode`; session resume is replaced with a no-op because a

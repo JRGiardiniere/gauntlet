@@ -3,7 +3,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
+import type * as Scope from "effect/Scope"
 import { gauntletHome } from "../config/settings.ts"
+import type { AgentSpec, HarnessSession } from "../harness/harness-session.ts"
 
 // The embedded OpenCode Host (#197): Gauntlet's own OpenCode, isolated from
 // the person's, booted only by the commands that need it. This module is the
@@ -46,6 +48,8 @@ export type SignInStatus =
 export type PasteResult = { readonly _tag: "Accepted" } | { readonly _tag: "Rejected"; readonly reason: string }
 
 export interface HostContract {
+  // One AgentInvocation's session, stopped and removed when the scope closes.
+  readonly openSession: (spec: AgentSpec) => Effect.Effect<HarnessSession, HostError, Scope.Scope>
   readonly listModels: Effect.Effect<ReadonlyArray<HostModel>, HostError>
   readonly connection: (
     integration: "openai" | "claude-agent",
@@ -94,6 +98,7 @@ export const hostLayer = (impl: HostContract) => Layer.succeed(Host, Host.of(imp
 // For commands that must never boot the Host: any use is a defect.
 const untouched = Effect.die("the Host was used by a command that must not boot it")
 export const untouchedHostLayer = hostLayer({
+  openSession: () => untouched,
   listModels: untouched,
   connection: () => untouched,
   chatGptSignIn: {

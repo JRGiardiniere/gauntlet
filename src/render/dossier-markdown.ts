@@ -9,7 +9,7 @@ import {
   describeFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
 import { describeFinderToolHealth } from "../run/finder-tool-health.ts"
-import type { RunAccounting } from "../run/run-accounting.ts"
+import { describeTokens, type RunAccounting } from "../run/run-accounting.ts"
 import {
   type DossierEntryView,
   viewDossier,
@@ -115,7 +115,7 @@ export const renderDossierMarkdown = (
     `- Target: ${describeTargetIdentity(dossier.target)}`,
     `- Recipe: ${describeRecipe(plan)}`,
     `- Lenses: ${lensList}`,
-    `- Cost: $${accounting.costUsd.toFixed(2)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
+    `- Usage: ${describeTokens(accounting.tokens)} · ${accounting.invocationCount} invocations · ${accounting.wallTimeSeconds}s`,
     `- Coverage gaps: ${coverageGaps}`,
     `- Warnings: ${warnings}`,
   ]

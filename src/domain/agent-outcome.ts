@@ -9,7 +9,6 @@ export const Termination = Schema.TaggedUnion({
     // Corrective turns spent on the same session before recording this mode.
     correctiveTurns: Schema.Int,
   },
-  FirstResponseTimeout: {},
   BudgetExhausted: {},
   ContextLimit: {},
   ProviderFailed: {},
@@ -19,16 +18,15 @@ export type Termination = typeof Termination.Type
 
 const usageNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
 
-// Accounting is decoded from Pi's rows, while the JSON-safe serialized rows
-// remain available as persistence evidence (ADR 0006). `reasoning` is a
-// subset of output and is never added to it.
+// Token totals over the invocation's model requests, with each request's
+// row kept as persistence evidence (ADR 0006). `reasoning` is a subset of
+// output and is never added to it.
 export const AgentUsage = Schema.Struct({
   input: usageNumber,
   output: usageNumber,
   cacheRead: usageNumber,
   cacheWrite: usageNumber,
   reasoning: usageNumber,
-  costUsd: usageNumber,
   rawRows: Schema.Array(Schema.Json),
 })
 export interface AgentUsage extends Schema.Schema.Type<typeof AgentUsage> {}

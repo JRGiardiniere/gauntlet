@@ -33,12 +33,13 @@ const lens = (
 const rawUsage = (
   input: number,
   cacheRead: number,
+  cacheWrite = 0,
 ): Schema.Json => ({
   input,
   output: 1,
+  reasoning: 0,
   cacheRead,
-  cacheWrite: 0,
-  cost: { total: 0 },
+  cacheWrite,
 })
 
 const outcome = (
@@ -52,7 +53,6 @@ const outcome = (
     cacheRead: 0,
     cacheWrite: 0,
     reasoning: 0,
-    costUsd: 0,
     rawRows,
   },
   toolCalls: { total: 0, errored: 0 },
@@ -136,5 +136,12 @@ describe("Finder cache health", () => {
     expect(measureLowFinderCacheHealth(plan, [
       result(standardHealthy, [rawUsage(20, 80)]),
     ])).toBeUndefined()
+  })
+
+  it("counts a follower's cache writes as prompt the cache missed", () => {
+    expect(measureLowFinderCacheHealth(plan, [
+      result(standardHealthy, [rawUsage(2, 20, 78)]),
+      result(standardLow, [rawUsage(2, 20, 78)]),
+    ])).toEqual({ reuse: 0.2, eligibleFollowerCount: 2, healthyFollowerCount: 0 })
   })
 })

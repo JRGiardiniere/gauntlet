@@ -15,7 +15,7 @@ import { pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
-import type { RunAccounting } from "../run/run-accounting.ts"
+import { describeTokens, type RunAccounting } from "../run/run-accounting.ts"
 import { renderBrief, type RenderedBrief } from "./brief.ts"
 import {
   escapeHtml,
@@ -45,7 +45,7 @@ import {
 } from "./dossier-view.ts"
 
 export const DossierPageData = Schema.Struct({
-  costUsd: Schema.Finite,
+  tokens: Schema.String,
   invocationCount: Schema.Int,
   wallTimeSeconds: Schema.Int,
   runNotes: Schema.Array(Schema.String),
@@ -59,7 +59,7 @@ export const dossierPageData = (
   accounting: RunAccounting,
   sources: ReadonlyMap<string, ReadonlyArray<string>>,
 ): DossierPageData => ({
-  costUsd: accounting.costUsd,
+  tokens: describeTokens(accounting.tokens),
   invocationCount: accounting.invocationCount,
   wallTimeSeconds: accounting.wallTimeSeconds,
   runNotes: describeRunNotes(accounting),
@@ -469,7 +469,7 @@ export const renderDossierPage = (input: DossierPageInput): DrawnDossierPage => 
       ${indexField("Case", `<code>${escapeHtml(dossier.runId)}</code>`, "w2")}
       ${indexField("Filed", escapeHtml(filedOn(dossier.runId)), "w2")}
       ${indexField("Subject", `${escapeHtml(kind)} in <code>${escapeHtml(target.repoRoot.replace(/^\/Users\/[^/]+/, "~"))}</code>`, "w2")}
-      ${indexField("Cost", `$${data.costUsd.toFixed(2)}`, "num")}
+      ${indexField("Tokens", escapeHtml(data.tokens), "num")}
       ${indexField("Invocations", String(data.invocationCount), "num")}
       ${indexField("Time", duration(data.wallTimeSeconds), "num")}
       ${

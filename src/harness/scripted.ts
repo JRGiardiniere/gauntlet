@@ -1,96 +1,52 @@
-import type { ReadToolInput, ToolDefinition } from "@earendil-works/pi-coding-agent"
-import * as Array from "effect/Array"
+import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
-import * as Queue from "effect/Queue"
-import { type BashArgs, makeReviewWorkspace } from "../workspace/just-bash-workspace.ts"
+import type * as Schema from "effect/Schema"
+import type { AgentToolCalls } from "../domain/agent-outcome.ts"
 import {
-  REVIEW_WORKSPACE_ROOT,
-  type ReviewWorkspace,
-} from "../workspace/review-workspace.ts"
-import {
-  type EmitToolArgs,
-  type HarnessEvent,
-  type HarnessSession,
+  AdapterContractViolation,
+  type AgentSpec,
   HarnessSessionFactory,
   type HarnessSessionFactoryContract,
   InvocationSetupError,
-  type SessionConfig,
-  type StopReason,
+  TurnEnd,
+  type TurnResult,
   type UsageRow,
 } from "./harness-session.ts"
-import { withToolCallDeadline } from "./tool-deadline.ts"
 
-// The deterministic adapter supports a script per open and per prompt. A
-// fresh-session retry therefore consumes the next session script, while a
-// corrective turn consumes the next prompt on the same session.
+// The scripted Host: each opened session plays a script of turns. A turn
+// tries its emits in order against the session's strict decoder, as the live
+// Host's emit tool does; the first that passes ends the turn, and each
+// rejected one is a diagnostic.
 
-export type ScriptedEvent =
-  | { readonly afterMillis: number; readonly kind: "message_start" }
-  | {
-      readonly afterMillis: number
-      readonly kind: "message_end"
-      readonly stopReason: StopReason
-      readonly errorMessage?: string
-      readonly usage?: UsageRow
-    }
-  | {
-      readonly afterMillis: number
-      readonly kind: "emit"
-      readonly args: unknown
-      readonly valid: false
-    }
-  | {
-      readonly afterMillis: number
-      readonly kind: "emit"
-      readonly args: EmitToolArgs
-      readonly valid: true
-    }
-  | {
-      readonly afterMillis: number
-      readonly kind: "tool"
-      readonly toolName: "read"
-      readonly args: ReadToolInput
-    }
-  | {
-      readonly afterMillis: number
-      readonly kind: "tool"
-      readonly toolName: "bash"
-      readonly args: BashArgs
-    }
-  | {
-      readonly afterMillis: number
-      readonly kind: "tool_error"
-      readonly toolName: string
-      readonly detail: string
-    }
-  | {
-      readonly afterMillis: number
-      readonly kind: "violation"
-      readonly reason: string
-    }
+export type ScriptedEnding =
+  | { readonly _tag: "Stopped" }
+  | { readonly _tag: "ContextLimit" }
+  | { readonly _tag: "ProviderFailed"; readonly reason: string }
+  | { readonly _tag: "Interrupted"; readonly reason: string }
+  // The turn never ends: only the deadline or an interruption stops it.
+  | { readonly _tag: "Hangs" }
 
-export interface ScriptedPrompt {
-  readonly events: ReadonlyArray<ScriptedEvent>
-  readonly settles: "after-events" | "never"
-  readonly reject?: string
+export interface ScriptedTurn {
+  readonly afterMillis?: number
+  readonly emits?: ReadonlyArray<unknown>
+  // How the turn ends when none of its emits passes; Stopped by default.
+  readonly ending?: ScriptedEnding
+  readonly usage?: ReadonlyArray<UsageRow>
+  readonly toolCalls?: AgentToolCalls
 }
 
 export interface ScriptedSession {
-  // Claimed by the first open whose config.invocationId contains this key —
-  // lets a script address one invocation of a concurrent fan-out. Unkeyed
-  // sessions are consumed in open order, as before.
+  // Claimed by the first open whose invocationId contains this key, so a
+  // script can address one invocation of a concurrent fan-out. Unkeyed
+  // sessions are claimed in open order.
   readonly forSession?: string
-  readonly openDelayMillis?: number
   readonly failOpen?: string
-  readonly prompts: ReadonlyArray<ScriptedPrompt>
-  readonly abortBehavior?: "resolves" | "hangs"
-  readonly sweptUsageRows?: ReadonlyArray<unknown>
-  readonly transcriptEntries?: ReadonlyArray<unknown>
-  readonly failUsageSweep?: string
-  readonly failDispose?: string
+  // When, after its first turn starts, the session streams its first token;
+  // "never" withholds it.
+  readonly firstTokenAfterMillis?: number | "never"
+  readonly turns: ReadonlyArray<ScriptedTurn>
 }
 
 export interface ScriptedBehavior {
@@ -98,101 +54,63 @@ export interface ScriptedBehavior {
 }
 
 export interface RecordedPrompt {
-  // 1-based open order — pairs the prompt with configs[openIndex - 1] even
-  // when concurrent sessions interleave their prompt calls.
+  // 1-based open order, pairing the prompt with specs[openIndex - 1].
   readonly openIndex: number
   readonly invocationId: string
-  readonly cacheGroupId: string | undefined
-  readonly text: string
-}
-
-export interface RecordedInspection {
-  readonly invocationId: string
-  readonly cacheGroupId: string | undefined
-  readonly toolName: "read" | "bash"
-  readonly args: unknown
-  readonly isError: boolean
+  readonly cacheGroup: string | undefined
   readonly text: string
 }
 
 export interface Scripted {
   readonly factory: HarnessSessionFactoryContract
   readonly log: Array<string>
-  readonly configs: Array<SessionConfig>
+  readonly specs: Array<AgentSpec>
   readonly prompts: Array<RecordedPrompt>
-  readonly inspections: Array<RecordedInspection>
+  // Completes once the nth session (1-based) has opened.
+  readonly opened: (count: number) => Effect.Effect<void>
 }
-
-const toolText = (result: {
-  readonly content: ReadonlyArray<{ readonly type: string; readonly text?: string }>
-}): string =>
-  pipe(
-    result.content,
-    Array.flatMap((entry) =>
-      entry.type === "text" && entry.text !== undefined ? [entry.text] : []),
-    Array.join("\n"),
-  )
-
-const scriptInspectsWorkspace = (session: ScriptedSession): boolean =>
-  Array.some(session.prompts, (prompt) =>
-    Array.some(prompt.events, (event) => event.kind === "tool"))
 
 export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
   input: 1000,
   output: 200,
+  reasoning: 50,
   cacheRead: 800,
   cacheWrite: 100,
-  reasoning: 50,
-  cost: { total: 0.05 },
   ...partial,
 })
 
-interface PromptRequest {
-  readonly resolve: () => void
-  readonly reject: (reason: string) => void
-}
+const STOPPED: ScriptedEnding = { _tag: "Stopped" }
 
-// A workspace tool call as the script declares it. The scripted adapter
-// trusts its statically-typed script input: it hands each tool event's args
-// straight to the selected tool's execute function without replaying Pi's
-// schema validation (a script is test-authored input, not live model output).
-type WorkspaceToolCall = Extract<ScriptedEvent, { readonly kind: "tool" }>
-
-const executeWorkspaceTool = (
-  workspace: ReviewWorkspace,
-  config: SessionConfig,
-  call: WorkspaceToolCall,
-) => {
-  const tool: ToolDefinition = call.toolName === "read"
-    ? withToolCallDeadline(workspace.readTool, config.toolTimeoutMillis)
-    : withToolCallDeadline(workspace.bashTool, config.bashTimeoutMillis)
-  // SAFETY: both workspace tools tolerate a missing ExtensionContext — the
-  // read tool reads it only through optional chaining (ctx?.model) and the
-  // bash tool ignores it — so undefined is a faithful placeholder in a fake
-  // that constructs no context.
-  return Effect.tryPromise({
-    try: () =>
-      tool.execute("scripted", call.args, undefined, undefined, undefined as never),
-    catch: (cause) => cause instanceof Error ? cause.message : String(cause),
-  }).pipe(
-    Effect.match({
-      onSuccess: (result) => ({ isError: false as const, text: toolText(result) }),
-      onFailure: (text) => ({ isError: true as const, text }),
-    }),
-  )
+const endingOf = (ending: ScriptedEnding): TurnEnd | undefined => {
+  switch (ending._tag) {
+    case "Stopped":
+      return TurnEnd.Stopped()
+    case "ContextLimit":
+      return TurnEnd.ContextLimit()
+    case "ProviderFailed":
+      return TurnEnd.ProviderFailed({ reason: ending.reason })
+    case "Interrupted":
+      return TurnEnd.Interrupted({ reason: ending.reason })
+    case "Hangs":
+      return undefined
+  }
 }
 
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
-  const configs: Array<SessionConfig> = []
+  const specs: Array<AgentSpec> = []
   const prompts: Array<RecordedPrompt> = []
-  const inspections: Array<RecordedInspection> = []
-  let openIndex = 0
   const claimed = new Set<number>()
+  const opens: Array<Deferred.Deferred<void>> = []
+  const openSignal = (count: number) => {
+    const existing = opens[count]
+    if (existing !== undefined) return existing
+    const created = Deferred.makeUnsafe<void>()
+    opens[count] = created
+    return created
+  }
 
-  const claimSession = (
-    invocationId: string,
-  ): ScriptedSession | undefined => {
+  const claimSession = (invocationId: string): ScriptedSession | undefined => {
     let unkeyed: number | undefined
     for (const [index, session] of behavior.sessions.entries()) {
       if (claimed.has(index)) continue
@@ -200,9 +118,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         unkeyed = unkeyed ?? index
         continue
       }
-      if (
-        invocationId.includes(session.forSession)
-      ) {
+      if (invocationId.includes(session.forSession)) {
         claimed.add(index)
         return session
       }
@@ -212,261 +128,81 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
     return behavior.sessions[unkeyed]
   }
 
-  const open: HarnessSessionFactoryContract["open"] = (config) =>
+  const open: HarnessSessionFactoryContract["open"] = (spec) =>
     Effect.gen(function* () {
-      const sessionIndex = openIndex + 1
-      const behaviorForSession = claimSession(config.invocationId)
-      openIndex += 1
-      log.push(`open:${String(sessionIndex)}`)
-      configs.push(config)
-
-      if (behaviorForSession === undefined) {
-        return yield* InvocationSetupError.make({
-          operation: "open",
-          reason: `no scripted session for open ${String(sessionIndex)}`,
-        })
+      specs.push(spec)
+      const openIndex = specs.length
+      log.push(`open:${String(openIndex)}`)
+      yield* Deferred.succeed(openSignal(openIndex), undefined)
+      const script = claimSession(spec.invocationId)
+      if (script === undefined) {
+        return yield* InvocationSetupError.make({ reason: `no scripted session for open ${String(openIndex)}` })
       }
-      if (behaviorForSession.failOpen !== undefined) {
-        return yield* InvocationSetupError.make({
-          operation: "open",
-          reason: behaviorForSession.failOpen,
-        })
+      if (script.failOpen !== undefined) {
+        return yield* InvocationSetupError.make({ reason: script.failOpen })
       }
-      if (behaviorForSession.openDelayMillis !== undefined) {
-        yield* Effect.sleep(
-          Duration.millis(behaviorForSession.openDelayMillis),
-        )
-      }
+      yield* Effect.addFinalizer(() => Effect.sync(() => log.push(`close:${String(openIndex)}`)))
+      const scope = yield* Effect.scope
+      const firstToken = yield* Deferred.make<void>()
+      let turnIndex = 0
 
-      // The live adapter always mounts a ReviewWorkspace for filesystem
-      // sessions. This adapter does the same only when a script declares a
-      // tool event, so invocation-unit tests with a fake cwd stay cheap.
-      const workspace = scriptInspectsWorkspace(behaviorForSession)
-        ? yield* Effect.tryPromise({
-            try: () => makeReviewWorkspace(config.cwd),
-            catch: (cause) =>
-              InvocationSetupError.make({
-                operation: "session-construction",
-                reason: `failed to construct ReviewWorkspace: ${
-                  cause instanceof Error ? cause.message : String(cause)
-                }`,
-                cause,
-              }),
-          })
-        : undefined
-
-      const listeners = new Set<(event: HarnessEvent) => void>()
-      const rows: Array<unknown> = []
-      const promptRequests = yield* Queue.unbounded<PromptRequest>()
-      let requestedPrompts = 0
-
-      const fire = (event: HarnessEvent) => {
-        for (const listener of listeners) listener(event)
-      }
-
-      const drivePrompt = (
-        prompt: ScriptedPrompt,
-        promptIndex: number,
-        request: PromptRequest,
-      ) =>
+      const playTurn = (turn: ScriptedTurn) =>
         Effect.gen(function* () {
-          let elapsed = 0
-          for (const step of prompt.events) {
-            if (step.afterMillis > elapsed) {
-              yield* Effect.sleep(Duration.millis(step.afterMillis - elapsed))
-              elapsed = step.afterMillis
+          yield* Effect.sleep(Duration.millis(turn.afterMillis ?? 0))
+          const diagnostics: Array<string> = []
+          let emitted: Schema.Json | undefined
+          for (const raw of turn.emits ?? []) {
+            // SAFETY: scripts stand in for model-authored JSON arguments.
+            const json = raw as Schema.Json
+            const rejection = spec.emit.check(json)
+            if (rejection === undefined) {
+              emitted = json
+              break
             }
-            yield* Effect.sync(() => {
-              log.push(
-                `event:${String(sessionIndex)}.${String(promptIndex)}:${step.kind}`,
-              )
-            })
-            switch (step.kind) {
-              case "message_start": {
-                yield* Effect.sync(() => fire({ type: "message_start" }))
-                break
-              }
-              case "message_end": {
-                yield* Effect.sync(() => {
-                  const usage = step.usage ?? usageRow()
-                  rows.push(usage)
-                  const event = {
-                    type: "message_end" as const,
-                    stopReason: step.stopReason,
-                    usage,
-                  }
-                  fire(
-                    step.errorMessage === undefined
-                      ? event
-                      : { ...event, errorMessage: step.errorMessage },
-                  )
-                })
-                break
-              }
-              case "emit": {
-                yield* Effect.sync(() => {
-                  fire({
-                    type: "tool_execution_start",
-                    toolName: config.emitTool.name,
-                    args: step.args,
-                  })
-                  if (step.valid) {
-                    config.emitTool.execute(step.args)
-                  }
-                })
-                break
-              }
-              case "tool": {
-                yield* Effect.sync(() => {
-                  fire({
-                    type: "tool_execution_start",
-                    toolName: step.toolName,
-                    args: step.args,
-                  })
-                })
-                const recorded = workspace === undefined ||
-                    !config.tools.includes(step.toolName)
-                  ? {
-                      isError: true as const,
-                      text: workspace === undefined
-                        ? "no ReviewWorkspace for this session"
-                        : `${step.toolName} is not in this session's tools`,
-                    }
-                  : yield* executeWorkspaceTool(workspace, config, step)
-                yield* Effect.sync(() => {
-                  inspections.push({
-                    invocationId: config.invocationId,
-                    cacheGroupId: config.cacheGroupId,
-                    toolName: step.toolName,
-                    args: step.args,
-                    isError: recorded.isError,
-                    text: recorded.text,
-                  })
-                  const event = {
-                    type: "tool_execution_end" as const,
-                    toolName: step.toolName,
-                    isError: recorded.isError,
-                  }
-                  fire(
-                    recorded.isError ? { ...event, detail: recorded.text } : event,
-                  )
-                })
-                break
-              }
-              case "tool_error": {
-                yield* Effect.sync(() => {
-                  fire({
-                    type: "tool_execution_end",
-                    toolName: step.toolName,
-                    isError: true,
-                    detail: step.detail,
-                  })
-                })
-                break
-              }
-              case "violation": {
-                yield* Effect.sync(() => {
-                  fire({ type: "contract_violation", reason: step.reason })
-                })
-                break
-              }
-            }
+            diagnostics.push(`${spec.emit.name} rejected: ${rejection}`)
           }
-
-          if (prompt.settles === "never") return yield* Effect.never
-          yield* Effect.sync(() => {
-            if (prompt.reject === undefined) request.resolve()
-            else request.reject(prompt.reject)
-          })
+          const end = emitted === undefined ? endingOf(turn.ending ?? STOPPED) : TurnEnd.Emitted({ raw: emitted })
+          if (end === undefined) return yield* Effect.never
+          return {
+            end,
+            usage: turn.usage ?? [usageRow()],
+            toolCalls: turn.toolCalls ?? { total: 0, errored: 0 },
+            diagnostics,
+          } satisfies TurnResult
         })
 
-      yield* Effect.forEach(
-        behaviorForSession.prompts,
-        (prompt, index) =>
+      return {
+        firstToken: Deferred.await(firstToken),
+        turn: (text) =>
           Effect.gen(function* () {
-            const request = yield* Queue.take(promptRequests)
-            yield* drivePrompt(prompt, index + 1, request)
+            turnIndex += 1
+            prompts.push({ openIndex, invocationId: spec.invocationId, cacheGroup: spec.cacheGroup, text })
+            log.push(`turn:${String(openIndex)}.${String(turnIndex)}`)
+            const turn = script.turns[turnIndex - 1]
+            if (turn === undefined) {
+              return yield* AdapterContractViolation.make({
+                reason: `no scripted turn ${String(turnIndex)} for open ${String(openIndex)}`,
+              })
+            }
+            if (turnIndex === 1 && script.firstTokenAfterMillis !== "never") {
+              yield* Effect.sleep(Duration.millis(script.firstTokenAfterMillis ?? 0)).pipe(
+                Effect.andThen(Deferred.succeed(firstToken, undefined)),
+                Effect.forkIn(scope),
+              )
+            }
+            return yield* playTurn(turn)
           }),
-        { discard: true },
-      ).pipe(Effect.forkScoped)
-
-      const session: HarnessSession = {
-        subscribe: (listener) => {
-          log.push(`subscribe:${String(sessionIndex)}`)
-          listeners.add(listener)
-          return () => {
-            log.push(`unsubscribe:${String(sessionIndex)}`)
-            listeners.delete(listener)
-          }
-        },
-        prompt: (text) => {
-          prompts.push({
-            openIndex: sessionIndex,
-            invocationId: config.invocationId,
-            cacheGroupId: config.cacheGroupId,
-            text,
-          })
-          requestedPrompts += 1
-          const promptIndex = requestedPrompts
-          log.push(`prompt:${String(sessionIndex)}.${String(promptIndex)}`)
-          if (promptIndex > behaviorForSession.prompts.length) {
-            return Promise.reject(
-              `no scripted prompt ${String(promptIndex)} for session ${String(sessionIndex)}`,
-            )
-          }
-          // @effect-diagnostics-next-line newPromise:off -- the scripted adapter fakes Pi's Promise-returning `prompt` contract
-          return new Promise<void>((resolve, reject) => {
-            Queue.offerUnsafe(promptRequests, {
-              resolve,
-              reject: (reason) => reject(reason),
-            })
-          })
-        },
-        abort: () => {
-          log.push(`abort:${String(sessionIndex)}`)
-          return behaviorForSession.abortBehavior === "hangs"
-            // @effect-diagnostics-next-line newPromise:off -- the scripted adapter fakes an abort that never settles, under Pi's Promise contract
-            ? new Promise<never>(() => undefined)
-            : Promise.resolve()
-        },
-        dispose: () => {
-          log.push(`dispose:${String(sessionIndex)}`)
-          if (behaviorForSession.failDispose !== undefined) {
-            throw new TypeError(behaviorForSession.failDispose)
-          }
-        },
-        usageRows: () => {
-          log.push(`usage-read:${String(sessionIndex)}`)
-          if (behaviorForSession.failUsageSweep !== undefined) {
-            throw new TypeError(behaviorForSession.failUsageSweep)
-          }
-          return behaviorForSession.sweptUsageRows ?? rows
-        },
-        transcriptEntries: () => {
-          log.push(`transcript-read:${String(sessionIndex)}`)
-          return behaviorForSession.transcriptEntries ?? []
-        },
       }
-      return session
     })
 
   return {
-    factory: {
-      open,
-      workspaceRoot: () => REVIEW_WORKSPACE_ROOT,
-      workspacePrompt: "workspace-pi.md",
-      // Unlike the contract's own name, so a test sees the prompts take the
-      // emit tool's name from the factory.
-      emitToolName: (toolName: string) => `scripted_${toolName}`,
-    },
+    factory: { open },
     log,
-    configs,
+    specs,
     prompts,
-    inspections,
+    opened: (count) => Deferred.await(openSignal(count)),
   }
 }
 
-export const scriptedLayer = (
-  scripted: Scripted,
-): Layer.Layer<HarnessSessionFactory> =>
+export const scriptedLayer = (scripted: Scripted): Layer.Layer<HarnessSessionFactory> =>
   Layer.succeed(HarnessSessionFactory, scripted.factory)

@@ -81,11 +81,6 @@ const program = Effect.gen(function* () {
   )
 
   const entrySource = Array.join([
-    // Pi loads OAuth flow modules through variable dynamic imports the
-    // bundler cannot follow; a standalone binary registers them statically
-    // instead — the same wiring as Pi's own compiled CLI entry.
-    `import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth"`,
-    `registerBunOAuthFlows()`,
     ...Array.map(stageTemplateImports, (file, index) =>
       `import asset${String(index)} from "./${file}" with { type: "file" }`),
     `export const embeddedStageTemplates = [${pipe(stageTemplateImports, Array.map((_, index) => `asset${String(index)}`), Array.join(", "))}]`,

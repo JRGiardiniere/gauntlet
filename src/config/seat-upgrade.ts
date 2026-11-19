@@ -13,9 +13,9 @@ import { listRecipes } from "./recipe-catalog.ts"
 // numerically, so gpt-10 outranks gpt-6. Widen the pattern to add a family.
 const familyModel = /^gpt-(\d+(?:\.\d+)*)-(luna|terra|sol)$/
 
-// Pi superseded its OpenAI Codex provider with Sign in with ChatGPT on
-// `openai`, so a legacy seat always moves to its successor. Until the user
-// signs in there, reviews fail with Pi's own missing-credential error.
+// v1's `openai-codex` provider is Sign in with ChatGPT on `openai` now, so a
+// legacy seat always moves to its successor. Until the user signs in there,
+// reviews fail with the Host's missing-credential error.
 const successorProviders: ReadonlyMap<string, string> = new Map([
   ["openai-codex", "openai"],
 ])

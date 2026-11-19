@@ -18,9 +18,7 @@ import {
   makeScripted,
   scriptedLayer,
   type Scripted,
-  type ScriptedPrompt,
   type ScriptedSession,
-  usageRow,
 } from "../harness/scripted.ts"
 import { FinderCacheSettle } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
@@ -104,7 +102,7 @@ export const makeFixture = Effect.gen(function* () {
     SHARED_PROMPT,
   )
   yield* fs.writeFileString(
-    path.join(content, "prompts", "workspace-pi.md"),
+    path.join(content, "prompts", "workspace.md"),
     "fixture workspace tools at {{REPO_ROOT}}\n",
   )
   const fixture: Fixture = {
@@ -235,46 +233,17 @@ export const FINDER_OUTPUT = {
 // domain outputs means a script can only emit decodable model output.
 type EmittedOutput = FindingsOutput | VerdictsOutput | JudgmentsOutput
 
-// A session that makes the given tool calls, then emits its output. The
-// BugClaim and Judgment paths execute concurrently, so a session named for an
-// invocation's cache-group suffix is claimed by it; an unnamed one is claimed
-// in open order.
+// A session whose one turn emits its output, after `toolCalls` inspection
+// calls. The BugClaim and Judgment paths execute concurrently, so a session
+// named for an invocation's id suffix is claimed by it; an unnamed one is
+// claimed in open order.
 export const emittingSession = (
   output: EmittedOutput,
   forSession?: string,
-  inspect: {
-    readonly bash?: ReadonlyArray<string>
-    readonly read?: ReadonlyArray<string>
-  } = {},
+  toolCalls = 0,
 ): ScriptedSession => {
-  const prompts: Array<ScriptedPrompt> = [
-    {
-      events: [
-        { afterMillis: 0, kind: "message_start" },
-        ...Array.map(inspect.bash ?? [], (command) => ({
-          afterMillis: 0,
-          kind: "tool" as const,
-          toolName: "bash" as const,
-          args: { command },
-        })),
-        ...Array.map(inspect.read ?? [], (path) => ({
-          afterMillis: 0,
-          kind: "tool" as const,
-          toolName: "read" as const,
-          args: { path },
-        })),
-        { afterMillis: 0, kind: "emit", args: output, valid: true },
-        {
-          afterMillis: 0,
-          kind: "message_end",
-          stopReason: "toolUse",
-          usage: usageRow(),
-        },
-      ],
-      settles: "after-events",
-    },
-  ]
-  return forSession === undefined ? { prompts } : { prompts, forSession }
+  const turns = [{ emits: [output], toolCalls: { total: toolCalls, errored: 0 } }]
+  return forSession === undefined ? { turns } : { turns, forSession }
 }
 
 export const VERIFIER_OUTPUT = {
@@ -320,11 +289,8 @@ export const systemPromptsFor = (scripted: Scripted, suffix: string): Array<stri
   pipe(
     scripted.prompts,
     Array.filter(({ invocationId }) => invocationId.includes(suffix)),
-    Array.map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt ?? ""),
+    Array.map(({ openIndex }) => scripted.specs[openIndex - 1]?.systemPrompt ?? ""),
   )
-
-export const inspectionsFor = (scripted: Scripted, suffix: string) =>
-  Array.filter(scripted.inspections, ({ invocationId }) => invocationId.includes(suffix))
 
 // A Finder, a verifier and a judge that each emit their stage's fixture
 // output.

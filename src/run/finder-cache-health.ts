@@ -24,7 +24,8 @@ const firstEligibleUsage = (
   if (raw === undefined) return undefined
   const decoded = Schema.decodeUnknownOption(UsageRow)(raw)
   if (Option.isNone(decoded)) return undefined
-  const promptTokens = decoded.value.input + decoded.value.cacheRead
+  // `input` excludes cached tokens; a cache write is prompt the cache missed.
+  const promptTokens = decoded.value.input + decoded.value.cacheRead + decoded.value.cacheWrite
   return promptTokens === 0
     ? undefined
     : { promptTokens, cacheRead: decoded.value.cacheRead }

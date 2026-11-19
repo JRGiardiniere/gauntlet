@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Deferred from "effect/Deferred"
+import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
@@ -26,8 +27,8 @@ import {
   type Scripted,
   scriptedLayer,
   type ScriptedSession,
-  usageRow,
 } from "../harness/scripted.ts"
+import { FINDER_FOLLOWER_WAIT_MILLIS } from "./invocation-policy.ts"
 import {
   executeFinders,
   FinderCacheSettle,
@@ -55,24 +56,7 @@ const lens = (
 
 const successfulSession = (forSession: string): ScriptedSession => ({
   forSession,
-  prompts: [{
-    events: [
-      { afterMillis: 0, kind: "message_start" },
-      {
-        afterMillis: 0,
-        kind: "emit",
-        args: { findings: [] },
-        valid: true,
-      },
-      {
-        afterMillis: 0,
-        kind: "message_end",
-        stopReason: "toolUse",
-        usage: usageRow(),
-      },
-    ],
-    settles: "after-events",
-  }],
+  turns: [{ emits: [{ findings: [] }] }],
 })
 
 const specification: ReviewSpecification = {
@@ -110,7 +94,7 @@ const executeFixture = (
       "shared start\nrepo={{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{WORKSPACE_TOOLS}}\ncap={{MAX_PER_LENS}}\nshared end\n",
     )
     yield* fs.writeFileString(
-      path.join(content, "prompts", "workspace-pi.md"),
+      path.join(content, "prompts", "workspace.md"),
       "fixture workspace tools at {{REPO_ROOT}}\n",
     )
     yield* fs.writeFileString(
@@ -188,7 +172,7 @@ describe("Finder stage interface", () => {
 
       yield* fixture.effect
 
-      const systemPrompt = scripted.configs[0]?.systemPrompt ?? ""
+      const systemPrompt = scripted.specs[0]?.systemPrompt ?? ""
       const [touched = "", related = ""] = systemPrompt.split("related:")
       expect(touched).toContain("### touched.ts")
       expect(touched).toContain("TOUCHED-BODY")
@@ -225,21 +209,23 @@ describe("Finder stage interface", () => {
       const result = yield* fixture.effect
 
       expect(result.finders).toHaveLength(5)
-      expect(new Set(Array.map(scripted.configs, ({ cacheGroupId }) => cacheGroupId)).size).toBe(3)
+      expect(new Set(Array.map(scripted.specs, ({ cacheGroup }) => cacheGroup)).size).toBe(3)
+      expect(new Set(Array.map(scripted.specs, ({ role }) => role))).toEqual(new Set(["finder-1", "finder-2", "finder-3"]))
       for (const selectedLens of fixture.plan.lenses) {
         const prompt = Array.findFirst(scripted.prompts, ({ invocationId }) =>
           invocationId.endsWith(`-finder-${selectedLens.name}`))
         expect(Option.exists(prompt, ({ text }) => text.endsWith(`\n\n${selectedLens.promptText}`))).toBe(true)
       }
       for (const suffix of ["-finders-1", "-finders-2"]) {
-        const configs = Array.filter(scripted.configs, ({ cacheGroupId }) => cacheGroupId?.includes(suffix) ?? false)
-        expect(configs).toHaveLength(2)
-        expect(configs[1]?.systemPrompt).toBe(configs[0]?.systemPrompt)
-        expect(configs[1]?.tools).toEqual(configs[0]?.tools)
-        expect(configs[1]?.emitTool).toMatchObject({
-          name: configs[0]?.emitTool.name,
-          description: configs[0]?.emitTool.description,
-          parameters: configs[0]?.emitTool.parameters,
+        const specs = Array.filter(scripted.specs, ({ cacheGroup }) => cacheGroup?.endsWith(suffix) ?? false)
+        expect(specs).toHaveLength(2)
+        expect(specs[1]?.role).toBe(specs[0]?.role)
+        expect(specs[1]?.systemPrompt).toBe(specs[0]?.systemPrompt)
+        expect(specs[1]?.tools).toEqual(specs[0]?.tools)
+        expect(specs[1]?.emit).toMatchObject({
+          name: specs[0]?.emit.name,
+          description: specs[0]?.emit.description,
+          parameters: specs[0]?.emit.parameters,
         })
       }
       // The shared block lives in the system prompt (provider instructions);
@@ -248,7 +234,7 @@ describe("Finder stage interface", () => {
         pipe(
           scripted.prompts,
           Array.filter(({ invocationId }) => invocationId.includes(fragment)),
-          Array.map(({ openIndex }) => scripted.configs[openIndex - 1]?.systemPrompt),
+          Array.map(({ openIndex }) => scripted.specs[openIndex - 1]?.systemPrompt),
         )
       const standardSystemPrompts = systemPromptFor("standard-")
       const interpretiveSystemPrompts = systemPromptFor("interpretive-")
@@ -259,7 +245,7 @@ describe("Finder stage interface", () => {
         expect(first).toContain("shared start")
       }
       expect(standardSystemPrompts[0]).toContain(
-        `emitting with ${scripted.factory.emitToolName(EmitFindings.toolName)}\n`,
+        `emitting with ${EmitFindings.toolName}\n`,
       )
       expect(standardSystemPrompts[0]).not.toContain("{{")
       expect(standardSystemPrompts[0]).not.toContain("SPECIFICATION-NEEDLE")
@@ -284,69 +270,90 @@ describe("Finder stage interface", () => {
       ])
     }).pipe(Effect.scoped))
 
-  it.effect("launches followers at 1500ms while the ordinary starter remains active", () =>
+  const pair = [lens("standard-one", "standard one tail"), lens("standard-two", "standard two tail")]
+
+  it.effect("launches followers 1500ms after the starter's first token, while the starter is still running", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [
+          { forSession: "standard-one", firstTokenAfterMillis: 0, turns: [{ afterMillis: 10_000, emits: [{ findings: [] }] }] },
+          successfulSession("standard-two"),
+        ],
+      })
+      const prefixObserved = yield* Deferred.make<void>()
+      const fixture = yield* executeFixture(pair, scripted, {
+        settle: Deferred.succeed(prefixObserved, undefined).pipe(Effect.andThen(FinderCacheSettleDelay)),
+      })
+      const fiber = yield* Effect.forkChild(fixture.effect)
+
+      yield* Deferred.await(prefixObserved)
+      expect(scripted.specs).toHaveLength(1)
+      yield* TestClock.adjust("1499 millis")
+      expect(scripted.specs).toHaveLength(1)
+      yield* TestClock.adjust("1 millis")
+      expect(scripted.specs).toHaveLength(2)
+      expect(scripted.log).not.toContain("close:1")
+
+      yield* TestClock.adjust("10 seconds")
+      expect((yield* Fiber.join(fiber)).finders).toHaveLength(2)
+    }).pipe(Effect.scoped))
+
+  it.effect("launches followers at once, with no settle, when the starter ends before a first token", () =>
     Effect.gen(function* () {
       const scripted = makeScripted({
         sessions: [
           {
             forSession: "standard-one",
-            prompts: [
-              {
-                events: [
-                  { afterMillis: 0, kind: "message_start" },
-                  { afterMillis: 0, kind: "message_end", stopReason: "stop" },
-                ],
-                settles: "after-events",
-              },
-              {
-                events: [
-                  { afterMillis: 0, kind: "message_start" },
-                  {
-                    afterMillis: 5_000,
-                    kind: "emit",
-                    args: { findings: [] },
-                    valid: true,
-                  },
-                  {
-                    afterMillis: 5_000,
-                    kind: "message_end",
-                    stopReason: "toolUse",
-                  },
-                ],
-                settles: "after-events",
-              },
-            ],
+            firstTokenAfterMillis: "never",
+            turns: [{ afterMillis: 1_000, ending: { _tag: "ProviderFailed", reason: "down" } }],
           },
           successfulSession("standard-two"),
         ],
       })
-      const prefixObserved = yield* Deferred.make<void>()
-      const fixture = yield* executeFixture(
-        [
-          lens("standard-one", "standard one tail"),
-          lens("standard-two", "standard two tail"),
-        ],
-        scripted,
-        {
-          settle: Deferred.succeed(prefixObserved, undefined).pipe(
-            Effect.andThen(FinderCacheSettleDelay),
-          ),
-        },
-      )
+      const settled = yield* Deferred.make<void>()
+      const fixture = yield* executeFixture(pair, scripted, { settle: Deferred.succeed(settled, undefined) })
       const fiber = yield* Effect.forkChild(fixture.effect)
 
-      yield* Deferred.await(prefixObserved)
-      expect(scripted.configs).toHaveLength(1)
-      yield* TestClock.adjust("1499 millis")
-      yield* Effect.yieldNow
-      expect(scripted.configs).toHaveLength(1)
+      yield* scripted.opened(1)
+      yield* TestClock.adjust("999 millis")
+      expect(scripted.specs).toHaveLength(1)
       yield* TestClock.adjust("1 millis")
-      yield* Effect.yieldNow
-      expect(scripted.configs).toHaveLength(2)
-      expect(scripted.log).not.toContain("dispose:1")
+      const result = yield* Fiber.join(fiber)
+      expect(scripted.specs).toHaveLength(2)
+      const settledEarly = yield* Deferred.isDone(settled)
+      expect(settledEarly).toBe(false)
+      expect(Array.map(result.finders, ({ outcome }) => outcome.termination._tag)).toEqual(["ProviderFailed", "Completed"])
+    }).pipe(Effect.scoped))
 
-      yield* TestClock.adjust("5 seconds")
-      expect((yield* Fiber.join(fiber)).finders).toHaveLength(2)
+  it.effect("bounds the followers' wait for a stalled starter, then runs them beside it", () =>
+    Effect.gen(function* () {
+      const scripted = makeScripted({
+        sessions: [
+          {
+            forSession: "standard-one",
+            firstTokenAfterMillis: "never",
+            turns: [{ afterMillis: 200_000, emits: [{ findings: [] }] }],
+          },
+          successfulSession("standard-two"),
+        ],
+      })
+      const settled = yield* Deferred.make<void>()
+      const fixture = yield* executeFixture(pair, scripted, { settle: Deferred.succeed(settled, undefined) })
+      const fiber = yield* Effect.forkChild(fixture.effect)
+
+      yield* scripted.opened(1)
+      yield* TestClock.adjust(Duration.millis(FINDER_FOLLOWER_WAIT_MILLIS - 1))
+      expect(scripted.specs).toHaveLength(1)
+      yield* TestClock.adjust("1 millis")
+      expect(scripted.specs).toHaveLength(2)
+      expect(scripted.log).not.toContain("close:1")
+      const settledEarly = yield* Deferred.isDone(settled)
+      expect(settledEarly).toBe(false)
+
+      yield* TestClock.adjust("200 seconds")
+      const joined = yield* Fiber.join(fiber)
+      expect(Array.map(joined.finders, ({ outcome }) => outcome.termination._tag))
+        .toEqual(["Completed", "Completed"])
     }).pipe(Effect.scoped))
 
   it.effect("launches each follower once when the starter fails before metered usage", () =>
@@ -356,7 +363,7 @@ describe("Finder stage interface", () => {
           {
             forSession: "standard-one",
             failOpen: "provider unavailable",
-            prompts: [],
+            turns: [],
           },
           successfulSession("standard-two"),
         ],
@@ -371,7 +378,7 @@ describe("Finder stage interface", () => {
 
       const setupFailure = yield* Effect.flip(fixture.effect)
       expect(setupFailure).toBeInstanceOf(InvocationSetupError)
-      expect(scripted.configs).toHaveLength(2)
+      expect(scripted.specs).toHaveLength(2)
       expect(scripted.prompts).toHaveLength(1)
       expect(scripted.prompts[0]?.text).toContain("standard two tail")
     }).pipe(Effect.scoped))

@@ -58,28 +58,13 @@ describe("Pool stage interface", () => {
     Effect.gen(function* () {
       const scripted = makeScripted({
         sessions: [{
-          prompts: [{
-            events: [
-              { afterMillis: 0, kind: "message_start" },
-              {
-                afterMillis: 0,
-                kind: "emit",
-                valid: true,
-                args: {
-                  clusters: [
-                    { indexes: [1, 3], summary: "one and three are one defect" },
-                    { indexes: [2, 9], summary: "two, with an unknown index" },
-                  ],
-                },
-              },
-              {
-                afterMillis: 0,
-                kind: "message_end",
-                stopReason: "toolUse",
-                usage: usageRow(),
-              },
-            ],
-            settles: "after-events",
+          turns: [{
+            emits: [{
+              clusters: [
+                { indexes: [1, 3], summary: "one and three are one defect" },
+                { indexes: [2, 9], summary: "two, with an unknown index" },
+              ],
+            }],
           }],
         }],
       })
@@ -98,13 +83,17 @@ describe("Pool stage interface", () => {
             "pool output required repair: ignored unknown indexes 9; restored singleton indexes 4",
         },
       ])
-      expect(result.costUsd).toBe(0.05)
+      expect(result.usages).toEqual([expect.objectContaining({ rawRows: [usageRow()] })])
       expect(result.invocationCount).toBe(1)
 
-      expect(scripted.configs).toHaveLength(1)
-      expect(scripted.configs[0]?.seat).toBe("openai-codex/gpt-5.6-luna:low")
-      expect(scripted.configs[0]?.tools).toEqual([])
-      expect(scripted.configs[0]?.emitTool.name).toBe("emit_pool")
+      expect(scripted.specs).toHaveLength(1)
+      expect(scripted.specs[0]).toMatchObject({
+        role: "pool",
+        seat: "openai-codex/gpt-5.6-luna:low",
+        workspace: REVIEW_ROOT,
+        tools: [],
+      })
+      expect(scripted.specs[0]?.emit.name).toBe("emit_pool")
 
       // The real shipped template, asserted structurally: its one slot filled
       // with every BugClaim's candidate line — never wording.
@@ -138,9 +127,9 @@ describe("Pool stage interface", () => {
             "pool has no seat frozen in the review plan; used singleton clusters",
         },
       ])
-      expect(result.costUsd).toBe(0)
+      expect(result.usages).toEqual([])
       expect(result.invocationCount).toBe(0)
-      expect(scripted.configs).toHaveLength(0)
+      expect(scripted.specs).toHaveLength(0)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 

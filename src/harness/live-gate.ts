@@ -2,6 +2,7 @@ import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
 import {
   type AgentOutcome,
@@ -13,12 +14,13 @@ import {
   type FindingsOutput,
   projectOutputContract,
 } from "./output-contract.ts"
-import { livePiLayer } from "./pi-live.ts"
+import { liveHostLayer } from "../host/live-host.ts"
+import { hostHarnessLayer } from "./host-harness.ts"
 
-// The narrow live gate exercises the two properties only a real provider can
-// answer: Effect Schema parameters round-trip through Pi validation, and the
-// terminating emit actually settles the run. Everything else is deterministic
-// at the invocation interface with the scripted adapter.
+// The narrow live gate exercises what only a real provider can answer, for
+// one Seat on the embedded Host: the projected emit parameters round-trip
+// through its validation, and the validated emit ends the invocation.
+// Everything else is deterministic at the turn seam with the scripted Host.
 
 const SYSTEM_PROMPT =
   "You are a code-review finder. You report findings only through the emit_findings tool, never in prose."
@@ -84,7 +86,7 @@ const outcomeDetail = (outcome: AgentOutcome<FindingsOutput>) => {
 const usageDetail = (outcome: AgentOutcome<FindingsOutput>) => {
   const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
-  return `rows=${String(outcome.usage.rawRows.length)} cost=$${outcome.usage.costUsd.toFixed(6)}${suffix}`
+  return `rows=${String(outcome.usage.rawRows.length)} input=${String(outcome.usage.input)} cacheRead=${String(outcome.usage.cacheRead)} output=${String(outcome.usage.output)}${suffix}`
 }
 
 export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
@@ -116,26 +118,21 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
         })
         return yield* invoke({
           invocationId: "live-gate",
+          role: "live-gate",
           seat,
-          cwd,
+          workspace: cwd,
           systemPrompt: SYSTEM_PROMPT,
           prompt: PROMPT,
           contract: EmitFindings,
           tools: [],
-          deadlines: {
-            overallMillis: 300_000,
-            startupMillis: 60_000,
-            firstResponseMillis: 240_000,
-            toolMillis: 120_000,
-            bashMillis: 600_000,
-          },
+          deadlineMillis: 300_000,
         }).pipe(
-          Effect.provide(livePiLayer),
+          Effect.provide(hostHarnessLayer.pipe(Layer.provide(liveHostLayer()))),
           Effect.map((outcome): GateResult => ({ outcome })),
           Effect.catchTags({
             InvocationSetupError: (error) =>
               Effect.succeed<GateResult>({
-                failure: `invocation setup failed (${error.operation}): ${error.reason}`,
+                failure: `invocation setup failed: ${error.reason}`,
               }),
             AdapterContractViolation: (error) =>
               Effect.succeed<GateResult>({

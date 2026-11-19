@@ -5,33 +5,27 @@ import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import * as Function from "effect/Function"
-import { pipe } from "effect/Function"
-import * as LogLevel from "effect/LogLevel"
 import * as Option from "effect/Option"
-import * as Queue from "effect/Queue"
-import * as Record from "effect/Record"
+import type * as Record from "effect/Record"
+import * as Ref from "effect/Ref"
 import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import {
   type AgentOutcome,
-  type AgentToolCalls,
   type AgentUsage,
   Termination,
-  type Termination as TerminationType,
 } from "../domain/agent-outcome.ts"
 import type { Seat } from "../domain/recipe.ts"
 import {
   AdapterContractViolation,
-  type EmitToolArgs,
-  type HarnessEvent,
+  type EmitToolSpec,
   type HarnessSession,
   HarnessSessionFactory,
+  type InspectionTool,
   type InvocationFailure,
   InvocationSetupError,
-  type StopReason,
-  UsageRow,
+  TurnEnd,
+  type TurnResult,
 } from "./harness-session.ts"
 import {
   checkOutputContract,
@@ -40,34 +34,24 @@ import {
   projectOutputContract,
 } from "./output-contract.ts"
 
-const MAX_CORRECTIVE_TURNS = 2
-const MIN_RETRY_REMAINING_MILLIS = 5_000
-// How long teardown waits for an abort to settle before the usage sweep: a
-// host's abort may settle only once its child process is gone (Claude Code),
-// while Pi's abort may never settle.
-const ABORT_SETTLE_MILLIS = 5_000
+// One AgentInvocation: a session, up to two corrective turns when a turn
+// ends without an emit, and one overall deadline. A strict-decoding failure
+// never reaches this loop: the Host hands it back to the model as a tool
+// error inside the same turn.
 
-export interface InvocationDeadlines {
-  readonly overallMillis: number
-  readonly startupMillis: number
-  readonly firstResponseMillis: number
-  readonly toolMillis: number
-  readonly bashMillis: number
-}
+const MAX_CORRECTIVE_TURNS = 2
 
 export interface InvokeInput<O> {
   readonly invocationId: string
+  readonly role: string
   readonly seat: Seat
-  readonly cwd: string
+  readonly workspace: string
   readonly systemPrompt: string
   readonly prompt: string
-  readonly cacheGroupId?: string
+  readonly tools: ReadonlyArray<InspectionTool>
   readonly contract: OutputContract<O>
-  readonly tools: ReadonlyArray<"read" | "bash">
-  readonly deadlines: InvocationDeadlines
-  // Explicit cancellation provenance. Ordinary fiber interruption remains
-  // interruption; it is not relabeled as an AgentOutcome.
-  readonly signal?: AbortSignal
+  readonly cacheGroup?: string
+  readonly deadlineMillis: number
 }
 
 export type PrefixSignal = Data.TaggedEnum<{
@@ -82,971 +66,188 @@ export interface RunningInvocation<O> {
   readonly outcome: Effect.Effect<AgentOutcome<O>, InvocationFailure>
 }
 
-interface TerminalEvidence {
-  readonly stopReason: StopReason | "interrupted"
-  readonly errorMessage: string | undefined
-}
-
-interface CaptureCommon {
-  readonly terminal: TerminalEvidence | undefined
-  readonly acceptedActivity: boolean
-  readonly rawUsageRows: ReadonlyArray<Schema.Json>
-  readonly usageSweepError: string | undefined
-  readonly violations: ReadonlyArray<string>
-  readonly diagnostics: ReadonlyArray<string>
-  readonly toolCalls: AgentToolCalls
-}
-
-type CaptureState = Data.TaggedEnum<{
-  Empty: CaptureCommon
-  Salvaged: CaptureCommon & { readonly raws: ReadonlyArray<unknown> }
-  Validated: CaptureCommon & {
-    readonly raw: unknown
-    readonly duplicateCount: number
-  }
-}>
-
-const CaptureState = Data.taggedEnum<CaptureState>()
-const isValidatedCapture = CaptureState.$is("Validated")
-const isSalvagedCapture = CaptureState.$is("Salvaged")
-
-type CaptureFact =
-  | { readonly type: "prompt_started" }
-  | { readonly type: "event"; readonly event: HarnessEvent; readonly emitToolName: string }
-  | { readonly type: "validated_emit"; readonly raw: unknown }
-  | { readonly type: "usage_rows"; readonly rows: ReadonlyArray<Schema.Json> }
-  | { readonly type: "usage_sweep_error"; readonly reason: string }
-  | { readonly type: "diagnostic"; readonly message: string }
-
-const commonOf = (state: CaptureState): CaptureCommon =>
-  CaptureState.$match(state, {
-    Empty: (common) => common,
-    Salvaged: ({ raws: _raws, ...common }) => common,
-    Validated: ({ raw: _raw, duplicateCount: _duplicates, ...common }) =>
-      common,
-  })
-
-const withCommon = (
-  state: CaptureState,
-  common: CaptureCommon,
-): CaptureState =>
-  CaptureState.$match(state, {
-    Empty: () => CaptureState.Empty(common),
-    Salvaged: ({ raws }) => CaptureState.Salvaged({ ...common, raws }),
-    Validated: ({ raw, duplicateCount }) =>
-      CaptureState.Validated({ ...common, raw, duplicateCount }),
-  })
-
-// Pure evidence reducer. The callback-facing accumulator below is only a
-// mutable cell around this tagged state, so contradictory boolean/value
-// combinations cannot be represented.
-const reduceCapture = (
-  state: CaptureState,
-  fact: CaptureFact,
-): CaptureState => {
-  const common = commonOf(state)
-  switch (fact.type) {
-    case "prompt_started": {
-      return withCommon(state, { ...common, terminal: undefined })
-    }
-    case "event": {
-      const event = fact.event
-      switch (event.type) {
-        case "message_start": {
-          return withCommon(state, {
-            ...common,
-            acceptedActivity: true,
-            violations: isValidatedCapture(state)
-              ? [
-                  ...common.violations,
-                  `assistant activity continued after validated ${fact.emitToolName}`,
-                ]
-              : common.violations,
-          })
-        }
-        case "message_end": {
-          return withCommon(state, {
-            ...common,
-            acceptedActivity: true,
-            terminal: {
-              stopReason: event.stopReason,
-              errorMessage: event.errorMessage,
-            },
-          })
-        }
-        case "tool_execution_start": {
-          const active = {
-            ...common,
-            acceptedActivity: true,
-          }
-          if (event.toolName !== fact.emitToolName) {
-            return withCommon(state, active)
-          }
-          if (isValidatedCapture(state)) return withCommon(state, active)
-          return CaptureState.Salvaged({
-            ...active,
-            raws: isSalvagedCapture(state)
-              ? [...state.raws, event.args]
-              : [event.args],
-          })
-        }
-        case "tool_execution_end": {
-          const diagnostic =
-            event.isError
-              ? `tool ${event.toolName} failed${event.detail === undefined ? "" : `: ${event.detail}`}`
-              : undefined
-          const toolCalls = event.toolName === fact.emitToolName
-            ? common.toolCalls
-            : {
-              total: common.toolCalls.total + 1,
-              errored: common.toolCalls.errored + (event.isError ? 1 : 0),
-            }
-          return withCommon(state, {
-            ...common,
-            acceptedActivity: true,
-            toolCalls,
-            diagnostics:
-              diagnostic === undefined
-                ? common.diagnostics
-                : [...common.diagnostics, diagnostic],
-          })
-        }
-        case "contract_violation": {
-          return withCommon(state, {
-            ...common,
-            violations: [...common.violations, event.reason],
-          })
-        }
-        case "interrupted": {
-          return withCommon(state, {
-            ...common,
-            acceptedActivity: true,
-            terminal: { stopReason: "interrupted", errorMessage: event.reason },
-          })
-        }
-      }
-    }
-    case "validated_emit": {
-      return isValidatedCapture(state)
-        ? CaptureState.Validated({
-            ...common,
-            raw: state.raw,
-            duplicateCount: state.duplicateCount + 1,
-          })
-        : CaptureState.Validated({
-            ...common,
-            raw: fact.raw,
-            duplicateCount: 0,
-          })
-    }
-    case "usage_rows": {
-      return withCommon(state, { ...common, rawUsageRows: fact.rows })
-    }
-    case "usage_sweep_error": {
-      return withCommon(state, {
-        ...common,
-        usageSweepError: fact.reason,
-      })
-    }
-    case "diagnostic": {
-      return withCommon(state, {
-        ...common,
-        diagnostics: [...common.diagnostics, fact.message],
-      })
-    }
-  }
-}
-
-interface CaptureAccumulator {
-  readonly dispatch: (fact: CaptureFact) => void
-  readonly snapshot: () => CaptureState
-}
-
-const makeCaptureAccumulator = (): CaptureAccumulator => {
-  let state: CaptureState = CaptureState.Empty({
-    terminal: undefined,
-    acceptedActivity: false,
-    rawUsageRows: [],
-    usageSweepError: undefined,
-    violations: [],
-    diagnostics: [],
-    toolCalls: { total: 0, errored: 0 },
-  })
-  return {
-    dispatch: (fact) => {
-      state = reduceCapture(state, fact)
-    },
-    snapshot: () => state,
-  }
-}
-
-interface CapturedSession {
-  readonly session: HarnessSession
-  readonly events: Queue.Queue<HarnessEvent>
-}
-
-const bestEffortDispose = (
-  session: HarnessSession,
-  capture: CaptureAccumulator,
-) =>
-  Effect.try({
-    try: () => session.dispose(),
-    catch: (cause) => String(cause),
-  }).pipe(
-    Effect.catch((reason) =>
-      Effect.sync(() => {
-        capture.dispatch({
-          type: "diagnostic",
-          message: `dispose failed during session teardown: ${reason}`,
-        })
-      }).pipe(
-        Effect.andThen(
-          Effect.logWarning(
-            `dispose failed during session teardown: ${reason}`,
-          ),
-        ),
-      ),
-    ),
-  )
-
-const logDebugTranscript = (
-  session: HarnessSession,
-  invocationId: string,
-  capture: CaptureAccumulator,
-) =>
-  Effect.gen(function* () {
-    if (!(yield* LogLevel.isEnabled("Debug"))) return
-    const transcript = yield* Effect.try({
-      try: () => session.transcriptEntries(),
-      catch: (cause) => String(cause),
-    })
-    const entries = yield* Effect.forEach(transcript, jsonSafeValue).pipe(
-      Effect.mapError((cause) => String(cause)),
-    )
-    yield* Effect.forEach(
-      entries,
-      (entry, index) =>
-        Effect.logDebug("agent transcript", {
-          invocationId,
-          entryIndex: index + 1,
-          entry,
-        }),
-      { discard: true },
-    )
-  }).pipe(
-    Effect.catch((reason) =>
-      Effect.sync(() => {
-        capture.dispatch({
-          type: "diagnostic",
-          message: `debug transcript capture failed: ${reason}`,
-        })
-      }).pipe(
-        Effect.andThen(
-          Effect.logWarning(`debug transcript capture failed: ${reason}`),
-        ),
-      ),
-    ),
-  )
-
-const settleAbort = (
-  aborting: Promise<void> | undefined,
-  capture: CaptureAccumulator,
-) =>
-  aborting === undefined
-    ? Effect.void
-    : Effect.tryPromise({ try: () => aborting, catch: String }).pipe(
-      Effect.timeoutOption(Duration.millis(ABORT_SETTLE_MILLIS)),
-      Effect.asVoid,
-      Effect.catch((reason) =>
-        Effect.sync(() => {
-          capture.dispatch({
-            type: "diagnostic",
-            message: `abort failed during session teardown: ${reason}`,
-          })
-        }).pipe(
-          Effect.andThen(
-            Effect.logWarning(`abort failed during session teardown: ${reason}`),
-          ),
-        )
-      ),
-    )
-
-const openCapturedSession = Effect.fn(
-  "gauntlet.invocation.open_captured_session",
-)(function* <O>(
-  input: InvokeInput<O>,
-  capture: CaptureAccumulator,
-  prefixSignal?: Deferred.Deferred<PrefixSignal>,
-) {
-  const factory = yield* HarnessSessionFactory
-  const openConfig = {
-    invocationId: input.invocationId,
-    seat: input.seat,
-    cwd: input.cwd,
-    systemPrompt: input.systemPrompt,
-    emitTool: {
-      name: input.contract.toolName,
-      description: input.contract.description,
-      parameters: projectOutputContract(input.contract).schema,
-      execute: (raw: EmitToolArgs) =>
-        capture.dispatch({ type: "validated_emit", raw }),
-      check: (raw: EmitToolArgs) =>
-        Result.match(checkOutputContract(input.contract)(raw), {
-          onFailure: (error) => String(error),
-          onSuccess: () => undefined,
-        }),
-    },
-    tools: input.tools,
-    toolTimeoutMillis: input.deadlines.toolMillis,
-    bashTimeoutMillis: input.deadlines.bashMillis,
-  }
-  const sessionConfig = input.cacheGroupId === undefined
-    ? openConfig
-    : { ...openConfig, cacheGroupId: input.cacheGroupId }
-  let aborting: Promise<void> | undefined
-  const session = yield* Effect.acquireRelease(
-    factory.open(sessionConfig).pipe(
-      Effect.map((opened): HarnessSession => ({
-        ...opened,
-        abort: () => (aborting ??= opened.abort()),
-      })),
-    ),
-    (opened) =>
-      settleAbort(aborting, capture).pipe(
-        Effect.andThen(
-          Effect.try({
-            try: () => opened.usageRows(),
-            catch: (cause) => String(cause),
-          }).pipe(
-            Effect.flatMap((rows) =>
-              Effect.forEach(rows, jsonSafeRow).pipe(
-                Effect.mapError((cause) => String(cause)),
-              )
-            ),
-            Effect.match({
-              onFailure: (reason) =>
-                capture.dispatch({ type: "usage_sweep_error", reason }),
-              onSuccess: (rows) =>
-                capture.dispatch({ type: "usage_rows", rows }),
-            }),
-          ),
-        ),
-        Effect.andThen(
-          logDebugTranscript(opened, input.invocationId, capture),
-        ),
-        Effect.andThen(bestEffortDispose(opened, capture)),
-      ),
-    { interruptible: true },
-  )
-
-  const events = yield* Queue.unbounded<HarnessEvent>()
-  yield* Effect.acquireRelease(
-    Effect.sync(() =>
-      session.subscribe((event) => {
-        capture.dispatch({
-          type: "event",
-          event,
-          emitToolName: input.contract.toolName,
-        })
-        // A response's end or a tool call means the first response has
-        // finished, so its prefix is cached.
-        if (
-          (event.type === "message_end" ||
-            event.type === "tool_execution_start") &&
-          prefixSignal !== undefined
-        ) {
-          Deferred.doneUnsafe(
-            prefixSignal,
-            Effect.succeed(PrefixSignal.PrefixObserved()),
-          )
-        }
-        Queue.offerUnsafe(events, event)
-      }),
-    ),
-    (unsubscribe) => Effect.sync(unsubscribe),
-  )
-  return { session, events } satisfies CapturedSession
-})
-
-const abortAbandonedSession = (session: HarnessSession): Effect.Effect<void> =>
-  Effect.sync(() => {
-    void session.abort().catch(() => undefined)
-  })
-
-const signalFirstResponse = (
-  events: Queue.Queue<HarnessEvent>,
-  firstResponse: Deferred.Deferred<void>,
-) =>
-  Effect.gen(function* () {
-    while (true) {
-      const event = yield* Queue.take(events)
-      if (event.type === "message_start") {
-        yield* Deferred.succeed(firstResponse, undefined)
-        return
-      }
-    }
-  })
-
-type PromptEnding =
-  | { readonly type: "settled"; readonly rejection: string | undefined }
-  | { readonly type: "first-response-timeout" }
-
-const runPrompt = Effect.fn("gauntlet.invocation.run_prompt")(function* (
-  session: HarnessSession,
-  events: Queue.Queue<HarnessEvent>,
-  prompt: string,
-  firstResponseMillis: number,
-  capture: CaptureAccumulator,
-) {
-  capture.dispatch({ type: "prompt_started" })
-  // Drain terminal evidence from the preceding corrective prompt without
-  // waiting for a new event. Queue.takeAll is intentionally blocking in v4.
-  let drained = false
-  while (!drained) {
-    const pending = yield* Queue.poll(events)
-    drained = Option.isNone(pending)
-  }
-
-  const firstResponse = yield* Deferred.make<void>()
-  const responseFiber = yield* Effect.forkScoped(
-    signalFirstResponse(events, firstResponse),
-  )
-  const promptFiber = yield* Effect.forkScoped(
-    Effect.tryPromise({
-      try: () => session.prompt(prompt),
-      catch: (cause) => String(cause),
-    }).pipe(
-      Effect.match({
-        onFailure: (rejection): PromptEnding => ({
-          type: "settled",
-          rejection,
-        }),
-        onSuccess: (): PromptEnding => ({
-          type: "settled",
-          rejection: undefined,
-        }),
-      }),
-    ),
-  )
-
-  const watchdog = Deferred.await(firstResponse).pipe(
-    Effect.timeoutOption(Duration.millis(firstResponseMillis)),
-    Effect.flatMap(
-      Option.match({
-        onNone: () =>
-          Effect.succeed({
-            type: "first-response-timeout" as const,
-          } satisfies PromptEnding),
-        onSome: () => Effect.never,
-      }),
-    ),
-  )
-
-  const ending = yield* Effect.raceFirst(Fiber.join(promptFiber), watchdog)
-  yield* Fiber.interrupt(responseFiber)
-  if (ending.type === "first-response-timeout") {
-    capture.dispatch({
-      type: "diagnostic",
-      message: `first response exceeded ${String(firstResponseMillis)}ms`,
-    })
-    yield* Fiber.interrupt(promptFiber)
-    yield* abortAbandonedSession(session)
-  }
-  return ending
-})
-
 const correctivePrompt = (toolName: string) =>
   `You ended without calling ${toolName}. Call ${toolName} now, exactly once, with the result you already prepared. Do not answer in prose.`
 
-const remainingMillis = (absoluteDeadline: number) =>
-  Clock.currentTimeMillis.pipe(
-    Effect.map((now) => Math.max(0, absoluteDeadline - now)),
-  )
-
-interface CurrentSession {
-  value: HarnessSession | undefined
-}
-
-const runAttempt = Effect.fn("gauntlet.invocation.run_attempt")(function* <O>(
-  input: InvokeInput<O>,
-  absoluteDeadline: number,
-  capture: CaptureAccumulator,
-  currentSession: CurrentSession,
-  prefixSignal?: Deferred.Deferred<PrefixSignal>,
-) {
-  const opened = yield* openCapturedSession(input, capture, prefixSignal).pipe(
-    Effect.timeoutOption(Duration.millis(input.deadlines.startupMillis)),
-  )
-  if (Option.isNone(opened)) {
-    capture.dispatch({
-      type: "diagnostic",
-      message: `session construction exceeded ${String(input.deadlines.startupMillis)}ms`,
-    })
-    return Termination.cases.FirstResponseTimeout.make({})
-  }
-
-  const { session, events } = opened.value
-  currentSession.value = session
-  let turns = 0
-  let prompt = input.prompt
-
-  while (true) {
-    const ending = yield* runPrompt(
-      session,
-      events,
-      prompt,
-      input.deadlines.firstResponseMillis,
-      capture,
-    )
-    if (ending.type === "first-response-timeout") {
-      return Termination.cases.FirstResponseTimeout.make({})
-    }
-
-    const state = capture.snapshot()
-    const common = commonOf(state)
-    if (ending.rejection !== undefined) {
-      if (common.violations.length > 0) {
-        return yield* AdapterContractViolation.make({
-          reason: Array.join(common.violations, "; "),
-        })
-      }
-      if (common.acceptedActivity) {
-        return yield* AdapterContractViolation.make({
-          reason: `prompt rejected after accepted session activity: ${ending.rejection}`,
-        })
-      }
-      return yield* InvocationSetupError.make({
-        operation: "prompt",
-        reason: ending.rejection,
-      })
-    }
-
-    const terminal = common.terminal
-    if (terminal === undefined) {
-      return yield* AdapterContractViolation.make({
-        reason: "prompt settled without terminal assistant evidence",
-      })
-    }
-
-    switch (terminal.stopReason) {
-      case "length": {
-        return Termination.cases.ContextLimit.make({})
-      }
-      case "error": {
-        capture.dispatch({
-          type: "diagnostic",
-          message: `provider failed${terminal.errorMessage === undefined ? "" : `: ${terminal.errorMessage}`}`,
-        })
-        return Termination.cases.ProviderFailed.make({})
-      }
-      case "interrupted": {
-        capture.dispatch({
-          type: "diagnostic",
-          message: `interrupted: ${terminal.errorMessage ?? "stopped outside the run"}`,
-        })
-        return Termination.cases.Interrupted.make({})
-      }
-      case "pending":
-      case "deferred":
-      case "aborted": {
-        return yield* AdapterContractViolation.make({
-          reason: `prompt settled with uncaused stop reason ${terminal.stopReason}`,
-        })
-      }
-      case "stop":
-      case "toolUse": {
-        if (isValidatedCapture(state)) {
-          if (turns > 0) {
-            capture.dispatch({
-              type: "diagnostic",
-              message: `validated emit succeeded after ${String(turns)} corrective turn${turns === 1 ? "" : "s"}`,
-            })
-          }
-          return Termination.cases.Completed.make({})
-        }
-        const remaining = yield* remainingMillis(absoluteDeadline)
-        if (
-          turns >= MAX_CORRECTIVE_TURNS ||
-          remaining < MIN_RETRY_REMAINING_MILLIS
-        ) {
-          if (remaining < MIN_RETRY_REMAINING_MILLIS) {
-            capture.dispatch({
-              type: "diagnostic",
-              message: "corrective turn skipped because less than 5000ms remained",
-            })
-          }
-          return Termination.cases.MissingEmit.make({ correctiveTurns: turns })
-        }
-        turns += 1
-        prompt = correctivePrompt(
-          (yield* HarnessSessionFactory).emitToolName(input.contract.toolName),
-        )
-      }
-    }
-  }
+export const emitToolSpec = <O>(contract: OutputContract<O>): EmitToolSpec => ({
+  name: contract.toolName,
+  description: contract.description,
+  parameters: projectOutputContract(contract).schema,
+  check: (raw) =>
+    Result.match(checkOutputContract(contract)(raw), {
+      onFailure: (error) => String(error),
+      onSuccess: () => undefined,
+    }),
 })
-
-const isFreshRetryable = (termination: TerminationType): boolean =>
-  Termination.guards.FirstResponseTimeout(termination)
 
 const validateInput = <O>(input: InvokeInput<O>) =>
   Effect.gen(function* () {
     if (input.systemPrompt.trim() === "") {
-      return yield* InvocationSetupError.make({
-        operation: "validate-config",
-        reason: "systemPrompt must be non-empty",
-      })
+      return yield* InvocationSetupError.make({ reason: "systemPrompt must be non-empty" })
     }
     if (input.prompt.trim() === "") {
-      return yield* InvocationSetupError.make({
-        operation: "validate-config",
-        reason: "prompt must be non-empty",
-      })
+      return yield* InvocationSetupError.make({ reason: "prompt must be non-empty" })
     }
-    for (const [name, value] of Record.toEntries(input.deadlines)) {
-      if (!Number.isFinite(value) || value <= 0) {
-        return yield* InvocationSetupError.make({
-          operation: "validate-config",
-          reason: `${name} must be a positive finite number`,
-        })
-      }
+    if (!Number.isFinite(input.deadlineMillis) || input.deadlineMillis <= 0) {
+      return yield* InvocationSetupError.make({ reason: "deadlineMillis must be a positive finite number" })
     }
   })
 
-const waitForAbort = (signal: AbortSignal): Effect.Effect<void> =>
-  Effect.callback<void>((resume) => {
-    if (signal.aborted) {
-      resume(Effect.void)
-      return
-    }
-    const onAbort = () => resume(Effect.void)
-    signal.addEventListener("abort", onAbort, { once: true })
-    return Effect.sync(() => signal.removeEventListener("abort", onAbort))
-  })
-
-const decodeUsageRow = Schema.decodeUnknownEffect(UsageRow)
-const encodeJsonString = Schema.encodeUnknownEffect(
-  Schema.fromJsonString(Schema.Unknown),
-)
-const decodeJsonValue = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(Schema.Json),
-)
-
-// Normalizes a raw usage row into the usage-accounting JSON contract. The
-// stringify/parse round-trip drops undefined fields (as JSON.stringify
-// would) and fails with a SchemaError on non-serializable rows.
-const jsonSafeValue = Function.compose(encodeJsonString, Effect.flatMap(decodeJsonValue))
-const jsonSafeRow = jsonSafeValue
-
-const usageFrom = (states: ReadonlyArray<CaptureState>) =>
+// Each finished turn lands in `turns` as it ends, so a deadline that cuts the
+// loop short still accounts for every turn before it.
+const runTurns = (
+  session: HarnessSession,
+  input: InvokeInput<unknown>,
+  turns: Ref.Ref<ReadonlyArray<TurnResult>>,
+): Effect.Effect<Termination, AdapterContractViolation> =>
   Effect.gen(function* () {
-    const decodedRows = yield* Effect.forEach(states, (state) => {
-      const common = commonOf(state)
-      if (common.violations.length > 0) {
-        return Effect.fail(
-          AdapterContractViolation.make({
-            reason: Array.join(common.violations, "; "),
-          }),
-        )
+    let text = input.prompt
+    for (let corrective = 0; ; corrective += 1) {
+      const result = yield* session.turn(text)
+      yield* Ref.update(turns, Array.append(result))
+      switch (result.end._tag) {
+        case "Emitted":
+          return Termination.cases.Completed.make({})
+        case "ContextLimit":
+          return Termination.cases.ContextLimit.make({})
+        case "ProviderFailed":
+          return Termination.cases.ProviderFailed.make({})
+        case "Interrupted":
+          return Termination.cases.Interrupted.make({})
+        case "Stopped": {
+          if (corrective >= MAX_CORRECTIVE_TURNS) {
+            return Termination.cases.MissingEmit.make({ correctiveTurns: corrective })
+          }
+          text = correctivePrompt(input.contract.toolName)
+        }
       }
-      if (common.usageSweepError !== undefined) {
-        return Effect.fail(
-          AdapterContractViolation.make({
-            reason: `usage sweep threw: ${common.usageSweepError}`,
-          }),
-        )
-      }
-      return Effect.forEach(common.rawUsageRows, (row) =>
-        decodeUsageRow(row).pipe(
-          Effect.mapError(
-            () =>
-              AdapterContractViolation.make({
-                reason: "usage row does not match Pi's accounting contract",
-              }),
-          ),
-        ),
-      )
-    })
-    const rawRows = Array.flatMap(states, (state) => commonOf(state).rawUsageRows)
-    let input = 0
-    let output = 0
-    let cacheRead = 0
-    let cacheWrite = 0
-    let reasoning = 0
-    let costUsd = 0
-    for (const row of decodedRows.flat()) {
-      input += row.input
-      output += row.output
-      cacheRead += row.cacheRead
-      cacheWrite += row.cacheWrite
-      reasoning += row.reasoning ?? 0
-      costUsd += row.cost.total
     }
-    return {
-      input,
-      output,
-      cacheRead,
-      cacheWrite,
-      reasoning,
-      costUsd,
-      rawRows,
-    } satisfies AgentUsage
   })
 
-const outputFrom = <O>(
-  invocationId: string,
-  contract: OutputContract<O>,
-  states: ReadonlyArray<CaptureState>,
-  diagnostics: Array<string>,
-) =>
-  Effect.gen(function* () {
-    const decode = decodeOutputContract(contract)
-    const validated = Array.filter(states, isValidatedCapture)
-    for (const state of validated) {
-      if (state.duplicateCount > 0) {
-        diagnostics.push(
-          `${contract.toolName} was called ${String(state.duplicateCount + 1)} times; retained the first validated call`,
-        )
-      }
-    }
-    const newestValidated = validated.at(-1)
-    if (newestValidated !== undefined) {
-      return yield* decode(newestValidated.raw).pipe(
-        Effect.tapError((error) =>
-          Effect.logError("validated emit output contract violation", {
-            invocationId,
-            toolName: contract.toolName,
-            issue: String(error),
-            raw: newestValidated.raw,
-          }),
-        ),
-        Effect.mapError(
-          (error) =>
-            AdapterContractViolation.make({
-              reason: `validated ${contract.toolName} arguments failed their OutputContract decoder: ${String(error)}`,
-            }),
-        ),
-        Effect.asSome,
-      )
-    }
+const usageOf = (turns: ReadonlyArray<TurnResult>): AgentUsage => {
+  const rows = Array.flatMap(turns, (turn) => turn.usage)
+  return {
+    input: Array.reduce(rows, 0, (sum, row) => sum + row.input),
+    output: Array.reduce(rows, 0, (sum, row) => sum + row.output),
+    cacheRead: Array.reduce(rows, 0, (sum, row) => sum + row.cacheRead),
+    cacheWrite: Array.reduce(rows, 0, (sum, row) => sum + row.cacheWrite),
+    reasoning: Array.reduce(rows, 0, (sum, row) => sum + row.reasoning),
+    rawRows: Array.map(rows, (row) => ({ ...row })),
+  }
+}
 
-    const salvaged = pipe(states, Array.filter(isSalvagedCapture), Array.flatMap((state) => state.raws))
-      .reverse()
-    for (const [index, raw] of salvaged.entries()) {
-      const decoded = yield* Effect.option(decode(raw))
-      if (Option.isSome(decoded)) {
-        diagnostics.push(
-          `${contract.toolName} output recovered from pre-validation arguments`,
-        )
-        return decoded
-      }
-      diagnostics.push(
-        `${contract.toolName} salvage candidate ${String(index + 1)} did not decode`,
-      )
-    }
-    return Option.none<O>()
-  })
+const turnDiagnostics = (turns: ReadonlyArray<TurnResult>): ReadonlyArray<string> =>
+  Array.flatMap(turns, (turn) => [
+    ...turn.diagnostics,
+    ...TurnEnd.$match(turn.end, {
+      Emitted: () => [],
+      Stopped: () => [],
+      ContextLimit: () => ["context limit reached"],
+      ProviderFailed: ({ reason }) => [`provider failed: ${reason}`],
+      Interrupted: ({ reason }) => [`interrupted: ${reason}`],
+    }),
+  ])
 
 const finalizeOutcome = <O>(
   input: InvokeInput<O>,
-  termination: TerminationType,
-  captures: ReadonlyArray<CaptureAccumulator>,
-  globalDiagnostics: ReadonlyArray<string>,
+  termination: Termination,
+  turns: ReadonlyArray<TurnResult>,
   durationMillis: number,
 ): Effect.Effect<AgentOutcome<O>, AdapterContractViolation> =>
   Effect.gen(function* () {
-    const states = Array.map(captures, (capture) => capture.snapshot())
-    const diagnostics = [
-      ...globalDiagnostics,
-      ...Array.flatMap(states, (state) => commonOf(state).diagnostics),
-    ]
-    const usage = yield* usageFrom(states)
-    const output = yield* outputFrom(
-      input.invocationId,
-      input.contract,
-      states,
-      diagnostics,
-    )
-    const toolCalls: AgentToolCalls = Array.reduce(
-      states,
-      { total: 0, errored: 0 },
-      (sum, state) => ({
-        total: sum.total + commonOf(state).toolCalls.total,
-        errored: sum.errored + commonOf(state).toolCalls.errored,
-      }),
-    )
+    const diagnostics = [...turnDiagnostics(turns)]
+    if (Termination.guards.BudgetExhausted(termination)) {
+      diagnostics.push(
+        "overall invocation deadline exhausted; the usage of the turn it cut short is not recorded",
+      )
+    }
+    if (Termination.guards.Completed(termination) && turns.length > 1) {
+      const corrective = turns.length - 1
+      diagnostics.push(
+        `validated emit succeeded after ${String(corrective)} corrective turn${corrective === 1 ? "" : "s"}`,
+      )
+    }
     const outcome = {
       termination,
-      usage,
-      toolCalls,
+      usage: usageOf(turns),
+      toolCalls: Array.reduce(turns, { total: 0, errored: 0 }, (sum, turn) => ({
+        total: sum.total + turn.toolCalls.total,
+        errored: sum.errored + turn.toolCalls.errored,
+      })),
       durationMillis,
       diagnostics,
     }
-    return Option.isNone(output)
-      ? outcome
-      : { ...outcome, output: output.value }
+    const emitted = Array.findLast(turns, (turn) => TurnEnd.$is("Emitted")(turn.end))
+    if (Option.isNone(emitted) || !TurnEnd.$is("Emitted")(emitted.value.end)) return outcome
+    const output = yield* decodeOutputContract(input.contract)(emitted.value.end.raw).pipe(
+      Effect.mapError((error) =>
+        AdapterContractViolation.make({
+          reason: `validated ${input.contract.toolName} arguments failed their OutputContract decoder: ${String(error)}`,
+        })),
+    )
+    return { ...outcome, output }
   })
 
-interface InvocationLifecycle {
-  readonly termination: TerminationType
-  readonly captures: ReadonlyArray<CaptureAccumulator>
-  readonly diagnostics: ReadonlyArray<string>
-  readonly durationMillis: number
-}
-
-// Startup, one fresh-session retry, cancellation, overall budget, disposal,
-// and timing stay in one engine for both ordinary and signaled invocations.
-const runInvocationLifecycle = <O>(
+const invokeInternal = <O>(
   input: InvokeInput<O>,
-  prefixSignal?: Deferred.Deferred<PrefixSignal>,
-): Effect.Effect<
-  InvocationLifecycle,
-  InvocationFailure,
-  HarnessSessionFactory
-> => Effect.gen(function* () {
-  yield* validateInput(input)
-  const startedAt = yield* Clock.currentTimeMillis
-  const absoluteDeadline = startedAt + input.deadlines.overallMillis
-  const captures: Array<CaptureAccumulator> = []
-  const diagnostics: Array<string> = []
-  const currentSession: CurrentSession = { value: undefined }
-
-  const runOne = (attempt: number) => {
-    const capture = makeCaptureAccumulator()
-    captures.push(capture)
-    return Effect.scoped(
-      runAttempt(
-        input,
-        absoluteDeadline,
-        capture,
-        currentSession,
-        prefixSignal,
-      ),
-    ).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          currentSession.value = undefined
-        }),
-      ),
-      Effect.tap(() =>
-        Effect.sync(() => {
-          diagnostics.push(`attempt ${String(attempt)} completed`)
-        }),
-      ),
-    )
-  }
-
-  const runAttempts = Effect.gen(function* () {
-    const first = yield* runOne(1)
-    if (!isFreshRetryable(first)) return first
-    const remaining = yield* remainingMillis(absoluteDeadline)
-    if (remaining < MIN_RETRY_REMAINING_MILLIS) {
-      diagnostics.push(
-        "fresh invocation retry skipped because less than 5000ms remained",
-      )
-      return first
+  firstToken?: Deferred.Deferred<PrefixSignal>,
+): Effect.Effect<AgentOutcome<O>, InvocationFailure, HarnessSessionFactory> =>
+  Effect.gen(function* () {
+    yield* validateInput(input)
+    const factory = yield* HarnessSessionFactory
+    const startedAt = yield* Clock.currentTimeMillis
+    const turns = yield* Ref.make<ReadonlyArray<TurnResult>>([])
+    const spec = {
+      invocationId: input.invocationId,
+      role: input.role,
+      seat: input.seat,
+      workspace: input.workspace,
+      systemPrompt: input.systemPrompt,
+      tools: input.tools,
+      emit: emitToolSpec(input.contract),
     }
-    diagnostics.push("retrying first-response stall in one fresh session")
-    return yield* runOne(2).pipe(
-      Effect.catchTag("InvocationSetupError", (error) =>
-        Effect.sync(() => {
-          diagnostics.push(
-            `fresh invocation retry failed during ${error.operation}: ${error.reason}; retained the first-response timeout outcome`,
+    const termination = yield* Effect.scoped(
+      Effect.gen(function* () {
+        const session = yield* factory.open(
+          input.cacheGroup === undefined ? spec : { ...spec, cacheGroup: input.cacheGroup },
+        )
+        if (firstToken !== undefined) {
+          yield* session.firstToken.pipe(
+            Effect.andThen(Deferred.succeed(firstToken, PrefixSignal.PrefixObserved())),
+            Effect.forkScoped,
           )
-          return first
-        }),
-      ),
+        }
+        return yield* runTurns(session, input, turns)
+      }),
+    ).pipe(
+      Effect.timeoutOption(Duration.millis(input.deadlineMillis)),
+      Effect.map(Option.getOrElse(() => Termination.cases.BudgetExhausted.make({}))),
+    )
+    const finishedAt = yield* Clock.currentTimeMillis
+    const recorded = yield* Ref.get(turns)
+    return yield* finalizeOutcome(
+      input,
+      termination,
+      recorded,
+      Math.max(0, finishedAt - startedAt),
     )
   })
 
-  const abortCurrent = Effect.sync(() => {
-    const session = currentSession.value
-    if (session !== undefined) void session.abort().catch(() => undefined)
-  })
-
-  const budgetEnding = Effect.sleep(
-    Duration.millis(input.deadlines.overallMillis),
-  ).pipe(
-    Effect.andThen(
-      Effect.sync(() => {
-        diagnostics.push("overall invocation deadline exhausted")
-      }),
-    ),
-    Effect.andThen(abortCurrent),
-    Effect.as(Termination.cases.BudgetExhausted.make({})),
-  )
-
-  const cancellationEnding =
-    input.signal === undefined
-      ? Effect.never
-      : waitForAbort(input.signal).pipe(
-          Effect.andThen(
-            Effect.sync(() => {
-              diagnostics.push("explicit cancellation requested")
-            }),
-          ),
-          Effect.andThen(abortCurrent),
-          Effect.as(Termination.cases.Interrupted.make({})),
-        )
-
-  const termination = yield* Effect.raceFirst(
-    runAttempts,
-    Effect.raceFirst(budgetEnding, cancellationEnding),
-  )
-  const finishedAt = yield* Clock.currentTimeMillis
-  return {
-    termination,
-    captures,
-    diagnostics,
-    durationMillis: Math.max(0, finishedAt - startedAt),
-  }
-})
-
-const invokeInternal = Effect.fn(
-  "gauntlet.invocation.invoke_internal",
-)(function* <O>(
+export const invoke = Effect.fn("Invocation.invoke")(function* <O>(
   input: InvokeInput<O>,
-  prefixSignal?: Deferred.Deferred<PrefixSignal>,
-): Effect.fn.Return<
-  AgentOutcome<O>,
-  InvocationFailure,
-  HarnessSessionFactory
-> {
-  const lifecycle = yield* runInvocationLifecycle(input, prefixSignal)
-  return yield* finalizeOutcome(
-    input,
-    lifecycle.termination,
-    lifecycle.captures,
-    lifecycle.diagnostics,
-    lifecycle.durationMillis,
-  )
-})
-
-export const invoke = Effect.fn("gauntlet.invocation.invoke")(function* <O>(
-  input: InvokeInput<O>,
-): Effect.fn.Return<
-  AgentOutcome<O>,
-  InvocationFailure,
-  HarnessSessionFactory
-> {
+): Effect.fn.Return<AgentOutcome<O>, InvocationFailure, HarnessSessionFactory> {
   return yield* invokeInternal(input)
 })
 
-// Starts one ordinary invocation in the current scope and exposes only the
-// one scheduling fact Finder orchestration needs. Provider events stay private
-// to this module, and joining `outcome` never starts a second invocation.
-export const invokeSignaled = Effect.fn(
-  "gauntlet.invocation.invoke_signaled",
-)(function* <O>(input: InvokeInput<O>): Effect.fn.Return<
-  RunningInvocation<O>,
-  never,
-  HarnessSessionFactory | Scope.Scope
-> {
+// Starts one invocation in the current scope and exposes the one scheduling
+// fact Finder orchestration needs: whether its first response has streamed.
+// Joining `outcome` never starts a second invocation.
+export const invokeSignaled = Effect.fn("Invocation.invokeSignaled")(function* <O>(
+  input: InvokeInput<O>,
+): Effect.fn.Return<RunningInvocation<O>, never, HarnessSessionFactory | Scope.Scope> {
   const signal = yield* Deferred.make<PrefixSignal>()
   const fiber = yield* invokeInternal(input, signal).pipe(
-    Effect.ensuring(
-      Deferred.succeed(signal, PrefixSignal.PrefixNotObserved()),
-    ),
+    Effect.ensuring(Deferred.succeed(signal, PrefixSignal.PrefixNotObserved())),
     Effect.forkScoped,
   )
   return {

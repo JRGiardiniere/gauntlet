@@ -9,7 +9,8 @@ import type {
 } from "../../domain/dossier.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Verdict } from "../../domain/verdict.ts"
-import { HarnessSessionFactory } from "../../harness/harness-session.ts"
+import type { AgentUsage } from "../../domain/agent-outcome.ts"
+import { INSPECTION_TOOLS } from "../../harness/harness-session.ts"
 import {
   counted,
   coverageGapLine,
@@ -29,7 +30,7 @@ import { resolveVerification, type VerifiedBundle } from "./resolution.ts"
 // docs/spec/pipeline-shape.md).
 const VERIFIER_BUNDLE_SIZE = 4
 
-const VERIFICATION_TOOLS = ["read", "bash"] as const
+const VERIFICATION_TOOLS = INSPECTION_TOOLS
 
 export interface VerificationExecution {
   readonly plan: ReviewPlan
@@ -41,7 +42,7 @@ export interface VerificationResult {
   readonly bugClaims: ReadonlyArray<EvaluatedBugClaim>
   readonly testSuggestions: ReadonlyArray<TestSuggestion>
   readonly coverageGaps: ReadonlyArray<CoverageGap>
-  readonly costUsd: number
+  readonly usages: ReadonlyArray<AgentUsage>
   readonly invocationCount: number
 }
 
@@ -59,7 +60,7 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
       bugClaims: [],
       testSuggestions: [],
       coverageGaps: [],
-      costUsd: 0,
+      usages: [],
       invocationCount: 0,
     } satisfies VerificationResult
   }
@@ -73,14 +74,13 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
       bugClaims: resolveVerification(pooled, []).bugClaims,
       testSuggestions: [],
       coverageGaps: [{ stage: "verification", reason }],
-      costUsd: 0,
+      usages: [],
       invocationCount: 0,
     } satisfies VerificationResult
   }
 
   const verificationStartedAt = yield* DateTime.now
-  const host = yield* HarnessSessionFactory
-  const templates = yield* loadVerifierPromptTemplates(host.workspacePrompt)
+  const templates = yield* loadVerifierPromptTemplates()
   const bundles = Array.chunksOf(pooled.clusters, VERIFIER_BUNDLE_SIZE)
   yield* runProgress(`${counted(bundles.length, "bundle")} → Verification`)
   const verified = yield* Effect.forEach(
@@ -88,12 +88,10 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
     (clusters, index) =>
       Effect.gen(function* () {
         const bundleNumber = index + 1
-        // The prompt shows the root the host's tools expose (Pi's stable
-        // virtual root); cwd carries the snapshot path itself.
         const prompt = yield* assembleVerifierPrompt(
           templates,
           plan.target,
-          host.workspaceRoot(reviewWorkingDirectory),
+          reviewWorkingDirectory,
           pooled.claims,
           clusters,
           plan.specification,
@@ -101,8 +99,9 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
         const outcome = yield* invokeStageAgent({
           label: `Verification bundle ${String(bundleNumber)}`,
           invocationId: `${plan.runId}-verification-${String(bundleNumber)}`,
+          role: "verifier",
           seat,
-          cwd: reviewWorkingDirectory,
+          workspace: reviewWorkingDirectory,
           prompt,
           contract: EmitVerdicts,
           tools: VERIFICATION_TOOLS,
@@ -126,11 +125,7 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   )
   return {
     ...resolved,
-    costUsd: Array.reduce(
-      verified,
-      0,
-      (total, { outcome }) => total + outcome.usage.costUsd,
-    ),
+    usages: Array.map(verified, ({ outcome }) => outcome.usage),
     invocationCount: verified.length,
   } satisfies VerificationResult
 })

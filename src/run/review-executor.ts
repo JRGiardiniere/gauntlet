@@ -33,6 +33,7 @@ import {
 } from "./progress-text.ts"
 import { acquireReviewWorkingDirectory } from "./review-working-directory.ts"
 import type { RunPaths } from "./run-record.ts"
+import { sumTokens } from "./run-accounting.ts"
 
 export interface ReviewExecution {
   readonly plan: ReviewPlan
@@ -111,11 +112,12 @@ export const executeReviewPlan = Effect.fn(
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
         const accounting = {
-          costUsd: Array.reduce(
-            results,
-            0,
-            (total, result) => total + result.outcome.usage.costUsd,
-          ) + pooled.costUsd + verification.costUsd + judgment.costUsd,
+          tokens: sumTokens([
+            ...Array.map(results, (result) => result.outcome.usage),
+            ...pooled.usages,
+            ...verification.usages,
+            ...judgment.usages,
+          ]),
           invocationCount:
             results.length +
             pooled.invocationCount +

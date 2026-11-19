@@ -164,7 +164,7 @@ const plan = ReviewPlan.make({
 })
 
 const accounting: RunAccounting = {
-  costUsd: 1.23,
+  tokens: { input: 12_000, output: 3_400, cacheRead: 88_000, cacheWrite: 0 },
   invocationCount: 7,
   wallTimeSeconds: 42,
   finderCacheHealth: undefined,
