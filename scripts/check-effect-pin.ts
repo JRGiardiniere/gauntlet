@@ -1,7 +1,10 @@
 // The Effect-pin gate's runMain boundary. The effect family must be pinned to
-// one exact version, but which version is the manifest's business. Update
-// Effect and its sibling @effect packages to the same exact version; this
-// check re-verifies the result.
+// one exact version, but which version is the manifest's business: it follows
+// the `effect` that @opencode/sdk depends on, so Gauntlet and OpenCode share
+// one copy. The manifest's `overrides` pin the same version for transitive
+// dependents, and bun.lock must resolve exactly one `effect`. Update Effect,
+// its sibling @effect packages and the overrides together; this check
+// re-verifies the result.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
@@ -16,6 +19,7 @@ const dependencyFields = [
   "devDependencies",
   "peerDependencies",
   "optionalDependencies",
+  "overrides",
 ] as const
 const independentlyVersionedEffectPackages = new Set(["@effect/tsgo"])
 const exactVersionPattern = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
@@ -28,12 +32,17 @@ const Manifest = Schema.fromJsonString(Schema.Struct({
   devDependencies: Schema.optional(DependencyMap),
   peerDependencies: Schema.optional(DependencyMap),
   optionalDependencies: Schema.optional(DependencyMap),
+  overrides: Schema.optional(DependencyMap),
 }))
+
+// Every resolved effect package in bun.lock, as `"effect@<version>"`.
+const lockedEffectPattern = /"effect@[^"]+"/g
 
 const program = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const source = yield* fs.readFileString(`${import.meta.dirname}/../package.json`)
   const manifest = yield* Schema.decodeEffect(Manifest)(source)
+  const lockfile = yield* fs.readFileString(`${import.meta.dirname}/../bun.lock`)
 
   const effectPins = Array.flatMap(dependencyFields, (field) =>
     Array.flatMap(Record.toEntries(manifest[field] ?? {}), ([name, version]) => {
@@ -56,6 +65,20 @@ const program = Effect.gen(function* () {
 
   if (effectPins.length === 0) {
     violations.push("expected at least one effect dependency to verify")
+  }
+
+  if (manifest.overrides?.effect === undefined) {
+    violations.push("overrides must pin effect so transitive dependents share one copy")
+  }
+
+  const locked = new Set(lockfile.match(lockedEffectPattern) ?? [])
+  const pinned = `"effect@${manifest.overrides?.effect ?? ""}"`
+  if (locked.size !== 1 || !locked.has(pinned)) {
+    violations.push(
+      `bun.lock must resolve exactly one effect, the pinned ${pinned}; found ${
+        locked.size === 0 ? "none" : Array.join([...locked], ", ")
+      }`,
+    )
   }
 
   if (violations.length > 0) {

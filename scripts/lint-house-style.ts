@@ -39,7 +39,6 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
         "bin",
         "src",
         "scripts",
-        "mod",
         "vitest.config.ts",
         "vitest.setup.ts",
         ...extraLintTargets,
@@ -97,7 +96,7 @@ const lintHouseStyle = Command.make(
     targets: Argument.String("targets").pipe(
       Argument.variadic(),
       Argument.withDescription(
-        "Extra paths to lint beyond the standing bin, src, scripts, mod and vitest targets",
+        "Extra paths to lint beyond the standing bin, src, scripts and vitest targets",
       ),
     ),
   },

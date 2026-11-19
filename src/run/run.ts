@@ -38,12 +38,11 @@ import {
   type SubmissionRequest,
 } from "./submission.ts"
 
-// The Run module: the two things a Host asks of Gauntlet, reviewing a request
-// and delivering a finished Run, each answered as data. Nothing here prints a
-// result or names a Host's command; the CLI and the Mod each word what comes
-// back their own way (#159).
+// The Run module: the two things a caller asks of Gauntlet, reviewing a
+// request and delivering a finished Run, each answered as data. Nothing here
+// prints a result or names a command; the CLI words what comes back (#159).
 
-// What a review asks for, as both Hosts' shared syntax types it.
+// What a review asks for, as the review syntax types it.
 export interface ReviewRequest extends Omit<SubmissionRequest, "addendum"> {
   // The checkout the review runs in.
   readonly directory: string

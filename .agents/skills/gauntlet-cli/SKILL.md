@@ -12,11 +12,6 @@ description: >-
 One long-running command that you manage. Stdout is a bounded digest to relay
 verbatim. The Dossier lives on disk.
 
-**In Claude Code with Gauntlet's mod loaded** (an `mcp__gauntlet__review` tool
-exists), start a review with that tool instead: it runs the same review on
-`claude-code/` Seats from the Mod's own recipes (`~/.gauntlet/mod/`), and its
-digest reaches you as a message. Everything below is the CLI.
-
 ## Review
 
 1. **Aim.** Point the review at what you mean; there is no autodetect.
@@ -49,34 +44,22 @@ digest reaches you as a message. Everything below is the CLI.
    local`. `--destination pr` only when the user asked to post a PR comment; it
    requires a pull request target. Pull request reviews, `--destination pr`,
    and `deliver` need the GitHub CLI (`gh`) installed and authenticated.
-5. **Specification.** Any target whose current branch contains one Linear
-   issue ID tries to resolve it as the current Slice, plus one native parent,
-   sibling titles/states, and human comments. This needs `LINEAR_API_KEY`. A
-   resolved Linear issue wins over GitHub. When Linear is absent or unreachable, a
-   pull request review falls back to GitHub closing issues as the current Slices
-   (native parent one level;
-   owner/member/collaborator comments under a 20,000-character earliest-first
-   budget). An unreachable Linear issue still prints and reports its actionable
-   diagnostic beside any GitHub material. When the user explicitly chooses
-   GitHub for this Run, pass `--github-spec`; it requires a pull request
-   target, skips Linear,
-   and fails unless GitHub closing issues produce a specification. Otherwise
-   GitHub unavailability or a PR with no closing issues stays quietly
-   specification-less. When you hold
-   additional requirements context — acceptance criteria, explicit deferrals,
-   local notes — write it as a Markdown Caller Addendum and pass
-   `--spec <path>`. Write the file to a temporary location **outside the
-   reviewed repository** (a scratch or temp directory), never into the
+5. **Specification.** Gauntlet fetches no issues itself. When the change has
+   requirements — the issue it closes, its parent, acceptance criteria,
+   explicit deferrals, local notes — fetch them yourself, write them as one
+   Markdown Caller Addendum and pass `--spec <path>`. Head each part with what
+   it is (the current issue, its parent, deferred work), so the review can
+   tell what this change owes now from broader context. Without it the review
+   runs specification-less. Write the file to a temporary location **outside
+   the reviewed repository** (a scratch or temp directory), never into the
    worktree under review: an addendum inside the repo becomes an untracked
-   review input by accident. The addendum is carried beside fetched material
-   and labeled caller-provided; fetched text remains the authority. The file
-   is read once and frozen into the plan; a missing, unreadable, or empty file
-   fails before any run is created.
+   review input by accident. The file is read once and frozen into the plan;
+   a missing, unreadable, or empty file fails before any run is created.
 6. **Launch** through your own managed long-running execution
    mechanism:
 
    ```
-   gauntlet review [target] [--working-tree] [--recipe <name>] [--lenses a,b] [--spec <markdown-file>] [--github-spec] [--destination local|pr] [--repo <path>]
+   gauntlet review [target] [--working-tree] [--recipe <name>] [--lenses a,b] [--spec <markdown-file>] [--destination local|pr] [--repo <path>]
    ```
 
    Keep `gauntlet review ...` in the foreground inside that facility. Retain

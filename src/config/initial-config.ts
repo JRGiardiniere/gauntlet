@@ -2,42 +2,23 @@ import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import { ClaudeRecipe, PiRecipe, Recipe, type RecipeName } from "../domain/recipe.ts"
+import { Recipe, type RecipeName } from "../domain/recipe.ts"
 import type { LensName } from "../domain/review-plan.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
-import { listRecipes } from "./recipe-catalog.ts"
-import { ConfigHost, type Host, recipesDirectory, settingsPath, writeSettings } from "./settings.ts"
+import { recipesDirectory, writeSettings } from "./settings.ts"
 
-// What a Host's fresh configuration holds: `config init` writes it, and the
-// Mod writes its own the first time it loads (#177). After that the files
-// are user-owned; nothing re-reads or replenishes them, and only
-// `gauntlet upgrade` touches the CLI's, moving Luna/Terra/Sol seats forward (#121).
-export interface InitialConfig {
-  readonly recipes: ReadonlyArray<readonly [RecipeName, Recipe]>
-  readonly defaultRecipe: RecipeName
-}
-
-export const INITIAL_CONFIG: Readonly<Record<Host, InitialConfig>> = {
-  // Every CLI recipe runs one seat top to bottom (John's 2026-08-10
-  // uniform-preset call); quick is Terra in Fast mode (2026-11-18).
-  cli: {
-    recipes: [
-      ["quick", PiRecipe.make({ default: "openai/gpt-6.1-terra:high+fast" })],
-      ["low", PiRecipe.make({ default: "openai/gpt-6-luna:high" })],
-      ["medium", PiRecipe.make({ default: "openai/gpt-6.2-sol:medium" })],
-      ["high", PiRecipe.make({ default: "openai/gpt-6.2-sol:high" })],
-    ],
-    defaultRecipe: "medium",
-  },
-  mod: {
-    recipes: [
-      ["low", ClaudeRecipe.make({ default: "claude-code/sonnet:medium" })],
-      ["medium", ClaudeRecipe.make({ default: "claude-code/opus:medium" })],
-      ["high", ClaudeRecipe.make({ default: "claude-code/opus:high" })],
-    ],
-    defaultRecipe: "medium",
-  },
-}
+// What a fresh configuration holds: `config init` writes it. After that the
+// files are user-owned; nothing re-reads or replenishes them, and only
+// `gauntlet upgrade` touches them, moving Luna/Terra/Sol seats forward (#121).
+// Every recipe runs one seat top to bottom (John's 2026-08-10 uniform-preset
+// call); quick is Terra in Fast mode (2026-11-18).
+export const INITIAL_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
+  ["quick", Recipe.make({ default: "openai/gpt-6.1-terra:high+fast" })],
+  ["low", Recipe.make({ default: "openai/gpt-6-luna:high" })],
+  ["medium", Recipe.make({ default: "openai/gpt-6.2-sol:medium" })],
+  ["high", Recipe.make({ default: "openai/gpt-6.2-sol:high" })],
+]
+export const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
 
 // language-pitfalls, refactoring-checklist, security and wrapper-proxy stay in
 // the catalog but are not seeded: across 192 runs they and cross-file found 32
@@ -56,32 +37,20 @@ export const INITIAL_DEFAULT_LENSES: ReadonlyArray<LensName> = [
   "subjective",
 ]
 
-// Fresh is no settings file and an empty catalog; anything between fresh and
-// valid is partial, and nothing heals it (issue #24).
-export const isFreshConfig = Effect.fn("InitialConfig.isFresh")(function* () {
-  const fs = yield* FileSystem.FileSystem
-  const settingsFile = yield* settingsPath()
-  const settingsExists = yield* fs.exists(settingsFile)
-  return !settingsExists && (yield* listRecipes()).length === 0
-})
-
-// Writes the Host's initial recipes and settings; callers check freshness
-// first.
+// Writes the initial recipes and settings; callers check freshness first.
 export const writeInitialConfig = Effect.fn("InitialConfig.write")(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
-  const initial = INITIAL_CONFIG[yield* ConfigHost]
   const catalogPath = yield* recipesDirectory()
   yield* fs.makeDirectory(catalogPath, { recursive: true })
   yield* Effect.forEach(
-    initial.recipes,
+    INITIAL_RECIPES,
     ([name, recipe]) => writeArtifactJson(path.join(catalogPath, `${name}.json`), Recipe, recipe),
     { concurrency: 1 },
   )
   yield* writeSettings({
-    "default-recipe": initial.defaultRecipe,
+    "default-recipe": INITIAL_DEFAULT_RECIPE,
     "default-lenses": INITIAL_DEFAULT_LENSES,
-    favorites: Array.map(initial.recipes, ([name]) => name),
+    favorites: Array.map(INITIAL_RECIPES, ([name]) => name),
   })
-  return initial
 })

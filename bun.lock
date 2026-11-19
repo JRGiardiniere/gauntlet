@@ -7,15 +7,15 @@
       "dependencies": {
         "@earendil-works/pi-ai": "1.5.2",
         "@earendil-works/pi-coding-agent": "1.5.2",
-        "@effect/platform-node": "4.1.4",
-        "effect": "4.1.4",
+        "@effect/platform-node": "4.1.0",
+        "effect": "4.1.0",
         "just-bash": "3.6.1",
         "markdown-it": "15.0.3",
         "typebox": "1.4.7",
       },
       "devDependencies": {
         "@effect/tsgo": "0.70.0",
-        "@effect/vitest": "4.1.4",
+        "@effect/vitest": "4.1.0",
         "@oxlint/plugins": "1.94.0",
         "@types/node": "26.6.6",
         "madge": "^8.0.0",
@@ -26,6 +26,10 @@
         "vitest": "^5.1.1",
       },
     },
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.1.0",
+    "effect": "4.1.0",
   },
   "packages": {
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.129.0", "", { "dependencies": { "json-schema-to-ts": "^3.1.1", "standardwebhooks": "^1.0.0" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-MH7LB20kNpGLUpPTe2OG5XvL/KhX8HUO9XyBaFjgFk6TLS4Xjt0VPIuMKywe7POKKPslX+QxSlVok9e+8kG5Nw=="],
@@ -100,9 +104,9 @@
 
     "@earendil-works/pi-tui": ["@earendil-works/pi-tui@1.5.2", "", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.11", "marked-cjk-friendly": "0.1.2" } }, "sha512-WK8ih+c88GWizaB79y7Pq3PV7ySf5VI1pZ1i/6aBBjDOAiG2EE3ojKjl+pxQqLfyQGnzHYu4VfakOBJgumuoyw=="],
 
-    "@effect/platform-node": ["@effect/platform-node@4.1.4", "", { "dependencies": { "@effect/platform-node-shared": "4.1.4", "undici": "^8.12.4" }, "peerDependencies": { "effect": "^4.1.4", "redis": ">=5.1.0 <7.0.0" } }, "sha512-h7QExTPq/RfYtHP/8tMlgfBvqYsuJKhxfkU6w0+NaF/ihqQ8Y3GH9t28ltupQjoqMM7P6W5gy8rOji7F0qVrmg=="],
+    "@effect/platform-node": ["@effect/platform-node@4.1.0", "", { "dependencies": { "@effect/platform-node-shared": "^4.1.0", "undici": "^8.12.2" }, "peerDependencies": { "effect": "^4.1.0", "redis": ">=5.0.0 <7.0.0" } }, "sha512-v+X7moGVF9k5oMVvz0slA+NgtEod+W+oygeI285MDJgSlUCW3JcqElj+cD3rlijFZtpKhC7RLkU1GuCxjGHTpA=="],
 
-    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.1.4", "", { "dependencies": { "@types/ws": "^8.18.2", "ws": "^8.22.1" }, "peerDependencies": { "effect": "^4.1.4" } }, "sha512-DWdfphHGOFJNj/mYadgpT3jIm8aRXDcPrQiGXFBH4p2H4XmA7iYMrPsI8NxVgZ7kNX0q1+FGJZJama0tINHRAg=="],
+    "@effect/platform-node-shared": ["@effect/platform-node-shared@4.1.0", "", { "dependencies": { "@types/ws": "^8.18.2", "ws": "^8.22.0" }, "peerDependencies": { "effect": "^4.1.0" } }, "sha512-uYQfFRoxWLo8fIhiSeBcmz/R1ooOfE3HF3cWHFgxz82tZMk2Wn02BGABcdLmaAch9VpDLbtWnuhSxNyBsGMUFg=="],
 
     "@effect/tsgo": ["@effect/tsgo@0.70.0", "", { "optionalDependencies": { "@effect/tsgo-darwin-arm64": "0.70.0", "@effect/tsgo-darwin-x64": "0.70.0", "@effect/tsgo-linux-arm": "0.70.0", "@effect/tsgo-linux-arm64": "0.70.0", "@effect/tsgo-linux-x64": "0.70.0", "@effect/tsgo-win32-arm64": "0.70.0", "@effect/tsgo-win32-x64": "0.70.0" }, "bin": { "effect-tsgo": "dist/effect-tsgo.cjs" } }, "sha512-kZwLZaAT4of8wu1sTRnk2IZpbjHGQSBKGvfw+nYw2iuvJlkIS0BNYcwA0ohoLPRffUKUP6PY7iBW5Ag4DUxh+Q=="],
 
@@ -120,7 +124,7 @@
 
     "@effect/tsgo-win32-x64": ["@effect/tsgo-win32-x64@0.70.0", "", { "os": "win32", "cpu": "x64" }, "sha512-ijk45EZNKAsDIzGYeZAEH1jOTy6WamP5mSJj4zujOY3qUYJLHrKQTZ9MOBUvekGZextSd9s8Gpwbi5FExNwiFA=="],
 
-    "@effect/vitest": ["@effect/vitest@4.1.4", "", { "peerDependencies": { "effect": "^4.1.4", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-AKpZ6zKihCRhY7hDbiQ2yp/krw+afIkxDRjFMwwzMiyhd0iYk0WaHa9J6GGC7TUF/C7HP2dZyMVq5xC0Qm/2/g=="],
+    "@effect/vitest": ["@effect/vitest@4.1.0", "", { "peerDependencies": { "effect": "^4.1.0", "vitest": ">=5.0.0 <6.0.0" } }, "sha512-+APF69oTYgGj5WCewowk1/udepH74xz4ONyH7d+UfcK0SrF3osiSwsWEyODUpJvWd6MIk5F5PcFJiE4evMuG2A=="],
 
     "@emnapi/core": ["@emnapi/core@2.0.0-beta.2", "", { "dependencies": { "@emnapi/wasi-threads": "2.2.0", "tslib": "^2.4.0" } }, "sha512-MzCVoWtcg4Pm2B3je5mMvYMvj3MmBKw+fU7vbsJc9/iT8ip6/eYIHo/Dsm/mr+wsHB6SEyJDuxB09Yy6r/8+4A=="],
 
@@ -462,7 +466,7 @@
 
     "ecdsa-sig-formatter": ["ecdsa-sig-formatter@1.0.11", "", { "dependencies": { "safe-buffer": "^5.0.1" } }, "sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ=="],
 
-    "effect": ["effect@4.1.4", "", {}, "sha512-Tgrv/9FN+TZYyOn8XSli+fVqAfwDrDAkiX5Uu9vztINb675VTQdhD0gWI5Kzvhlh9QqzjZvw72iugqw5pwoghQ=="],
+    "effect": ["effect@4.1.0", "", {}, "sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q=="],
 
     "end-of-stream": ["end-of-stream@1.4.5", "", { "dependencies": { "once": "^1.4.0" } }, "sha512-ooEGc6HP26xXq/N+GCGOT0JKCLDGrq2bQUZrQ7gyrJiZANJ/8YDTxTpQBXGMn+WbIQXNVpyWymm7KYVICQnyOg=="],
 

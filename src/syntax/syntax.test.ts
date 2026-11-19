@@ -12,15 +12,15 @@ import { SubmissionTargetRequest } from "../run/submission.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { type Destination, reviewSyntax } from "./syntax.ts"
 
-// The words both Hosts take, as the request or refusal each becomes.
+// The words the CLI takes, as the request or refusal each becomes.
 
-// A parsed review as the Host receives it: the request and its destination.
+// A parsed review as the CLI receives it: the request and its destination.
 type Parsed = ReviewRequest & { readonly destination: Destination }
 
-const parse = (words: ReadonlyArray<string>, relatedFiles: boolean) => {
+const parse = (words: ReadonlyArray<string>) => {
   let parsed: Parsed | string | undefined
   const gauntlet = Command.make("gauntlet").pipe(
-    Command.withSubcommands(reviewSyntax({ relatedFiles }, {
+    Command.withSubcommands(reviewSyntax({
       review: (request, destination) =>
         Effect.sync(() => {
           parsed = { ...request, destination }
@@ -47,15 +47,13 @@ const parse = (words: ReadonlyArray<string>, relatedFiles: boolean) => {
 }
 
 const workingTree = SubmissionTargetRequest.WorkingTree({ base: undefined })
-const pullRequest = (number: number, githubSpecOnly = false) =>
-  SubmissionTargetRequest.PullRequest({ number, githubSpecOnly })
+const pullRequest = (number: number) => SubmissionTargetRequest.PullRequest({ number })
 
 const AIMED_HEAD =
   "--working-tree extends only a commit base; a pull request or a <base>..<head> range has its own head"
 
 const table: ReadonlyArray<{
   readonly words: ReadonlyArray<string>
-  readonly relatedFiles?: boolean
   readonly becomes: Partial<Parsed> | string
 }> = [
   {
@@ -76,9 +74,9 @@ const table: ReadonlyArray<{
     becomes: { target: SubmissionTargetRequest.WorkingTree({ base: "main" }) },
   },
   {
-    words: ["review", "--recipe=high", "--lenses", "a, b", "--github-spec", "7", "--destination", "pr"],
+    words: ["review", "--recipe=high", "--lenses", "a, b", "7", "--destination", "pr"],
     becomes: {
-      target: pullRequest(7, true),
+      target: pullRequest(7),
       recipeName: Option.some("high"),
       selectedLensNames: ["a", "b"],
       destination: "pr",
@@ -88,21 +86,21 @@ const table: ReadonlyArray<{
     words: ["review", "--repo", "~/other", "--spec", "notes.md"],
     becomes: { directory: "/home/me/other", specPath: "/work/repo/notes.md" },
   },
-  { words: ["review"], relatedFiles: true, becomes: { relatedFiles: true } },
-  { words: ["review", "--no-related-files"], relatedFiles: true, becomes: { relatedFiles: false } },
+  { words: ["review", "--related-files"], becomes: { relatedFiles: true } },
+  { words: ["review", "--no-related-files"], becomes: { relatedFiles: false } },
   { words: ["review", "12", "--working-tree"], becomes: AIMED_HEAD },
   { words: ["review", "main..topic", "--working-tree"], becomes: AIMED_HEAD },
   { words: ["review", "--destination", "pr"], becomes: "--destination pr needs a pull request target" },
-  { words: ["review", "main", "--github-spec"], becomes: "--github-spec needs a pull request target" },
+  { words: ["review", "7", "--github-spec"], becomes: "Unrecognized flag: --github-spec in command gauntlet review" },
   { words: ["review", "--pr", "12"], becomes: "Unrecognized flag: --pr in command gauntlet review" },
   { words: ["deliver", "run-1"], becomes: "deliver run-1" },
 ]
 
-describe("the shared review syntax", () => {
-  it.effect("turns each Host's words into the same request, or the same refusal", () =>
+describe("the review syntax", () => {
+  it.effect("turns the CLI's words into a request, or a refusal", () =>
     Effect.gen(function* () {
-      for (const { becomes, relatedFiles = false, words } of table) {
-        const parsed = yield* parse(words, relatedFiles)
+      for (const { becomes, words } of table) {
+        const parsed = yield* parse(words)
         if (Predicate.isString(becomes)) expect(parsed, Array.join(words, " ")).toBe(becomes)
         else expect(parsed, Array.join(words, " ")).toMatchObject(becomes)
       }

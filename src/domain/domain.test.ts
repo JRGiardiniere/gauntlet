@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import { Candidate } from "./candidate.ts"
-import { ClaudeSeat, Seat, seatSpeed } from "./recipe.ts"
+import { Recipe, Seat, seatSpeed } from "./recipe.ts"
 
 describe("domain model", () => {
   it.effect("requires 1-indexed Candidate lines", () =>
@@ -43,7 +43,12 @@ describe("domain model", () => {
       expect(seatSpeed(fastSeat)).toEqual({ seat: "acme/terra:4:high", fast: true })
       const plainSeat = yield* decode("acme/terra:high")
       expect(seatSpeed(plainSeat)).toEqual({ seat: "acme/terra:high", fast: false })
-      const claudeFast = yield* Effect.flip(Schema.decodeEffect(ClaudeSeat)("claude-code/opus:high+fast"))
-      expect(claudeFast.message).toContain("Fast mode (+fast) is for Pi Seats only")
+    }))
+
+  it.effect("one Recipe seats any provider in any Stage", () =>
+    Effect.gen(function* () {
+      const decode = Schema.decodeUnknownEffect(Schema.fromJsonString(Recipe), { onExcessProperty: "error" })
+      const mixed = yield* decode(`{"default":"acme/luna:high","verification":"claude-code/sonnet:low"}`)
+      expect(mixed).toEqual({ default: "acme/luna:high", verification: "claude-code/sonnet:low" })
     }))
 })

@@ -11,8 +11,6 @@ import {
   gitHubLayer,
   unusedGitHubContract,
   unusedGitHubLayer,
-  type GitHubClosingIssue,
-  type GitHubIssueComment,
   type PullRequestView,
 } from "../github/github.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
@@ -24,12 +22,6 @@ import {
   type ScriptedSession,
   usageRow,
 } from "../harness/scripted.ts"
-import {
-  unusedLinearLayer,
-  type LinearBranchIssue,
-  type LinearCommentSnapshot,
-  type LinearIssueSnapshot,
-} from "../linear/linear.ts"
 import { FinderCacheSettle } from "../run/finder-execution.ts"
 import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import type { VerdictsOutput } from "../stages/verification/output-contract.ts"
@@ -194,101 +186,15 @@ export const prView = (
   url: `https://github.com/example/repo/pull/${String(number)}`,
 })
 
-export const issueUrl = (number: number) =>
-  `https://github.com/example/repo/issues/${String(number)}`
-
-export const githubComment = (
-  association: string,
-  createdAt: string,
-  body: string,
-  number = 74,
-): GitHubIssueComment => ({
-  url: `${issueUrl(number)}#issuecomment-${createdAt}`,
-  body,
-  createdAt,
-  authorAssociation: association,
-})
-
-export const closingIssue = (
-  number: number,
-  title: string,
-  body: string,
-  comments: ReadonlyArray<GitHubIssueComment> = [],
-  parent: GitHubClosingIssue["parent"] = undefined,
-): GitHubClosingIssue => ({
-  number,
-  url: issueUrl(number),
-  title,
-  body,
-  state: "OPEN",
-  comments,
-  parent,
-})
-
-export const githubForPr = (
-  view: PullRequestView,
-  issues: ReadonlyArray<GitHubClosingIssue>,
-) =>
+export const githubForPr = (view: PullRequestView) =>
   gitHubLayer({
     ...unusedGitHubContract,
     viewPullRequest: () => Effect.succeed(view),
-    viewClosingIssues: () => Effect.succeed(issues),
   })
 
-export const linearComment = (
-  body: string,
-  createdAt: string,
-  isBot = false,
-): LinearCommentSnapshot => ({
-  url: `https://linear.app/example/comment/${body.replaceAll(" ", "-")}`,
-  body,
-  createdAt,
-  isBot,
-})
-
-export const linearIssue = (
-  identifier: string,
-  title: string,
-  body: string,
-  state: string,
-  comments: ReadonlyArray<LinearCommentSnapshot> = [],
-): LinearIssueSnapshot => ({
-  id: `id-${identifier}`,
-  identifier,
-  url: `https://linear.app/example/issue/${identifier}`,
-  title,
-  body,
-  state,
-  comments,
-})
-
-export const linearBranchIssue = (): LinearBranchIssue => ({
-  ...linearIssue(
-    "ENG-75",
-    "Linear source",
-    "LINEAR-SLICE-BODY",
-    "In Progress",
-    [
-      linearComment("newer human", "2026-01-03T00:00:00Z"),
-      linearComment("linkback bot", "2026-01-02T00:00:00Z", true),
-    ],
-  ),
-  parent: linearIssue(
-    "ENG-70",
-    "Review specification",
-    "LINEAR-PARENT-BODY",
-    "Todo",
-    [linearComment("older human", "2026-01-01T00:00:00Z")],
-  ),
-  siblings: [
-    linearIssue("ENG-76", "Conformance", "NOT-FETCHED", "Done"),
-    linearIssue("ENG-74", "GitHub source", "NOT-FETCHED", "Canceled"),
-  ],
-})
-
 // Everything a review needs around the fixture: its HOME, content and
-// repository, the scripted Host, a GitHub fake and an unused Linear, with no
-// cache settle to wait out.
+// repository, the scripted Host and a GitHub fake, with no cache settle to
+// wait out.
 export const provideReviewFixture = (
   fixture: Fixture,
   scripted: Scripted,
@@ -304,7 +210,6 @@ export const provideReviewFixture = (
       ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
       scriptedLayer(scripted),
       github,
-      unusedLinearLayer,
     ]),
   )
 

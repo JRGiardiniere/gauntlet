@@ -36,7 +36,7 @@ const deliver = Effect.fn("Cli.deliver")(function* (runId: string) {
   yield* Console.log(receipt.url)
 })
 
-const [reviewVerb, deliverVerb] = reviewSyntax({ relatedFiles: false }, {
+const [reviewVerb, deliverVerb] = reviewSyntax({
   review,
   deliver,
 })

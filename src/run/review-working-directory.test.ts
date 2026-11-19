@@ -1,4 +1,4 @@
-import { assert, describe, expect, it } from "@effect/vitest"
+import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Deferred from "effect/Deferred"
@@ -6,13 +6,11 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
-import * as Predicate from "effect/Predicate"
 import * as TestConsole from "effect/testing/TestConsole"
 import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
-import { type RunMilestone, RunMilestones } from "./run-milestones.ts"
 import {
   acquireReviewWorkingDirectory,
   captureWorkspaceOverlay,
@@ -87,16 +85,10 @@ describe("PR review working directory", () => {
       const path = yield* Path.Path
       const { repo, target } = yield* makeMismatchedPullRequestTarget
       let reviewDirectory = ""
-      const reported: Array<RunMilestone> = []
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY).pipe(
-            Effect.provideService(RunMilestones, (milestone) =>
-              Effect.sync(() => {
-                reported.push(milestone)
-              })),
-          )
+          reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
           expect(reviewDirectory).not.toBe(repo)
           const reviewedHead = yield* runGit(reviewDirectory, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
           expect(reviewedHead).toBe(target.headCommit)
@@ -113,15 +105,9 @@ describe("PR review working directory", () => {
       expect(reviewDirectoryExists).toBe(false)
       const worktreesAfter = yield* countWorktrees(repo)
       expect(worktreesAfter).toBe(1)
-      // A Host that loses the Run removes the one directory reported, which
-      // holds the snapshot; the Run removed it as it ended.
-      const directories = Array.flatMap(reported, (milestone) =>
-        milestone._tag === "SnapshotDirectoryMade" ? [milestone.directory] : [])
-      assert(Predicate.isTupleOf(directories, 1), `expected one reported directory, got ${directories.length}`)
-      const [made] = directories
-      expect(reviewDirectory.startsWith(`${made}${path.sep}`)).toBe(true)
-      const madeExists = yield* fs.exists(made)
-      expect(madeExists).toBe(false)
+      // The scratch directory holding the snapshot goes with it.
+      const scratchExists = yield* fs.exists(path.dirname(reviewDirectory))
+      expect(scratchExists).toBe(false)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("cleans up after a typed failure", () =>

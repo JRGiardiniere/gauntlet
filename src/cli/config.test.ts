@@ -11,7 +11,6 @@ import { Settings } from "../config/settings.ts"
 import { ContentDirectory } from "../content/lens.ts"
 import { Recipe } from "../domain/recipe.ts"
 import { unusedGitHubLayer } from "../github/github.ts"
-import { unusedLinearLayer } from "../linear/linear.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
 import { runGit } from "../target/git.ts"
 import { runGauntlet } from "./main.ts"
@@ -83,7 +82,6 @@ const configAt = (
       ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
       scriptedLayer(makeScripted({ sessions: [] })),
       unusedGitHubLayer,
-      unusedLinearLayer,
     ]),
   )
 

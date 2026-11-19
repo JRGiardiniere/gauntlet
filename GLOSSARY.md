@@ -15,17 +15,15 @@ starts at that range's merge-base and still ends at the working tree.
 _Avoid_: scope, subject, changeset, target repo
 
 **ReviewSpecification**:
-The frozen requirements used to judge a ReviewTarget — the material of at most
-one Specification Source, beside an optional Caller Addendum. Its current Slice
-defines present obligations; broader material supplies intent, constraints,
-and explicitly deferred work.
+The frozen requirements used to judge a ReviewTarget — the Caller Addendum's
+Markdown. Its current Slice defines present obligations; broader material
+supplies intent, constraints, and explicitly deferred work.
 _Avoid_: spec context, scope block, issue text
 
 **Caller Addendum**:
-Caller-provided Markdown carried in a ReviewSpecification beside fetched
-source material — labeled as caller context, never authority over fetched
-text. It stands alone as the complete ReviewSpecification only when no
-Specification Source resolves.
+Caller-provided Markdown, passed with `--spec`, that is the whole
+ReviewSpecification. The Caller fetches any issue text itself and puts it
+here.
 _Avoid_: spec override, supplemental source, extra context
 
 **Slice**:
@@ -34,15 +32,9 @@ ReviewTarget, distinct from sibling work described by broader material.
 _Avoid_: child issue, subtask, ticket
 
 **Specification Source**:
-An authority that supplies requirement material and relationships for a
-ReviewSpecification without defining what system must host that material.
+Where a ReviewSpecification's material comes from. The Caller Addendum is the
+only one; Gauntlet fetches no issues itself.
 _Avoid_: issue provider, tracker integration, spec resolver
-
-**Comment Omission**:
-The record that admitted comments were dropped to fit the aggregate bound —
-what was dropped, how much, and the cutoff — carried on the ReviewSpecification
-for contextual prompts and the report.
-_Avoid_: truncation notice, comment summary, budget overflow
 
 **AgentInvocation**:
 One bounded request to an agent for one structured output — inclusive of
@@ -129,9 +121,8 @@ override.
 _Avoid_: base seat, default model, fallback seat
 
 **Recipe Catalog**:
-The user's complete collection of available Recipes for one Host: the CLI and
-the Mod each have their own, holding only Seats that Host runs. Every Recipe
-has the same status; Gauntlet does not distinguish app-owned, built-in, and
+The user's complete collection of available Recipes, one for every provider.
+Every Recipe has the same status; Gauntlet does not distinguish app-owned, built-in, and
 custom Recipes.
 _Avoid_: recipe database, built-in recipes, app recipes, user recipes
 

@@ -76,12 +76,8 @@ const successfulSession = (forSession: string): ScriptedSession => ({
 })
 
 const specification: ReviewSpecification = {
-  documents: [{
-    role: "caller-addendum",
-    provenance: "finder execution test",
-    text: "SPECIFICATION-NEEDLE: preserve stable ordering",
-  }],
-  comments: [],
+  provenance: "finder execution test",
+  text: "SPECIFICATION-NEEDLE: preserve stable ordering",
 }
 
 const executeFixture = (
