@@ -98,13 +98,16 @@ const PiToolExecutionEnd = Schema.Struct({
 })
 
 // Pi's missing-credential error points at its own `/login` and at docs inside
-// node_modules; a Gauntlet user signs in with `gauntlet login`, or sets an
-// API-key provider's key in the environment.
+// node_modules. `gauntlet login` now signs in the OpenCode Host (#197), which
+// reviews move to in #198; until then a review reads Pi's own login, made with
+// a standalone `pi`, or an API-key provider's key from the environment.
 const piLoginHelp = /Use \/login to log into a provider via OAuth or API key\. See:(?:\n {2}\S+)*/
 const withGauntletLoginHelp = (message: string, provider: string, hasSignIn: boolean): string =>
   message.replace(
     piLoginHelp,
-    hasSignIn ? `Run \`gauntlet login ${provider}\`.` : `Set ${provider}'s API key in the environment.`,
+    hasSignIn
+      ? `Sign in to ${provider} with a standalone \`pi\` (\`/login\`), or set its API key in the environment.`
+      : `Set ${provider}'s API key in the environment.`,
   )
 
 const decodeMessageRole = Schema.decodeUnknownResult(PiMessageRole)

@@ -48,6 +48,17 @@ gauntlet review          # your uncommitted changes; or 42 for a PR, main for yo
 gauntlet review 42 --recipe high --destination pr   # review PR 42 harder, post it there
 ```
 
+**Signing in.** `gauntlet login` signs in with ChatGPT into Gauntlet's own
+store under `~/.gauntlet/opencode`; your own OpenCode, Codex and Pi logins are
+never read or touched. On a machine you reach remotely, paste the URL the
+browser was redirected to when it asks. To use an OpenAI API key instead, set
+`OPENAI_API_KEY` in the environment; no login is needed. The Claude recipes
+(`claude-low`, `claude-medium`, `claude-high`) will use your installed `claude`
+login once reviews run on the embedded OpenCode Host (#198); until then reviews
+run on Pi and read Pi's own login. On an existing, valid configuration,
+`gauntlet config init` adds the Claude recipes if they are missing, and never
+overwrites a recipe you have.
+
 `gauntlet --help` is the full flag reference. To customize:
 
 - **Recipes** — one JSON file each in `~/.gauntlet/recipes/`; copy one, edit

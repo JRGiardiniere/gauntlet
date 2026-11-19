@@ -28,6 +28,7 @@ import type { VerdictsOutput } from "../stages/verification/output-contract.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
 import { commitAll, makeGitFixture } from "./git.fixture.ts"
+import { untouchedHostLayer } from "../host/host.ts"
 
 // The shared review fixture: a real temp git repository, a temp HOME with
 // settings and a recipe catalog, and a fixture content directory standing in
@@ -210,6 +211,7 @@ export const provideReviewFixture = (
       ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: fixture.home })),
       scriptedLayer(scripted),
       github,
+      untouchedHostLayer,
     ]),
   )
 

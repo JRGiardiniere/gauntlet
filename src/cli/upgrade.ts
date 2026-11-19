@@ -1,5 +1,6 @@
 // Self-upgrade: replace this executable with the latest release binary, then
-// move recipe seats off legacy providers and onto the newest Luna/Terra/Sol (#121).
+// move recipe seats off legacy providers and onto the newest Luna/Terra/Sol
+// the Host's model list accepts (#121, #197).
 // Settings, runs (~/.gauntlet) and project lenses (.gauntlet/lenses) survive
 // by construction — the shipped lens catalog is embedded in the binary, so
 // swapping the file swaps the catalog atomically (ADR 0004).
@@ -12,7 +13,9 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
-import { refreshedModelCatalog } from "../harness/pi-catalog.ts"
+import { type CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
+import { Host, HostError } from "../host/host.ts"
+import { hostAccepts } from "../host/model-ref.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
@@ -55,24 +58,52 @@ export const renderSeatUpgrade = (
   return lines.length === 0 ? ["recipe seats are current"] : lines
 }
 
-// Runs after the binary step in this (pre-upgrade) process. A seat upgrade
+// Runs after the binary step in this (pre-upgrade) process. The Host's model
+// list is OpenCode's own catalog, which it keeps fresh itself, filtered to
+// what the person's logins can run; nothing is refetched here. A seat upgrade
 // failure is reported and never fails the command: the binary step already
 // succeeded, and the next `gauntlet upgrade` retries the seats.
-const upgradeSeats = Effect.fn("gauntlet.cli.upgrade_seats")(function* () {
-  const catalog = yield* refreshedModelCatalog()
-  const upgrade = yield* upgradeRecipeSeats(catalog)
+export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
+  const entries = yield* listRecipes()
+  if (!Array.some(entries, (entry) => entry._tag === "ValidRecipe")) {
+    yield* Console.log(Array.join(renderSeatUpgrade({ changes: [], skipped: invalidNames(entries) }), "\n"))
+    return
+  }
+  const host = yield* Host
+  const models = yield* host.listModels.pipe(
+    Effect.timeoutOrElse({
+      duration: MODEL_LIST_TIMEOUT,
+      orElse: () => Effect.fail(HostError.make({ operation: "list models", reason: "timed out" })),
+    }),
+  )
+  const upgrade = yield* upgradeRecipeSeats(
+    (provider) => Array.flatMap(models, (model) => (model.providerID === provider ? [model.id] : [])),
+    (seat) => hostAccepts(models, seat),
+  )
+  // OpenAI lists no models without a ChatGPT sign-in or OPENAI_API_KEY, which
+  // would read as "current" without anything being compared.
+  if (!Array.some(models, (model) => model.providerID === "openai")) {
+    yield* Console.log("OpenAI seats were not checked: no OpenAI models are listed — run `gauntlet login` or set OPENAI_API_KEY")
+  }
   yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
 }, (effect) =>
   effect.pipe(
     Effect.catchTags({
-      ModelCatalogRefreshError: (failure) =>
-        reportSeatFailure(`model catalog refresh failed: ${failure.reason}`),
+      HostError: (failure) =>
+        reportSeatFailure(`the model list is unavailable: ${failure.reason}`),
       RecipeCatalogError: (failure) =>
         reportSeatFailure(`${failure.reason} (${failure.path})`),
       ArtifactWriteError: (failure) =>
         reportSeatFailure(`could not write ${failure.path}`),
     }),
   ))
+
+const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
+  Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))
+
+// The Host's own waits are bounded; this bounds the step as a whole, as the
+// Pi catalog refresh it replaces was.
+const MODEL_LIST_TIMEOUT = "90 seconds"
 
 const reportSeatFailure = (reason: string) =>
   Console.error(`gauntlet: could not upgrade recipe seats — ${reason}`)
@@ -157,6 +188,6 @@ export const upgradeCommand = Command.make(
   () => executeUpgrade(),
 ).pipe(
   Command.withDescription(
-    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Terra/Sol. Settings, runs, and project lenses are never touched",
+    "Replace this binary with the latest GitHub release, then move recipe seats off legacy providers and onto the newest Luna/Terra/Sol the model list accepts. Settings, runs, and project lenses are never touched",
   ),
 )

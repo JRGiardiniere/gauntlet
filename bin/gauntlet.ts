@@ -8,6 +8,7 @@ import * as Layer from "effect/Layer"
 import { runGauntlet } from "../src/cli/main.ts"
 import { liveGitHubLayer } from "../src/github/github.ts"
 import { livePiLayer } from "../src/harness/pi-live.ts"
+import { liveHostLayer } from "../src/host/live-host.ts"
 
 NodeRuntime.runMain(
   runGauntlet(process.argv.slice(2)).pipe(
@@ -16,7 +17,7 @@ NodeRuntime.runMain(
     }),
     // oxlint-disable-next-line effecttsgo/strict-effect-provide -- the single runMain boundary
     Effect.provide(
-      Layer.mergeAll(livePiLayer, liveGitHubLayer).pipe(
+      Layer.mergeAll(livePiLayer, liveGitHubLayer, liveHostLayer()).pipe(
         Layer.provideMerge(NodeServices.layer),
       ),
     ),
