@@ -7,6 +7,7 @@ import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import { runGit } from "../target/git.ts"
 import { isLockfile } from "./bulk-files.ts"
+import { isProtectedPath } from "./protected-paths.ts"
 import type { SourceFile } from "./source-context.ts"
 
 // The opt-in related-file context for Finders (#134, #140): the whole
@@ -66,13 +67,26 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   const stem = (file: string) => path.basename(extensionless(file))
 
   // Optional context: a file the change deleted, a binary file, or one that
-  // cannot be read is left out; only the last is worth a log line.
-  const readText = (file: string) =>
-    fs.readFile(path.join(snapshotRoot, file)).pipe(
-      Effect.map((bytes) =>
-        isUtf8(bytes) && !bytes.includes(0)
-          ? Option.some({ file, text: new TextDecoder().decode(bytes) })
-          : Option.none<SourceFile>()
+  // cannot be read is left out; only the last is worth a log line. The
+  // ReviewWorkspace fence holds here too: a protected path, or a symlink whose
+  // real path leaves the snapshot, is never inlined.
+  const realRoot = yield* fs.realPath(snapshotRoot)
+  const fenced = (real: string) => {
+    const relative = path.relative(realRoot, real)
+    return relative === ".." || relative.startsWith("../") || path.isAbsolute(relative) || isProtectedPath(relative)
+  }
+  const readText = (file: string): Effect.Effect<Option.Option<SourceFile>> =>
+    (isProtectedPath(file) ? Effect.succeed(Option.none<SourceFile>()) : fs.realPath(path.join(snapshotRoot, file)).pipe(
+      Effect.flatMap((real) =>
+        fenced(real)
+          ? Effect.succeed(Option.none<SourceFile>())
+          : fs.readFile(real).pipe(
+            Effect.map((bytes) =>
+              isUtf8(bytes) && !bytes.includes(0)
+                ? Option.some({ file, text: new TextDecoder().decode(bytes) })
+                : Option.none<SourceFile>()
+            ),
+          )
       ),
       Effect.catch((error) =>
         Predicate.isTagged(error.reason, "NotFound")
@@ -80,7 +94,7 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
           : Effect.logWarning(`related file skipped, unreadable: ${file}`, error)
             .pipe(Effect.as(Option.none<SourceFile>()))
       ),
-    )
+    ))
   const readAll = (files: Iterable<string>) =>
     Effect.forEach(files, readText, { concurrency: 32 }).pipe(
       Effect.map((read) => Array.flatMap(read, Option.toArray)),
@@ -141,26 +155,25 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
     )
   }
 
-  // Bulk touched files are named, not inlined, and link nothing.
-  const read = yield* readAll(changedFiles)
-  const isBulk = ({ file, text }: SourceFile) => isLockfile(file) || text.length > LARGEST_RELATED_FILE
-  const bulk = Array.filter(read, isBulk)
-  const touched = Array.filter(read, (source) => !isBulk(source))
-  const omitted = Array.map(bulk, ({ file, text }) => ({
-    file,
-    reason: isLockfile(file) ? "lockfile" : `${String(text.length)} characters`,
-  }))
-  const bulkSet = new Set(Array.map(bulk, ({ file }) => file))
-  const sources = Array.filter(changedFiles, (file) => !bulkSet.has(file) && !isLockfile(file))
+  // Bulk touched files are named, not inlined. Lockfiles are never read and
+  // link nothing; an oversized touched file still finds its related files.
+  const sources = Array.filter(changedFiles, (file) => !isLockfile(file))
+  const read = yield* readAll(sources)
+  const touched = Array.filter(read, ({ text }) => text.length <= LARGEST_RELATED_FILE)
+  const omitted = [
+    ...Array.map(Array.filter(changedFiles, isLockfile), (file) => ({ file, reason: "lockfile" })),
+    ...Array.flatMap(read, ({ file, text }) =>
+      text.length > LARGEST_RELATED_FILE ? [{ file, reason: `${String(text.length)} characters` }] : []),
+  ]
   const touchedSet = new Set(changedFiles)
   const hits = yield* Effect.forEach(sources, mentioning, { concurrency: 8 })
   const texts = new Map(
-    Array.map([...touched, ...(yield* readAll(new Set(Array.filter(hits.flat(), (hit) => !touchedSet.has(hit) && !isLockfile(hit)))))], ({ file, text }) => [file, text]),
+    Array.map([...read, ...(yield* readAll(new Set(Array.filter(hits.flat(), (hit) => !touchedSet.has(hit) && !isLockfile(hit)))))], ({ file, text }) => [file, text]),
   )
   const links = new Map<string, Set<string>>()
   const dependencies = new Set<string>()
   const link = (file: string, to: string) => {
-    if (!touchedSet.has(file)) links.set(file, (links.get(file) ?? new Set()).add(to))
+    if (!touchedSet.has(file) && !isLockfile(file)) links.set(file, (links.get(file) ?? new Set()).add(to))
   }
   Array.forEach(sources, (file, i) => {
     const text = texts.get(file)
@@ -203,7 +216,7 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   let chars = 0
   for (const file of ranked) {
     const text = texts.get(file)
-    if (text === undefined || text.length > LARGEST_RELATED_FILE || isLockfile(file)) continue
+    if (text === undefined || text.length > LARGEST_RELATED_FILE) continue
     if (chars + text.length > RELATED_FILES_BUDGET) break
     kept.push({ file, text })
     chars += text.length

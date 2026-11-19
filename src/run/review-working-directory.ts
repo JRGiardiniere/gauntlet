@@ -110,13 +110,10 @@ export const acquireReviewWorkingDirectory = Effect.fn(
   })
   const directory = path.join(scratchDirectory, "worktree")
   yield* Effect.acquireRelease(
-    // `worktree add` runs post-checkout, and under husky's
-    // core.hooksPath=.husky that is the reviewed commit's own script; no
-    // hook runs here. The snapshot keeps its `.git` file: OpenCode finds the
+    // runGit runs no hooks, so the reviewed commit's post-checkout does not
+    // run here. The snapshot keeps its `.git` file: OpenCode finds the
     // project root by it, and the fence refuses reading it.
     runGit(target.repoRoot, [
-      "-c",
-      "core.hooksPath=/dev/null",
       "worktree",
       "add",
       "--detach",

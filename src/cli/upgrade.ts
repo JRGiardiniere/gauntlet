@@ -11,11 +11,11 @@ import * as Schema from "effect/Schema"
 import * as Command from "effect/cli/Command"
 import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
-import { type SeatChange, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
+import { type SeatChange, seatFields, upgradeProvider, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
 import { type CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
 import { Host, HostError } from "../host/host.ts"
-import { hostAccepts, toModelRef } from "../host/model-ref.ts"
+import { hostAccepts } from "../host/model-ref.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
 import {
   isNewer,
@@ -99,15 +99,12 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
     }),
   ))
 
-// The retired openai-codex provider's Seats upgrade onto OpenAI's models too.
-const OPENAI_PROVIDERS: ReadonlySet<string> = new Set(["openai", "openai-codex"])
-
-const hasOpenAISeat = (entry: CatalogEntry) => {
-  if (entry._tag !== "ValidRecipe") return false
-  const { recipe } = entry
-  const seats = [recipe.default, recipe.finders, recipe["interpretive-finders"], recipe.pool, recipe.verification, recipe.judgment]
-  return Array.some(seats, (seat) => seat !== undefined && OPENAI_PROVIDERS.has(toModelRef(seat).providerID))
-}
+const hasOpenAISeat = (entry: CatalogEntry) =>
+  entry._tag === "ValidRecipe" &&
+  Array.some(seatFields, (field) => {
+    const seat = entry.recipe[field]
+    return seat !== undefined && upgradeProvider(seat) === "openai"
+  })
 
 const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
   Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))

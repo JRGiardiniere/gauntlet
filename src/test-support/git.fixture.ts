@@ -22,9 +22,9 @@ export interface GitFixture {
 
 // Same GIT_* override list as production runGit: hooks export these and
 // they silently replace cwd. The fixture spawns git through ChildProcess
-// directly, never the production wrapper.
+// directly, never the production wrapper, so a fixture's own hooks run.
 
-const git = (cwd: string, args: ReadonlyArray<string>) =>
+export const fixtureGit = (cwd: string, args: ReadonlyArray<string>) =>
   Effect.scoped(
     Effect.gen(function* () {
       const handle = yield* ChildProcess.make("git", args, {
@@ -48,8 +48,8 @@ const git = (cwd: string, args: ReadonlyArray<string>) =>
 
 export const commitAll = (repo: string, message: string) =>
   Effect.gen(function* () {
-    yield* git(repo, ["add", "--all"])
-    yield* git(repo, [
+    yield* fixtureGit(repo, ["add", "--all"])
+    yield* fixtureGit(repo, [
       "-c",
       "user.name=gauntlet-test",
       "-c",
@@ -72,6 +72,6 @@ export const makeGitFixture = (options?: { readonly prefix?: string }) =>
     const root = yield* fs.realPath(temp)
     const repo = path.join(root, "repo")
     yield* fs.makeDirectory(repo, { recursive: true })
-    yield* git(repo, ["init"])
+    yield* fixtureGit(repo, ["init"])
     return { root, repo } satisfies GitFixture
   })

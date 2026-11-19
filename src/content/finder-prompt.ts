@@ -175,7 +175,7 @@ const wholeFiles = (files: RelatedFiles["touched"]): string =>
 const omittedTouchedFiles = (omitted: RelatedFiles["omitted"]): string =>
   omitted.length === 0
     ? ""
-    : `\n\nLeft out as bulk (read them if the review needs them):\n\n${
+    : `\n\nThese touched files are not shown above, as bulk; \`read\` them if the review needs them:\n\n${
       Array.join(Array.map(omitted, ({ file, reason }) => `- ${file} (${reason})`), "\n")
     }`
 

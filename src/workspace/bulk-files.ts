@@ -31,27 +31,41 @@ export const LOCKFILE_NAMES: ReadonlySet<string> = new Set([
 export const isLockfile = (file: string): boolean =>
   LOCKFILE_NAMES.has(file.slice(file.lastIndexOf("/") + 1))
 
-export interface InlinedDiff {
+interface InlinedDiff {
   readonly diff: string
   readonly omitted: ReadonlyArray<string>
 }
 
 const FILE_HEADER = "diff --git "
-const NEW_PATH = " b/"
+// Where a file's changed text starts, after its extended header lines
+// (`new file mode`, `deleted file mode`, `index`, renames).
+const BODY = ["--- ", "+++ ", "@@", "Binary files ", "GIT binary patch"]
 
-// The diff as it is inlined: each lockfile's section, from its
-// `diff --git a/<old> b/<new>` header to the next, is left out and named.
+// The new path of a `diff --git a/<old> b/<new>` header: its last token, as
+// git may quote it or (diff.noprefix) leave off the `b/`. A path with spaces
+// keeps only its last segment's tail, which still names a lockfile.
+const headerPath = (line: string) => {
+  const last = line.slice(line.lastIndexOf(" ") + 1).replace(/^"|"$/g, "")
+  return last.startsWith("b/") ? last.slice(2) : last
+}
+
+// The diff as it is inlined: each lockfile keeps its header lines, which say
+// whether it was added, deleted or changed, and loses its changed text.
 export const inlinedDiff = (diff: string): InlinedDiff => {
   const omitted: Array<string> = []
   const kept: Array<string> = []
-  let skipping = false
+  let lockfile = false
+  let inBody = false
   for (const line of diff.split("\n")) {
     if (line.startsWith(FILE_HEADER)) {
-      const file = line.slice(line.lastIndexOf(NEW_PATH) + NEW_PATH.length)
-      skipping = isLockfile(file)
-      if (skipping) omitted.push(file)
+      const file = headerPath(line)
+      lockfile = isLockfile(file)
+      inBody = false
+      if (lockfile) omitted.push(file)
+    } else if (lockfile && !inBody && Array.some(BODY, (start) => line.startsWith(start))) {
+      inBody = true
     }
-    if (!skipping) kept.push(line)
+    if (!(lockfile && inBody)) kept.push(line)
   }
   return { diff: Array.join(kept, "\n"), omitted }
 }
@@ -60,4 +74,6 @@ export const inlinedDiff = (diff: string): InlinedDiff => {
 export const omittedLockfilesNote = (omitted: ReadonlyArray<string>): string =>
   omitted.length === 0
     ? ""
-    : `\n\nLeft out of the diff as lockfiles (read them if the review needs them): ${Array.join(omitted, ", ")}`
+    : `\n\nLockfiles appear above by their headers only, with their changed lines left out: ${
+      Array.join(omitted, ", ")
+    }. Read one if the review needs it.`

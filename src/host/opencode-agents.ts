@@ -16,10 +16,12 @@ import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import type { AgentToolCalls } from "../domain/agent-outcome.ts"
+import { isProtectedPath, PROTECTED_RESOURCES } from "../workspace/protected-paths.ts"
 import {
   AdapterContractViolation,
   type AgentSpec,
   type HarnessSession,
+  INSPECTION_TOOLS,
   type InspectionTool,
   TurnEnd,
   type TurnResult,
@@ -91,9 +93,6 @@ export const makeRegistry = (): Registry => ({
   sessions: new Map(),
 })
 
-// Read resources are snapshot-relative paths, and `*` spans `/`.
-const DENIED_READS = Array.flatMap([".env*", ".git", ".git/*"], (resource) => [resource, `*/${resource}`])
-
 // Last match wins: everything denied, so nothing falls through to asking;
 // then the read tools the Stage uses and its own emit tool; then secrets, the
 // snapshot's `.git` file and anything outside the snapshot, denied again over
@@ -105,17 +104,10 @@ export const permissionsFor = (definition: Pick<AgentDefinition, "tools" | "emit
   ...Array.map(definition.tools, (tool) => ({ action: tool, resource: "*", effect: "allow" as const })),
   { action: definition.emit, resource: "*", effect: "allow" as const },
   ...(Array.contains(definition.tools, "read")
-    ? Array.map(DENIED_READS, (resource) => ({ action: "read", resource, effect: "deny" as const }))
+    ? Array.map(PROTECTED_RESOURCES, (resource) => ({ action: "read", resource, effect: "deny" as const }))
     : []),
   { action: "external_directory", resource: "*", effect: "deny" as const },
 ]
-
-// A path the fence never serves through any tool: secrets, and the
-// snapshot's `.git` file, which names the reviewed repository's git
-// directory. grep and glob check their pattern, not their path, against the
-// rules, so this covers them too.
-const isSensitive = (relative: string) =>
-  Array.some(relative.split(/[\\/]/), (segment) => segment === ".git" || segment.startsWith(".env"))
 
 // What the fence checks paths with; the plugin runs inside OpenCode, so
 // Gauntlet hands these over when it boots the Host.
@@ -136,21 +128,27 @@ const realPathOf = ({ fs, path }: FenceServices, target: string): Effect.Effect<
     }),
   )
 
-// Why the snapshot at `root` refuses a tool's `path`, resolved exactly as
-// the tool resolves it (`~`, `..`, absolute), or undefined when it serves it.
-// OpenCode decides "inside" lexically and reads follow symlinks, so the real
-// path is checked as well: an outbound symlink is refused here.
-export const fenceRefusal = Effect.fn("Fence.refusal")(function* (services: FenceServices, root: string, input: string) {
+// Why the snapshot at `root` (real path `realRoot`) refuses a tool's `path`,
+// resolved exactly as the tool resolves it (`~`, `..`, absolute), or
+// undefined when it serves it. OpenCode decides "inside" lexically and reads
+// follow symlinks, so the real path is checked as well: an outbound symlink is
+// refused here. grep and glob check their pattern, not their path, against
+// the rules, so the protected paths are refused here for them too.
+const fenceRefusal = Effect.fn("Fence.refusal")(function* (
+  services: FenceServices,
+  root: string,
+  realRoot: string,
+  input: string,
+) {
   const { path } = services
   const escapes = (relative: string) =>
     relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
   const resolved = FileAccess.resolvePath(root, input)
-  const realRoot = yield* realPathOf(services, root)
   const realResolved = yield* realPathOf(services, resolved)
   const lexical = path.relative(root, resolved)
   const real = path.relative(realRoot, realResolved)
   if (escapes(lexical) || escapes(real)) return `${input} is outside the review snapshot`
-  if (isSensitive(lexical) || isSensitive(real)) return `${input} is not readable in the review snapshot`
+  if (isProtectedPath(lexical) || isProtectedPath(real)) return `${input} is not readable in the review snapshot`
   return undefined
 })
 
@@ -166,7 +164,7 @@ const withoutSensitiveMatches = (path: Path.Path, root: string, result: ToolResu
   Option.match(decodeGrepMatches(result.output), {
     onNone: () => result,
     onSome: (matches) => {
-      const kept = Array.filter(matches, (match) => !isSensitive(match.entry.path))
+      const kept = Array.filter(matches, (match) => !isProtectedPath(match.entry.path))
       if (kept.length === matches.length) return result
       const shown = Array.map(kept, (match) => ({ ...match, entry: { ...match.entry, path: path.resolve(root, match.entry.path) } }))
       return {
@@ -279,6 +277,7 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
     effect: (ctx) =>
       Effect.gen(function* () {
         const directory = ctx.location.directory
+        const realRoot = yield* realPathOf(services, directory)
         registry.contexts.set(directory, ctx)
         yield* Effect.addFinalizer(() => Effect.sync(() => registry.contexts.delete(directory)))
 
@@ -311,11 +310,11 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
           // `execute.before` hook: it sees the decoded input after every hook,
           // so a later hook (input repair, a renamed call) cannot change the
           // path once it has been checked.
-          for (const name of ["read", "grep", "glob"]) {
+          for (const name of INSPECTION_TOOLS) {
             editor.update(name, (tool) => {
               const execute = tool.execute
               tool.execute = (input, context) =>
-                fenceRefusal(services, directory, Option.match(decodePathInput(input), {
+                fenceRefusal(services, directory, realRoot, Option.match(decodePathInput(input), {
                   onNone: () => ".",
                   onSome: (fields) => fields.path ?? ".",
                 })).pipe(

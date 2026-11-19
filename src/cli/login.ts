@@ -35,8 +35,9 @@ const awaitSettled = Effect.fn("Login.awaitSettled")(function* (attemptID: strin
 // The browser's redirect reaches a callback on this Machine's loopback, so a
 // browser elsewhere (Tailscale, SSH) cannot deliver it: pasting the URL it
 // was redirected to hands the code over instead. A rejected or failed paste
-// asks again; a Host that cannot then report the attempt is broken, and
-// fails the login.
+// asks again while the attempt is still pending; once it has settled, the
+// status wait reports how. A Host that cannot report the attempt is broken,
+// and fails the login.
 const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: string) {
   const host = yield* Host
   const terminal = yield* Terminal.Terminal
@@ -47,8 +48,11 @@ const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: str
     const result = yield* host.chatGptSignIn.paste(attemptID, pasted).pipe(
       Effect.catchTag("HostError", (failure) =>
         host.chatGptSignIn.status(attemptID).pipe(
-          Effect.mapError(() => failure),
-          Effect.as<PasteResult>({ _tag: "Rejected", reason: failure.reason }),
+          Effect.mapBoth({
+            onFailure: () => failure,
+            onSuccess: (status): PasteResult =>
+              status._tag === "Pending" ? { _tag: "Rejected", reason: failure.reason } : { _tag: "Accepted" },
+          }),
         )),
     )
     if (result._tag === "Accepted") return

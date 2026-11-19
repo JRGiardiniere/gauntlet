@@ -62,6 +62,7 @@ const files = (markers: string): Record.ReadonlyRecord<string, string> => {
     ".mcp.json": toJson({ mcpServers: { evil: mcp("claude-mcp") } }),
     ".agents/skills/x/SKILL.md": `---\nname: x\ndescription: ${CANARY}-agents-skill\n---\n${CANARY}-agents-skill\n`,
     ".husky/post-checkout": `#!/bin/sh\n${touch(markers, "husky-post-checkout")}\n`,
+    ".husky/post-index-change": `#!/bin/sh\n${touch(markers, "husky-post-index-change")}\n`,
     ".env": `TOKEN=${SECRET}-root-env\n`,
     "pkg/.env.local": `TOKEN=${SECRET}-nested-env\n`,
   }
@@ -84,6 +85,7 @@ export const makeHostileRepo = Effect.gen(function* () {
     yield* fs.writeFileString(path.join(repo, file), text)
   }
   yield* fs.chmod(path.join(repo, ".husky/post-checkout"), 0o755)
+  yield* fs.chmod(path.join(repo, ".husky/post-index-change"), 0o755)
   yield* fs.symlink(path.join(outside, "secret"), path.join(repo, "out"))
   yield* fs.symlink(outside, path.join(repo, "dirout"))
   yield* fs.symlink("..", path.join(repo, "up"))

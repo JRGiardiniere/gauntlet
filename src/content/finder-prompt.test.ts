@@ -93,6 +93,7 @@ describe("finder and candidate prompt text", () => {
       )
       expect(finder).toContain("+new")
       expect(finder).not.toContain("4.1.0")
-      expect(finder).toContain("Left out of the diff as lockfiles (read them if the review needs them): bun.lock")
+      expect(finder).toContain("diff --git a/bun.lock b/bun.lock\n")
+      expect(finder).toContain("with their changed lines left out: bun.lock.")
     }))
 })

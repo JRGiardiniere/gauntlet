@@ -97,6 +97,10 @@ export const scrubbedGitEnv = {
 // GitCommandError carrying git's own stderr — the caller decides what it
 // means (not-a-repo and no-HEAD are "could not review", never defects).
 // A spawn failure (git missing) is the same error with exitCode undefined.
+// No git hook ever runs: the repository is the one under review, and under
+// husky's core.hooksPath=.husky its hooks are the reviewed change's own
+// scripts (post-checkout on `worktree add`, post-index-change on the overlay
+// capture's index writes).
 export const runGit = Effect.fn("gauntlet.git.run_git")(
   function* (
     cwd: string,
@@ -105,7 +109,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
   ) {
     return yield* Effect.scoped(
       Effect.gen(function* () {
-        const handle = yield* ChildProcess.make("git", args, {
+        const handle = yield* ChildProcess.make("git", ["-c", "core.hooksPath=/dev/null", ...args], {
           cwd,
           env: { ...scrubbedGitEnv, ...env },
           extendEnv: true,

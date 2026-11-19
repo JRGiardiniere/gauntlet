@@ -5,7 +5,9 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Record from "effect/Record"
+import { acquireReviewWorkingDirectory } from "../run/review-working-directory.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
+import { ALLOWED_FILE, makeHostileRepo, SECRET, toJson } from "../test-support/hostile-repo.fixture.ts"
 import { gatherRelatedFiles } from "./related-files.ts"
 
 // Commits `files` to a fresh repository and gathers for `changed`; returns
@@ -98,6 +100,8 @@ describe("gatherRelatedFiles", () => {
         "src/util.ts": "export const util = 1\n",
         "bun.lock": `{ "app": "./src/app.ts" }\n`,
         "src/generated.ts": "x".repeat(70_000),
+        // Linked to the oversized touched file, which still finds it.
+        "src/use-generated.ts": `import "./generated.ts"\n`,
         // Mentions the touched stem, but a lockfile is never related.
         "packages/web/yarn.lock": `"../../src/app.ts"\n`,
       }
@@ -112,7 +116,20 @@ describe("gatherRelatedFiles", () => {
         { file: "bun.lock", reason: "lockfile" },
         { file: "src/generated.ts", reason: "70000 characters" },
       ])
-      expect(Array.map(gathered.related, ({ file }) => file)).toEqual(["src/util.ts"])
+      expect(Array.map(gathered.related, ({ file }) => file)).toEqual(["src/use-generated.ts", "src/util.ts"])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("inlines nothing the ReviewWorkspace fence refuses: secrets, .git, outbound symlinks", () =>
+    Effect.gen(function* () {
+      const { target } = yield* makeHostileRepo
+      const snapshot = yield* acquireReviewWorkingDirectory(target, "related-files-test", "/nonexistent/overlay.patch")
+      const gathered = yield* gatherRelatedFiles(snapshot, [...target.changedFiles, ".git"])
+      const inlined = [...gathered.touched, ...gathered.related]
+      expect(Array.map(inlined, ({ file }) => file)).toContain(ALLOWED_FILE)
+      for (const refused of [".env", "pkg/.env.local", ".git", "gitlink", "out", "up"]) {
+        expect(Array.map(inlined, ({ file }) => file)).not.toContain(refused)
+      }
+      expect(toJson(inlined)).not.toContain(SECRET)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps dependencies, then the most-linked and smallest files, within the budget", () =>
