@@ -173,7 +173,8 @@ export const withCacheKey = (request: Request, key: string) =>
             onSome: (rewritten) => {
               const headers = new Headers(request.headers)
               headers.delete("content-length")
-              return new Request(request.url, {
+              // From the request itself, so its signal and redirect policy carry over.
+              return new Request(request, {
                 method: request.method,
                 headers,
                 body: compress(new TextEncoder().encode(rewritten), encoding),
@@ -362,7 +363,8 @@ export const makeSessions = (client: Client, registry: Registry) => {
       agents.set(id, definition)
       const ctx = registry.contexts.get(spec.workspace)
       if (ctx === undefined) return
-      if (newTool) yield* ctx.tool.reload()
+      // An emit tool registered for another Location may be missing here too.
+      yield* ctx.tool.reload()
       yield* ctx.agent.reload()
     }))
 
@@ -386,26 +388,22 @@ export const makeSessions = (client: Client, registry: Registry) => {
         orElse: () =>
           Effect.fail(HostError.make({
             operation: "await agent",
-            reason: `agent ${id} or model ${ref.providerID}/${ref.modelID} not available after ${Duration.format(AGENT_READY_TIMEOUT)}`,
+            reason: `model ${ref.providerID}/${ref.modelID} (or agent ${id}) not available after ${Duration.format(AGENT_READY_TIMEOUT)}; ` +
+              "for OpenAI run `gauntlet login` or set OPENAI_API_KEY, for Claude sign in to `claude`",
           })),
       }),
     )
     return { id, ref }
   })
 
+  // The newest page, oldest first: a turn's messages are always the newest.
   const assistantMessages = (sessionID: Session.ID) =>
-    client.message.list({ sessionID, type: "assistant", order: "asc", limit: MESSAGE_PAGE }).pipe(
-      Effect.map((page) => Array.filter(page.data, isAssistant)),
+    client.message.list({ sessionID, type: "assistant", order: "desc", limit: MESSAGE_PAGE }).pipe(
+      Effect.map((page) => Array.reverse(Array.filter(page.data, isAssistant))),
     )
 
   const open = Effect.fn("Host.openSession")(function* (spec: AgentSpec) {
     const { id, ref } = yield* ensureAgent(spec)
-    const session = yield* client.sessions.create({
-      location: { directory: AbsolutePath.make(spec.workspace) },
-      agent: Agent.ID.make(id),
-      model: Model.Ref.make({ providerID: Provider.ID.make(ref.providerID), id: Model.ID.make(ref.modelID), variant: Model.VariantID.make(ref.variant) }),
-      title: spec.invocationId,
-    }).pipe(Effect.mapError(hostError("create session")))
     const route: SessionRoute = {
       emit: spec.emit,
       cacheGroup: spec.cacheGroup,
@@ -413,14 +411,24 @@ export const makeSessions = (client: Client, registry: Registry) => {
       emitted: undefined,
       rejections: [],
     }
-    registry.sessions.set(session.id, route)
     // Stopping and removing the session is best effort: the Run goes on.
-    yield* Effect.addFinalizer(() =>
-      client.sessions.interrupt({ sessionID: session.id }).pipe(
-        Effect.ignore,
-        Effect.andThen(client.sessions.remove({ sessionID: session.id }).pipe(Effect.ignore)),
-        Effect.ensuring(Effect.sync(() => registry.sessions.delete(session.id))),
-      ))
+    const session = yield* Effect.acquireRelease(
+      client.sessions.create({
+        location: { directory: AbsolutePath.make(spec.workspace) },
+        agent: Agent.ID.make(id),
+        model: Model.Ref.make({ providerID: Provider.ID.make(ref.providerID), id: Model.ID.make(ref.modelID), variant: Model.VariantID.make(ref.variant) }),
+        title: spec.invocationId,
+      }).pipe(
+        Effect.mapError(hostError("create session")),
+        Effect.tap((created) => Effect.sync(() => registry.sessions.set(created.id, route))),
+      ),
+      (created) =>
+        client.sessions.interrupt({ sessionID: created.id }).pipe(
+          Effect.ignore,
+          Effect.andThen(client.sessions.remove({ sessionID: created.id }).pipe(Effect.ignore)),
+          Effect.ensuring(Effect.sync(() => registry.sessions.delete(created.id))),
+        ),
+    )
 
     const seen = new Set<string>()
     let logged = 0
@@ -431,14 +439,29 @@ export const makeSessions = (client: Client, registry: Registry) => {
         logged += 1
         return Effect.logDebug("agent transcript", { invocationId: spec.invocationId, entryIndex: logged, entry })
       }, { discard: true }).pipe(Effect.when(LogLevel.isEnabled("Debug")))
-    const turn = (text: string) =>
-      Effect.gen(function* () {
+    const unseen = (messages: ReadonlyArray<Assistant>) => {
+      const fresh = Array.filter(messages, (message) => !seen.has(message.id))
+      for (const message of fresh) seen.add(message.id)
+      return fresh
+    }
+    const usageOf = (messages: ReadonlyArray<Assistant>) =>
+      Array.flatMap(messages, (message) => (message.tokens === undefined ? [] : [toUsageRow(message.tokens)]))
+
+    const cutShort = Effect.gen(function* () {
+      yield* client.sessions.interrupt({ sessionID: session.id }).pipe(Effect.ignore)
+      const messages = yield* assistantMessages(session.id).pipe(Effect.orElseSucceed(() => []))
+      const fresh = unseen(messages)
+      yield* logTranscript(fresh)
+      return usageOf(fresh)
+    })
+
+    const turn = Effect.fn("Host.turn")(function* (text: string) {
         yield* client.sessions.prompt({ sessionID: session.id, text }).pipe(Effect.mapError(violation("prompt failed")))
+        yield* logTranscript([{ role: "user", text }])
         yield* client.experimental.session.wait({ sessionID: session.id }).pipe(Effect.mapError(violation("wait failed")))
         const messages = yield* assistantMessages(session.id).pipe(Effect.mapError(violation("reading messages failed")))
-        const fresh = Array.filter(messages, (message) => !seen.has(message.id))
-        for (const message of fresh) seen.add(message.id)
-        yield* logTranscript([{ role: "user", text }, ...fresh])
+        const fresh = unseen(messages)
+        yield* logTranscript(fresh)
         const last = Array.last(fresh)
         if (last._tag === "None") {
           return yield* AdapterContractViolation.make({ reason: "the turn ended with no assistant message" })
@@ -447,13 +470,13 @@ export const makeSessions = (client: Client, registry: Registry) => {
         route.rejections = []
         return {
           end: endOf(route, last.value),
-          usage: Array.flatMap(fresh, (message) => (message.tokens === undefined ? [] : [toUsageRow(message.tokens)])),
+          usage: usageOf(fresh),
           toolCalls: toolCallsOf(fresh, spec.emit.name),
           diagnostics,
         } satisfies TurnResult
       })
 
-    return { turn, firstToken: Deferred.await(route.firstToken) } satisfies HarnessSession
+    return { turn, cutShort, firstToken: Deferred.await(route.firstToken) } satisfies HarnessSession
   })
 
   return {

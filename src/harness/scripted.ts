@@ -57,7 +57,6 @@ export interface RecordedPrompt {
   // 1-based open order, pairing the prompt with specs[openIndex - 1].
   readonly openIndex: number
   readonly invocationId: string
-  readonly cacheGroup: string | undefined
   readonly text: string
 }
 
@@ -145,6 +144,8 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       const scope = yield* Effect.scope
       const firstToken = yield* Deferred.make<void>()
       let turnIndex = 0
+      // The turn being played, until it ends: cutShort reports its usage.
+      let playing: ScriptedTurn | undefined
 
       const playTurn = (turn: ScriptedTurn) =>
         Effect.gen(function* () {
@@ -163,6 +164,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           }
           const end = emitted === undefined ? endingOf(turn.ending ?? STOPPED) : TurnEnd.Emitted({ raw: emitted })
           if (end === undefined) return yield* Effect.never
+          playing = undefined
           return {
             end,
             usage: turn.usage ?? [usageRow()],
@@ -173,10 +175,14 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
 
       return {
         firstToken: Deferred.await(firstToken),
+        cutShort: Effect.sync(() => {
+          log.push(`cut:${String(openIndex)}`)
+          return playing?.usage ?? []
+        }),
         turn: (text) =>
           Effect.gen(function* () {
             turnIndex += 1
-            prompts.push({ openIndex, invocationId: spec.invocationId, cacheGroup: spec.cacheGroup, text })
+            prompts.push({ openIndex, invocationId: spec.invocationId, text })
             log.push(`turn:${String(openIndex)}.${String(turnIndex)}`)
             const turn = script.turns[turnIndex - 1]
             if (turn === undefined) {
@@ -190,6 +196,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
                 Effect.forkIn(scope),
               )
             }
+            playing = turn
             return yield* playTurn(turn)
           }),
       }

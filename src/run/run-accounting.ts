@@ -2,6 +2,7 @@ import * as Array from "effect/Array"
 import type { AgentUsage } from "../domain/agent-outcome.ts"
 import type { FinderCacheHealth } from "./finder-cache-health.ts"
 import type { FinderToolHealth } from "./finder-tool-health.ts"
+import { cacheShare } from "./progress-text.ts"
 
 // Tokens over a Run's invocations. `input` excludes cached tokens, so the
 // whole prompt is input + cacheRead + cacheWrite.
@@ -33,7 +34,7 @@ const thousands = (count: number): string =>
 
 // "412k in · 9.3k out · cache 96%": the cache share is of the whole prompt.
 export const describeTokens = (tokens: TokenTotals): string => {
-  const prompted = tokens.input + tokens.cacheRead + tokens.cacheWrite
-  const cache = prompted === 0 ? "" : ` · cache ${String(Math.round((tokens.cacheRead / prompted) * 100))}%`
-  return `${thousands(prompted)} in · ${thousands(tokens.output)} out${cache}`
+  const share = cacheShare([tokens])
+  const cache = share === undefined ? "" : ` · ${share}`
+  return `${thousands(tokens.input + tokens.cacheRead + tokens.cacheWrite)} in · ${thousands(tokens.output)} out${cache}`
 }

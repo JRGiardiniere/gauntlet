@@ -74,4 +74,4 @@ Run a review with `gauntlet --log-level debug review ...` to include each
 invocation's complete session transcript in that Run's existing `run.log`.
 The transcript entries include prompts, model messages, tool calls, and tool
 results. Normal terminal output stays bounded, and ordinary CLI reviews do not
-read or persist transcripts.
+log or persist transcripts.

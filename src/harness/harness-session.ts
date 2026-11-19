@@ -86,6 +86,9 @@ export interface HarnessSession {
   readonly turn: (text: string) => Effect.Effect<TurnResult, AdapterContractViolation>
   // Completes when the session's first model response streams its first token.
   readonly firstToken: Effect.Effect<void>
+  // Stops the session and returns the usage of steps no turn has returned:
+  // what the turn a deadline cut short had already spent.
+  readonly cutShort: Effect.Effect<ReadonlyArray<UsageRow>>
 }
 
 // "No outcome can exist": the session could not be opened or prompted.

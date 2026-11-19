@@ -26,6 +26,7 @@ import {
   InvocationSetupError,
   TurnEnd,
   type TurnResult,
+  type UsageRow,
 } from "./harness-session.ts"
 import {
   checkOutputContract,
@@ -40,6 +41,9 @@ import {
 // error inside the same turn.
 
 const MAX_CORRECTIVE_TURNS = 2
+// How long a deadline waits for the Host to stop the session and report what
+// the cut turn had spent.
+const CUT_SHORT_GRACE = Duration.seconds(10)
 
 export interface InvokeInput<O> {
   readonly invocationId: string
@@ -124,17 +128,14 @@ const runTurns = (
     }
   })
 
-const usageOf = (turns: ReadonlyArray<TurnResult>): AgentUsage => {
-  const rows = Array.flatMap(turns, (turn) => turn.usage)
-  return {
-    input: Array.reduce(rows, 0, (sum, row) => sum + row.input),
-    output: Array.reduce(rows, 0, (sum, row) => sum + row.output),
-    cacheRead: Array.reduce(rows, 0, (sum, row) => sum + row.cacheRead),
-    cacheWrite: Array.reduce(rows, 0, (sum, row) => sum + row.cacheWrite),
-    reasoning: Array.reduce(rows, 0, (sum, row) => sum + row.reasoning),
-    rawRows: Array.map(rows, (row) => ({ ...row })),
-  }
-}
+const usageOf = (rows: ReadonlyArray<UsageRow>): AgentUsage => ({
+  input: Array.reduce(rows, 0, (sum, row) => sum + row.input),
+  output: Array.reduce(rows, 0, (sum, row) => sum + row.output),
+  cacheRead: Array.reduce(rows, 0, (sum, row) => sum + row.cacheRead),
+  cacheWrite: Array.reduce(rows, 0, (sum, row) => sum + row.cacheWrite),
+  reasoning: Array.reduce(rows, 0, (sum, row) => sum + row.reasoning),
+  rawRows: Array.map(rows, (row) => ({ ...row })),
+})
 
 const turnDiagnostics = (turns: ReadonlyArray<TurnResult>): ReadonlyArray<string> =>
   Array.flatMap(turns, (turn) => [
@@ -152,14 +153,13 @@ const finalizeOutcome = <O>(
   input: InvokeInput<O>,
   termination: Termination,
   turns: ReadonlyArray<TurnResult>,
+  cutShort: ReadonlyArray<UsageRow>,
   durationMillis: number,
 ): Effect.Effect<AgentOutcome<O>, AdapterContractViolation> =>
   Effect.gen(function* () {
     const diagnostics = [...turnDiagnostics(turns)]
     if (Termination.guards.BudgetExhausted(termination)) {
-      diagnostics.push(
-        "overall invocation deadline exhausted; the usage of the turn it cut short is not recorded",
-      )
+      diagnostics.push("overall invocation deadline exhausted")
     }
     if (Termination.guards.Completed(termination) && turns.length > 1) {
       const corrective = turns.length - 1
@@ -169,7 +169,7 @@ const finalizeOutcome = <O>(
     }
     const outcome = {
       termination,
-      usage: usageOf(turns),
+      usage: usageOf([...Array.flatMap(turns, (turn) => turn.usage), ...cutShort]),
       toolCalls: Array.reduce(turns, { total: 0, errored: 0 }, (sum, turn) => ({
         total: sum.total + turn.toolCalls.total,
         errored: sum.errored + turn.toolCalls.errored,
@@ -206,29 +206,39 @@ const invokeInternal = <O>(
       tools: input.tools,
       emit: emitToolSpec(input.contract),
     }
+    const cutShort = yield* Ref.make<ReadonlyArray<UsageRow>>([])
     const termination = yield* Effect.scoped(
       Effect.gen(function* () {
-        const session = yield* factory.open(
-          input.cacheGroup === undefined ? spec : { ...spec, cacheGroup: input.cacheGroup },
-        )
-        if (firstToken !== undefined) {
-          yield* session.firstToken.pipe(
-            Effect.andThen(Deferred.succeed(firstToken, PrefixSignal.PrefixObserved())),
-            Effect.forkScoped,
+        let opened: HarnessSession | undefined
+        const ended = yield* Effect.gen(function* () {
+          const session = yield* factory.open(
+            input.cacheGroup === undefined ? spec : { ...spec, cacheGroup: input.cacheGroup },
           )
+          opened = session
+          if (firstToken !== undefined) {
+            yield* session.firstToken.pipe(
+              Effect.andThen(Deferred.succeed(firstToken, PrefixSignal.PrefixObserved())),
+              Effect.forkScoped,
+            )
+          }
+          return yield* runTurns(session, input, turns)
+        }).pipe(Effect.timeoutOption(Duration.millis(input.deadlineMillis)))
+        if (Option.isSome(ended)) return ended.value
+        if (opened !== undefined) {
+          const rows = yield* opened.cutShort.pipe(Effect.timeoutOption(CUT_SHORT_GRACE))
+          yield* Ref.set(cutShort, Option.getOrElse(rows, () => []))
         }
-        return yield* runTurns(session, input, turns)
+        return Termination.cases.BudgetExhausted.make({})
       }),
-    ).pipe(
-      Effect.timeoutOption(Duration.millis(input.deadlineMillis)),
-      Effect.map(Option.getOrElse(() => Termination.cases.BudgetExhausted.make({}))),
     )
     const finishedAt = yield* Clock.currentTimeMillis
     const recorded = yield* Ref.get(turns)
+    const cutRows = yield* Ref.get(cutShort)
     return yield* finalizeOutcome(
       input,
       termination,
       recorded,
+      cutRows,
       Math.max(0, finishedAt - startedAt),
     )
   })

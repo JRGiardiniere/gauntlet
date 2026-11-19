@@ -165,17 +165,22 @@ describe("invoke", () => {
   it.effect("ends BudgetExhausted at the one overall deadline, corrective turns included, and closes the session", () =>
     Effect.gen(function* () {
       const { outcome, scripted } = yield* run({
-        sessions: [{ turns: [{ afterMillis: 20_000 }, { afterMillis: 20_000 }, { ending: { _tag: "Hangs" } }] }],
+        sessions: [{
+          turns: [
+            { afterMillis: 20_000 },
+            { afterMillis: 20_000 },
+            { ending: { _tag: "Hangs" }, usage: [usageRow({ input: 7 }), usageRow({ input: 9 })] },
+          ],
+        }],
       })
 
       expect(outcome.termination).toEqual(Termination.cases.BudgetExhausted.make({}))
       expect(outcome.durationMillis).toBe(DEADLINE_MILLIS)
-      // The two turns that ended are accounted for; the cut-off one is not.
-      expect(outcome.usage.rawRows).toHaveLength(2)
-      expect(outcome.diagnostics).toEqual([
-        "overall invocation deadline exhausted; the usage of the turn it cut short is not recorded",
-      ])
-      expect(scripted.log).toEqual(["open:1", "turn:1.1", "turn:1.2", "turn:1.3", "close:1"])
+      // The two turns that ended, then what the cut turn had already spent.
+      expect(outcome.usage.rawRows).toHaveLength(4)
+      expect(outcome.usage.input).toBe(2_016)
+      expect(outcome.diagnostics).toEqual(["overall invocation deadline exhausted"])
+      expect(scripted.log).toEqual(["open:1", "turn:1.1", "turn:1.2", "turn:1.3", "cut:1", "close:1"])
     }))
 
   it.effect("fails with InvocationSetupError when the session cannot open", () =>

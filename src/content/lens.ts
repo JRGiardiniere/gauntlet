@@ -3,6 +3,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
@@ -61,16 +62,18 @@ export const ContentDirectory = Context.Reference<string>(
 const contentLoadError = (path: string, reason: string) => (cause?: unknown) =>
   ContentLoadError.make({ path, reason, cause })
 
-// Lens frontmatter is flat `key: value` lines; values may be quoted.
-const FRONTMATTER_LINE = /^([A-Za-z][\w-]*):[ \t]*(.*)$/
+// Lens frontmatter is flat `key: value` lines: a value may be quoted, and
+// an unquoted one may end in a `# comment`.
+const FRONTMATTER_LINE = /^([A-Za-z][\w-]*):[ \t]*(?:"([^"]*)"|'([^']*)'|(.*?))[ \t]*(?:[ \t]#.*)?$/
 
-const unquote = (value: string) =>
-  value.length >= 2 && (value.startsWith('"') || value.startsWith("'")) && value.endsWith(value.charAt(0))
-    ? value.slice(1, -1)
-    : value
+const parseFrontmatterLine = (line: string): Option.Option<readonly [string, string]> =>
+  Option.map(
+    Option.fromNullishOr(FRONTMATTER_LINE.exec(line)),
+    ([, key = "", double, single, plain = ""]) => [key, double ?? single ?? plain] as const,
+  )
 
 const splitFrontmatter = (normalized: string) => {
-  const end = normalized.startsWith("---") ? normalized.indexOf("\n---", 3) : -1
+  const end = normalized.startsWith("---\n") ? normalized.indexOf("\n---", 3) : -1
   if (end === -1) return { lines: Array.empty<string>(), body: normalized }
   return {
     lines: Array.filter(normalized.slice(4, end).split("\n"), (line) => line.trim() !== "" && !line.trimStart().startsWith("#")),
@@ -97,17 +100,18 @@ const decodeLensSource = (
       })
     }
     const parsed = splitFrontmatter(normalized.replace(/^\uFEFF/, ""))
-    const malformed = Array.findFirst(parsed.lines, (line) => !FRONTMATTER_LINE.test(line))
-    if (malformed._tag === "Some") {
-      return yield* ContentLoadError.make({
-        path,
-        reason: `frontmatter line is not \`key: value\`: ${malformed.value}`,
-      })
+    const entries: Array<readonly [string, string]> = []
+    for (const line of parsed.lines) {
+      const entry = parseFrontmatterLine(line)
+      if (Option.isNone(entry)) {
+        return yield* ContentLoadError.make({
+          path,
+          reason: `frontmatter line is not \`key: value\`: ${line}`,
+        })
+      }
+      entries.push(entry.value)
     }
-    const fields = Record.fromEntries(Array.map(parsed.lines, (line) => {
-      const [, key = "", value = ""] = FRONTMATTER_LINE.exec(line) ?? []
-      return [key, unquote(value.trim())]
-    }))
+    const fields = Record.fromEntries(entries)
     const allowed = new Set(["finder-class", "category"])
     for (const key of Record.keys(fields)) {
       if (!allowed.has(key)) {
