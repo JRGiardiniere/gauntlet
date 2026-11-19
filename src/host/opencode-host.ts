@@ -3,6 +3,7 @@ import { Integration } from "@opencode/core/integration"
 import { InstructionDiscovery } from "@opencode/core/instruction-discovery"
 import { AbsolutePath } from "@opencode/core/schema"
 import { SessionRestart } from "@opencode/core/session/execution/restart"
+import { SessionInstructions } from "@opencode/core/session/instructions"
 import { OpenCode } from "@opencode/sdk/effect"
 import { Global } from "@opencode/util/global"
 import * as Duration from "effect/Duration"
@@ -13,7 +14,7 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
-import { GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
+import { type FenceServices, GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
 import {
   type ConnectionState,
   type HostContract,
@@ -98,15 +99,15 @@ const catalogOptions = (catalog: ModelCatalog) =>
 const hostOptions = (
   paths: HostPaths,
   catalog: ModelCatalog,
-  path: Path.Path,
+  services: FenceServices,
   content: string,
   registry: ReturnType<typeof makeRegistry>,
 ) => ({
-  plugins: [gauntletPlugin(registry)],
+  plugins: [gauntletPlugin(registry, services)],
   app: { name: "gauntlet", channel: "gauntlet" },
   database: { path: paths.database },
   config: {
-    directory: globalPaths(paths, path).config,
+    directory: globalPaths(paths, services.path).config,
     project: false,
     claude: false,
     content,
@@ -118,9 +119,12 @@ const hostOptions = (
 })
 
 // Discovery the server options cannot reach: global and system config roots,
-// ~/.agents, and global instructions. Session resume is replaced because a
-// claim has no owner: on a shared store, resuming at start would re-run
-// another Gauntlet process's live turns.
+// ~/.agents, and global instructions. The read tool loads every AGENTS.md
+// between a file it reads and the snapshot root as session instructions,
+// whatever the discovery options say, so that loader is replaced with one that
+// loads nothing: a reviewed repo's nested AGENTS.md never reaches an agent.
+// Session resume is replaced because a claim has no owner: on a shared store,
+// resuming at start would re-run another Gauntlet process's live turns.
 const hostOverrides = (paths: HostPaths, path: Path.Path, content: string) => [
   Global.node.replace(Global.layerWith(globalPaths(paths, path))),
   Config.node.replace(
@@ -134,6 +138,9 @@ const hostOverrides = (paths: HostPaths, path: Path.Path, content: string) => [
   ),
   InstructionDiscovery.node.replace(
     InstructionDiscovery.configured({ project: false, global: false, claude: false }),
+  ),
+  SessionInstructions.node.replace(
+    Layer.succeed(SessionInstructions.Service, SessionInstructions.Service.of({ load: () => Effect.void })),
   ),
   SessionRestart.node.replace(
     Layer.succeed(SessionRestart.Service, SessionRestart.Service.of({ resumeSuspendedSessions: Effect.void })),
@@ -171,7 +178,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
   yield* fs.makeDirectory(paths.location, { recursive: true }).pipe(Effect.mapError(hostError("boot")))
   const content = yield* encodeJson(HOST_CONFIG).pipe(Effect.mapError(hostError("boot")))
   const registry = makeRegistry()
-  const client = yield* OpenCode.create(hostOptions(paths, catalog, path, content, registry), {
+  const client = yield* OpenCode.create(hostOptions(paths, catalog, { fs, path }, content, registry), {
     overrides: [...hostOverrides(paths, path, content), ...testOverrides],
   }).pipe(Effect.mapError(hostError("boot")))
   const location = { directory: AbsolutePath.make(paths.location) }

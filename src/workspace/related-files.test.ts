@@ -88,6 +88,33 @@ describe("gatherRelatedFiles", () => {
       expect(related).toEqual(["a/models/account.py", "b/models/account.py", "c/models/account.py"])
     }))
 
+  it.effect("names touched lockfiles and oversized touched files instead of inlining them, and never relates a lockfile", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { repo } = yield* makeGitFixture()
+      const files = {
+        "src/app.ts": `import "./util.ts"\n`,
+        "src/util.ts": "export const util = 1\n",
+        "bun.lock": `{ "app": "./src/app.ts" }\n`,
+        "src/generated.ts": "x".repeat(70_000),
+        // Mentions the touched stem, but a lockfile is never related.
+        "packages/web/yarn.lock": `"../../src/app.ts"\n`,
+      }
+      for (const [file, text] of Record.toEntries(files)) {
+        yield* fs.makeDirectory(path.dirname(path.join(repo, file)), { recursive: true })
+        yield* fs.writeFileString(path.join(repo, file), text)
+      }
+      yield* commitAll(repo, "fixture")
+      const gathered = yield* gatherRelatedFiles(repo, ["src/app.ts", "bun.lock", "src/generated.ts"])
+      expect(Array.map(gathered.touched, ({ file }) => file)).toEqual(["src/app.ts"])
+      expect(gathered.omitted).toEqual([
+        { file: "bun.lock", reason: "lockfile" },
+        { file: "src/generated.ts", reason: "70000 characters" },
+      ])
+      expect(Array.map(gathered.related, ({ file }) => file)).toEqual(["src/util.ts"])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("keeps dependencies, then the most-linked and smallest files, within the budget", () =>
     Effect.gen(function* () {
       const filler = "x".repeat(55_000)

@@ -11,6 +11,7 @@ import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
+import { makeHostileRepo, markersWritten } from "../test-support/hostile-repo.fixture.ts"
 import {
   acquireReviewWorkingDirectory,
   captureWorkspaceOverlay,
@@ -173,6 +174,26 @@ describe("PR review working directory", () => {
       expect(existsAfterInterrupt).toBe(false)
       const worktreesAfterInterrupt = yield* countWorktrees(repo)
       expect(worktreesAfterInterrupt).toBe(1)
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+})
+
+describe("snapshot creation on a hostile repo", () => {
+  it.effect("never runs the reviewed commit's husky post-checkout hook, and keeps the snapshot's .git file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { repo, markers, target } = yield* makeHostileRepo
+
+      const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+      const afterSnapshot = yield* markersWritten(markers)
+      expect(afterSnapshot).toEqual([])
+      const gitFile = yield* fs.stat(path.join(directory, ".git"))
+      expect(gitFile.type).toBe("File")
+
+      // The control: the same hook does run on an ordinary checkout.
+      yield* runGit(repo, ["checkout", "--detach", target.headCommit])
+      const afterCheckout = yield* markersWritten(markers)
+      expect(afterCheckout).toEqual(["husky-post-checkout"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 

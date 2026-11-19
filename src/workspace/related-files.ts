@@ -6,6 +6,7 @@ import * as Option from "effect/Option"
 import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import { runGit } from "../target/git.ts"
+import { isLockfile } from "./bulk-files.ts"
 import type { SourceFile } from "./source-context.ts"
 
 // The opt-in related-file context for Finders (#134, #140): the whole
@@ -15,9 +16,12 @@ import type { SourceFile } from "./source-context.ts"
 export interface RelatedFiles {
   readonly touched: ReadonlyArray<SourceFile>
   readonly related: ReadonlyArray<SourceFile>
+  // Touched files left out as bulk, each with why.
+  readonly omitted: ReadonlyArray<{ readonly file: string; readonly reason: string }>
 }
 
-// About 60K tokens. A single file over a quarter of it is never kept.
+// About 60K tokens. A single file over a quarter of it is never kept, touched
+// or related.
 export const RELATED_FILES_BUDGET = 240_000
 const LARGEST_RELATED_FILE = RELATED_FILES_BUDGET / 4
 // A path suffix naming more files than this says nothing.
@@ -137,18 +141,28 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
     )
   }
 
+  // Bulk touched files are named, not inlined, and link nothing.
+  const read = yield* readAll(changedFiles)
+  const isBulk = ({ file, text }: SourceFile) => isLockfile(file) || text.length > LARGEST_RELATED_FILE
+  const bulk = Array.filter(read, isBulk)
+  const touched = Array.filter(read, (source) => !isBulk(source))
+  const omitted = Array.map(bulk, ({ file, text }) => ({
+    file,
+    reason: isLockfile(file) ? "lockfile" : `${String(text.length)} characters`,
+  }))
+  const bulkSet = new Set(Array.map(bulk, ({ file }) => file))
+  const sources = Array.filter(changedFiles, (file) => !bulkSet.has(file) && !isLockfile(file))
   const touchedSet = new Set(changedFiles)
-  const touched = yield* readAll(changedFiles)
-  const hits = yield* Effect.forEach(changedFiles, mentioning, { concurrency: 8 })
+  const hits = yield* Effect.forEach(sources, mentioning, { concurrency: 8 })
   const texts = new Map(
-    Array.map([...touched, ...(yield* readAll(new Set(Array.filter(hits.flat(), (hit) => !touchedSet.has(hit)))))], ({ file, text }) => [file, text]),
+    Array.map([...touched, ...(yield* readAll(new Set(Array.filter(hits.flat(), (hit) => !touchedSet.has(hit) && !isLockfile(hit)))))], ({ file, text }) => [file, text]),
   )
   const links = new Map<string, Set<string>>()
   const dependencies = new Set<string>()
   const link = (file: string, to: string) => {
     if (!touchedSet.has(file)) links.set(file, (links.get(file) ?? new Set()).add(to))
   }
-  Array.forEach(changedFiles, (file, i) => {
+  Array.forEach(sources, (file, i) => {
     const text = texts.get(file)
     if (text !== undefined) {
       referencesOf({ file, text }).forEach((named) => {
@@ -189,12 +203,12 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   let chars = 0
   for (const file of ranked) {
     const text = texts.get(file)
-    if (text === undefined || text.length > LARGEST_RELATED_FILE) continue
+    if (text === undefined || text.length > LARGEST_RELATED_FILE || isLockfile(file)) continue
     if (chars + text.length > RELATED_FILES_BUDGET) break
     kept.push({ file, text })
     chars += text.length
   }
   yield* Effect.log("related files gathered", { linked: ranked.length, kept: kept.length, chars })
   const related = kept.sort((a, b) => a.file.localeCompare(b.file))
-  return { touched, related } satisfies RelatedFiles
+  return { touched, related, omitted } satisfies RelatedFiles
 })

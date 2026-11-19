@@ -18,6 +18,7 @@ import {
 } from "./prompt-template.ts"
 import { renderSpecificationSection } from "./specification-section.ts"
 import type { RelatedFiles } from "../workspace/related-files.ts"
+import { inlinedDiff, omittedLockfilesNote } from "../workspace/bulk-files.ts"
 import { INSPECTION_TOOLS } from "../harness/harness-session.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
 
@@ -29,6 +30,12 @@ export const WORKSPACE_PROMPT = "workspace.md"
 export const RELATIVE_REPO_ROOT = "your working directory (give tools paths relative to it)"
 
 export { PromptAssemblyError }
+
+// The change's diff as a prompt section, with lockfiles left out and named.
+export const diffSection = (heading: string, diff: string): string => {
+  const inlined = inlinedDiff(diff)
+  return `## ${heading}\n\n${fenceMarkdownBlock("diff", inlined.diff)}${omittedLockfilesNote(inlined.omitted)}`
+}
 
 export const FINDER_TOOLS = INSPECTION_TOOLS
 
@@ -136,7 +143,7 @@ export const assembleFinderContext = (
         ],
         [
           "DIFF_SECTION",
-          `## Diff\n\n${fenceMarkdownBlock("diff", target.diff)}`,
+          diffSection("Diff", target.diff),
         ],
         ["MAX_PER_LENS", String(DEFAULT_CANDIDATE_CAP)],
       ],
@@ -165,6 +172,13 @@ const wholeFiles = (files: RelatedFiles["touched"]): string =>
       Array.join("\n\n"),
     )
 
+const omittedTouchedFiles = (omitted: RelatedFiles["omitted"]): string =>
+  omitted.length === 0
+    ? ""
+    : `\n\nLeft out as bulk (read them if the review needs them):\n\n${
+      Array.join(Array.map(omitted, ({ file, reason }) => `- ${file} (${reason})`), "\n")
+    }`
+
 // Appended to the shared block, so every Finder in a partition still shares
 // one byte-identical system prompt.
 export const renderRelatedFiles = (
@@ -172,7 +186,7 @@ export const renderRelatedFiles = (
   relatedFiles: RelatedFiles,
 ): Effect.Effect<string, PromptAssemblyError> =>
   renderPromptTemplate("finder related-files", template, [
-    ["TOUCHED_FILES", wholeFiles(relatedFiles.touched)],
+    ["TOUCHED_FILES", `${wholeFiles(relatedFiles.touched)}${omittedTouchedFiles(relatedFiles.omitted)}`],
     ["RELATED_FILES", wholeFiles(relatedFiles.related)],
   ])
 
