@@ -1,8 +1,9 @@
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
+import * as Option from "effect/Option"
 import * as Path from "effect/Path"
-import type { ReviewTarget } from "../domain/review-target.ts"
+import { ReviewTarget } from "../domain/review-target.ts"
 import { describeGitFailure, runGit } from "../target/git.ts"
 import { RunError } from "./run-record.ts"
 
@@ -25,12 +26,16 @@ export interface ExposedDependencies {
 
 export interface InstalledDependencies {
   readonly exposed: ReadonlyArray<ExposedDependencies>
-  // The head commit tracks a package.json, so there was something to install.
-  readonly installable: boolean
+  // The reviewed version has a package.json, yet the Caller's checkout has no
+  // `node_modules` at any of its package roots.
+  readonly missing: boolean
   // Lockfiles at an exposed root that differ between the reviewed version and
   // the Caller's checkout, which the exposed dependencies were installed from.
   readonly lockfileWarnings: ReadonlyArray<string>
 }
+
+const isManifest = (file: string) =>
+  (file === "package.json" || file.endsWith("/package.json")) && !Array.contains(file.split("/"), DEPENDENCIES)
 
 const joinRelative = (root: string, name: string) => (root === "" ? name : `${root}/${name}`)
 
@@ -56,21 +61,36 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
     Effect.mapError((cause) => failure(describeGitFailure("could not list the reviewed package roots", cause), cause)),
   )
 
-  const manifests = Array.filter(tracked.split("\0"), (file) =>
-    (file === "package.json" || file.endsWith("/package.json")) && !Array.contains(file.split("/"), DEPENDENCIES))
+  // A working-tree review also has the manifests its overlay adds.
+  const overlaid = ReviewTarget.match(target, {
+    WorkingTree: ({ changedFiles, untrackedFiles }) => [...changedFiles, ...untrackedFiles],
+    Commits: () => [],
+    PullRequest: () => [],
+  })
+
+  const manifests = Array.filter(Array.dedupe([...tracked.split("\0"), ...overlaid]), isManifest)
 
   const roots = Array.dedupe(["", ...Array.map(manifests, (file) => file.slice(0, Math.max(file.lastIndexOf("/"), 0)))])
+
+  // A `node_modules` the process cannot stat cannot be read by a tool
+  // either, so for the review it is not installed.
+  const installedAt = (root: string) =>
+    fs.stat(path.join(target.repoRoot, root, DEPENDENCIES)).pipe(
+      Effect.map((info) => info.type === "Directory"),
+      Effect.orElseSucceed(() => false),
+    )
 
   const exposeAt = (root: string) =>
     Effect.gen(function* () {
       const source = path.join(target.repoRoot, root, DEPENDENCIES)
 
-      const installed = yield* fs.stat(source).pipe(
-        Effect.map((info) => info.type === "Directory"),
-        Effect.orElseSucceed(() => false),
+      // The fence admits everything below this real path, so a checkout
+      // `node_modules` linked to some other kind of directory is not exposed.
+      const directory = yield* fs.realPath(source).pipe(
+        Effect.mapError((cause) => failure(`could not resolve ${source}`, cause)),
       )
 
-      if (!installed) return []
+      if (path.basename(directory) !== DEPENDENCIES) return []
 
       // Tracked content wins: a `node_modules` the snapshot already has is
       // left as it is, and a package root it no longer has gets nothing.
@@ -81,44 +101,47 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
         Effect.mapError((cause) => failure(`could not expose ${joinRelative(root, DEPENDENCIES)} in the review snapshot`, cause)),
       )
 
-      if (!linked) return []
-
-      const directory = yield* fs.realPath(source).pipe(
-        Effect.mapError((cause) => failure(`could not resolve ${source}`, cause)),
-      )
-
-      return [{ root, directory }]
+      return linked ? [{ root, directory }] : []
     })
 
-  const exposed = yield* Effect.forEach(roots, exposeAt).pipe(Effect.map(Array.flatten))
+  const installed = yield* Effect.filter(roots, installedAt)
+  const exposed = yield* Effect.forEach(installed, exposeAt).pipe(Effect.map(Array.flatten))
 
   const readIfPresent = (file: string) =>
     fs.readFile(file).pipe(
       Effect.map((bytes): Uint8Array | undefined => bytes),
       Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
-      Effect.mapError((cause) => failure(`could not read ${file}`, cause)),
     )
 
+  const consequence = "so dependency reads may not match the reviewed version"
+
+  // An unreadable lockfile is a warning, never a failed review.
   const compare = (root: string, name: string) =>
     Effect.gen(function* () {
       const file = joinRelative(root, name)
-      const reviewed = yield* readIfPresent(path.join(snapshot, file))
-      const installedFrom = yield* readIfPresent(path.join(target.repoRoot, file))
-      const consequence = "so dependency reads may not match the reviewed version"
 
-      if (reviewed === undefined) {
-        return installedFrom === undefined ? [] : [`${file} is in your checkout but not in the reviewed version, ${consequence}`]
-      }
+      const sides = yield* Effect.all(
+        [readIfPresent(path.join(snapshot, file)), readIfPresent(path.join(target.repoRoot, file))],
+        { concurrency: 2 },
+      ).pipe(Effect.option)
 
-      if (installedFrom === undefined) return [`${file} is in the reviewed version but not in your checkout, ${consequence}`]
+      if (Option.isNone(sides)) return [`${file} could not be read to compare it with your checkout, ${consequence}`]
+      const [reviewed, checkoutLockfile] = sides.value
 
-      return sameBytes(reviewed, installedFrom) ? [] : [`${file} differs between the reviewed version and your checkout, ${consequence}`]
+      if (reviewed === undefined && checkoutLockfile === undefined) return []
+
+      if (reviewed === undefined) return [`${file} is in your checkout but not in the reviewed version, ${consequence}`]
+
+      if (checkoutLockfile === undefined) return [`${file} is in the reviewed version but not in your checkout, ${consequence}`]
+
+      return sameBytes(reviewed, checkoutLockfile) ? [] : [`${file} differs between the reviewed version and your checkout, ${consequence}`]
     })
 
   const lockfileWarnings = yield* Effect.forEach(
     Array.flatMap(exposed, ({ root }) => Array.map(LOCKFILES, (name) => [root, name] as const)),
     ([root, name]) => compare(root, name),
+    { concurrency: "unbounded" },
   ).pipe(Effect.map(Array.flatten))
 
-  return { exposed, installable: manifests.length > 0, lockfileWarnings } satisfies InstalledDependencies
+  return { exposed, missing: manifests.length > 0 && installed.length === 0, lockfileWarnings } satisfies InstalledDependencies
 })

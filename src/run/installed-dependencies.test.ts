@@ -75,7 +75,7 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
             { root: "", directory: path.join(repo, "node_modules") },
             { root: "packages/a", directory: path.join(repo, "packages/a/node_modules") },
           ],
-          installable: true,
+          missing: false,
           lockfileWarnings: [],
         })
 
@@ -124,6 +124,7 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
         "packages/b/yarn.lock": "installed\n",
       })
       yield* fs.remove(path.join(repo, "package-lock.json"))
+      yield* fs.makeDirectory(path.join(repo, "packages/a/bun.lock"))
       const target = yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
       const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
       const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
@@ -133,18 +134,25 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
         `bun.lock differs between the reviewed version and your checkout, ${consequence}`,
         `package-lock.json is in the reviewed version but not in your checkout, ${consequence}`,
         `yarn.lock is in your checkout but not in the reviewed version, ${consequence}`,
+        `packages/a/bun.lock could not be read to compare it with your checkout, ${consequence}`,
         `packages/a/yarn.lock differs between the reviewed version and your checkout, ${consequence}`,
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("compare a working-tree review's lockfile with the reviewed working tree, not its head commit", () =>
+  it.effect("take a working-tree review's package roots and lockfiles from the reviewed working tree, not its head commit", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-dependencies-wt-" })
-      yield* writeFiles(repo, { ".gitignore": "/node_modules/\n", "package.json": "{}\n", "bun.lock": "committed\n" })
+      yield* writeFiles(repo, { ".gitignore": "node_modules/\n", "package.json": "{}\n", "bun.lock": "committed\n" })
       yield* commitAll(repo, "base")
-      yield* writeFiles(repo, { "node_modules/fixture-pkg/index.js": "export const installed = 1\n", "bun.lock": "uncommitted\n" })
+
+      yield* writeFiles(repo, {
+        "node_modules/fixture-pkg/index.js": "export const installed = 1\n",
+        "bun.lock": "uncommitted\n",
+        "packages/new/package.json": "{}\n",
+        "packages/new/node_modules/fixture-new/index.js": "export const added = 1\n",
+      })
       const target = yield* resolveWorkingTreeTarget(repo, undefined)
 
       if (!ReviewTarget.guards.WorkingTree(target)) return expect.unreachable()
@@ -154,14 +162,40 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
       const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlay)
       const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
 
-      expect(Array.map(installed.exposed, ({ root: exposedRoot }) => exposedRoot)).toEqual([""])
+      expect(Array.map(installed.exposed, ({ root: exposedRoot }) => exposedRoot)).toEqual(["", "packages/new"])
       expect(installed.lockfileWarnings).toEqual([])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("expose nothing when nothing is installed, and say whether anything was installable", () =>
+  it.effect("expose a linked checkout node_modules only when its real path is a node_modules directory", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+
+      const expose = (linkedTo: string) =>
+        Effect.gen(function* () {
+          const repo = yield* makeRepo({ "package.json": "{}\n" })
+          const store = path.join(path.dirname(repo), linkedTo)
+          yield* fs.makeDirectory(store, { recursive: true })
+          yield* fs.symlink(store, path.join(repo, "node_modules"))
+          const target = yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
+          const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+          const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
+
+          return { store, exposed: installed.exposed }
+        })
+
+      const cached = yield* expose("cache/node_modules")
+      const home = yield* expose("home")
+      expect(cached.exposed).toEqual([{ root: "", directory: cached.store }])
+      expect(home.exposed).toEqual([])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
+  it.effect("call dependencies missing only when a package root exists and none has node_modules", () =>
     Effect.gen(function* () {
       const withManifest = yield* makeRepo({ "package.json": "{}\n" })
       const withoutManifest = yield* makeRepo({ "main.rs": "fn main() {}\n" })
+      // Its only node_modules is tracked, so it is installed but not linked.
+      const trackedOnly = yield* makeRepo({ "vendored/package.json": "{}\n", "vendored/node_modules/kept.js": "tracked\n" })
 
       const expose = (repo: string) =>
         Effect.gen(function* () {
@@ -171,10 +205,11 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
           return yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
         })
 
-      const exposed = yield* Effect.forEach([withManifest, withoutManifest], expose)
+      const exposed = yield* Effect.forEach([withManifest, withoutManifest, trackedOnly], expose)
       expect(exposed).toEqual([
-        { exposed: [], installable: true, lockfileWarnings: [] },
-        { exposed: [], installable: false, lockfileWarnings: [] },
+        { exposed: [], missing: true, lockfileWarnings: [] },
+        { exposed: [], missing: false, lockfileWarnings: [] },
+        { exposed: [], missing: false, lockfileWarnings: [] },
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

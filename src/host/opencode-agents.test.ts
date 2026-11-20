@@ -525,7 +525,7 @@ const fencedFinder = (snapshot: string, dependencies: ReadonlyArray<string>): Ag
   emit: emitToolSpec(EmitFindings),
 })
 
-type FenceCall = readonly [string, string, Readonly<Record<string, string>>, boolean]
+type FenceCall = readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]
 
 // Runs every call in one model step, then the emit; answers each call's
 // outcome and the turn.
@@ -567,6 +567,7 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
         ["grep-dependency", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg" }, true],
         ["grep-dependency-include", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg", include: "*.js" }, true],
         ["glob-dependency", "glob", { pattern: "**/*.js", path: "node_modules/fixture-pkg" }, true],
+        ["glob-dependency-hidden", "glob", { pattern: "**/*", path: "node_modules/fixture-pkg", hidden: true }, true],
         ["grep-dependency-secrets", "grep", { pattern: "TOKEN|dependency-git", path: "node_modules" }, true],
         ["read-tracked-node-modules", "read", { path: "vendored/node_modules/kept.js" }, true],
         ["read-dependency-env", "read", { path: "node_modules/fixture-pkg/.env" }, false],
@@ -588,6 +589,8 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
       expect(text("grep-dependency-include")).not.toContain("debug.log")
       expect(text("glob-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
       expect(text("glob-dependency")).not.toContain("debug.log")
+      expect(text("glob-dependency-hidden")).toContain("node_modules/fixture-pkg/debug.log")
+      expect(text("glob-dependency-hidden")).not.toContain(".env")
       expect(text("grep-dependency-secrets")).toBe("No matches found")
       expect(text("read-dependency-env")).toBe("Refused: node_modules/fixture-pkg/.env is not readable in the review snapshot.")
       expect(text("read-workspace-link")).toBe("Refused: node_modules/workspace-link/secret.ts is outside the review snapshot.")

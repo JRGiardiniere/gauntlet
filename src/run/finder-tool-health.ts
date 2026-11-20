@@ -41,9 +41,12 @@ export const describeFinderToolHealth = (health: FinderToolHealth): string =>
   `${String(health.errored)}/${String(health.calls)} finder tool calls errored`
 
 // "on `a`, `b` (+3 more)", or undefined when no errored call named a path.
+// Paths are model-authored, so a backtick or line break in one cannot end its
+// code span or its list item.
 export const describeErroredPaths = (health: FinderToolHealth): string | undefined => {
   if (health.erroredPaths.length === 0) return undefined
-  const named = Array.join(Array.map(health.erroredPaths.slice(0, NAMED_PATHS), (path) => `\`${path}\``), ", ")
+  const span = (path: string) => `\`${path.replaceAll("`", "").replace(/[\r\n]+/g, " ")}\``
+  const named = Array.join(Array.map(health.erroredPaths.slice(0, NAMED_PATHS), span), ", ")
   const more = health.erroredPaths.length - NAMED_PATHS
 
   return more > 0 ? `on ${named} (+${String(more)} more)` : `on ${named}`

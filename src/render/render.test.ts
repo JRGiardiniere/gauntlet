@@ -172,7 +172,7 @@ const accounting: RunAccounting = {
   finderToolHealth: undefined,
   installedDependencies: {
     exposed: [{ root: "", directory: "/caller/node_modules" }],
-    installable: true,
+    missing: false,
     lockfileWarnings: [],
   },
 }
@@ -331,17 +331,17 @@ describe("dossier markdown rendering", () => {
     const many = Array.makeBy(12, (index) => `missing-${String(index)}.ts`)
     expect(named(many)).toContain("`missing-9.ts` (+2 more).")
     expect(named(many)).not.toContain("missing-10.ts")
+    expect(named(["a`[x](https://example.invalid)`b"])).toContain("errored on `a[x](https://example.invalid)b`.")
+    expect(named(["two  spaces\nand a break"])).toContain("errored on `two  spaces and a break`.")
   })
 
-  it("notes once that no dependencies were installed, only where there was something to install", () => {
-    const missing = (installable: boolean) =>
-      renderDossierMarkdown(plan, dossier, {
-        ...accounting,
-        installedDependencies: { exposed: [], installable, lockfileWarnings: [] },
-      })
+  it("notes once that no dependencies were installed", () => {
+    const noted = renderDossierMarkdown(plan, dossier, {
+      ...accounting,
+      installedDependencies: { exposed: [], missing: true, lockfileWarnings: [] },
+    })
 
-    expect(missing(true).match(/Dependencies: none are installed in the caller's checkout/g)).toHaveLength(1)
-    expect(missing(false)).not.toContain("Dependencies:")
+    expect(noted.match(/Dependencies: none are installed in the caller's checkout/g)).toHaveLength(1)
     expect(markdown).not.toContain("Dependencies:")
   })
 

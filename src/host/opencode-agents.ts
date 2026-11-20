@@ -270,7 +270,7 @@ const keepMatches = (
     },
   })
 
-// The same for a glob result's entries.
+// The same for a glob result's entries; a protected path is never listed.
 const keepEntries = (
   path: Path.Path,
   root: string,
@@ -281,7 +281,7 @@ const keepEntries = (
   Option.match(decodeGlobEntries(result.output), {
     onNone: () => result,
     onSome: (entries) => {
-      const matching = Array.filter(entries, (entry) => keep(entry.path))
+      const matching = Array.filter(entries, (entry) => !isProtectedPath(entry.path) && keep(entry.path))
       const kept = matching.slice(0, limit)
       const truncated = truncatedResult(result) || matching.length > limit
       const shown = Array.map(kept, (entry) => ({ ...entry, path: path.resolve(root, entry.path) }))

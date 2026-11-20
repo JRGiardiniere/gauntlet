@@ -89,14 +89,14 @@ const describeRunNotes =(
     `Finder cache ${describeFinderCacheHealth(accounting.finderCacheHealth)}.`,
   ]),
   ...(accounting.finderToolHealth === undefined ? [] : [
-    oneLine(`Finder tools: ${
+    `Finder tools: ${
       Array.join([
         describeFinderToolHealth(accounting.finderToolHealth),
         ...Array.fromNullishOr(describeErroredPaths(accounting.finderToolHealth)),
       ], " ")
-    }.`),
+    }.`,
   ]),
-  ...(accounting.installedDependencies.installable && accounting.installedDependencies.exposed.length === 0
+  ...(accounting.installedDependencies.missing
     ? ["Dependencies: none are installed in the caller's checkout (no `node_modules`), so agents could not read any."]
     : []),
 ]
