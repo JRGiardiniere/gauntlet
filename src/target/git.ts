@@ -37,6 +37,7 @@ export const gitlinkPaths = (out: string): ReadonlyArray<string> =>
     Array.filter((entry) => entry.startsWith("160000 ")),
     Array.flatMap((entry) => {
       const tab = entry.indexOf("\t")
+
       return tab === -1 ? [] : [entry.slice(tab + 1)]
     }),
   )
@@ -114,6 +115,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
           env: { ...scrubbedGitEnv, ...env },
           extendEnv: true,
         })
+
         const [stdout, stderr, exitCode] = yield* Effect.all(
           [
             Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -122,6 +124,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
           ],
           { concurrency: 3 },
         )
+
         if (exitCode !== 0) {
           return yield* GitCommandError.make({
             args,
@@ -130,6 +133,7 @@ export const runGit = Effect.fn("gauntlet.git.run_git")(
             cause: undefined,
           })
         }
+
         return stdout
       }),
     ).pipe(

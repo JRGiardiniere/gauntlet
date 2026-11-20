@@ -26,6 +26,7 @@ const fixture = Effect.gen(function* () {
   yield* fs.writeFileString(path.join(snapshot, "app.ts"),
     'import { guard } from "./guard.ts"\nconst getUser = () => {\n  return guard()\n}\n')
   yield* fs.writeFileString(path.join(snapshot, "guard.ts"), 'export const guard = () => false\n')
+
   return { fs, path, directory, snapshot }
 })
 
@@ -35,10 +36,12 @@ describe("source context", () => {
       const { fs, path, directory, snapshot } = yield* fixture
       // A different version outside the snapshot must never supply the context.
       yield* fs.writeFileString(path.join(directory, "app.ts"), "current checkout changed")
+
       const result = yield* assembleSourceContext(snapshot, [
         claim("a", ["app.ts", "guard.ts"]),
         claim("b", ["guard.ts", "./app.ts"]),
       ], 1000)
+
       expect(result.omissions).toEqual([])
       expect(result.files).toEqual([
         { file: "app.ts", text: 'import { guard } from "./guard.ts"\nconst getUser = () => {\n  return guard()\n}\n' },
@@ -49,8 +52,10 @@ describe("source context", () => {
   it.effect("keeps missing context visible while collecting available files", () =>
     Effect.gen(function* () {
       const { snapshot } = yield* fixture
+
       const result = yield* assembleSourceContext(snapshot, [claim("old"),
         claim("new", ["missing.ts", "guard.ts"])], 1000)
+
       expect(Array.map(result.files, (item) => item.file)).toEqual(["guard.ts"])
       expect(result.omissions).toEqual([
         { candidateId: "old", reason: "no source references" },
@@ -78,9 +83,11 @@ describe("source context", () => {
       yield* fs.writeFileString(path.join(snapshot, "first.ts"), "123456")
       yield* fs.writeFileString(path.join(snapshot, "second.ts"), "abcdef")
       yield* fs.writeFileString(path.join(snapshot, "small.ts"), "7890")
+
       const result = yield* assembleSourceContext(snapshot, [
         claim("a", ["first.ts", "first.ts", "second.ts", "small.ts"]),
       ], 10)
+
       expect(result.files).toEqual([
         { file: "first.ts", text: "123456" }, { file: "small.ts", text: "7890" },
       ])

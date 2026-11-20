@@ -79,6 +79,7 @@ export const hostPaths = Effect.fn("Host.paths")(function* () {
   const path = yield* Path.Path
   const gauntlet = yield* gauntletHome()
   const root = path.join(gauntlet, "opencode")
+
   return {
     home: path.dirname(gauntlet),
     root,
@@ -97,6 +98,7 @@ export const hostLayer = (impl: HostContract) => Layer.succeed(Host, Host.of(imp
 
 // For commands that must never boot the Host: any use is a defect.
 const untouched = Effect.die("the Host was used by a command that must not boot it")
+
 export const untouchedHostLayer = hostLayer({
   openSession: () => untouched,
   listModels: untouched,

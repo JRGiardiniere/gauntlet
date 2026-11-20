@@ -27,6 +27,7 @@ describe("enforceCandidateCap", () => {
       file: "alpha.ts",
       summary: `candidate ${String(index + 1)}`,
     }))
+
     const capped = enforceCandidateCap(fixtureLens(6), {
       termination: Termination.cases.Completed.make({}),
       output: { findings },

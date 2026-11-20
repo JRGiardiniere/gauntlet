@@ -40,22 +40,27 @@ export const executeReviewPlan = Effect.fn(
   "gauntlet.run_executor.execute_review_plan",
 )(function* ({ paths, plan, startedAt }: ReviewExecution) {
   yield* Console.error(`gauntlet: run ${plan.runId}`)
+
   return yield* Effect.scoped(
     Effect.gen(function* () {
       const fileLogger = yield* Logger.toFile(Logger.formatLogFmt, paths.runLog)
+
       const reviewWorkingDirectory = yield* acquireReviewWorkingDirectory(
         plan.target,
         plan.runId,
         paths.workspaceOverlay,
       )
+
       return yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
         const findersStartedAt = yield* DateTime.now
+
         const finderStage = yield* executeFinders({
           plan,
           paths,
           reviewWorkingDirectory,
         })
+
         const results = finderStage.finders
 
         const findersSeconds = yield* wallSeconds(findersStartedAt)
@@ -64,12 +69,15 @@ export const executeReviewPlan = Effect.fn(
           cacheShare(Array.map(results, ({ outcome }) => outcome.usage)),
         )
         const routed = routeFinderResults(results)
+
         for (const gap of routed.coverageGaps) {
           yield* runProgress(coverageGapLine(gap))
         }
+
         yield* runProgress(
           `${counted(routed.bugClaims.length, "BugClaim")} → Verification · ${counted(routed.observations.length, "Observation")} → Judgment`,
         )
+
         // Judgment waits for Pool's clusters, so it can drop an Observation
         // that restates one, then runs beside Verification; neither sees the
         // other's decisions until Assembly joins them.
@@ -78,6 +86,7 @@ export const executeReviewPlan = Effect.fn(
           reviewWorkingDirectory,
           bugClaims: routed.bugClaims,
         })
+
         const [verification, judgment] = yield* Effect.all(
           [
             executeVerification({ plan, reviewWorkingDirectory, pooled }),
@@ -90,6 +99,7 @@ export const executeReviewPlan = Effect.fn(
           ],
           { concurrency: 2 },
         )
+
         const dossier = assembleDossier({
           plan,
           finderCoverageGaps: routed.coverageGaps,
@@ -99,11 +109,13 @@ export const executeReviewPlan = Effect.fn(
           },
           judgmentPath: judgment,
         })
+
         yield* runProgress("assembling dossier")
         yield* writeArtifactJson(paths.dossier, Dossier, dossier)
 
         const endedAt = yield* DateTime.now
         const wallTime = DateTime.distance(startedAt, endedAt)
+
         const accounting = {
           stageTokens: {
             finders: sumTokens(Array.map(results, (result) => result.outcome.usage)),
@@ -120,9 +132,11 @@ export const executeReviewPlan = Effect.fn(
           finderCacheHealth: measureLowFinderCacheHealth(plan, results),
           finderToolHealth: measureFinderToolHealth(results),
         }
+
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)
         yield* writeArtifactText(paths.dossierMarkdown, dossierMarkdown)
         yield* Effect.log("dossier rendered", { path: paths.dossierMarkdown })
+
         return {
           digest: renderDigest(plan, dossier, accounting, paths.dossierMarkdown),
           coverageGaps: dossier.coverageGaps,

@@ -39,6 +39,7 @@ describe("Dossier Assembly", () => {
       summary: "claim",
       failureScenario: "input fails",
     })
+
     const observation = Candidate.cases.Observation.make({
       id: "fixture/2",
       lens: "fixture",
@@ -103,6 +104,7 @@ describe("Dossier Assembly", () => {
 
   it("orders the actionable queue by priority and Confirmed before Judgment", () => {
     const priorities = ["P3", "P1", "P2"] as const
+
     const bugClaims = Array.map(priorities, (reviewPriority, index) => ({
       candidate: Candidate.cases.BugClaim.make({
         id: `fixture/claim-${String(index + 1)}`,
@@ -117,6 +119,7 @@ describe("Dossier Assembly", () => {
         evidence: "reproduced",
       }),
     }))
+
     const observations = Array.map(priorities, (reviewPriority, index) => ({
       candidate: Candidate.cases.Observation.make({
         id: `fixture/observation-${String(index + 1)}`,

@@ -15,6 +15,7 @@ const target = ReviewTarget.cases.WorkingTree.make({
   untrackedFiles: [],
   warnings: [],
 })
+
 const reviewRoot = "/fixture/review-worktree"
 
 describe("finder and candidate prompt text", () => {
@@ -61,6 +62,7 @@ describe("finder and candidate prompt text", () => {
         }),
         undefined,
       )
+
       expect(finder).toContain(`tools at ${reviewRoot}`)
       expect(finder).not.toContain(target.repoRoot)
       expect(finder).toContain("````diff\n")
@@ -84,6 +86,7 @@ describe("finder and candidate prompt text", () => {
         `-"effect": "4.0.0"`,
         `+"effect": "4.1.0"`,
       ], "\n")
+
       const finder = yield* assembleFinderPrompt(
         { sharedPromptTemplate: "{{CHANGED_FILES}}\n{{DIFF_SECTION}}\n{{REPO_ROOT}}{{WORKSPACE_TOOLS}}{{MAX_PER_LENS}}", workspaceTools: "{{REPO_ROOT}}" },
         ReviewTarget.cases.WorkingTree.make({ ...target, changedFiles: ["src/app.ts", "bun.lock"], diff }),
@@ -91,6 +94,7 @@ describe("finder and candidate prompt text", () => {
         FrozenLens.make({ name: "fixture", promptText: "fixture lens", seat: "fixture/model:low", candidateCap: 6 }),
         undefined,
       )
+
       expect(finder).toContain("+new")
       expect(finder).not.toContain("4.1.0")
       expect(finder).toContain("diff --git a/bun.lock b/bun.lock\n")

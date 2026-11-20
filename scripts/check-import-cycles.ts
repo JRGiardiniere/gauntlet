@@ -20,6 +20,7 @@ const program = Effect.scoped(
       ],
       { cwd: repoRoot, stdout: "inherit", stderr: "inherit" },
     )
+
     process.exitCode = yield* handle.exitCode
   }),
 )

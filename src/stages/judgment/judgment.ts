@@ -59,8 +59,10 @@ export const executeJudgment = Effect.fn(
   reviewWorkingDirectory,
 }: JudgmentExecution) {
   const indexed = indexObservations(observations)
+
   if (indexed.length === 0) {
     yield* runProgress(`skipping Judgment (${counted(0, "Observation")})`)
+
     return {
       observations: [],
       coverageGaps: [],
@@ -70,11 +72,14 @@ export const executeJudgment = Effect.fn(
   }
 
   const seat = plan.seats.judgment
+
   if (seat === undefined) {
     const reason =
       "judgment has no seat frozen in the review plan; retained every observation as undecided"
+
     const repair = resolveJudgment(indexed, undefined)
     yield* runProgress(coverageGapLine({ reason }))
+
     return {
       observations: repair.observations,
       coverageGaps: [{ stage: "judgment", reason }],
@@ -85,6 +90,7 @@ export const executeJudgment = Effect.fn(
 
   const judgmentStartedAt = yield* DateTime.now
   const promptTemplates = yield* loadJudgmentPromptTemplates()
+
   const prompt = yield* assembleJudgmentPrompt(
     promptTemplates,
     plan.target,
@@ -93,6 +99,7 @@ export const executeJudgment = Effect.fn(
     plan.specification,
     pooled,
   )
+
   const outcome = yield* invokeStageAgent({
     label: "Judgment",
     invocationId: `${plan.runId}-judgment`,
@@ -105,12 +112,15 @@ export const executeJudgment = Effect.fn(
   })
 
   const repair = resolveJudgment(indexed, outcome.output)
+
   const reason = outcome.output === undefined
     ? describeMissingOutput("judgment", outcome)
     : repairReason(repair.notes)
+
   if (reason !== undefined) {
     yield* runProgress(coverageGapLine({ reason }))
   }
+
   const judgments = Array.map(repair.observations, ({ judgment }) => judgment)
   const kept = Array.filter(judgments, Judgment.guards.Kept).length
   const dropped = Array.filter(judgments, Judgment.guards.Dropped).length
@@ -119,6 +129,7 @@ export const executeJudgment = Effect.fn(
   yield* runProgress(
     `Judgment finished — ${String(kept)} kept · ${String(dropped)} dropped · ${String(undecided)} undecided · ${String(judgmentSeconds)}s`,
   )
+
   return {
     observations: repair.observations,
     coverageGaps: reason === undefined

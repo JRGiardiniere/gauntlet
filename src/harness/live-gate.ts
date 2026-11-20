@@ -64,10 +64,12 @@ const reportChecks = Effect.fn("gauntlet.live_gate.report_checks")(
       const detail = entry.detail === "" ? "" : ` — ${entry.detail}`
       yield* Console.log(`${status}${entry.name}${detail}`)
     }
+
     const failures = Array.filter(checks, (entry) => !entry.ok).length
     yield* Console.log(
       failures === 0 ? "\nlive gate passed" : `\n${String(failures)} FAILED`,
     )
+
     return failures === 0 ? 0 : 1
   },
 )
@@ -80,12 +82,14 @@ interface GateResult {
 const outcomeDetail = (outcome: AgentOutcome<FindingsOutput>) => {
   const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
+
   return `termination=${outcome.termination._tag}${suffix}`
 }
 
 const usageDetail = (outcome: AgentOutcome<FindingsOutput>) => {
   const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
+
   return `rows=${String(outcome.usage.rawRows.length)} input=${String(outcome.usage.input)} cacheRead=${String(outcome.usage.cacheRead)} output=${String(outcome.usage.output)}${suffix}`
 }
 
@@ -97,6 +101,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
 
     const document = projectOutputContract(EmitFindings)
     const definitionCount = Record.keys(document.definitions).length
+
     if (definitionCount > 0) {
       return yield* reportChecks([
         check(
@@ -111,11 +116,13 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
       `running one live emit round-trip on ${provider}/${model}...`,
     )
     const fs = yield* FileSystem.FileSystem
+
     const run = Effect.scoped(
       Effect.gen(function* () {
         const cwd = yield* fs.makeTempDirectoryScoped({
           prefix: "gauntlet-live-gate-",
         })
+
         return yield* invoke({
           invocationId: "live-gate",
           role: "live-gate",

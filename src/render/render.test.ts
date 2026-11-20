@@ -259,12 +259,14 @@ describe("dossier markdown rendering", () => {
   it("prints one explanation per finding", () => {
     const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
     const unresolved = markdown.split("## Unresolved")[1]?.split("## Rejected")[0] ?? ""
+
     // The confirmed claim states its verified framing only — the failure
     // scenario it restates stays in dossier.json.
     const confirmed = Option.getOrElse(
       Array.findFirst(findings.split("\n- "), (entry) => entry.includes("first line")),
       () => "",
     )
+
     expect(confirmed).toContain("reproduced with an empty input")
     expect(confirmed).not.toContain("input of length zero loops forever")
     // Without evidence there is nothing to prefer, so the claim speaks for itself.
@@ -273,10 +275,12 @@ describe("dossier markdown rendering", () => {
 
   it("renders a cluster's test suggestion once, next to its finding", () => {
     const findings = markdown.split("## Findings")[1]?.split("## Unresolved")[0] ?? ""
+
     const confirmed = Option.getOrElse(
       Array.findFirst(findings.split("\n- "), (entry) => entry.includes("first line")),
       () => "",
     )
+
     expect(confirmed).toContain(
       "suggested tests: src/alpha.test.ts, the empty-input suite — the empty-input suite exercises the exact boundary",
     )
@@ -291,11 +295,13 @@ describe("dossier markdown rendering", () => {
 
   it("renders Run notes only for measured low reuse", () => {
     expect(markdown).not.toContain("## Run notes")
+
     const withCacheNote = renderDossierMarkdown(
       plan,
       dossier,
       lowCacheAccounting,
     )
+
     expect(withCacheNote).toContain("## Run notes")
     expect(withCacheNote).toContain(
       "Finder cache 10% reuse across 2 eligible followers; 0/2 at or above 80%.",
@@ -379,6 +385,7 @@ describe("digest rendering", () => {
       accounting,
       dossierMarkdownPath,
     )
+
     expect(gapped).toBe(Array.join([
       "1 confirmed · 2 kept · 0 plausible · 0 undecided — working tree @ abcdef0 — recipe: none — 42s",
       "coverage gaps: 2 — fixture-lens (finder provider failed); pool (pool emitted nothing)",
@@ -403,6 +410,7 @@ describe("digest rendering", () => {
       accounting,
       dossierMarkdownPath,
     )
+
     expect(clean.split("\n").slice(2, 5)).toEqual(["", "No findings.", ""])
   })
 
@@ -439,6 +447,7 @@ describe("digest rendering", () => {
 
   it("names the lenses skipped by design on one line, and prints none when every lens ran", () => {
     expect(lines).toContain("Not run: spec-conformance (no ReviewSpecification)")
+
     const everyLensRan = renderDigest(
       ReviewPlan.make({
         ...plan,
@@ -448,6 +457,7 @@ describe("digest rendering", () => {
       accounting,
       dossierMarkdownPath,
     )
+
     expect(everyLensRan).not.toContain("Not run:")
   })
 

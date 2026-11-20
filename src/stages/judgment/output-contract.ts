@@ -60,6 +60,7 @@ export const JudgmentsOutput = Schema.Struct({
     Schema.Union([keepDecision, dropDecision, mergeDecision]),
   ),
 })
+
 export interface JudgmentsOutput
   extends Schema.Schema.Type<typeof JudgmentsOutput> {}
 

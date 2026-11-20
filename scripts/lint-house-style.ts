@@ -15,6 +15,7 @@ import * as Command from "effect/cli/Command"
 import * as ChildProcess from "effect/process/ChildProcess"
 
 const repoRoot = `${import.meta.dirname}/..`
+
 const oxlint = `${repoRoot}/node_modules/.bin/oxlint`
 
 const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
@@ -66,6 +67,7 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
             stdout: "pipe",
             stderr: "pipe",
           })
+
           const [stdout, stderr, exitCode] = yield* Effect.all(
             [
               Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -74,6 +76,7 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
             ],
             { concurrency: 3 },
           )
+
           return { check, stdout, stderr, exitCode }
         }),
       ),
@@ -81,12 +84,17 @@ const runChecks = Effect.fn("gauntlet.lint_house_style.run_checks")(function* (
   )
 
   let failed = false
+
   for (const result of results) {
     yield* Console.log(`\n[house-style] ${result.check.name}`)
+
     if (result.stdout !== "") yield* Console.log(result.stdout.trimEnd())
+
     if (result.stderr !== "") yield* Console.error(result.stderr.trimEnd())
+
     if (result.exitCode !== 0) failed = true
   }
+
   process.exitCode = failed ? 1 : 0
 })
 

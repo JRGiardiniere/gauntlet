@@ -19,9 +19,11 @@ const withFixtureDirectory = <A, E, R>(
   Effect.scoped(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
+
       const directory = yield* fs.makeTempDirectoryScoped({
         prefix: "gauntlet-lens-test-",
       })
+
       return yield* use(directory)
     }),
   )
@@ -31,6 +33,7 @@ describe("lens content", () => {
     withFixtureDirectory((directory) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem
+
         const source = Array.join([
           "---",
           "finder-class: interpretive",
@@ -39,6 +42,7 @@ describe("lens content", () => {
           "fixture prompt body",
           "",
         ], "\n")
+
         yield* fs.writeFileString(`${directory}/fixture-lens.md`, source)
 
         const lens = yield* loadLens(directory, "fixture-lens")
@@ -78,9 +82,11 @@ describe("lens content", () => {
           `${directory}/fixture-lens.md`,
           "---\nmodel: acme/fixture-model:low\n---\nfixture body\n",
         )
+
         const modelFailure = yield* loadLens(directory, "fixture-lens").pipe(
           Effect.flip,
         )
+
         expect(modelFailure.reason).toContain("not admitted: model")
 
         // Specific is represented by omission; the only declared class is interpretive.
@@ -88,9 +94,11 @@ describe("lens content", () => {
           `${directory}/fixture-lens.md`,
           "---\nfinder-class: standard\n---\nfixture body\n",
         )
+
         const classFailure = yield* loadLens(directory, "fixture-lens").pipe(
           Effect.flip,
         )
+
         expect(classFailure.reason).toContain(
           'finder-class admits exactly "interpretive"',
         )
@@ -119,6 +127,7 @@ describe("lens content", () => {
           repoRoot: repo,
           names: ["selected"],
         }).pipe(Effect.provideService(ContentDirectory, content))
+
         expect(selected).toEqual([{
           name: "selected",
           promptText: "selected prompt\n",
@@ -129,6 +138,7 @@ describe("lens content", () => {
           Effect.provideService(ContentDirectory, content),
           Effect.flip,
         )
+
         expect(catalogFailure.reason).toContain("not admitted: routing")
         expect(catalogFailure.path).toContain("unselected.md")
       }),
@@ -146,23 +156,27 @@ describe("finder prompt cache prefix", () => {
         untrackedFiles: [],
         warnings: [],
       })
+
       const templates = {
         sharedPromptTemplate:
           "shared cap={{MAX_PER_LENS}}\n{{REPO_ROOT}}\n{{CHANGED_FILES}}\n{{WORKSPACE_TOOLS}}\n{{DIFF_SECTION}}",
         workspaceTools: "fixture tools at {{REPO_ROOT}}",
       }
+
       const ordinary = FrozenLens.make({
         name: "fixture-ordinary",
         promptText: "ORDINARY TAIL",
         seat: "fixture/fixture-model:low",
         candidateCap: 6,
       })
+
       const expanded = FrozenLens.make({
         name: "fixture-expanded",
         promptText: "EXPANDED TAIL",
         seat: "fixture/fixture-model:low",
         candidateCap: 12,
       })
+
       const ordinaryPrompt = yield* assembleFinderPrompt(
         templates,
         target,
@@ -170,6 +184,7 @@ describe("finder prompt cache prefix", () => {
         ordinary,
         undefined,
       )
+
       const expandedPrompt = yield* assembleFinderPrompt(
         templates,
         target,
@@ -177,16 +192,20 @@ describe("finder prompt cache prefix", () => {
         expanded,
         undefined,
       )
+
       expect(ordinaryPrompt).toContain(ordinary.promptText)
       expect(expandedPrompt).toContain(expanded.promptText)
+
       const ordinaryPrefix = ordinaryPrompt.slice(
         0,
         ordinaryPrompt.indexOf(ordinary.promptText),
       )
+
       const expandedPrefix = expandedPrompt.slice(
         0,
         expandedPrompt.indexOf(expanded.promptText),
       )
+
       expect(expandedPrefix).toBe(ordinaryPrefix)
       expect(expandedPrefix).toContain("shared cap=6")
       expect(expandedPrefix).toContain('+const marker = "{{MAX_PER_LENS}}"')

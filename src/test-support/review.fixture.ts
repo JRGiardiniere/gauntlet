@@ -105,6 +105,7 @@ export const makeFixture = Effect.gen(function* () {
     path.join(content, "prompts", "workspace.md"),
     "fixture workspace tools at {{REPO_ROOT}}\n",
   )
+
   const fixture: Fixture = {
     repo,
     home,
@@ -113,6 +114,7 @@ export const makeFixture = Effect.gen(function* () {
     recipesDirectory: path.join(home, ".gauntlet", "recipes"),
     settingsFile: path.join(home, ".gauntlet", "settings.json"),
   }
+
   yield* fs.makeDirectory(fixture.recipesDirectory, { recursive: true })
   yield* writeRecipe(fixture, "fixture-recipe", { default: FIXTURE_SEAT })
   yield* writeSettings(fixture, {
@@ -120,6 +122,7 @@ export const makeFixture = Effect.gen(function* () {
     "default-lenses": ["fixture-review"],
     favorites: [],
   })
+
   return fixture
 })
 
@@ -133,6 +136,7 @@ export const makeDirtyRepo = Effect.gen(function* () {
     path.join(fixture.repo, "alpha.txt"),
     "first line\nneedle-added-line\n",
   )
+
   return fixture
 })
 
@@ -149,6 +153,7 @@ export const makePrReviewFixture = Effect.gen(function* () {
   )
   yield* commitAll(fixture.repo, "head")
   const headCommit = yield* runGit(fixture.repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
+
   return { baseCommit, fixture, headCommit }
 })
 
@@ -170,6 +175,7 @@ export const makeCommitRangeFixture = Effect.gen(function* () {
   )
   yield* commitAll(fixture.repo, "feature work")
   const headCommit = yield* runGit(fixture.repo, ["rev-parse", "HEAD"]).pipe(Effect.map(chompLine))
+
   return { fixture, headCommit, mergeBase, trunk }
 })
 
@@ -243,6 +249,7 @@ export const emittingSession = (
   toolCalls = 0,
 ): ScriptedSession => {
   const turns = [{ emits: [output], toolCalls: { total: toolCalls, errored: 0 } }]
+
   return forSession === undefined ? { turns } : { turns, forSession }
 }
 

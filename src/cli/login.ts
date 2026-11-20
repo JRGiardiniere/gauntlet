@@ -24,6 +24,7 @@ const STATUS_INTERVAL = "500 millis"
 
 const awaitSettled = Effect.fn("Login.awaitSettled")(function* (attemptID: string) {
   const host = yield* Host
+
   return yield* host.chatGptSignIn.status(attemptID).pipe(
     Effect.repeat({
       schedule: Schedule.spaced(STATUS_INTERVAL),
@@ -41,10 +42,13 @@ const awaitSettled = Effect.fn("Login.awaitSettled")(function* (attemptID: strin
 const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: string) {
   const host = yield* Host
   const terminal = yield* Terminal.Terminal
+
   while (true) {
     yield* progress("if the browser can't reach this machine, paste the URL it was redirected to:")
     const pasted = (yield* terminal.readLine).trim()
+
     if (pasted === "") continue
+
     const result = yield* host.chatGptSignIn.paste(attemptID, pasted).pipe(
       Effect.catchTag("HostError", (failure) =>
         host.chatGptSignIn.status(attemptID).pipe(
@@ -55,6 +59,7 @@ const pasteRedirect = Effect.fn("Login.pasteRedirect")(function* (attemptID: str
           }),
         )),
     )
+
     if (result._tag === "Accepted") return
     yield* progress(`that URL was not accepted — ${result.reason}`)
   }
@@ -77,12 +82,14 @@ const executeLogin = Effect.fn("Login.run")(function* () {
   yield* Effect.addFinalizer(() => host.chatGptSignIn.cancel(attempt.attemptID))
   yield* progress(attempt.instructions)
   yield* progress(attempt.url)
+
   const settled = attempt.paste
     ? yield* Effect.raceFirst(
       awaitSettled(attempt.attemptID),
       pasteRedirect(attempt.attemptID).pipe(Effect.andThen(Effect.never)),
     )
     : yield* awaitSettled(attempt.attemptID)
+
   switch (settled._tag) {
     case "Failed":
       return yield* LoginError.make({ reason: settled.message })
@@ -92,12 +99,15 @@ const executeLogin = Effect.fn("Login.run")(function* () {
     case "Complete":
       break
   }
+
   yield* Console.log("signed in to ChatGPT")
+
   // Sign-in has succeeded; a Claude status that can't be read is only reported.
   const claude = yield* host.connection("claude-agent").pipe(
     Effect.map(describeClaude),
     Effect.catchTag("HostError", (failure) => Effect.succeed(`Claude status unavailable — ${failure.reason}`)),
   )
+
   yield* Console.log(claude)
 }, Effect.scoped)
 

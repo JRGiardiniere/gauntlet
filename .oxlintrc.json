@@ -31,7 +31,6 @@
     "typescript/no-generated-empty-object-type": "off",
     "typescript/restrict-template-expressions": "off",
     "typescript/no-duplicate-type-constituents": "off",
-    "anti-slop/require-readable-spacing": "off",
     "anti-slop-effect/no-manual-tagged-construction": "off",
     "anti-slop-effect/no-manual-tag-comparison": "off",
     "anti-slop-effect/no-service-constructor-imports": "off",

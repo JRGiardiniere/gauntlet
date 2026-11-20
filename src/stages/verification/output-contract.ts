@@ -75,6 +75,7 @@ const refutedVerdict = Schema.Struct({
 export const VerdictsOutput = Schema.Struct({
   verdicts: Schema.Array(Schema.Union([reportedVerdict, refutedVerdict])),
 })
+
 export interface VerdictsOutput
   extends Schema.Schema.Type<typeof VerdictsOutput> {}
 

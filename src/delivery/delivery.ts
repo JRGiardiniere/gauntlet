@@ -67,7 +67,9 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
       runId,
       "delivery receipt",
     )
+
     if (Option.isNone(source)) return Option.none<DeliveryReceipt>()
+
     const receipt = yield* decodeReceipt(source.value).pipe(
       Effect.mapError((cause) =>
         DeliveryError.make({
@@ -79,6 +81,7 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
           cause,
         })),
     )
+
     if (receipt.runId !== runId) {
       return yield* DeliveryError.make({
         operation: "load",
@@ -87,6 +90,7 @@ const loadReceipt = Effect.fn("gauntlet.delivery.load_receipt")(
         runId,
       })
     }
+
     return Option.some(receipt)
   },
 )
@@ -98,6 +102,7 @@ const requireMarkdown = Effect.fn("gauntlet.delivery.require_markdown")(
       runId,
       "dossier.md",
     )
+
     if (Option.isNone(source) || source.value.length === 0) {
       return yield* DeliveryError.make({
         operation: "load",
@@ -105,6 +110,7 @@ const requireMarkdown = Effect.fn("gauntlet.delivery.require_markdown")(
         runId,
       })
     }
+
     return source.value
   },
 )
@@ -118,6 +124,7 @@ export const deliverCompletedRun = Effect.fn(
   const { paths, plan } = loaded
   const target = yield* requirePullRequestTarget(plan)
   const existing = yield* loadReceipt(paths, plan.runId)
+
   if (Option.isSome(existing) && DeliveryReceipt.guards.Posted(existing.value)) {
     return existing.value
   }
@@ -125,6 +132,7 @@ export const deliverCompletedRun = Effect.fn(
   const markdown = yield* requireMarkdown(paths, plan.runId)
   const fitted = fitPostedDossier(markdown)
   const github = yield* GitHub
+
   const posted = yield* github.postComment(
     target.repoRoot,
     target.number,
@@ -144,6 +152,7 @@ export const deliverCompletedRun = Effect.fn(
         }),
       )),
   )
+
   yield* writeArtifactJson(paths.receipt, DeliveryReceipt, posted).pipe(
     Effect.mapError((cause) =>
       DeliveryError.make({
@@ -155,6 +164,7 @@ export const deliverCompletedRun = Effect.fn(
         cause,
       })),
   )
+
   if (DeliveryReceipt.guards.NotPosted(posted)) {
     return yield* DeliveryError.make({
       operation: "post",
@@ -162,5 +172,6 @@ export const deliverCompletedRun = Effect.fn(
       runId: plan.runId,
     })
   }
+
   return posted
 })

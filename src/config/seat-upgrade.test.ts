@@ -26,9 +26,12 @@ const catalog = new Map<string, ReadonlyArray<string>>([
   ["openai-codex", ["gpt-6-sol"]],
   ["openai", ["gpt-6-sol", "gpt-6.1-sol"]],
 ])
+
 const providerModelIds = (provider: string) => catalog.get(provider) ?? []
+
 // The family rules alone, without a Host to refuse anything.
 const acceptsAny = () => true
+
 const decodeRecipe = Schema.decodeUnknownEffect(Schema.fromJsonString(Recipe))
 
 describe("newerSeat", () => {
@@ -50,6 +53,7 @@ describe("newerSeat with the Host's acceptance", () => {
   // The Host lists gpt-10-sol without low, and gpt-6.2-terra without a fast model.
   const accepts = (seat: string) =>
     seat !== "acme/gpt-10-sol:low" && seat !== "acme/gpt-6.2-terra:high+fast"
+
   it.each([
     ["acme/gpt-6-sol:low", undefined],
     ["acme/gpt-6-sol:high", "acme/gpt-10-sol:high"],

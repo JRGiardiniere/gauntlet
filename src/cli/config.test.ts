@@ -39,9 +39,11 @@ const INITIAL_DEFAULT_LENSES = [
 const makeFixture = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+
   const home = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-config-test-",
   })
+
   const content = path.join(home, "content")
   yield* fs.makeDirectory(path.join(content, "lenses"), { recursive: true })
   yield* Effect.forEach(
@@ -53,6 +55,7 @@ const makeFixture = Effect.gen(function* () {
       ),
     { discard: true },
   )
+
   return {
     home,
     content,
@@ -93,6 +96,7 @@ const config = (fixture: Fixture, ...argv: Array<string>) =>
 const readSettings = (fixture: Fixture) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
+
     return yield* fs.readFileString(fixture.settingsFile).pipe(
       Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Settings))),
     )
@@ -100,6 +104,7 @@ const readSettings = (fixture: Fixture) =>
 
 const stdout = () =>
   Effect.map(TestConsole.logLines, (lines) => Array.join(Array.map(lines, String), "\n"))
+
 const stderr = () =>
   Effect.map(TestConsole.errorLines, (lines) => Array.join(Array.map(lines, String), "\n"))
 
@@ -122,12 +127,14 @@ describe("gauntlet config init", () => {
         "medium.json",
         "quick.json",
       ])
+
       const readRecipe = (name: string) =>
         fs.readFileString(
           path.join(fixture.recipesDirectory, `${name}.json`),
         ).pipe(
           Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(Recipe))),
         )
+
       const quickRecipe = yield* readRecipe("quick")
       expect(quickRecipe).toEqual({
         default: "openai/gpt-6.1-terra:high+fast",
@@ -289,6 +296,7 @@ describe("gauntlet config init", () => {
         "fixture-review",
         "subjective",
       )
+
       expect(setExit).toBe(0)
       expect((yield* readSettings(fixture))["default-lenses"]).toEqual([
         "subjective",
@@ -337,6 +345,7 @@ describe("gauntlet config init", () => {
       const directory = path.dirname(fixture.settingsFile)
 
       yield* fs.chmod(directory, 0o555)
+
       const exitCode = yield* config(fixture, "set", "favorites", "quick").pipe(
         Effect.ensuring(fs.chmod(directory, 0o755).pipe(Effect.orDie)),
       )
@@ -373,6 +382,7 @@ describe("gauntlet config init", () => {
       const nestedListing = yield* stdout()
       expect(nestedListing).toContain("project Lens catalog:")
       expect(nestedListing).toContain("- project-local")
+
       const nestedSetExit = yield* configAt(
         fixture,
         nested,
@@ -380,6 +390,7 @@ describe("gauntlet config init", () => {
         "default-lenses",
         "project-local",
       )
+
       expect(nestedSetExit).toBe(0)
       expect((yield* readSettings(fixture))["default-lenses"]).toEqual([
         "project-local",

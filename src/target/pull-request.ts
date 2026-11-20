@@ -54,10 +54,13 @@ const resolveCommit = Effect.fn("gauntlet.pull_request.resolve_commit")(
     missingReason: string,
   ) {
     const local = yield* existingCommit(repoRoot, oid)
+
     if (Option.isSome(local)) return local.value
     yield* runGit(repoRoot, fetchArgs).pipe(explainGit(missingReason))
     const fetched = yield* existingCommit(repoRoot, oid)
+
     if (Option.isSome(fetched)) return fetched.value
+
     return yield* TargetUnresolvable.make({
       reason: missingReason,
       cause: undefined,
@@ -71,30 +74,36 @@ export const resolvePullRequestTarget = Effect.fn(
   "gauntlet.pull_request.resolve_pull_request_target",
 )(function* (directory: string, number: number) {
   const github = yield* GitHub
+
   const repoRoot = yield* runGit(directory, ["rev-parse", "--show-toplevel"]).pipe(
     explainGit("not inside a git repository"),
     Effect.map(chompLine),
   )
+
   const view = yield* github.viewPullRequest(repoRoot, number).pipe(
     explainGitHub(number),
   )
+
   const headCommit = yield* resolveCommit(
     repoRoot,
     view.headRefOid,
     ["fetch", "origin", `refs/pull/${String(number)}/head`],
     `could not resolve PR #${String(number)} head ${view.headRefOid}`,
   )
+
   const baseTip = yield* resolveCommit(
     repoRoot,
     view.baseRefOid,
     ["fetch", "origin", view.baseRefName],
     `could not resolve PR #${String(number)} base ${view.baseRefOid}`,
   )
+
   const baseCommit = yield* runGit(repoRoot, ["merge-base", baseTip, headCommit])
     .pipe(
       explainGit(`could not resolve merge-base for PR #${String(number)}`),
       Effect.map(chompLine),
     )
+
   const [diff, changedFiles, submodules] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(

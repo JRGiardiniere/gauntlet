@@ -59,6 +59,7 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
   const path = yield* Path.Path
   const filePath = path.join(directory, fileName)
   const name = path.basename(fileName, ".json")
+
   if (!Schema.is(RecipeName)(name)) {
     return {
       _tag: "InvalidRecipe",
@@ -67,6 +68,7 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
       error: "recipe filename is not lowercase-kebab-case",
     } satisfies InvalidRecipeEntry
   }
+
   const source = yield* fs.readFileString(filePath).pipe(
     Effect.mapError((cause) =>
       RecipeCatalogError.make({
@@ -75,6 +77,7 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
         cause,
       })),
   )
+
   return yield* decodeRecipe(source).pipe(
     Effect.map((recipe): CatalogEntry => ({
       _tag: "ValidRecipe",
@@ -100,6 +103,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const directory = yield* recipesDirectory()
+
     const entries = yield* fs.readDirectory(directory).pipe(
       Effect.catchTag("PlatformError", (failure) =>
         Predicate.isTagged("NotFound")(failure.reason)
@@ -112,10 +116,12 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
             }),
           )),
     )
+
     const fileNames = Array.sort(
       Array.filter(entries, (entry) => path.extname(entry) === ".json"),
       Order.String,
     )
+
     return yield* Effect.forEach(
       fileNames,
       (fileName) => readEntry(directory, fileName),
@@ -137,6 +143,7 @@ export const selectRecipeFrom = (
   name: string,
 ): Effect.Effect<ValidRecipeEntry, RecipeSelectionError> => {
   const available = availableRecipeNames(entries)
+
   if (!Schema.is(RecipeName)(name)) {
     return Effect.fail(
       RecipeSelectionError.make({
@@ -145,7 +152,9 @@ export const selectRecipeFrom = (
       }),
     )
   }
+
   const found = Array.findFirst(entries, (candidate) => candidate.name === name)
+
   if (Option.isNone(found)) {
     return Effect.fail(
       RecipeSelectionError.make({
@@ -154,7 +163,9 @@ export const selectRecipeFrom = (
       }),
     )
   }
+
   const entry = found.value
+
   if (entry._tag === "InvalidRecipe") {
     return Effect.fail(
       RecipeSelectionError.make({
@@ -163,6 +174,7 @@ export const selectRecipeFrom = (
       }),
     )
   }
+
   return Effect.succeed(entry)
 }
 
@@ -171,6 +183,7 @@ export const selectRecipeFrom = (
 export const selectRecipe = Effect.fn("gauntlet.recipe_catalog.select")(
   function* (name: string) {
     const entries = yield* listRecipes()
+
     return yield* selectRecipeFrom(entries, name)
   },
 )
@@ -183,15 +196,20 @@ export const resolveReviewRecipe = Effect.fn(
   if (Option.isSome(positional)) {
     return yield* selectRecipe(positional.value)
   }
+
   const settings = yield* loadSettings()
+
   if (Option.isNone(settings)) {
     const entries = yield* listRecipes()
+
     return yield* RecipeSelectionError.make({
       reason: "no default recipe is configured and the review names none",
       available: availableRecipeNames(entries),
     })
   }
+
   const name = settings.value["default-recipe"]
+
   return yield* selectRecipe(name).pipe(
     Effect.catchTag("RecipeSelectionError", (failure) =>
       RecipeSelectionError.make({

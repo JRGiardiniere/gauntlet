@@ -8,6 +8,7 @@ export const hostHarnessLayer = Layer.effect(
   HarnessSessionFactory,
   Effect.gen(function* () {
     const host = yield* Host
+
     return HarnessSessionFactory.of({
       open: (spec) =>
         host.openSession(spec).pipe(

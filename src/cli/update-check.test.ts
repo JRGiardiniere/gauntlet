@@ -24,8 +24,10 @@ describe("probeLatestVersion", () => {
     const fakeFetch: typeof globalThis.fetch = (_input, init) => {
       expect(init?.method).toBe("HEAD")
       expect(init?.redirect).toBe("manual")
+
       return Promise.resolve(response())
     }
+
     return Layer.succeed(FetchHttpClient.Fetch, fakeFetch)
   }
 

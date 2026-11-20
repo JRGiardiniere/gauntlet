@@ -39,6 +39,7 @@ describe("hostAccepts", () => {
     { providerID: "openai", id: "gpt-6.1-terra-fast", variants: ["low"] },
     { providerID: "claude-agent", id: "opus", variants: ["low", "medium", "high"] },
   ]
+
   it.each([
     ["openai/gpt-6.1-terra:high", true],
     ["openai/gpt-6.1-terra:low+fast", true],

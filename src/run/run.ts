@@ -151,17 +151,21 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
 export const review = Effect.fn("Run.review")(
   function* (request: ReviewRequest) {
     const startedAt = yield* DateTime.now
+
     // An explicitly named unusable addendum fails here, before any Run
     // exists (issue #73): the caller selected the file, so absence is never
     // quiet.
     const addendum = request.specPath === undefined
       ? undefined
       : yield* loadCallerAddendum(request.specPath)
+
     const loaded = yield* submit({ ...request, addendum })
+
     const { coverageGaps, digest } = yield* executeReviewPlan({
       ...loaded,
       startedAt,
     })
+
     return {
       runId: loaded.plan.runId,
       paths: loaded.paths,
@@ -181,6 +185,7 @@ export const review = Effect.fn("Run.review")(
 export const deliver = Effect.fn("Run.deliver")(
   function* (runId: string) {
     const runsRoot = yield* resolveRunsRoot()
+
     const loaded = yield* loadRun(runsRoot, runId).pipe(
       Effect.mapError((cause) =>
         DeliveryError.make({
@@ -190,6 +195,7 @@ export const deliver = Effect.fn("Run.deliver")(
           cause,
         })),
     )
+
     return yield* deliverCompletedRun(loaded)
   },
   Effect.mapError(refusalOf),

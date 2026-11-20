@@ -26,6 +26,7 @@ const parseFamilyModel = (
   const match = familyModel.exec(modelId)
   const version = match?.[1]
   const family = match?.[2]
+
   return version === undefined || family === undefined
     ? Option.none()
     : Option.some({ version: Array.map(version.split("."), Number), family })
@@ -37,8 +38,10 @@ const compareVersions = (
 ): number => {
   for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
     const difference = (left[index] ?? 0) - (right[index] ?? 0)
+
     if (difference !== 0) return difference
   }
+
   return 0
 }
 
@@ -50,21 +53,27 @@ const newestFamilyModel = (
   accepts: (modelId: string) => boolean,
 ): string => {
   const current = parseFamilyModel(modelId)
+
   if (Option.isNone(current)) return modelId
   let newest = { id: modelId, version: current.value.version }
+
   for (const id of modelIds) {
     const candidate = parseFamilyModel(id)
+
     if (Option.isNone(candidate) || candidate.value.family !== current.value.family) continue
+
     if (compareVersions(candidate.value.version, newest.version) > 0 && accepts(id)) {
       newest = { id, version: candidate.value.version }
     }
   }
+
   return newest.id
 }
 
 // The provider whose models a Seat upgrades onto: its successor's, if any.
 export const upgradeProvider = (seat: Seat): string => {
   const provider = seat.slice(0, seat.indexOf("/"))
+
   return successorProviders.get(provider) ?? provider
 }
 
@@ -83,12 +92,15 @@ export const newerSeat = (
   const model = seat.slice(seat.indexOf("/") + 1, effortSeparator)
   const provider = upgradeProvider(seat)
   const effort = seat.slice(effortSeparator)
+
   const newest = newestFamilyModel(
     model,
     providerModelIds(provider),
     (candidate) => accepts(`${provider}/${candidate}${effort}`),
   )
+
   const next = `${provider}/${newest}${effort}`
+
   return next === seat || !accepts(next) ? Option.none() : Option.some(next)
 }
 
@@ -119,18 +131,23 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
   ) {
     const changes: Array<SeatChange> = []
     const skipped: Array<string> = []
+
     for (const entry of yield* listRecipes()) {
       if (entry._tag === "InvalidRecipe") {
         skipped.push(entry.name)
         continue
       }
+
       const upgradedSeats = Array.flatMap(seatFields, (field) => {
         const seat = entry.recipe[field]
         const next = seat === undefined ? Option.none() : newerSeat(seat, providerModelIds, accepts)
+
         if (seat === undefined || Option.isNone(next)) return []
         changes.push({ recipe: entry.name, from: seatModel(seat), to: seatModel(next.value) })
+
         return [[field, next.value] as const]
       })
+
       if (upgradedSeats.length > 0) {
         yield* writeArtifactJson(entry.path, Recipe, {
           ...entry.recipe,
@@ -138,6 +155,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
         })
       }
     }
+
     return { changes, skipped }
   },
 )

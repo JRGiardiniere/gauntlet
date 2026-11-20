@@ -24,6 +24,7 @@ export const loadCallerAddendum = Effect.fn(
   "gauntlet.specification.load_caller_addendum",
 )(function* (resolved: string) {
   const fs = yield* FileSystem.FileSystem
+
   const text = yield* fs.readFileString(resolved).pipe(
     Effect.mapError((failure) =>
       SpecificationLoadError.make({
@@ -34,11 +35,13 @@ export const loadCallerAddendum = Effect.fn(
         cause: failure,
       })),
   )
+
   if (text.trim() === "") {
     return yield* SpecificationLoadError.make({
       path: resolved,
       reason: "caller addendum is empty",
     })
   }
+
   return ReviewSpecification.make({ provenance: resolved, text })
 })

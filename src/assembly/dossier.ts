@@ -58,14 +58,19 @@ const orderFindings = (
       Confirmed: ({ verdict }) => verdict.reviewPriority,
       Judgment: ({ judgment }) => judgment.reviewPriority,
     })
+
     const rightPriority = DossierFinding.match(right, {
       Confirmed: ({ verdict }) => verdict.reviewPriority,
       Judgment: ({ judgment }) => judgment.reviewPriority,
     })
+
     const priorityDifference =
       priorityRank[leftPriority] - priorityRank[rightPriority]
+
     if (priorityDifference !== 0) return priorityDifference
+
     if (left._tag === right._tag) return 0
+
     return DossierFinding.guards.Confirmed(left) ? -1 : 1
   })
 
@@ -86,14 +91,17 @@ export const assembleDossier = ({
     bugClaimPath.bugClaims,
   )) {
     const clusterCore = { bugClaims, cluster }
+
     const testSuggestion = suggestionFor(
       new Set(Array.map(bugClaims, ({ id }) => id)),
       bugClaimPath.testSuggestions,
     )
+
     const suggestedCore = Option.match(testSuggestion, {
       onNone: () => clusterCore,
       onSome: (suggestion) => ({ ...clusterCore, testSuggestion: suggestion }),
     })
+
     if (Verdict.guards.Confirmed(verdict)) {
       findings.push(
         DossierFinding.cases.Confirmed.make({ ...suggestedCore, verdict }),

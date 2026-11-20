@@ -45,14 +45,18 @@ export const assembleSourceContext = Effect.fn(
 
   for (const candidate of candidates) {
     const references = candidate.sourceReferences ?? []
+
     if (references.length === 0) {
       omissions.push({ candidateId: candidate.id, reason: "no source references" })
     }
+
     for (const file of references) {
       const omit = (reason: string) => {
         omissions.push({ candidateId: candidate.id, file, reason })
       }
+
       const parts = file.split("/")
+
       if (
         path.isAbsolute(file) || /^[A-Za-z]:/.test(file) ||
         file.includes("\\") ||
@@ -61,15 +65,20 @@ export const assembleSourceContext = Effect.fn(
         omit("path is not repository-relative source")
         continue
       }
+
       const resolved = yield* fs.realPath(path.join(root, file)).pipe(Effect.result)
+
       if (Result.isFailure(resolved)) {
         if (Predicate.isTagged("NotFound")(resolved.failure.reason)) {
           omit("file is missing from the review snapshot")
           continue
         }
+
         return yield* resolved.failure
       }
+
       const relative = path.relative(root, resolved.success)
+
       if (
         relative === "" || relative === ".." || relative.startsWith(`..${path.sep}`) ||
         path.isAbsolute(relative) || relative.split(path.sep).includes(".git")
@@ -77,26 +86,34 @@ export const assembleSourceContext = Effect.fn(
         omit("resolved path is outside repository source")
         continue
       }
+
       if (seen.has(relative)) continue
       seen.add(relative)
       const info = yield* fs.stat(resolved.success)
+
       if (info.type !== "File" || info.size > MAX_SOURCE_BYTES) {
         omit("source is not a regular file within the 1 MiB read limit")
         continue
       }
+
       const bytes = yield* fs.readFile(resolved.success)
+
       if (!isUtf8(bytes) || bytes.includes(0)) {
         omit("source is not UTF-8 text without NUL bytes")
         continue
       }
+
       const text = new TextDecoder().decode(bytes)
+
       if (characters + text.length > maxCharacters) {
         omit("whole file exceeds the remaining source character budget")
         continue
       }
+
       files.push({ file: Array.join(relative.split(path.sep), "/"), text })
       characters += text.length
     }
   }
+
   return { files, omissions, characters } satisfies SourceContext
 })

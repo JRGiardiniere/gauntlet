@@ -34,6 +34,7 @@ export { PromptAssemblyError }
 // The change's diff as a prompt section, with lockfiles left out and named.
 export const diffSection = (heading: string, diff: string): string => {
   const inlined = inlinedDiff(diff)
+
   return `## ${heading}\n\n${fenceMarkdownBlock("diff", inlined.diff)}${omittedLockfilesNote(inlined.omitted)}`
 }
 
@@ -73,8 +74,10 @@ const promptReader = Effect.fn("FinderPrompt.promptReader")(
     const root = yield* ContentDirectory
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+
     return (name: string) => {
       const promptPath = path.join(root, "prompts", name)
+
       return fs.readFileString(promptPath).pipe(
         Effect.mapError((cause) =>
           ContentLoadError.make({
@@ -91,6 +94,7 @@ export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
 )(function* () {
   const readPrompt = yield* promptReader()
+
   const [systemTemplate, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
     [
       readPrompt("finder-system.md"),
@@ -99,11 +103,13 @@ export const loadFinderPromptTemplates = Effect.fn(
     ],
     { concurrency: 3 },
   )
+
   const systemPrompt = yield* renderPromptTemplate(
     "finder system",
     systemTemplate,
     [["EMIT_TOOL", EmitFindings.toolName]],
   )
+
   return {
     // Rendering trims the template's end. Restoring the final newline keeps
     // the system prompt the file's own text with only the slot filled.
@@ -148,10 +154,13 @@ export const assembleFinderContext = (
         ["MAX_PER_LENS", String(DEFAULT_CANDIDATE_CAP)],
       ],
     )
+
     const sections = [shared]
+
     if (context.specification !== undefined) {
       sections.push(renderSpecificationSection(context.specification))
     }
+
     return Array.join(sections, "\n\n")
   })
 
@@ -192,11 +201,13 @@ export const renderRelatedFiles = (
 
 export const assembleFinderAssignment = (lens: FrozenLens): string => {
   const sections = ["## Your lens", lens.promptText]
+
     if (lens.candidateCap !== DEFAULT_CANDIDATE_CAP) {
       sections.push(
         `## Lens candidate cap\n\nThis lens may report at most ${String(lens.candidateCap)} findings. This overrides the shared limit of ${String(DEFAULT_CANDIDATE_CAP)}.`,
       )
     }
+
   return Array.join(sections, "\n\n")
 }
 

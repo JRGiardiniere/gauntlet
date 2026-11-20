@@ -59,6 +59,7 @@ export type SubmissionTargetRequest = Data.TaggedEnum<{
   // submitted; absent means the uncommitted changes against HEAD alone.
   WorkingTree: { readonly base: string | undefined }
 }>
+
 export const SubmissionTargetRequest = Data.taggedEnum<SubmissionTargetRequest>()
 
 export interface SubmissionRequest {
@@ -98,25 +99,33 @@ const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
 const resolveTarget = Effect.fn("gauntlet.submission.resolve_target")(
   function* (request: SubmissionTargetRequest) {
     const directory = yield* InvocationDirectory
+
     if (SubmissionTargetRequest.$is("PullRequest")(request)) {
       yield* progress(`resolving PR #${String(request.number)} review target`)
+
       return yield* resolvePullRequestTarget(directory, request.number)
     }
+
     if (SubmissionTargetRequest.$is("Commits")(request)) {
       yield* progress(`resolving ${request.range} review target`)
+
       return yield* resolveCommitsTarget(directory, request.range).pipe(
         Effect.catchTag("TargetUnresolvable", hintRecipe(request.range)),
       )
     }
+
     if (request.base !== undefined) {
       yield* progress(
         `resolving ${request.base} plus working-tree review target`,
       )
+
       return yield* resolveWorkingTreeTarget(directory, request.base).pipe(
         Effect.catchTag("TargetUnresolvable", hintRecipe(request.base)),
       )
     }
+
     yield* progress("resolving working-tree review target")
+
     return yield* resolveWorkingTreeTarget(directory, undefined)
   },
 )
@@ -129,8 +138,10 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   const selected = yield* resolveReviewRecipe(request.recipeName)
   yield* progress(`using recipe ${selected.name}`)
   let defaultLensNames: ReadonlyArray<string> = []
+
   if (request.selectedLensNames === undefined) {
     const settings = yield* loadSettings()
+
     if (Option.isNone(settings)) {
       return yield* SubmissionError.make({
         reason:
@@ -138,14 +149,18 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
         unconfigured: true,
       })
     }
+
     defaultLensNames = settings.value["default-lenses"]
   }
+
   const target = yield* resolveTarget(request.target)
+
   // Scope degradation is never silent (spec #16): each warning is narrated
   // as it is discovered, in addition to landing on the plan and report.
   for (const warning of target.warnings) {
     yield* progress(`warning — ${warning}`)
   }
+
   // Uncommitted state is the one input Git cannot reconstruct from the frozen
   // head commit, so it is captured while the resolved target is still current
   // — before Lenses load, before any other paid work.
@@ -157,6 +172,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     request.selectedLensNames,
     defaultLensNames,
   )
+
   const listedLenses = Array.join(resolvedLensNames, ", ")
   const lensList = listedLenses === "" ? "(none)" : listedLenses
   yield* progress(
@@ -164,6 +180,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
       ? `loading Default Lenses ${lensList}`
       : `loading exact caller Lenses ${lensList}`,
   )
+
   const lenses = yield* loadFinderLenses({
     repoRoot: target.repoRoot,
     names: resolvedLensNames,
@@ -191,12 +208,14 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
       lens.name === STANDARDS_LENS_NAME && standardsBlock !== undefined
         ? `${lens.promptText.trimEnd()}\n\n${standardsBlock}`
         : lens.promptText
+
     const frozen = {
       name: lens.name,
       promptText,
       seat: finderSeat(selected.recipe, lens.finderClass),
       candidateCap: candidateCapForLens(lens.name),
     }
+
     return lens.finderClass === "interpretive"
       ? FrozenLens.make({ ...frozen, finderClass: lens.finderClass })
       : FrozenLens.make(frozen)
@@ -208,6 +227,7 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
   const runsRoot = yield* resolveRunsRoot()
   const runId = yield* makeRunId()
   const paths = yield* createRunDirectory(runsRoot, runId)
+
   const planFields = {
     runId,
     target,
@@ -221,16 +241,22 @@ export const submit = Effect.fn("gauntlet.submission.submit")(function* (
     },
     lenses: frozenLenses,
   }
+
   const specified = request.addendum === undefined
     ? ReviewPlan.make(planFields)
     : ReviewPlan.make({ ...planFields, specification: request.addendum })
+
   const plan = request.relatedFiles === true
     ? ReviewPlan.make({ ...specified, relatedFiles: true })
     : specified
+
   yield* progress("freezing review plan")
+
   if (overlay !== undefined) {
     yield* writeArtifactBytes(paths.workspaceOverlay, overlay)
   }
+
   yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
+
   return { paths, plan } satisfies LoadedRun
 })

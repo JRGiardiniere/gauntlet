@@ -49,6 +49,7 @@ const GOOD_EMIT: FindingsOutput = {
 }
 
 const emitting: ScriptedTurn = { afterMillis: 300, emits: [GOOD_EMIT] }
+
 const stopping: ScriptedTurn = { afterMillis: 300 }
 
 const run = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutput> = INPUT) =>
@@ -56,6 +57,7 @@ const run = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutput> = IN
     const scripted = makeScripted(behavior)
     const fiber = yield* invoke(input).pipe(Effect.provide(scriptedLayer(scripted)), Effect.forkChild)
     yield* TestClock.adjust(Duration.millis(input.deadlineMillis + 1))
+
     return { outcome: yield* Fiber.join(fiber), scripted }
   })
 
@@ -64,6 +66,7 @@ const runFailure = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutpu
     const scripted = makeScripted(behavior)
     const fiber = yield* invoke(input).pipe(Effect.provide(scriptedLayer(scripted)), Effect.flip, Effect.forkChild)
     yield* TestClock.adjust(Duration.millis(input.deadlineMillis + 1))
+
     return yield* Fiber.join(fiber)
   })
 
@@ -208,6 +211,7 @@ describe("invokeSignaled", () => {
       const scripted = makeScripted(behavior)
       const running = yield* invokeSignaled(INPUT).pipe(Effect.provide(scriptedLayer(scripted)))
       const signal = yield* running.firstResponse.pipe(Effect.forkChild)
+
       return { running, signal }
     })
 
@@ -216,6 +220,7 @@ describe("invokeSignaled", () => {
       const { running, signal } = yield* signaled({
         sessions: [{ firstTokenAfterMillis: 100, turns: [{ afterMillis: 5_000, emits: [GOOD_EMIT] }] }],
       })
+
       const outcome = yield* running.outcome.pipe(Effect.forkChild)
       yield* TestClock.adjust(Duration.millis(100))
       const observed = yield* Fiber.join(signal)
@@ -231,6 +236,7 @@ describe("invokeSignaled", () => {
       const { running, signal } = yield* signaled({
         sessions: [{ firstTokenAfterMillis: "never", turns: [{ afterMillis: 1_000, ending: { _tag: "ProviderFailed", reason: "down" } }] }],
       })
+
       yield* TestClock.adjust(Duration.millis(1_000))
       const observed = yield* Fiber.join(signal)
       expect(observed).toEqual(PrefixSignal.PrefixNotObserved())

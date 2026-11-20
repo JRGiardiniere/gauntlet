@@ -17,9 +17,11 @@ describe("EmitPool contract", () => {
     Effect.gen(function* () {
       const document = projectOutputContract(EmitPool)
       expect(Record.keys(document.definitions)).toHaveLength(0)
+
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )({ description: EmitPool.description, parameters: document.schema })
+
       expect(projected).toContain("must appear in exactly one cluster")
       expect(projected).not.toContain('"additionalProperties":true')
       expect(projected).toContain('"additionalProperties":false')
@@ -30,11 +32,13 @@ describe("EmitPool contract", () => {
       const pool = yield* strictDecode({
         clusters: [{ indexes: [1], summary: "canonical\nsummary" }],
       })
+
       expect(pool.clusters[0]?.summary).toBe("canonical summary")
 
       const failure = yield* Effect.flip(
         strictDecode({ clusters: [{ indexes: [], summary: "empty cluster" }] }),
       )
+
       expect(failure._tag).toBe("SchemaError")
     }))
 })

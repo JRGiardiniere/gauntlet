@@ -45,6 +45,7 @@ export const loadJudgmentPromptTemplates = Effect.fn(
     ],
     { concurrency: 3 },
   )
+
   return { judge, bugClaimClusters, ...scope } satisfies JudgmentPromptTemplates
 })
 
@@ -63,6 +64,7 @@ export const assembleJudgmentPrompt = (
       reviewRoot,
       specification,
     )
+
     // A run with no BugClaims carries no cluster block at all.
     const clusters = pooled.clusters.length === 0
       ? ""
@@ -71,6 +73,7 @@ export const assembleJudgmentPrompt = (
         templates.bugClaimClusters,
         [["CLUSTERS", clusterLines(pooled)]],
       )}`
+
     return yield* renderPromptTemplate("judge", templates.judge, [
       ["SCOPE_BLOCK", scope],
       ["BUG_CLAIM_CLUSTERS", clusters],
@@ -90,6 +93,7 @@ const clusterLines = (
         onSome: ({ candidate: first }) =>
           `${first.file}${first.line === undefined ? "" : `:${String(first.line)}`} — `,
       })
+
       return `- [c${String(number)}] ${location}${summary}`
     }),
     Array.join("\n"),

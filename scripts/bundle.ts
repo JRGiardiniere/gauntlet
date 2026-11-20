@@ -41,6 +41,7 @@ const program = Effect.gen(function* () {
   // Stage-owned prompt templates (markdown living with its Stage module,
   // e.g. src/stages/judgment/judge.md).
   const sourceEntries = yield* fs.readDirectory("src", { recursive: true })
+
   const stageTemplateImports = pipe(
     sourceEntries,
     Array.filter((entry) => entry.endsWith(".md")),

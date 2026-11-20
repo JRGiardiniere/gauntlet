@@ -22,14 +22,17 @@ export const liveHostLayer = (catalog: ModelCatalog = { _tag: "Fetch" }) =>
     Effect.gen(function* () {
       const scope = yield* Effect.scope
       const context = yield* Effect.context<Path.Path | FileSystem.FileSystem>()
+
       const booted = yield* Effect.cached(
         Effect.gen(function* () {
           const paths = yield* hostPaths()
           yield* scrubHostEnvironment(process.env)
+
           const module = yield* Effect.tryPromise({
             try: () => import("./opencode-host.ts"),
             catch: failure("load"),
           })
+
           return yield* module.bootHost(paths, catalog)
         }).pipe(
           Effect.mapError((cause) =>
@@ -38,6 +41,7 @@ export const liveHostLayer = (catalog: ModelCatalog = { _tag: "Fetch" }) =>
           Effect.provideService(Scope.Scope, scope),
         ),
       )
+
       return Host.of({
         openSession: (spec) => Effect.flatMap(booted, (host) => host.openSession(spec)),
         listModels: Effect.flatMap(booted, (host) => host.listModels),

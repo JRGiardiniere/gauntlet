@@ -38,6 +38,7 @@ export const cacheHitPercent = (
 ): number | undefined => {
   const read = Array.reduce(usages, 0, (total, usage) => total + usage.cacheRead)
   const prompted = Array.reduce(usages, 0, (total, usage) => total + usage.input + usage.cacheRead + usage.cacheWrite)
+
   return prompted === 0 ? undefined : Math.round((read / prompted) * 100)
 }
 
@@ -45,6 +46,7 @@ export const cacheShare = (
   usages: ReadonlyArray<Pick<AgentUsage, "input" | "cacheRead" | "cacheWrite">>,
 ): string | undefined => {
   const percent = cacheHitPercent(usages)
+
   return percent === undefined ? undefined : `cache ${String(percent)}%`
 }
 
@@ -71,6 +73,7 @@ export const coverageGapLine = (gap: {
 export const wallSeconds = Effect.fn("gauntlet.progress_text.wall_seconds")(
   function* (startedAt: DateTime.Utc) {
     const endedAt = yield* DateTime.now
+
     return Math.max(
       0,
       Math.round(Duration.toSeconds(DateTime.distance(startedAt, endedAt))),

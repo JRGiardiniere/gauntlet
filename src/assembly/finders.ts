@@ -20,9 +20,11 @@ export const enforceCandidateCap = (
   outcome: AgentOutcome<FindingsOutput>,
 ): AgentOutcome<FindingsOutput> => {
   const findings = outcome.output?.findings
+
   if (findings === undefined || findings.length <= lens.candidateCap) {
     return outcome
   }
+
   return {
     ...outcome,
     output: { findings: Array.take(findings, lens.candidateCap) },
@@ -67,12 +69,15 @@ export const routeFinderResults = (
         file: finding.file,
         summary: finding.summary,
       }
+
       const located = finding.line === undefined
         ? base
         : { ...base, line: finding.line }
+
       const core = finding.source_references === undefined
         ? located
         : { ...located, sourceReferences: finding.source_references }
+
       if (finding.failure_scenario === undefined) {
         observations.push(Candidate.cases.Observation.make(core))
       } else {

@@ -27,6 +27,7 @@ export const LoadedLens = Schema.Struct({
   promptText: Schema.NonEmptyString,
   finderClass: FinderClass,
 })
+
 export interface LoadedLens extends Schema.Schema.Type<typeof LoadedLens> {}
 
 export class ContentLoadError extends Schema.TaggedError<
@@ -74,7 +75,9 @@ const parseFrontmatterLine = (line: string): Option.Option<readonly [string, str
 
 const splitFrontmatter = (normalized: string) => {
   const end = normalized.startsWith("---\n") ? normalized.indexOf("\n---", 3) : -1
+
   if (end === -1) return { lines: Array.empty<string>(), body: normalized }
+
   return {
     lines: Array.filter(normalized.slice(4, end).split("\n"), (line) => line.trim() !== "" && !line.trimStart().startsWith("#")),
     body: normalized.slice(end + 4).trim(),
@@ -90,6 +93,7 @@ const decodeLensSource = (
 }, ContentLoadError> =>
   Effect.gen(function* () {
     const normalized = source.replaceAll("\r\n", "\n").replaceAll("\r", "\n")
+
     if (
       normalized.startsWith("---\n") &&
       normalized.indexOf("\n---", 4) === -1
@@ -99,20 +103,26 @@ const decodeLensSource = (
         reason: "frontmatter has no closing --- delimiter",
       })
     }
+
     const parsed = splitFrontmatter(normalized.replace(/^\uFEFF/, ""))
     const entries: Array<readonly [string, string]> = []
+
     for (const line of parsed.lines) {
       const entry = parseFrontmatterLine(line)
+
       if (Option.isNone(entry)) {
         return yield* ContentLoadError.make({
           path,
           reason: `frontmatter line is not \`key: value\`: ${line}`,
         })
       }
+
       entries.push(entry.value)
     }
+
     const fields = Record.fromEntries(entries)
     const allowed = new Set(["finder-class", "category"])
+
     for (const key of Record.keys(fields)) {
       if (!allowed.has(key)) {
         return yield* ContentLoadError.make({
@@ -123,22 +133,27 @@ const decodeLensSource = (
     }
 
     const finderClass = fields["finder-class"]
+
     const reason =
       Predicate.isString(finderClass) && finderClass !== "interpretive"
         ? `finder-class admits exactly "interpretive" (specific is by omission); got "${finderClass}"`
         : "frontmatter does not match the lens format"
+
     const frontmatter = yield* Schema.decodeEffect(LensFrontmatter)(
       fields,
     ).pipe(
       Effect.mapError(contentLoadError(path, reason)),
     )
+
     const promptText = parsed.body
+
     if (promptText.trim() === "") {
       return yield* ContentLoadError.make({
         path,
         reason: "lens prompt body is empty",
       })
     }
+
     return { frontmatter, promptText }
   })
 
@@ -149,12 +164,15 @@ export const loadLens = Effect.fn("gauntlet.lens.load")(function* (
   const lensName = yield* Schema.decodeEffect(LensName)(name).pipe(
     Effect.mapError(contentLoadError(lensesDirectory, "invalid lens name")),
   )
+
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const lensPath = path.join(lensesDirectory, `${lensName}.md`)
+
   const source = yield* fs.readFileString(lensPath).pipe(
     Effect.mapError(contentLoadError(lensPath, "could not read lens")),
   )
+
   const { frontmatter, promptText } = yield* decodeLensSource(lensPath, source)
 
   return LoadedLens.make({
@@ -170,6 +188,7 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+
   const entries: ReadonlyArray<string> = yield* fs.readDirectory(lensesDirectory).pipe(
     Effect.catchTag("PlatformError", (failure) =>
       optionalDirectory && Predicate.isTagged("NotFound")(failure.reason)
@@ -182,6 +201,7 @@ const listLensNames = Effect.fn("gauntlet.lens.list_names")(function* (
           }),
         )),
   )
+
   return Array.sort(
     pipe(
       entries,
@@ -212,6 +232,7 @@ const discoverFinderLensSources = Effect.fn(
     const path = yield* Path.Path
     const shippedDirectory = path.join(contentRoot, "lenses")
     const projectDirectory = path.join(repoRoot, ".gauntlet", "lenses")
+
     const [shippedNames, projectNames] = yield* Effect.all(
       [
         listLensNames(shippedDirectory, false),
@@ -221,6 +242,7 @@ const discoverFinderLensSources = Effect.fn(
     )
 
     const catalog = new Map<LensName, LensSource>()
+
     for (const [directory, names] of [
       [shippedDirectory, shippedNames],
       [projectDirectory, projectNames],
@@ -231,15 +253,18 @@ const discoverFinderLensSources = Effect.fn(
             contentLoadError(directory, `invalid lens filename: ${name}.md`),
           ),
         )
+
         if (catalog.has(decodedName)) {
           return yield* ContentLoadError.make({
             path: projectDirectory,
             reason: `duplicate shipped/project lens name: ${decodedName}`,
           })
         }
+
         catalog.set(decodedName, { directory, name: decodedName })
       }
     }
+
     return catalog
   })
 
@@ -252,23 +277,28 @@ export const loadFinderLenses = Effect.fn("gauntlet.lens.load_finder_lenses")(
     const catalog = yield* discoverFinderLensSources(repoRoot)
     const seen = new Set<LensName>()
     const selectedSources: globalThis.Array<LensSource> = []
+
     for (const name of names) {
       const decodedName = yield* Schema.decodeEffect(LensName)(name).pipe(
         Effect.mapError(
           contentLoadError(repoRoot, `invalid selected lens name: ${name}`),
         ),
       )
+
       if (seen.has(decodedName)) continue
       seen.add(decodedName)
       const source = catalog.get(decodedName)
+
       if (source === undefined) {
         return yield* ContentLoadError.make({
           path: repoRoot,
           reason: `selected lens does not exist: ${decodedName}`,
         })
       }
+
       selectedSources.push(source)
     }
+
     return yield* Effect.forEach(
       selectedSources,
       (source) => loadLens(source.directory, source.name),
@@ -281,10 +311,12 @@ export const loadFinderLensCatalog = Effect.fn(
   "gauntlet.lens.load_finder_catalog",
 )(function* (repoRoot: string) {
   const catalog = yield* discoverFinderLensSources(repoRoot)
+
   const sources = Array.sort(
     [...catalog.values()],
     Order.mapInput(Order.String, (source: LensSource) => source.name),
   )
+
   return yield* Effect.forEach(
     sources,
     (source) => loadLens(source.directory, source.name),

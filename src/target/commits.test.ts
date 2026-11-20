@@ -31,6 +31,7 @@ const makeBranchedRepo = Effect.gen(function* () {
   yield* fs.writeFileString(path.join(repo, "beta.txt"), "unrelated\n")
   yield* commitAll(repo, "unrelated main work")
   yield* runGit(repo, ["checkout", "feature"])
+
   return { featureHead, mergeBase, repo, trunk }
 })
 
@@ -58,6 +59,7 @@ describe("resolveCommitsTarget", () => {
         repo,
         `${mergeBase}..${featureHead}`,
       )
+
       expect(bySha.diff).toBe(target.diff)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 

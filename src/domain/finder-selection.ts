@@ -1,6 +1,7 @@
 import type { FrozenLens, ReviewPlan } from "./review-plan.ts"
 
 export const SPEC_CONFORMANCE_LENS_NAME = "spec-conformance"
+
 export const STANDARDS_LENS_NAME = "standards"
 
 // Submission appends the assembled Standards Manifest documents under this
@@ -34,25 +35,30 @@ const skipReason = (
   ) {
     return "no ReviewSpecification"
   }
+
   if (
     lens.name === STANDARDS_LENS_NAME &&
     !lens.promptText.includes(GOVERNING_STANDARDS_HEADING)
   ) {
     return "no Standards Manifest"
   }
+
   return undefined
 }
 
 export const selectRunnableFinders = (plan: ReviewPlan): FinderSelection => {
   const runnable: Array<FrozenLens> = []
   const skipped: Array<SkippedFinder> = []
+
   for (const lens of plan.lenses) {
     const reason = skipReason(lens, plan)
+
     if (reason === undefined) {
       runnable.push(lens)
     } else {
       skipped.push({ lens, reason })
     }
   }
+
   return { runnable, skipped }
 }

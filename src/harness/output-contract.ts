@@ -89,6 +89,7 @@ export const FindingsOutput = Schema.Struct({
     }),
   ),
 })
+
 export interface FindingsOutput
   extends Schema.Schema.Type<typeof FindingsOutput> {}
 

@@ -38,9 +38,11 @@ export const GAUNTLET_PLUGIN_ID = "gauntlet"
 // Bounds the wait for a Run's Location to activate the plugin and list the
 // Seat's model, so a stuck plugin fails the invocation instead of hanging it.
 const AGENT_READY_TIMEOUT = Duration.seconds(60)
+
 // The spike's grep default: enough matches to locate code, small enough that
 // a broad pattern does not flood the context.
 const GREP_DEFAULT_LIMIT = 30
+
 // Bounds paging through a session's assistant messages.
 const MESSAGE_PAGE = 200
 
@@ -122,6 +124,7 @@ const realPathOf = ({ fs, path }: FenceServices, target: string): Effect.Effect<
   fs.realPath(target).pipe(
     Effect.catch(() => {
       const parent = path.dirname(target)
+
       return parent === target
         ? Effect.succeed(target)
         : Effect.map(realPathOf({ fs, path }, parent), (real) => path.join(real, path.basename(target)))
@@ -141,19 +144,26 @@ const fenceRefusal = Effect.fn("Fence.refusal")(function* (
   input: string,
 ) {
   const { path } = services
+
   const escapes = (relative: string) =>
     relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+
   const resolved = FileAccess.resolvePath(root, input)
   const realResolved = yield* realPathOf(services, resolved)
   const lexical = path.relative(root, resolved)
   const real = path.relative(realRoot, realResolved)
+
   if (escapes(lexical) || escapes(real)) return `${input} is outside the review snapshot`
+
   if (isProtectedPath(lexical) || isProtectedPath(real)) return `${input} is not readable in the review snapshot`
+
   return undefined
 })
 
 const PathInput = Schema.Struct({ path: Schema.optionalKey(Schema.String) })
+
 const decodePathInput = Schema.decodeUnknownOption(PathInput)
+
 const decodeGrepMatches = Schema.decodeUnknownOption(GrepTool.Output)
 
 // grep searches hidden files, so a directory search would quote a tracked
@@ -165,8 +175,10 @@ const withoutSensitiveMatches = (path: Path.Path, root: string, result: ToolResu
     onNone: () => result,
     onSome: (matches) => {
       const kept = Array.filter(matches, (match) => !isProtectedPath(match.entry.path))
+
       if (kept.length === matches.length) return result
       const shown = Array.map(kept, (match) => ({ ...match, entry: { ...match.entry, path: path.resolve(root, match.entry.path) } }))
+
       return {
         ...result,
         output: kept,
@@ -185,26 +197,35 @@ const emitExecute = (registry: Registry, name: string) =>
   (input: unknown, context: Tool.Context) =>
     Effect.suspend(() => {
       const route = registry.sessions.get(context.sessionID)
+
       if (route === undefined || route.emit.name !== name) {
         return Effect.fail(Tool.Error.make({ message: `${name} is not this session's emit tool` }))
       }
+
       const raw = decodeEmitArguments(input)
       const rejection = Option.match(raw, { onNone: () => "the arguments are not JSON", onSome: route.emit.check })
+
       if (rejection !== undefined || Option.isNone(raw)) {
         route.rejections.push(`${name} rejected: ${rejection ?? "the arguments are not JSON"}`)
+
         return Effect.fail(Tool.Error.make({ message: `${name} arguments are invalid: ${rejection ?? ""}. Fix them and call ${name} again.` }))
       }
+
       route.emitted ??= raw.value
+
       return Effect.succeed({ content: "Recorded." })
     })
 
 // OpenAI's prompt cache key, wherever the request carries it.
 const CACHE_KEY_HEADERS = ["session-id", "x-session-affinity", "X-Session-Id", "x-opencode-session"]
+
 // OpenAI's limit on prompt_cache_key.
 const CACHE_KEY_LENGTH = 64
 
 const RequestBody = Schema.fromJsonString(Schema.Record(Schema.String, Schema.Json))
+
 const decodeRequestBody = Schema.decodeUnknownOption(RequestBody)
+
 const encodeRequestBody = Schema.encodeOption(RequestBody)
 
 // The body with its prompt_cache_key replaced, or none when it has none.
@@ -244,6 +265,7 @@ export const withCacheKey = (request: Request, key: string) =>
   Effect.tryPromise({ try: () => request.clone().arrayBuffer(), catch: String }).pipe(
     Effect.flatMap((buffer) => {
       const encoding = request.headers.get("content-encoding")
+
       return Effect.try({
         try: () => new TextDecoder().decode(decompress(new Uint8Array(buffer), encoding)),
         catch: String,
@@ -254,6 +276,7 @@ export const withCacheKey = (request: Request, key: string) =>
             onSome: (rewritten) => {
               const headers = new Headers(request.headers)
               headers.delete("content-length")
+
               // From the request itself, so its signal and redirect policy carry over.
               return new Request(request, {
                 method: request.method,
@@ -291,6 +314,7 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
               execute: emitExecute(registry, name),
             })
           }
+
           editor.update("read", (tool) => {
             tool.description = READ_DESCRIPTION
           })
@@ -306,6 +330,7 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
                 context,
               ).pipe(Effect.map((result) => withoutSensitiveMatches(services.path, directory, result)))
           })
+
           // The fence check wraps the tool itself rather than an
           // `execute.before` hook: it sees the decoded input after every hook,
           // so a later hook (input repair, a renamed call) cannot change the
@@ -325,6 +350,7 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
                 )
             })
           }
+
           editor.remove("skill")
         })
 
@@ -362,12 +388,16 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
         yield* ctx.session.hook("model.request", (event) =>
           Effect.sync(() => {
             const key = registry.sessions.get(event.sessionID)?.cacheGroup
+
             if (key === undefined) return
+
             for (const name of CACHE_KEY_HEADERS) event.headers[name] = key
           }))
         yield* ctx.session.hook("http.request", (event) => {
           const key = registry.sessions.get(event.sessionID)?.cacheGroup
+
           if (key === undefined || event.request.body === null) return Effect.void
+
           return withCacheKey(event.request, key).pipe(
             Effect.map((request) => {
               event.request = request
@@ -377,6 +407,7 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
         yield* ctx.session.hook("experimental.ws.send", (event) =>
           Effect.sync(() => {
             const key = registry.sessions.get(event.sessionID)?.cacheGroup
+
             if (key === undefined) return
             event.frame = Option.getOrElse(rewriteCacheKey(event.frame, key), () => event.frame)
           }))
@@ -385,6 +416,7 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
           Stream.runForEach((event) =>
             Effect.suspend(() => {
               const route = registry.sessions.get(event.data.sessionID)
+
               return route === undefined ? Effect.void : Deferred.succeed(route.firstToken, undefined)
             })),
           Effect.ignore,
@@ -419,18 +451,22 @@ const contextLimited = (message: Assistant) =>
 
 const endOf = (route: SessionRoute, last: Assistant): TurnEnd => {
   if (route.emitted !== undefined) return TurnEnd.Emitted({ raw: route.emitted })
+
   if (contextLimited(last)) return TurnEnd.ContextLimit()
+
   if (last.error !== undefined) {
     return /abort|interrupt/i.test(last.error.type)
       ? TurnEnd.Interrupted({ reason: last.error.message })
       : TurnEnd.ProviderFailed({ reason: `${last.error.type}: ${last.error.message}` })
   }
+
   return TurnEnd.Stopped()
 }
 
 const toolCallsOf = (messages: ReadonlyArray<Assistant>, emit: string): AgentToolCalls => {
   const calls = Array.flatMap(messages, (message) =>
     Array.filter(message.content, (part) => part.type === "tool" && part.name !== emit))
+
   return {
     total: calls.length,
     errored: Array.filter(calls, (part) => part.type === "tool" && part.state.status === "error").length,
@@ -448,21 +484,27 @@ export const makeSessions = (client: Client, registry: Registry) => {
     const definition: AgentDefinition = { system: spec.systemPrompt, tools: spec.tools, emit: spec.emit.name }
     yield* registering.withPermits(1)(Effect.gen(function* () {
       const newTool = !registry.emitTools.has(spec.emit.name)
+
       if (newTool) {
         registry.emitTools.set(spec.emit.name, { description: spec.emit.description, parameters: spec.emit.parameters })
       }
+
       const agents = registry.agents.get(spec.workspace) ?? new Map<string, AgentDefinition>()
       registry.agents.set(spec.workspace, agents)
       const existing = agents.get(id)
+
       if (existing !== undefined) {
         if (existing.system !== definition.system || existing.emit !== definition.emit ||
           Array.join(existing.tools, ",") !== Array.join(definition.tools, ",")) {
           return yield* HostError.make({ operation: "define agent", reason: `role ${spec.role} was already defined differently in this Run` })
         }
+
         return
       }
+
       agents.set(id, definition)
       const ctx = registry.contexts.get(spec.workspace)
+
       if (ctx === undefined) return
       // An emit tool registered for another Location may be missing here too.
       yield* ctx.tool.reload()
@@ -471,6 +513,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
 
     const location = { directory: spec.workspace }
     const ref = toModelRef(spec.seat)
+
     const ready = Effect.zipWith(
       client.agent.list({ location }),
       client.model.list({ location }),
@@ -478,6 +521,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
         Array.some(agents.data, (agent) => agent.id === id) &&
         Array.some(models.data, (model) => model.providerID === ref.providerID && model.id === ref.modelID),
     ).pipe(Effect.mapError(hostError("list agents")))
+
     // The subscription opens before the first check, so no change between
     // the two goes unseen.
     yield* client.event.subscribe({ types: ["plugin.updated", "agent.updated", "model.updated", "integration.updated"] }).pipe(
@@ -494,6 +538,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
           })),
       }),
     )
+
     return { id, ref }
   })
 
@@ -505,6 +550,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
 
   const open = Effect.fn("Host.openSession")(function* (spec: AgentSpec) {
     const { id, ref } = yield* ensureAgent(spec)
+
     const route: SessionRoute = {
       emit: spec.emit,
       cacheGroup: spec.cacheGroup,
@@ -512,6 +558,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
       emitted: undefined,
       rejections: [],
     }
+
     // Stopping and removing the session is best effort: the Run goes on.
     const session = yield* Effect.acquireRelease(
       client.sessions.create({
@@ -533,18 +580,24 @@ export const makeSessions = (client: Client, registry: Registry) => {
 
     const seen = new Set<string>()
     let logged = 0
+
     // At debug level the Run's log gets the session's transcript: each prompt
     // and each assistant message, tool calls and results included.
     const logTranscript = (entries: ReadonlyArray<object>) =>
       Effect.forEach(entries, (entry) => {
         logged += 1
+
         return Effect.logDebug("agent transcript", { invocationId: spec.invocationId, entryIndex: logged, entry })
       }, { discard: true }).pipe(Effect.when(LogLevel.isEnabled("Debug")))
+
     const unseen = (messages: ReadonlyArray<Assistant>) => {
       const fresh = Array.filter(messages, (message) => !seen.has(message.id))
+
       for (const message of fresh) seen.add(message.id)
+
       return fresh
     }
+
     const usageOf = (messages: ReadonlyArray<Assistant>) =>
       Array.flatMap(messages, (message) => (message.tokens === undefined ? [] : [toUsageRow(message.tokens)]))
 
@@ -553,6 +606,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
       const messages = yield* assistantMessages(session.id).pipe(Effect.orElseSucceed(() => []))
       const fresh = unseen(messages)
       yield* logTranscript(fresh)
+
       return usageOf(fresh)
     })
 
@@ -564,11 +618,14 @@ export const makeSessions = (client: Client, registry: Registry) => {
         const fresh = unseen(messages)
         yield* logTranscript(fresh)
         const last = Array.last(fresh)
+
         if (last._tag === "None") {
           return yield* AdapterContractViolation.make({ reason: "the turn ended with no assistant message" })
         }
+
         const diagnostics = route.rejections
         route.rejections = []
+
         return {
           end: endOf(route, last.value),
           usage: usageOf(fresh),

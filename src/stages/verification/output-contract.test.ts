@@ -18,9 +18,11 @@ describe("EmitVerdicts contract", () => {
     Effect.gen(function* () {
       const document = projectOutputContract(EmitVerdicts)
       expect(Record.keys(document.definitions)).toHaveLength(0)
+
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )(document.schema)
+
       expect(projected).toContain("Slice silence alone never lowers priority")
       expect(projected).toContain("include that reasoning on the same line")
       expect(projected).toContain("Never generated test source or shell commands")
@@ -35,6 +37,7 @@ describe("EmitVerdicts contract", () => {
           verdicts: [{ cluster: 1, verdict: "CONFIRMED", evidence: "reproduced" }],
         }),
       )
+
       expect(unprioritized._tag).toBe("SchemaError")
 
       for (const evidence of ["first line\nsecond line", "trailing newline\n"]) {
@@ -45,6 +48,7 @@ describe("EmitVerdicts contract", () => {
             ],
           }),
         )
+
         expect(multiline._tag).toBe("SchemaError")
       }
 
@@ -53,6 +57,7 @@ describe("EmitVerdicts contract", () => {
           { cluster: 1, verdict: "REFUTED", evidence: "guard rejects it" },
         ],
       })
+
       expect(refuted.verdicts).toHaveLength(1)
     }))
 
@@ -86,6 +91,7 @@ describe("EmitVerdicts contract", () => {
           },
         ],
       })
+
       expect(Array.map(suggested.verdicts, ({ test_suggestion }) => test_suggestion)).toEqual([
         { tests: ["src/a.test.ts"], reason: "covers the boundary" },
         { tests: [], reason: "" },

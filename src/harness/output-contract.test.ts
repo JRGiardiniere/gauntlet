@@ -17,9 +17,11 @@ describe("output contracts", () => {
         [EmitFindings, "as it appears in the changed-file list"],
         [EmitFindings, "Do not copy source or invent references"],
       ] as const
+
       for (const [contract, sentinel] of sentinels) {
         const document = projectOutputContract(contract)
         expect(Record.keys(document.definitions)).toHaveLength(0)
+
         const projected = yield* Schema.encodeEffect(
           Schema.fromJsonString(Schema.Unknown),
         )({
@@ -27,6 +29,7 @@ describe("output contracts", () => {
           description: contract.description,
           parameters: document.schema,
         })
+
         expect(projected).toContain(sentinel)
         expect(projected).not.toContain('"additionalProperties":true')
         expect(projected).toContain('"additionalProperties":false')
@@ -38,6 +41,7 @@ describe("output contracts", () => {
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )(projectOutputContract(EmitFindings).schema)
+
       expect(projected).toContain(String.raw`"pattern":"\\S"`)
     }))
 
@@ -47,6 +51,7 @@ describe("output contracts", () => {
       expect(emptyFindings).toEqual({
         findings: [],
       })
+
       const output = yield* decodeOutputContract(EmitFindings)({
         findings: [
           {
@@ -55,6 +60,7 @@ describe("output contracts", () => {
           },
         ],
       })
+
       expect(output.findings[0]?.file).toBe("not-in-the-changed-file-list.ts")
     }))
 
@@ -69,6 +75,7 @@ describe("output contracts", () => {
           },
         ],
       })
+
       expect(findings.findings).toEqual([
         {
           file: "src/a.ts",
@@ -81,12 +88,16 @@ describe("output contracts", () => {
   it.effect("preserves source references through the output and Candidate codecs", () =>
     Effect.gen(function* () {
       const references = ["src/helper.ts"]
+
       const output = yield* decodeOutputContract(EmitFindings)({ findings: [{
         file: "src/a.ts", summary: "claim", source_references: references,
       }] })
+
       expect(output.findings[0]?.source_references).toEqual(references)
+
       const candidate: Candidate = { _tag: "Observation", id: "a", lens: "test", file: "a.ts",
         summary: "claim", sourceReferences: references }
+
       const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(Candidate))(candidate)
       const decodedCandidate = yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)
       expect(decodedCandidate).toEqual(candidate)
@@ -95,12 +106,14 @@ describe("output contracts", () => {
   it.effect("requires JSON-safe 1-indexed integer locations", () =>
     Effect.gen(function* () {
       const decode = decodeOutputContract(EmitFindings)
+
       for (const line of [0, 1.5, Number.NaN]) {
         const failure = yield* Effect.flip(
           decode({
             findings: [{ file: "src/a.ts", line, summary: "bad line" }],
           }),
         )
+
         expect(failure._tag).toBe("SchemaError")
       }
     }))
@@ -114,6 +127,7 @@ describe("output contracts", () => {
           ],
         }),
       )
+
       expect(findingsFailure._tag).toBe("SchemaError")
     }))
 })

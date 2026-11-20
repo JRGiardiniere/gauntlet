@@ -38,7 +38,9 @@ import { bootHost } from "./opencode-host.ts"
 // model request, so a test sees exactly which requests a session sent.
 
 const FIXTURE_CATALOG = `${import.meta.dirname}/fixtures/models.json`
+
 const SLOW = 60_000
+
 const SEAT = "openai/gpt-6-luna:low"
 
 const FINDINGS = { findings: [{ file: "alpha.txt", line: 1, summary: "the first line is wrong" }] }
@@ -65,19 +67,24 @@ const textStop = (text: string, tokens = usage(900, 100, 20)) =>
 const bootEmbedded = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-agents-home-" })
+
   const paths = yield* hostPaths().pipe(
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))),
   )
+
   // No fallback: a request the test did not script fails the session.
   const llm = yield* TestLLM.Test.pipe(Effect.provide(TestLLM.testLayer()))
+
   const host = yield* bootHost(paths, { _tag: "File", path: FIXTURE_CATALOG }, [
     llmClient.replace(Layer.succeed(LLMClient.Service, llm)),
   ])
+
   yield* host.client.integration.connect.key({
     location: host.location,
     integrationID: Integration.ID.make("openai"),
     key: "sk-test",
   })
+
   return { host, llm }
 })
 
@@ -88,6 +95,7 @@ const embedded = Effect.gen(function* () {
   const workspace = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-agents-snapshot-" })
   yield* fs.writeFileString(path.join(workspace, "alpha.txt"), "first line\n")
   const { host, llm } = yield* bootEmbedded
+
   const finder = (): AgentSpec => ({
     invocationId: "fixture-finder",
     role: "finder-1",
@@ -97,8 +105,10 @@ const embedded = Effect.gen(function* () {
     tools: ["read", "grep", "glob"],
     emit: emitToolSpec(EmitFindings),
   })
+
   const finderIn = (cacheGroup?: string): AgentSpec =>
     cacheGroup === undefined ? finder() : { ...finder(), cacheGroup }
+
   return { host, llm, finder: finderIn }
 })
 
@@ -153,6 +163,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       const { host, llm, finder } = yield* embedded
       yield* llm.push(emitCall("emit-1", "emit_findings", FINDINGS), emitCall("emit-2", "emit_findings", FINDINGS))
       const logged: Array<unknown> = []
+
       const collector = Logger.layer([Logger.make(({ message }) => {
         logged.push(message)
       })])
@@ -185,6 +196,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       )
       const finderSession = yield* host.openSession(finder())
       yield* finderSession.turn("review")
+
       const pool = yield* host.openSession({
         ...finder(),
         invocationId: "fixture-pool",
@@ -193,6 +205,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
         tools: [],
         emit: emitToolSpec(EmitPool),
       })
+
       const pooled = yield* pool.turn("cluster")
       expect(pooled.end).toEqual({ _tag: "Emitted", raw: { clusters: [] } })
 
@@ -211,10 +224,12 @@ describe("an AgentInvocation session on the embedded Host", () => {
         emitCall("emit-2", "emit_findings", FINDINGS),
         emitCall("emit-3", "emit_findings", FINDINGS),
       )
+
       for (const group of ["run-finders-1", "run-finders-1", undefined]) {
         const session = yield* host.openSession(finder(group))
         yield* session.turn("review")
       }
+
       const requests = yield* llm.requests()
       const headers = Array.map(requests, (request) => request.headers ?? {})
       expect(Array.map(headers, (sent) => sent["session-id"] ?? sent["x-session-affinity"])).toEqual([
@@ -264,12 +279,15 @@ describe("the partition cache key on an outgoing request", () => {
   ])("rewrites a $encoding body in its own encoding", ({ encoding, encode, decode }) =>
     Effect.gen(function* () {
       const headers = new Headers({ "content-type": "application/json" })
+
       if (encoding !== undefined) headers.set("content-encoding", encoding)
+
       const request = new Request("https://chatgpt.example/backend-api/codex/responses", {
         method: "POST",
         headers,
         body: encode(new TextEncoder().encode(body)),
       })
+
       const rewritten = yield* withCacheKey(request, "run-finders-1")
       const sent = yield* Effect.tryPromise({ try: () => rewritten.arrayBuffer(), catch: String })
       expect(new TextDecoder().decode(decode(new Uint8Array(sent)))).toBe(keyed)
@@ -314,6 +332,7 @@ describe("the ReviewWorkspace permission rules", () => {
   it("give Pool its emit tool and nothing else", () => {
     const pool = [...permissionsFor({ tools: [], emit: "emit_pool" })]
     expect(Permission.evaluate("emit_pool", "*", pool).effect).toBe("allow")
+
     for (const action of ["read", "grep", "glob", "emit_findings"]) {
       expect(Permission.evaluate(action, "src/x.ts", pool).effect).toBe("deny")
     }
@@ -327,11 +346,14 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
   host.client.message.list({ sessionID: Session.ID.make(sessionID) }).pipe(
     Effect.map((page) => {
       const outcomes = new Map<string, ToolOutcome>()
+
       for (const message of page.data) {
         if (message.type !== "assistant") continue
+
         for (const part of message.content) {
           if (part.type !== "tool") continue
           const state = part.state
+
           switch (state.status) {
             case "error":
               outcomes.set(part.id, { status: state.status, text: state.error.message })
@@ -348,6 +370,7 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
           }
         }
       }
+
       return outcomes
     }),
   )
@@ -389,6 +412,7 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
         ["read-nested-env", "read", { path: "pkg/.env.local" }, false],
         ["grep-env", "grep", { pattern: "TOKEN", path: "pkg/.env.local" }, false],
       ]
+
       yield* llm.push(
         TestLLM.complete(
           { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
@@ -396,6 +420,7 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
         ),
         emitCall("emit-1", "emit_findings", FINDINGS),
       )
+
       const session = yield* host.openSession({
         invocationId: "fence-finder",
         role: "finder-1",
@@ -405,6 +430,7 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
         tools: ["read", "grep", "glob"],
         emit: emitToolSpec(EmitFindings),
       })
+
       const turn = yield* session.turn("review")
       expect(turn.end).toEqual({ _tag: "Emitted", raw: FINDINGS })
 

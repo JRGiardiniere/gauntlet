@@ -47,6 +47,7 @@ describe("resolveVerification", () => {
   it("maps CONFIRMED, PLAUSIBLE, and REFUTED onto domain verdicts", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
     const clusters = singletonClusters(claims)
+
     const resolved = resolveVerification({ claims, clusters }, [
       {
         bundleNumber: 1,
@@ -91,10 +92,12 @@ describe("resolveVerification", () => {
 
   it("carries the Pool cluster onto every one of its claims", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
+
     const clusters = [
       { number: 1, indexes: [1, 3], summary: "one bug, two lenses" },
       { number: 2, indexes: [2], summary: "summary two" },
     ]
+
     const resolved = resolveVerification({ claims, clusters }, [
       {
         bundleNumber: 1,
@@ -125,10 +128,12 @@ describe("resolveVerification", () => {
 
   it("maps one cluster-level test suggestion to every mate's stable id exactly once", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
+
     const clusters = [
       { number: 1, indexes: [1, 3], summary: "one bug, two lenses" },
       { number: 2, indexes: [2], summary: "summary two" },
     ]
+
     const resolved = resolveVerification({ claims, clusters }, [
       {
         bundleNumber: 1,
@@ -176,6 +181,7 @@ describe("resolveVerification", () => {
   it("drops empty suggestions and advice for refuted claims while every verdict stands", () => {
     const claims = indexBugClaims([claim("one"), claim("two"), claim("three")])
     const clusters = singletonClusters(claims)
+
     const resolved = resolveVerification({ claims, clusters }, [
       {
         bundleNumber: 1,
@@ -224,6 +230,7 @@ describe("resolveVerification", () => {
   it("fails a whole bundle closed when its verdict set is incomplete", () => {
     const claims = indexBugClaims([claim("one"), claim("two")])
     const clusters = singletonClusters(claims)
+
     const resolved = resolveVerification({ claims, clusters }, [
       {
         bundleNumber: 1,

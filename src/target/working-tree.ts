@@ -36,15 +36,19 @@ const inspectUntrackedFile = Effect.fn(
   // stat follows symlinks; readLink first so a dangling or directory-target
   // link is included as itself instead of aborting resolution.
   const linkTarget = yield* fs.readLink(absolutePath).pipe(Effect.option)
+
   if (Option.isSome(linkTarget)) {
     return { kind: "included" as const, path: relativePath }
   }
+
   const info = yield* fs.stat(absolutePath).pipe(
     explainUntrackedFile(`could not inspect untracked file ${relativePath}`),
   )
+
   if (info.type !== "File") {
     return { kind: "named" as const, path: relativePath }
   }
+
   return info.size > UNTRACKED_SIZE_CAP
     ? { kind: "oversized" as const, path: relativePath }
     : { kind: "included" as const, path: relativePath }
@@ -63,14 +67,18 @@ export const resolveWorkingTreeTarget = Effect.fn(
     explainGit("not inside a git repository"),
     Effect.map(chompLine),
   )
+
   const headCommit = yield* runGit(repoRoot, ["rev-parse", "HEAD"]).pipe(
     explainGit("repository has no HEAD commit to diff against"),
     Effect.map(chompLine),
   )
+
   const baseCommit = base === undefined ? undefined : yield* resolveCommittish(repoRoot, base).pipe(
     Effect.flatMap((resolvedBase) => mergeBaseOf(repoRoot, resolvedBase, headCommit)),
   )
+
   const diffBase = baseCommit ?? headCommit
+
   // Diff against the resolved hash, not symbolic HEAD — a commit landing
   // between the two commands must not desynchronize identity and diff.
   // --no-renames keeps both sides of a rename in changedFiles (the snapshot
@@ -106,6 +114,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
     const nothing = base === undefined
       ? "working tree has no uncommitted changes to review"
       : `${base} has no committed or uncommitted changes to review`
+
     return yield* TargetUnresolvable.make({
       reason: untracked.length === 0
         ? nothing
@@ -119,10 +128,13 @@ export const resolveWorkingTreeTarget = Effect.fn(
     (relativePath) => inspectUntrackedFile(repoRoot, relativePath),
     { concurrency: 4 },
   )
+
   const untrackedFiles = Array.flatMap(inspections, (file) =>
     file.kind === "included" ? [file.path] : [])
+
   const named = Array.flatMap(inspections, (file) =>
     file.kind === "oversized" ? [] : [file.path])
+
   const oversized = Array.flatMap(inspections, (file) =>
     file.kind === "oversized" ? [file.path] : [])
 
@@ -146,6 +158,7 @@ export const resolveWorkingTreeTarget = Effect.fn(
     untrackedFiles,
     warnings,
   }
+
   return ReviewTarget.cases.WorkingTree.make(
     baseCommit === undefined ? fields : { ...fields, baseCommit },
   )

@@ -119,27 +119,36 @@ export const repairPoolOutput = (
     const indexes = Array.filter(cluster.indexes, (index) => {
       if (!HashSet.has(validIndexes, index)) {
         unknownIndexes.push(index)
+
         return false
       }
+
       if (HashSet.has(seen, index)) {
         duplicateIndexes.push(index)
+
         return false
       }
+
       seen = HashSet.add(seen, index)
+
       return true
     })
+
     if (!Array.isArrayNonEmpty(indexes)) return Result.fail(undefined)
     const firstIndex = Array.headNonEmpty(indexes)
+
     const summary = indexes.length === cluster.indexes.length
       ? cluster.summary
       : Array.findFirst(claims, ({ index }) => index === firstIndex).pipe(
         Option.map(({ candidate }) => candidate.summary),
         Option.getOrElse(() => cluster.summary),
       )
+
     return Result.succeed({ indexes, summary })
   })
 
   const restored = Array.filter(claims, ({ index }) => !HashSet.has(seen, index))
+
   return {
     clusters: [...clusters, ...singletonClusters(restored)],
     notes: [
@@ -166,8 +175,10 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   reviewWorkingDirectory,
 }: PoolExecution) {
   const claims = indexBugClaims(bugClaims)
+
   if (claims.length < POOL_SKIP_UNDER) {
     yield* runProgress(`skipping Pool (${counted(claims.length, "BugClaim")})`)
+
     return {
       claims,
       clusters: numberClusters(singletonClusters(claims)),
@@ -178,10 +189,13 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   }
 
   const seat = plan.seats.pool
+
   if (seat === undefined) {
     const reason =
       "pool has no seat frozen in the review plan; used singleton clusters"
+
     yield* runProgress(coverageGapLine({ reason }))
+
     return {
       claims,
       clusters: numberClusters(singletonClusters(claims)),
@@ -193,11 +207,13 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
 
   const poolStartedAt = yield* DateTime.now
   const template = yield* readPromptTemplate(templatePath)
+
   const prompt = yield* renderPromptTemplate(
     "pool",
     template,
     [["CANDIDATES", Array.join(Array.map(claims, formatCandidateLine), "\n")]],
   )
+
   const outcome = yield* invokeStageAgent({
     label: "Pool",
     invocationId: `${plan.runId}-pool`,
@@ -210,14 +226,18 @@ export const executePool = Effect.fn("Pool.execute")(function* ({
   })
 
   const repair = repairPoolOutput(claims, outcome.output)
+
   const reason = outcome.output === undefined
     ? describeMissingOutput("pool", outcome)
     : repairReason(repair.notes)
+
   if (reason !== undefined) {
     yield* runProgress(coverageGapLine({ reason }))
   }
+
   const poolSeconds = yield* wallSeconds(poolStartedAt)
   yield* runProgress(`Pool finished — ${String(poolSeconds)}s`)
+
   return {
     claims,
     clusters: numberClusters(repair.clusters),

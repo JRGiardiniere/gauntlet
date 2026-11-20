@@ -39,6 +39,7 @@ const fakeHost = (
     const checks = yield* Ref.make(0)
     const failed = yield* Ref.make(false)
     const untouched = Effect.die("unused")
+
     return hostLayer({
       openSession: () => untouched,
       listModels: untouched,
@@ -58,8 +59,10 @@ const fakeHost = (
             if (broken && (yield* Ref.get(failed))) {
               return yield* HostError.make({ operation: "sign-in status", reason: "the Host stopped" })
             }
+
             const count = yield* Ref.updateAndGet(checks, (n) => n + 1)
             const pasted = yield* Ref.get(integration.pasted)
+
             return status(count, pasted)
           }),
         paste: (_attemptID, url) =>
@@ -82,6 +85,7 @@ const fakeTerminal = (lines: ReadonlyArray<string>) =>
     Effect.gen(function* () {
       const typed = yield* Queue.unbounded<string>()
       yield* Queue.offerAll(typed, lines)
+
       return Terminal.make({
         columns: Effect.succeed(80),
         rows: Effect.succeed(24),
@@ -118,8 +122,10 @@ describe("gauntlet login", () => {
   it.effect("signs in with a pasted redirect URL, asking again after a rejected one", () =>
     Effect.gen(function* () {
       const integration = yield* makeIntegration
+
       const host = fakeHost(integration, (_checks, pasted) =>
         pasted.length > 0 ? { _tag: "Complete" } : { _tag: "Pending" })
+
       const running = yield* Effect.forkChild(login(host, ["", "http://wrong", REDIRECT]))
       yield* TestClock.adjust("2 seconds")
       const exitCode = yield* Fiber.join(running)
@@ -143,8 +149,10 @@ describe("gauntlet login", () => {
   it.effect("asks again after a paste the Host fails on, while the Host still answers", () =>
     Effect.gen(function* () {
       const integration = yield* makeIntegration
+
       const host = fakeHost(integration, (_checks, pasted) =>
         pasted.length > 0 ? { _tag: "Complete" } : { _tag: "Pending" })
+
       const running = yield* Effect.forkChild(login(host, [FAILING_PASTE, REDIRECT]))
       yield* TestClock.adjust("2 seconds")
       const exitCode = yield* Fiber.join(running)

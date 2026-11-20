@@ -22,6 +22,7 @@ export const PoolOutput = Schema.Struct({
     }),
   ),
 })
+
 export interface PoolOutput extends Schema.Schema.Type<typeof PoolOutput> {}
 
 export const EmitPool = defineOutputContract(

@@ -6,9 +6,11 @@ import { ReviewTarget } from "./review-target.ts"
 export const LensName = Schema.String.check(
   Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
 )
+
 export type LensName = typeof LensName.Type
 
 export const DEFAULT_CANDIDATE_CAP = 6
+
 export const SUBJECTIVE_CANDIDATE_CAP = DEFAULT_CANDIDATE_CAP * 2
 
 export const candidateCapForLens = (lensName: LensName): number =>
@@ -33,6 +35,7 @@ export const FrozenLens = Schema.Struct({
   // frozen ReviewSpecification reaches the finder.
   finderClass: Schema.optionalKey(Schema.Literals(["interpretive"])),
 })
+
 export type FrozenLens = typeof FrozenLens.Type
 
 // The fully resolved instructions governing one review — semantics-and-spend
@@ -64,4 +67,5 @@ export const ReviewPlan = Schema.Struct({
   // specification field and no absence text.
   specification: Schema.optionalKey(ReviewSpecification),
 })
+
 export type ReviewPlan = typeof ReviewPlan.Type

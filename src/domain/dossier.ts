@@ -12,6 +12,7 @@ export const CoverageGap = Schema.Struct({
   lens: Schema.optionalKey(Schema.NonEmptyString),
   reason: Schema.NonEmptyString,
 })
+
 export type CoverageGap = typeof CoverageGap.Type
 
 export const EvaluatedBugClaim = Schema.Struct({
@@ -22,12 +23,14 @@ export const EvaluatedBugClaim = Schema.Struct({
   cluster: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
   verdict: Verdict,
 })
+
 export type EvaluatedBugClaim = typeof EvaluatedBugClaim.Type
 
 export const JudgedObservation = Schema.Struct({
   candidate: Observation,
   judgment: Judgment,
 })
+
 export type JudgedObservation = typeof JudgedObservation.Type
 
 // Verification's optional advice to run named existing repository tests
@@ -39,6 +42,7 @@ export const TestSuggestion = Schema.Struct({
   reason: Schema.NonEmptyString,
   bugClaimIds: Schema.NonEmptyArray(Schema.NonEmptyString),
 })
+
 export type TestSuggestion = typeof TestSuggestion.Type
 
 const ClusteredBugClaim = {
@@ -63,6 +67,7 @@ export const DossierFinding = Schema.TaggedUnion({
     judgment: Judgment.cases.Kept,
   },
 })
+
 export type DossierFinding = typeof DossierFinding.Type
 
 export const DossierUnresolved = Schema.TaggedUnion({
@@ -75,18 +80,21 @@ export const DossierUnresolved = Schema.TaggedUnion({
     judgment: Judgment.cases.Undecided,
   },
 })
+
 export type DossierUnresolved = typeof DossierUnresolved.Type
 
 export const RefutedClaim = Schema.TaggedStruct("Refuted", {
   ...ClusteredBugClaim,
   verdict: Verdict.cases.Refuted,
 })
+
 export type RefutedClaim = typeof RefutedClaim.Type
 
 export const DroppedObservation = Schema.TaggedStruct("Dropped", {
   candidate: Observation,
   judgment: Judgment.cases.Dropped,
 })
+
 export type DroppedObservation = typeof DroppedObservation.Type
 
 // The canonical, complete semantic result of one review (GLOSSARY.md).
@@ -103,4 +111,5 @@ export const Dossier = Schema.Struct({
   }),
   coverageGaps: Schema.Array(CoverageGap),
 })
+
 export type Dossier = typeof Dossier.Type

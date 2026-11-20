@@ -65,6 +65,7 @@ describe("gauntlet review", () => {
         path.join(fixture.repo, "untracked.txt"),
         "not in the diff\n",
       )
+
       const run = review(
         fixture,
         makeScripted({
@@ -94,16 +95,21 @@ describe("gauntlet review", () => {
       ])
 
       const planText = yield* fs.readFileString(path.join(runDir, "plan.json"))
+
       const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(
         planText,
       )
+
       expect(plan.runId).toBe(runIds[0])
+
       const finderStageText = yield* fs.readFileString(
         path.join(runDir, "finder-stage.json"),
       )
+
       const finderStage = yield* Schema.decodeEffect(
         Schema.fromJsonString(FinderStageArtifact),
       )(finderStageText)
+
       expect(finderStage.runId).toBe(plan.runId)
       expect(finderStage.finders).toHaveLength(1)
       expect(finderStage.finders[0]?.outcome.termination._tag).toBe("Completed")
@@ -111,15 +117,19 @@ describe("gauntlet review", () => {
       expect(finderStage.finders[0]?.outcome.usage.rawRows).toHaveLength(1)
 
       const dossierText = yield* fs.readFileString(path.join(runDir, "dossier.json"))
+
       const dossier = yield* Schema.decodeEffect(Schema.fromJsonString(Dossier))(
         dossierText,
       )
+
       expect(dossier.runId).toBe(plan.runId)
       const dossierView = viewDossier(dossier)
+
       const confirmed = Array.findFirst(
         dossierView.findings,
         ({ tag }) => tag === "confirmed",
       )
+
       expect(Option.map(confirmed, ({ candidate }) => candidate._tag)).toEqual(Option.some("BugClaim"))
       expect(Option.map(confirmed, ({ candidate }) => candidate.id)).toEqual(Option.some("fixture-review/1"))
       expect(Option.getOrUndefined(confirmed)).toMatchObject({
@@ -131,10 +141,12 @@ describe("gauntlet review", () => {
           bugClaimIds: ["fixture-review/1"],
         },
       })
+
       const judgment = Array.findFirst(
         dossierView.findings,
         ({ tag }) => tag === "judgment",
       )
+
       expect(Option.map(judgment, ({ candidate }) => candidate._tag)).toEqual(Option.some("Observation"))
       expect(Option.map(judgment, ({ candidate }) => candidate.id)).toEqual(Option.some("fixture-review/2"))
       expect(Option.getOrUndefined(judgment)).toMatchObject({
@@ -164,11 +176,13 @@ describe("gauntlet review", () => {
 
       expect(run.scripted.specs).toHaveLength(3)
       const snapshot = run.scripted.specs[0]?.workspace ?? "worktree path missing"
+
       for (const spec of run.scripted.specs) {
         expect(spec.workspace).toBe(snapshot)
         expect(spec.workspace).not.toBe(fixture.repo)
         expect(spec.tools).toEqual(["read", "grep", "glob"])
       }
+
       // Verification and Judgment run side by side, so their order varies.
       const [firstRole, ...laterRoles] = Array.map(run.scripted.specs, (spec) => spec.role)
       expect(firstRole).toBe("finder-1")
@@ -180,6 +194,7 @@ describe("gauntlet review", () => {
       const [finderSystemPrompt = ""] = systemPromptsFor(run.scripted, "-finders")
       expect(finderSystemPrompt).toContain(`repo=${RELATIVE_REPO_ROOT}`)
       expect(finderSystemPrompt).not.toContain(snapshot)
+
       for (const suffix of ["-verification", "-judgment"] as const) {
         const [prompt = ""] = promptTextsFor(run.scripted, suffix)
         expect(prompt).toContain(`Repo root: ${snapshot}`)
@@ -213,6 +228,7 @@ describe("gauntlet review", () => {
         ["review", "7", "--working-tree"],
         makeScripted({ sessions: [] }),
       )
+
       const aimedExit = yield* aimed.effect
       expect(aimedExit).toBe(1)
 
@@ -241,6 +257,7 @@ describe("gauntlet deliver", () => {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       const url = "https://github.com/example/repo/pull/7#issuecomment-1"
       let stdoutAtPost = ""
+
       const github = (posted: boolean) =>
         gitHubLayer({
           ...unusedGitHubContract,
@@ -251,6 +268,7 @@ describe("gauntlet deliver", () => {
               : TestConsole.logLines.pipe(
                 Effect.flatMap((lines) => {
                   stdoutAtPost = Array.join(Array.map(lines, String), "\n")
+
                   return Effect.fail(
                     GitHubError.make({ operation: "post", reason: "gh timed out" }),
                   )
@@ -264,11 +282,14 @@ describe("gauntlet deliver", () => {
         successfulScripted(),
         github(false),
       )
+
       const reviewedExit = yield* reviewed.effect
       expect(reviewedExit).toBe(1)
+
       const [runId = ""] = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readDirectory(fixture.runsRoot)),
       )
+
       expect(stdoutAtPost).toContain("dossier.md: ")
       expect((yield* TestConsole.errorLines).at(-1)).toBe(
         `gauntlet: could not deliver — gh timed out; check the PR for the comment before retrying with gauntlet deliver ${runId}`,
@@ -280,6 +301,7 @@ describe("gauntlet deliver", () => {
         makeScripted({ sessions: [] }),
         github(true),
       )
+
       const deliveredExit = yield* delivered.effect
       expect(deliveredExit).toBe(0)
       expect((yield* TestConsole.logLines).at(-1)).toBe(url)

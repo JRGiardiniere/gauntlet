@@ -99,6 +99,7 @@ const scriptedGitHub = (
     ...unusedGitHubContract,
     postComment: (cwd, number, body) => {
       script.posts.push({ cwd, number, body })
+
       return script.failPost === undefined
         ? Effect.succeed<PostedComment>({ url: script.url })
         : Effect.fail(
@@ -121,6 +122,7 @@ const writeCompletedRun = (
     yield* writeArtifactJson(paths.plan, ReviewPlan, plan)
     yield* writeArtifactJson(paths.dossier, Dossier, dossierFor(target))
     yield* writeArtifactText(paths.dossierMarkdown, markdown)
+
     return { paths, plan }
   })
 
@@ -163,8 +165,10 @@ describe("deliverCompletedRun", () => {
           fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
         ),
       )
+
       const markdown = markdownFor("- **[P1]** src/alpha.ts:1 — a real bug")
       const loaded = yield* writeCompletedRun(root, prTarget, markdown)
+
       const script: ScriptedGitHub = {
         posts: [],
         failPost: undefined,
@@ -176,10 +180,12 @@ describe("deliverCompletedRun", () => {
       )
 
       expect(DeliveryReceipt.guards.Posted(receipt)).toBe(true)
+
       if (DeliveryReceipt.guards.Posted(receipt)) {
         expect(receipt.url).toBe(script.url)
         expect(receipt.truncated).toBe(false)
       }
+
       expect(script.posts).toEqual([{ cwd: prTarget.repoRoot, number: 7, body: markdown }])
 
       const stored = yield* FileSystem.FileSystem.pipe(
@@ -188,10 +194,13 @@ describe("deliverCompletedRun", () => {
           Schema.decodeEffect(Schema.fromJsonString(DeliveryReceipt)),
         ),
       )
+
       expect(stored).toEqual(receipt)
+
       const repeated = yield* deliverCompletedRun(loaded).pipe(
         Effect.provide(scriptedGitHub(script)),
       )
+
       expect(repeated).toEqual(stored)
       expect(script.posts).toHaveLength(1)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
@@ -203,14 +212,17 @@ describe("deliverCompletedRun", () => {
           fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
         ),
       )
+
       const loaded = yield* writeCompletedRun(
         root,
         prTarget,
         markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
       )
+
       const fs = yield* FileSystem.FileSystem
       const originalMarkdown = yield* fs.readFileString(loaded.paths.dossierMarkdown)
       const originalDossier = yield* fs.readFileString(loaded.paths.dossier)
+
       const script: ScriptedGitHub = {
         posts: [],
         failPost: "GitHub unavailable",
@@ -221,14 +233,17 @@ describe("deliverCompletedRun", () => {
         Effect.provide(scriptedGitHub(script)),
         Effect.flip,
       )
+
       expect(failed).toBeInstanceOf(DeliveryError)
       expect(failed.reason).toBe("GitHub unavailable")
+
       const notPosted = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readFileString(loaded.paths.receipt)),
         Effect.flatMap(
           Schema.decodeEffect(Schema.fromJsonString(DeliveryReceipt)),
         ),
       )
+
       expect(notPosted).toEqual(DeliveryReceipt.cases.NotPosted.make({
         runId: loaded.plan.runId,
         reason: "GitHub unavailable",
@@ -239,17 +254,23 @@ describe("deliverCompletedRun", () => {
       expect(dossierAfter).toBe(originalDossier)
 
       script.failPost = undefined
+
       const posted = yield* deliverCompletedRun(loaded).pipe(
         Effect.provide(scriptedGitHub(script)),
       )
+
       expect(DeliveryReceipt.guards.Posted(posted)).toBe(true)
+
       if (DeliveryReceipt.guards.Posted(posted)) {
         expect(posted.url).toBe(script.url)
       }
+
       expect(script.posts).toHaveLength(2)
+
       const stored = yield* fs.readFileString(loaded.paths.receipt).pipe(
         Effect.flatMap(Schema.decodeEffect(Schema.fromJsonString(DeliveryReceipt))),
       )
+
       expect(stored).toEqual(posted)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -260,8 +281,10 @@ describe("deliverCompletedRun", () => {
           fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
         ),
       )
+
       const markdown = markdownFor(`- **[P1]** src/alpha.ts:1 — ${"e".repeat(70_000)}`)
       const loaded = yield* writeCompletedRun(root, prTarget, markdown)
+
       const script: ScriptedGitHub = {
         posts: [],
         failPost: undefined,
@@ -271,18 +294,23 @@ describe("deliverCompletedRun", () => {
       const receipt = yield* deliverCompletedRun(loaded).pipe(
         Effect.provide(scriptedGitHub(script)),
       )
+
       expect(DeliveryReceipt.guards.Posted(receipt)).toBe(true)
+
       if (DeliveryReceipt.guards.Posted(receipt)) {
         expect(receipt.truncated).toBe(true)
       }
+
       expect(script.posts[0]?.body).toContain(FULL_DOSSIER_NOTE)
       expect(script.posts[0]?.body).toContain("Gauntlet review run-fixture")
       expect(utf8Bytes(script.posts[0]?.body ?? "")).toBeLessThanOrEqual(
         SAFE_PR_COMMENT_BYTES,
       )
+
       const markdownAfter = yield* FileSystem.FileSystem.pipe(
         Effect.flatMap((fs) => fs.readFileString(loaded.paths.dossierMarkdown)),
       )
+
       expect(markdownAfter).toBe(markdown)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -293,11 +321,13 @@ describe("deliverCompletedRun", () => {
           fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
         ),
       )
+
       const loaded = yield* writeCompletedRun(
         root,
         workingTreeTarget,
         markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
       )
+
       const script: ScriptedGitHub = {
         posts: [],
         failPost: undefined,
@@ -322,13 +352,16 @@ describe("deliverCompletedRun", () => {
           fs.makeTempDirectoryScoped({ prefix: "gauntlet-delivery-" })
         ),
       )
+
       const loaded = yield* writeCompletedRun(
         root,
         prTarget,
         markdownFor("- **[P1]** src/alpha.ts:1 — a real bug"),
       )
+
       const fs = yield* FileSystem.FileSystem
       yield* fs.makeDirectory(loaded.paths.receipt)
+
       const script: ScriptedGitHub = {
         posts: [],
         failPost: undefined,

@@ -44,8 +44,10 @@ const formatTokenCount = (count: number): string =>
 export const describeTokens = (tokens: TokenTotals): string => {
   const prompted = tokens.input + tokens.cacheRead + tokens.cacheWrite
   const percent = cacheHitPercent([tokens])
+
   const cache = percent === undefined
     ? ""
     : ` (${formatTokenCount(tokens.cacheRead)} cache read, ${String(percent)}%)`
+
   return `${formatTokenCount(prompted)} in${cache} · ${formatTokenCount(tokens.output)} out`
 }

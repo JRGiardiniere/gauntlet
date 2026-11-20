@@ -9,6 +9,7 @@ export const StageName = Schema.Literals([
   "judgment",
   "assembly",
 ])
+
 export type StageName = typeof StageName.Type
 
 export const SeatedStageName = Schema.Literals([
@@ -17,4 +18,5 @@ export const SeatedStageName = Schema.Literals([
   "verification",
   "judgment",
 ])
+
 export type SeatedStageName = typeof SeatedStageName.Type

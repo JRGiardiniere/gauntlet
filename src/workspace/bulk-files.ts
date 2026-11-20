@@ -37,6 +37,7 @@ interface InlinedDiff {
 }
 
 const FILE_HEADER = "diff --git "
+
 // Where a file's changed text starts, after its extended header lines
 // (`new file mode`, `deleted file mode`, `index`, renames).
 const BODY = ["--- ", "+++ ", "@@", "Binary files ", "GIT binary patch"]
@@ -46,6 +47,7 @@ const BODY = ["--- ", "+++ ", "@@", "Binary files ", "GIT binary patch"]
 // keeps only its last segment's tail, which still names a lockfile.
 const headerPath = (line: string) => {
   const last = line.slice(line.lastIndexOf(" ") + 1).replace(/^"|"$/g, "")
+
   return last.startsWith("b/") ? last.slice(2) : last
 }
 
@@ -56,17 +58,21 @@ export const inlinedDiff = (diff: string): InlinedDiff => {
   const kept: Array<string> = []
   let lockfile = false
   let inBody = false
+
   for (const line of diff.split("\n")) {
     if (line.startsWith(FILE_HEADER)) {
       const file = headerPath(line)
       lockfile = isLockfile(file)
       inBody = false
+
       if (lockfile) omitted.push(file)
     } else if (lockfile && !inBody && Array.some(BODY, (start) => line.startsWith(start))) {
       inBody = true
     }
+
     if (!(lockfile && inBody)) kept.push(line)
   }
+
   return { diff: Array.join(kept, "\n"), omitted }
 }
 

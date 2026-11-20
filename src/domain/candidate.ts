@@ -24,10 +24,13 @@ export const Candidate = Schema.TaggedUnion({
   },
   Observation: candidateCore,
 })
+
 export type Candidate = typeof Candidate.Type
 
 export const BugClaim = Candidate.cases.BugClaim
+
 export type BugClaim = typeof BugClaim.Type
 
 export const Observation = Candidate.cases.Observation
+
 export type Observation = typeof Observation.Type

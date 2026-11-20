@@ -44,6 +44,7 @@ const RECIPES = {
   "live-openai": { default: "openai/gpt-6-luna:low" },
   "live-mixed": { default: "openai/gpt-6-luna:low", finders: "claude-code/haiku:low" },
 }
+
 const LENSES = "diff-scan,cleanup,removed-behavior"
 
 const encodeJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
@@ -56,6 +57,7 @@ const runStep = (
 ) =>
   Effect.gen(function* () {
     yield* Console.log(`\n[live-gate-compiled] ${step}`)
+
     const exitCode = yield* Effect.scoped(
       Effect.gen(function* () {
         const handle = yield* ChildProcess.make(command, args, {
@@ -65,9 +67,11 @@ const runStep = (
           stdout: "inherit",
           stderr: "inherit",
         })
+
         return yield* handle.exitCode
       }),
     )
+
     if (exitCode !== 0) {
       return yield* LiveGateStepFailed.make({ step, reason: `exited ${String(exitCode)}` })
     }
@@ -91,6 +95,7 @@ const review = (step: string, binary: string, recipe: string, cwd: string, env: 
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     yield* Console.log(`\n[live-gate-compiled] ${step}`)
+
     const result = yield* Effect.scoped(
       Effect.gen(function* () {
         const handle = yield* ChildProcess.make(
@@ -98,28 +103,38 @@ const review = (step: string, binary: string, recipe: string, cwd: string, env: 
           ["review", "--recipe", recipe, "--lenses", LENSES],
           { cwd, env, extendEnv: true, stderr: "inherit" },
         )
+
         const [stdout, exitCode] = yield* Effect.all(
           [Stream.decodeText(handle.stdout).pipe(Stream.mkString), handle.exitCode],
           { concurrency: 2 },
         )
+
         return { stdout, exitCode }
       }),
     )
+
     yield* Console.log(result.stdout)
+
     if (result.exitCode !== 0) {
       return yield* LiveGateStepFailed.make({ step, reason: `exited ${String(result.exitCode)}` })
     }
+
     const dossierMd = /^dossier\.md: (.+)$/m.exec(result.stdout)?.[1]
+
     if (dossierMd === undefined) {
       return yield* LiveGateStepFailed.make({ step, reason: "the digest named no dossier.md" })
     }
+
     const text = yield* fs.readFileString(path.join(path.dirname(dossierMd), "dossier.json"))
     const dossier = yield* Schema.decodeEffect(DossierFacts)(text)
+
     if (dossier.coverageGaps.length > 0) {
       return yield* LiveGateStepFailed.make({ step, reason: `degraded (${String(dossier.coverageGaps.length)} coverage gaps)` })
     }
+
     const verdicts = Array.filter(dossier.findings, (finding) => finding._tag === "Confirmed").length +
       dossier.rejected.refutedClaims.length
+
     if (verdicts === 0) {
       return yield* LiveGateStepFailed.make({ step, reason: "no confirmed or refuted BugClaim: Verification did not run" })
     }
@@ -133,6 +148,7 @@ const program = Effect.gen(function* () {
   const claudeConfig = yield* Config.option(Config.String("CLAUDE_CONFIG_DIR"))
   const which = process.argv[2]
   const modes = which === undefined ? MODES : Array.filter(MODES, (mode) => mode === which)
+
   if (modes.length === 0) {
     return yield* LiveGateStepFailed.make({ step: "read the mode", reason: `unknown mode ${which ?? ""}: use openai or mixed` })
   }
@@ -146,11 +162,14 @@ const program = Effect.gen(function* () {
   const root = yield* fs.makeTempDirectory({ prefix: "gauntlet-live-gate-compiled-" })
   const home = path.join(root, "home")
   yield* fs.makeDirectory(path.join(home, ".gauntlet"), { recursive: true })
+
   if (storePresent) yield* fs.symlink(store, path.join(home, ".gauntlet", "opencode"))
+
   const env = {
     HOME: home,
     CLAUDE_CONFIG_DIR: Option.getOrElse(claudeConfig, () => path.join(realHome, ".claude")),
   }
+
   yield* runStep("config init in a fresh HOME", binary, ["config", "init"], { env })
   yield* Effect.forEach(Record.toEntries(RECIPES), ([name, recipe]) =>
     encodeJson(recipe).pipe(
@@ -163,8 +182,10 @@ const program = Effect.gen(function* () {
   yield* git("init", "--initial-branch=main")
   yield* git("config", "user.email", "live-gate@example.invalid")
   yield* git("config", "user.name", "live gate")
+
   const source = (body: string) =>
     `export function applyDiscount(totalCents: number, percent: number): number {\n${body}}\n`
+
   yield* fs.writeFileString(
     path.join(repo, "discount.ts"),
     source(
@@ -179,6 +200,7 @@ const program = Effect.gen(function* () {
     yield* review("OpenAI review, cold cache", binary, "live-openai", repo, env)
     yield* review("OpenAI review, warm cache", binary, "live-openai", repo, env)
   }
+
   if (modes.includes("mixed")) {
     yield* review("mixed review: Claude Finders, OpenAI Pool, Verification and Judgment", binary, "live-mixed", repo, env)
   }

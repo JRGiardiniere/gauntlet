@@ -41,6 +41,7 @@ import {
 // error inside the same turn.
 
 const MAX_CORRECTIVE_TURNS = 2
+
 // How long a deadline waits for the Host to stop the session and report what
 // the cut turn had spent.
 const CUT_SHORT_GRACE = Duration.seconds(10)
@@ -89,9 +90,11 @@ const validateInput = <O>(input: InvokeInput<O>) =>
     if (input.systemPrompt.trim() === "") {
       return yield* InvocationSetupError.make({ reason: "systemPrompt must be non-empty" })
     }
+
     if (input.prompt.trim() === "") {
       return yield* InvocationSetupError.make({ reason: "prompt must be non-empty" })
     }
+
     if (!Number.isFinite(input.deadlineMillis) || input.deadlineMillis <= 0) {
       return yield* InvocationSetupError.make({ reason: "deadlineMillis must be a positive finite number" })
     }
@@ -106,9 +109,11 @@ const runTurns = (
 ): Effect.Effect<Termination, AdapterContractViolation> =>
   Effect.gen(function* () {
     let text = input.prompt
+
     for (let corrective = 0; ; corrective += 1) {
       const result = yield* session.turn(text)
       yield* Ref.update(turns, Array.append(result))
+
       switch (result.end._tag) {
         case "Emitted":
           return Termination.cases.Completed.make({})
@@ -122,6 +127,7 @@ const runTurns = (
           if (corrective >= MAX_CORRECTIVE_TURNS) {
             return Termination.cases.MissingEmit.make({ correctiveTurns: corrective })
           }
+
           text = correctivePrompt(input.contract.toolName)
         }
       }
@@ -158,15 +164,18 @@ const finalizeOutcome = <O>(
 ): Effect.Effect<AgentOutcome<O>, AdapterContractViolation> =>
   Effect.gen(function* () {
     const diagnostics = [...turnDiagnostics(turns)]
+
     if (Termination.guards.BudgetExhausted(termination)) {
       diagnostics.push("overall invocation deadline exhausted")
     }
+
     if (Termination.guards.Completed(termination) && turns.length > 1) {
       const corrective = turns.length - 1
       diagnostics.push(
         `validated emit succeeded after ${String(corrective)} corrective turn${corrective === 1 ? "" : "s"}`,
       )
     }
+
     const outcome = {
       termination,
       usage: usageOf([...Array.flatMap(turns, (turn) => turn.usage), ...cutShort]),
@@ -177,14 +186,18 @@ const finalizeOutcome = <O>(
       durationMillis,
       diagnostics,
     }
+
     const emitted = Array.findLast(turns, (turn) => TurnEnd.$is("Emitted")(turn.end))
+
     if (Option.isNone(emitted) || !TurnEnd.$is("Emitted")(emitted.value.end)) return outcome
+
     const output = yield* decodeOutputContract(input.contract)(emitted.value.end.raw).pipe(
       Effect.mapError((error) =>
         AdapterContractViolation.make({
           reason: `validated ${input.contract.toolName} arguments failed their OutputContract decoder: ${String(error)}`,
         })),
     )
+
     return { ...outcome, output }
   })
 
@@ -197,6 +210,7 @@ const invokeInternal = <O>(
     const factory = yield* HarnessSessionFactory
     const startedAt = yield* Clock.currentTimeMillis
     const turns = yield* Ref.make<ReadonlyArray<TurnResult>>([])
+
     const spec = {
       invocationId: input.invocationId,
       role: input.role,
@@ -206,34 +220,45 @@ const invokeInternal = <O>(
       tools: input.tools,
       emit: emitToolSpec(input.contract),
     }
+
     const cutShort = yield* Ref.make<ReadonlyArray<UsageRow>>([])
+
     const termination = yield* Effect.scoped(
       Effect.gen(function* () {
         let opened: HarnessSession | undefined
+
         const ended = yield* Effect.gen(function* () {
           const session = yield* factory.open(
             input.cacheGroup === undefined ? spec : { ...spec, cacheGroup: input.cacheGroup },
           )
+
           opened = session
+
           if (firstToken !== undefined) {
             yield* session.firstToken.pipe(
               Effect.andThen(Deferred.succeed(firstToken, PrefixSignal.PrefixObserved())),
               Effect.forkScoped,
             )
           }
+
           return yield* runTurns(session, input, turns)
         }).pipe(Effect.timeoutOption(Duration.millis(input.deadlineMillis)))
+
         if (Option.isSome(ended)) return ended.value
+
         if (opened !== undefined) {
           const rows = yield* opened.cutShort.pipe(Effect.timeoutOption(CUT_SHORT_GRACE))
           yield* Ref.set(cutShort, Option.getOrElse(rows, () => []))
         }
+
         return Termination.cases.BudgetExhausted.make({})
       }),
     )
+
     const finishedAt = yield* Clock.currentTimeMillis
     const recorded = yield* Ref.get(turns)
     const cutRows = yield* Ref.get(cutShort)
+
     return yield* finalizeOutcome(
       input,
       termination,
@@ -256,10 +281,12 @@ export const invokeSignaled = Effect.fn("Invocation.invokeSignaled")(function* <
   input: InvokeInput<O>,
 ): Effect.fn.Return<RunningInvocation<O>, never, HarnessSessionFactory | Scope.Scope> {
   const signal = yield* Deferred.make<PrefixSignal>()
+
   const fiber = yield* invokeInternal(input, signal).pipe(
     Effect.ensuring(Deferred.succeed(signal, PrefixSignal.PrefixNotObserved())),
     Effect.forkScoped,
   )
+
   return {
     firstResponse: Deferred.await(signal),
     outcome: Fiber.join(fiber),

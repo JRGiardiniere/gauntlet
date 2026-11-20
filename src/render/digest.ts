@@ -25,6 +25,7 @@ import { describeTargetShort } from "./target-text.ts"
 // break lines nor balloon them. The full text stays in the run dir.
 const boundedLine = (text: string): string => {
   const flat = text.replace(/\s+/g, " ").trim()
+
   return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat
 }
 
@@ -56,17 +57,22 @@ const tagCounts = (entries: ReadonlyArray<DossierEntryView>): string =>
 // as Markdown never folds a group's heading into the item above it.
 const priorityGroups = (view: DossierView): ReadonlyArray<ReadonlyArray<string>> => {
   const entries = [...view.findings, ...view.unresolved]
+
   if (entries.length === 0) return [["No findings."]]
+
   const groups = [
     { heading: "P1", priority: "P1", listed: true },
     { heading: "P2", priority: "P2", listed: true },
     { heading: "P3", priority: "P3", listed: false },
     { heading: "No priority", priority: undefined, listed: false },
   ] as const
+
   return Array.flatMap(groups, ({ heading, priority, listed }) => {
     const group = Array.filter(entries, (entry) => entry.reviewPriority === priority)
+
     if (group.length === 0) return []
     const counted = `${heading} (${String(group.length)})`
+
     return [
       listed
         ? [counted, ...Array.map(group, entryLine)]
@@ -99,15 +105,18 @@ export const renderDigest = (
 ): string => {
   const view = viewDossier(dossier)
   const recipeName = plan.recipeName ?? "none"
+
   const count = (
     entries: ReadonlyArray<DossierEntryView>,
     tag: DossierEntryView["tag"],
   ) => String(Array.filter(entries, (entry) => entry.tag === tag).length)
+
   const tally =
     `${count(view.findings, "confirmed")} confirmed · ${count(view.findings, "judgment")} kept · ` +
     `${count(view.unresolved, "plausible")} plausible · ${count(view.unresolved, "undecided")} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
     `${accounting.wallTimeSeconds}s`
+
   // A review missing work must say so where the agent relays it: a run whose
   // every Finder failed otherwise reads as a clean zero (ADR 0005, #137).
   const coverageGaps = dossier.coverageGaps.length === 0
@@ -118,19 +127,23 @@ export const renderDigest = (
           `${gap.lens ?? gap.stage} (${gap.reason})`), Array.join("; "))
       }`,
     )]
+
   const toolHealth = accounting.finderToolHealth !== undefined &&
       isFinderToolCascade(accounting.finderToolHealth)
     ? [boundedLine(
       `tool health: ${describeFinderToolHealth(accounting.finderToolHealth)}`,
     )]
     : []
+
   // A lens that doesn't apply is skipped by design, not missing work, so it
   // is named apart from the coverage gaps: otherwise only dossier.md says it
   // never ran.
   const skipped = selectRunnableFinders(plan).skipped
+
   const notRun = skipped.length === 0
     ? []
     : [`Not run: ${pipe(skipped, Array.map(({ lens, reason }) => `${lens.name} (${reason})`), Array.join(", "))}`]
+
   return Array.join([
     tally,
     ...coverageGaps,

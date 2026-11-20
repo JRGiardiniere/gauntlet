@@ -37,6 +37,7 @@ describe("finder selection", () => {
       lens("spec-conformance", "specification tail"),
       lens("standards", "standards tail with no governing block"),
     ]))
+
     expect(Array.map(selection.runnable, ({ name }) => name)).toEqual([
       "fixture-review",
     ])
@@ -55,6 +56,7 @@ describe("finder selection", () => {
         `standards tail\n\n${GOVERNING_STANDARDS_HEADING}\n\n### CLAUDE.md\n\nrule text`,
       ),
     ]))
+
     expect(Array.map(selection.runnable, ({ name }) => name)).toEqual(["standards"])
     expect(selection.skipped).toEqual([])
   })

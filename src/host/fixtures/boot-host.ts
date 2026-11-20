@@ -25,37 +25,45 @@ const client = Effect.gen(function* () {
   if (mode === "gauntlet") {
     const paths = yield* hostPaths()
     const host = yield* bootHost(paths, { _tag: "File", path: catalogPath })
+
     return { client: host.client, location: host.location }
   }
+
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const home = yield* Config.String("HOME")
   const location = { directory: path.join(home, "control-location") }
   yield* fs.makeDirectory(location.directory, { recursive: true })
+
   const opencode = yield* OpenCode.create({
     database: { path: path.join(home, "control.db") },
     models: { file: catalogPath, fetch: false, snapshot: false },
     fs: { filewatcher: false, fff: false },
   })
+
   return { client: opencode, location }
 })
 
 const program = Effect.gen(function* () {
   const { client: opencode, location } = yield* client
+
   // A cold Location's first answers may precede plugin activation.
   const models = yield* opencode.model.list({ location }).pipe(
     Effect.map((response) => Array.map(response.data, (model) => `${model.providerID}/${model.id}`)),
     Effect.repeat({ until: (ids) => ids.length > 0, times: 50 }),
   )
+
   const openai = yield* opencode.integration.get({ location, integrationID: Integration.ID.make("openai") })
   const skills = yield* opencode.skill.list({ location })
   const config = yield* opencode.config.get({ location })
+
   const report = yield* encode({
     models,
     openai: Array.map(openai.data.connections, (connection) => connection.type),
     skills: skills.data,
     config,
   })
+
   yield* Console.log(report)
 })
 

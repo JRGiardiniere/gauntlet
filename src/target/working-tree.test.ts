@@ -21,6 +21,7 @@ const makeDirtyRepo = Effect.gen(function* () {
     path.join(repo, "alpha.txt"),
     "first line\nchanged\n",
   )
+
   return repo
 })
 
@@ -41,11 +42,13 @@ describe("resolveWorkingTreeTarget", () => {
       expect(target.warnings).toEqual([
         "1 untracked file(s) not included in the diff: stray.txt",
       ])
+
       // Untracked content reaches /repo through the workspace overlay, never
       // through the target.
       const encoded = yield* Schema.encodeEffect(
         Schema.fromJsonString(ReviewTarget),
       )(target)
+
       expect(encoded).not.toContain("stray-untracked-payload")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
@@ -54,6 +57,7 @@ describe("resolveWorkingTreeTarget", () => {
       const { repo } = yield* makeGitFixture({
         prefix: "gauntlet-working-tree-excludes-",
       })
+
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       yield* fs.writeFileString(path.join(repo, "alpha.txt"), "first line\n")
@@ -73,9 +77,11 @@ describe("resolveWorkingTreeTarget", () => {
       const target = yield* resolveWorkingTreeTarget(repo, undefined)
       expect(target.untrackedFiles).toEqual(["visible.txt"])
       expect(Array.join(target.warnings, "\n")).toContain("visible.txt")
+
       const encoded = yield* Schema.encodeEffect(
         Schema.fromJsonString(ReviewTarget),
       )(target)
+
       expect(encoded).not.toContain("secret.env")
       expect(encoded).not.toContain("ignored.txt")
       expect(encoded).not.toContain("token=hidden")

@@ -29,10 +29,13 @@ export const captureWorkspaceOverlay = Effect.fn(
 )(function* (target: WorkingTreeTarget) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+
   const scratch = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-overlay-",
   })
+
   const overlay = path.join(scratch, "overlay.patch")
+
   const git = (args: ReadonlyArray<string>) =>
     runGit(target.repoRoot, args, {
       GIT_INDEX_FILE: path.join(scratch, "index"),
@@ -47,6 +50,7 @@ export const captureWorkspaceOverlay = Effect.fn(
         })
       ),
     )
+
   // The overlay is relative to headCommit, so it stages the files that differ
   // from headCommit — not target.changedFiles, which starts at the review
   // diff's base and, in the combined commits-plus-working-tree form, names
@@ -62,11 +66,13 @@ export const captureWorkspaceOverlay = Effect.fn(
     explainGit("could not list the files to capture in the overlay"),
     Effect.map((out) => Array.filter(out.split("\0"), (line) => line !== "")),
   )
+
   yield* git(["read-tree", target.headCommit])
   // :(literal) keeps bracketed or colon-prefixed filenames from being read
   // as pathspec magic. An empty pathspec would mean "everything", so a clean
   // tree under a commit range captures an empty overlay instead.
   const staged = [...changedFiles, ...target.untrackedFiles]
+
   if (staged.length > 0) {
     yield* git([
       "add",
@@ -75,6 +81,7 @@ export const captureWorkspaceOverlay = Effect.fn(
       ...Array.map(staged, (file) => `:(literal)${file}`),
     ])
   }
+
   yield* git([
     "diff",
     "--binary",
@@ -83,6 +90,7 @@ export const captureWorkspaceOverlay = Effect.fn(
     `--output=${overlay}`,
     target.headCommit,
   ])
+
   return yield* fs.readFile(overlay).pipe(
     Effect.mapError((cause) =>
       TargetUnresolvable.make({
@@ -98,16 +106,20 @@ export const acquireReviewWorkingDirectory = Effect.fn(
 )(function* (target: ReviewTarget, runId: string, overlayPath: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+
   const label = ReviewTarget.match(target, {
     WorkingTree: () => "the working tree",
     Commits: ({ headCommit }) => `commit ${headCommit}`,
     PullRequest: ({ number }) => `PR #${String(number)}`,
   })
+
   const runFailure = (reason: string, cause?: unknown) =>
     RunError.make({ operation: "execute-plan", reason, runId, cause })
+
   const scratchDirectory = yield* fs.makeTempDirectoryScoped({
     prefix: "gauntlet-review-",
   })
+
   const directory = path.join(scratchDirectory, "worktree")
   yield* Effect.acquireRelease(
     // runGit runs no hooks, so the reviewed commit's post-checkout does not
@@ -150,6 +162,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
           )),
       ),
   )
+
   if (target._tag !== "WorkingTree") return directory
   yield* runGit(directory, [
     "apply",
@@ -169,5 +182,6 @@ export const acquireReviewWorkingDirectory = Effect.fn(
       )
     ),
   )
+
   return directory
 })

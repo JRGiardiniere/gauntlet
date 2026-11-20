@@ -59,6 +59,7 @@ export const standardsManifestPath = Effect.fn(
 )(function* (repoRoot: string) {
   const path = yield* Path.Path
   const identity = yield* resolveRepoIdentity(repoRoot)
+
   const home = yield* gauntletHome().pipe(
     Effect.mapError((cause) =>
       StandardsManifestError.make({
@@ -67,6 +68,7 @@ export const standardsManifestPath = Effect.fn(
         cause,
       })),
   )
+
   return path.join(home, "standards", encodeRepoIdentity(identity))
 })
 
@@ -79,6 +81,7 @@ const resolveEntry = Effect.fn("gauntlet.standards.resolve_entry")(function* (
   entry: string,
 ) {
   const path = yield* Path.Path
+
   if (entry.startsWith("~/")) {
     const home = yield* Config.String("HOME").pipe(
       Effect.mapError((cause) =>
@@ -88,8 +91,10 @@ const resolveEntry = Effect.fn("gauntlet.standards.resolve_entry")(function* (
           cause,
         })),
     )
+
     return path.join(home, entry.slice(2))
   }
+
   return path.isAbsolute(entry) ? entry : path.join(repoRoot, entry)
 })
 
@@ -103,6 +108,7 @@ export const loadGoverningStandardsBlock = Effect.fn(
 )(function* (repoRoot: string) {
   const fs = yield* FileSystem.FileSystem
   const manifestPath = yield* standardsManifestPath(repoRoot)
+
   const source = yield* fs.readFileString(manifestPath).pipe(
     Effect.asSome,
     Effect.catchTag("PlatformError", (failure) =>
@@ -116,17 +122,21 @@ export const loadGoverningStandardsBlock = Effect.fn(
           }),
         )),
   )
+
   if (Option.isNone(source)) return undefined
+
   const entries = pipe(
     source.value.split("\n"),
     Array.map((line) => line.trim()),
     Array.filter((line) => line !== ""),
   )
+
   if (entries.length === 0) return undefined
 
   const sections = yield* Effect.forEach(entries, (entry) =>
     Effect.gen(function* () {
       const documentPath = yield* resolveEntry(manifestPath, repoRoot, entry)
+
       const text = yield* fs.readFileString(documentPath).pipe(
         Effect.mapError((cause) =>
           StandardsManifestError.make({
@@ -136,8 +146,10 @@ export const loadGoverningStandardsBlock = Effect.fn(
             cause,
           })),
       )
+
       return `### ${entry}\n\n${text.trim()}`
     }), { concurrency: 4 })
+
   return Array.join([
     GOVERNING_STANDARDS_HEADING,
     "The documents that govern how the changed code should be written, fed from the Standards Manifest. Judge each document's applicability from its own text.",

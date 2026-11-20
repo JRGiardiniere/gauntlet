@@ -44,6 +44,7 @@ const runPool = (scripted: Scripted, seatless = false) =>
       seats: seatless ? {} : { pool: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
     }
+
     return yield* executePool({
       plan,
       reviewWorkingDirectory: REVIEW_ROOT,

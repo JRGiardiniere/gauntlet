@@ -15,6 +15,7 @@ import {
 import { executeJudgment } from "./judgment.ts"
 
 const REPO_ROOT = "/fixture/repo"
+
 const REVIEW_ROOT = "/fixture/review-worktree"
 
 const target = ReviewTarget.cases.PullRequest.make({
@@ -85,6 +86,7 @@ const runJudgment = (
         : { judgment: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
     }
+
     return yield* executeJudgment({
       plan,
       reviewWorkingDirectory: REVIEW_ROOT,

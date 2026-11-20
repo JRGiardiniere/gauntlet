@@ -19,6 +19,7 @@ import { readOptionalArtifactText, writeArtifactJson } from "../run/artifact.ts"
 import { gauntletVersion } from "./version.ts"
 
 export const repository = "JRGiardiniere/gauntlet"
+
 const latestReleaseUrl = `https://github.com/${repository}/releases/latest`
 
 export class UpdateProbeError extends Schema.TaggedError<
@@ -38,6 +39,7 @@ const isTransientStatus = (status: number): boolean =>
 export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
   function* () {
     const fetch = yield* FetchHttpClient.Fetch
+
     // Own redirect behavior at the request boundary. An ambient HttpClient can
     // be replaced by an outer application Layer, which made the 1.0 updater
     // follow this redirect and lose the release tag.
@@ -52,11 +54,13 @@ export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
         catch: (cause) =>
           UpdateProbeError.make({ reason: "release lookup failed", cause }),
       })
+
       if (isTransientStatus(result.status)) {
         return yield* UpdateProbeError.make({
           reason: `release lookup failed with status ${String(result.status)}`,
         })
       }
+
       return result
     }).pipe(
       Effect.timeoutOrElse({
@@ -68,18 +72,23 @@ export const probeLatestVersion = Effect.fn("gauntlet.update.probe_latest")(
       }),
       Effect.retry({ times: 2 }),
     )
+
     const location = response.headers.get("location")
+
     if (location === null) {
       return yield* UpdateProbeError.make({
         reason: `${latestReleaseUrl} did not redirect — the repository may have no releases`,
       })
     }
+
     const version = releaseTagPattern.exec(location)?.[1]
+
     if (version === undefined) {
       return yield* UpdateProbeError.make({
         reason: `unrecognized release redirect: ${location}`,
       })
     }
+
     return version
   },
 )
@@ -88,6 +97,7 @@ const versionPattern = /^(\d+)\.(\d+)\.(\d+)$/
 
 const parseVersion = (raw: string) => {
   const match = versionPattern.exec(raw)
+
   return match === null
     ? Option.none<ReadonlyArray<number>>()
     : Option.some(Array.map(match.slice(1), Number))
@@ -97,12 +107,16 @@ const parseVersion = (raw: string) => {
 // never nags, and a malformed tag never reads as an upgrade.
 export const isNewer = (candidate: string, current: string): boolean => {
   const parsed = Option.all([parseVersion(candidate), parseVersion(current)])
+
   if (Option.isNone(parsed)) return false
   const [candidateParts, currentParts] = parsed.value
+
   for (let index = 0; index < candidateParts.length; index += 1) {
     const difference = (candidateParts[index] ?? 0) - (currentParts[index] ?? 0)
+
     if (difference !== 0) return difference > 0
   }
+
   return false
 }
 
@@ -125,6 +139,7 @@ const decodeState = Schema.decodeUnknownEffect(
 const statePath = Effect.fn("gauntlet.update.state_path")(function* () {
   const path = yield* Path.Path
   const home = yield* gauntletHome()
+
   return path.join(home, "update-check.json")
 })
 
@@ -135,6 +150,7 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
     const path = yield* statePath()
     const currentTime = yield* DateTime.now
     const now = DateTime.toEpochMillis(currentTime)
+
     const cached = yield* readOptionalArtifactText(path).pipe(
       Effect.flatMap(Option.match({
         onNone: () => Effect.succeed(Option.none<typeof UpdateCheckState.Type>()),
@@ -143,14 +159,17 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
       Effect.orElseSucceed(() =>
         Option.none<typeof UpdateCheckState.Type>()),
     )
+
     if (
       Option.isSome(cached) && now - cached.value["checked-at"] < dayMillis
     ) {
       const latest = cached.value.latest
+
       return latest === undefined
         ? Option.none<string>()
         : Option.some(latest)
     }
+
     // Reserve the attempt before probing: the notice fiber is joined for at
     // most a second at exit, so a marker written only after a slow probe
     // would be interrupted and the daily budget would never hold offline.
@@ -165,16 +184,19 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
     yield* writeArtifactJson(path, UpdateCheckState, {
       "checked-at": now,
     }).pipe(Effect.ignore)
+
     const probed = yield* probeLatestVersion().pipe(
       Effect.timeoutOption("5 seconds"),
       Effect.orElseSucceed(() => Option.none<string>()),
     )
+
     if (Option.isSome(probed)) {
       yield* writeArtifactJson(path, UpdateCheckState, {
         "checked-at": now,
         latest: probed.value,
       }).pipe(Effect.ignore)
     }
+
     return probed
   },
 )
@@ -184,9 +206,11 @@ const latestKnownVersion = Effect.fn("gauntlet.update.latest_known")(
 export const availableUpdateNotice = Effect.fn("gauntlet.update.notice")(
   function* () {
     if (!isCompiledBinary) return Option.none<string>()
+
     const latest = yield* latestKnownVersion().pipe(
       Effect.orElseSucceed(() => Option.none<string>()),
     )
+
     return Option.filter(latest, (candidate) =>
       isNewer(candidate, gauntletVersion))
   },

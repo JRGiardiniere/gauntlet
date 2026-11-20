@@ -23,6 +23,7 @@ export const INITIAL_RECIPES: ReadonlyArray<readonly [RecipeName, Recipe]> = [
   ["claude-medium", Recipe.make({ default: "claude-code/opus:medium" })],
   ["claude-high", Recipe.make({ default: "claude-code/opus:high" })],
 ]
+
 export const INITIAL_DEFAULT_RECIPE: RecipeName = "medium"
 
 // language-pitfalls, refactoring-checklist, security and wrapper-proxy stay in
@@ -56,12 +57,15 @@ const writeAbsentRecipes = Effect.fn("InitialConfig.writeAbsentRecipes")(functio
   const path = yield* Path.Path
   const catalogPath = yield* recipesDirectory()
   const written: Array<RecipeName> = []
+
   for (const [name, recipe] of recipes) {
     const file = path.join(catalogPath, `${name}.json`)
+
     if (yield* fs.exists(file)) continue
     yield* writeArtifactJson(file, Recipe, recipe)
     written.push(name)
   }
+
   return written
 })
 

@@ -25,6 +25,7 @@ export const UsageRow = Schema.Struct({
   cacheRead: usageNumber,
   cacheWrite: usageNumber,
 })
+
 export type UsageRow = typeof UsageRow.Type
 
 // How one turn ended.
@@ -38,6 +39,7 @@ export type TurnEnd = Data.TaggedEnum<{
   // Something outside the Run stopped the session.
   Interrupted: { readonly reason: string }
 }>
+
 export const TurnEnd = Data.taggedEnum<TurnEnd>()
 
 export interface TurnResult {
@@ -52,6 +54,7 @@ export interface TurnResult {
 }
 
 export const INSPECTION_TOOLS = ["read", "grep", "glob"] as const
+
 export type InspectionTool = (typeof INSPECTION_TOOLS)[number]
 
 // The emit tool as the Host registers it: the contract's JSON Schema

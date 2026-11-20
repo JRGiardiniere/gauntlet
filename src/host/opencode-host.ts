@@ -50,14 +50,20 @@ export const KEPT_PLUGINS = [
 ] as const
 
 const OPENAI = Integration.ID.make("openai")
+
 const CLAUDE = Integration.ID.make("claude-agent")
+
 const CHATGPT_METHOD = Integration.MethodID.make("chatgpt-token-sharing")
+
 const CLAUDE_METHOD = Integration.MethodID.make("claude-login")
+
 // Bounds each wait on the Host getting ready, so a stuck plugin or `claude`
 // probe fails the command instead of hanging it.
 const READY_TIMEOUT = Duration.seconds(30)
+
 // Past OpenCode's own 30-second start timeout for `claude`.
 const CLAUDE_PROBE_TIMEOUT = Duration.seconds(45)
+
 const attempt = (attemptID: string) => Integration.AttemptID.make(attemptID)
 
 const hostError = (operation: string) => (cause: unknown) =>
@@ -178,9 +184,11 @@ export const bootHost = Effect.fn("Host.boot")(function* (
   yield* fs.makeDirectory(paths.location, { recursive: true }).pipe(Effect.mapError(hostError("boot")))
   const content = yield* encodeJson(HOST_CONFIG).pipe(Effect.mapError(hostError("boot")))
   const registry = makeRegistry()
+
   const client = yield* OpenCode.create(hostOptions(paths, catalog, { fs, path }, content, registry), {
     overrides: [...hostOverrides(paths, path, content), ...testOverrides],
   }).pipe(Effect.mapError(hostError("boot")))
+
   const location = { directory: AbsolutePath.make(paths.location) }
 
   const integration = (integrationID: typeof OPENAI) =>
@@ -232,6 +240,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
       Effect.mapBoth({
         onSuccess: (response) => {
           const ids = new Set<string>(Array.map(response.data, (info) => info.id))
+
           return ids.has(OPENAI) && ids.has(CLAUDE)
         },
         onFailure: hostError("activate plugins"),
@@ -242,6 +251,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
   // Claude needs no sign-in: recording the external connection lets the
   // claude-agent provider use the installed `claude` login.
   const claudeConnected = yield* integration(CLAUDE).pipe(Effect.map((info) => info.connections.length > 0))
+
   if (!claudeConnected) {
     yield* client.integration.connect
       .external({ location, integrationID: CLAUDE, methodID: CLAUDE_METHOD })
@@ -269,10 +279,13 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     if (integrationID === "claude-agent") yield* claudeProbed
     const info = yield* integration(integrationID === "openai" ? OPENAI : CLAUDE)
     const first = info.connections[0]
+
     if (first === undefined) return { _tag: "NotConnected" } satisfies ConnectionState
+
     if (first.status !== undefined) {
       return { _tag: "NeedsAuth", message: first.status.message } satisfies ConnectionState
     }
+
     return { _tag: "Connected" } satisfies ConnectionState
   })
 
@@ -314,6 +327,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
         client.integration.oauth.cancel({ location, integrationID: OPENAI, attemptID: attempt(attemptID) }).pipe(Effect.ignore),
     },
   }
+
   // The raw client serves the Host's own tests.
   return { ...contract, client, location }
 })

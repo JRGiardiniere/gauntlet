@@ -44,17 +44,21 @@ export const renderSeatUpgrade = (
   upgrade: { readonly changes: ReadonlyArray<SeatChange>; readonly skipped: ReadonlyArray<string> },
 ): ReadonlyArray<string> => {
   const grouped = new Map<string, { recipes: Set<string>; from: Set<string> }>()
+
   for (const change of upgrade.changes) {
     const group = grouped.get(change.to) ?? { recipes: new Set(), from: new Set() }
     group.recipes.add(change.recipe)
     group.from.add(change.from)
     grouped.set(change.to, group)
   }
+
   const lines = Array.map([...grouped], ([to, group]) =>
     `recipes ${Array.join([...group.recipes], ", ")} → ${to} (was ${Array.join([...group.from], ", ")})`)
+
   if (upgrade.skipped.length > 0) {
     lines.push(`skipped invalid recipes ${Array.join(upgrade.skipped, ", ")} — run \`gauntlet config\``)
   }
+
   return lines.length === 0 ? ["recipe seats are current"] : lines
 }
 
@@ -65,27 +69,34 @@ export const renderSeatUpgrade = (
 // succeeded, and the next `gauntlet upgrade` retries the seats.
 export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
   const entries = yield* listRecipes()
+
   if (!Array.some(entries, (entry) => entry._tag === "ValidRecipe")) {
     yield* Console.log(Array.join(renderSeatUpgrade({ changes: [], skipped: invalidNames(entries) }), "\n"))
+
     return
   }
+
   const host = yield* Host
+
   const models = yield* host.listModels.pipe(
     Effect.timeoutOrElse({
       duration: MODEL_LIST_TIMEOUT,
       orElse: () => Effect.fail(HostError.make({ operation: "list models", reason: "timed out" })),
     }),
   )
+
   const upgrade = yield* upgradeRecipeSeats(
     (provider) => Array.flatMap(models, (model) => (model.providerID === provider ? [model.id] : [])),
     (seat) => hostAccepts(models, seat),
   )
+
   // OpenAI lists no models without a ChatGPT sign-in or OPENAI_API_KEY, which
   // would read as "current" for a Recipe with an OpenAI Seat without anything
   // being compared.
   if (Array.some(entries, hasOpenAISeat) && !Array.some(models, (model) => model.providerID === "openai")) {
     yield* Console.log("OpenAI seats were not checked: no OpenAI models are listed — run `gauntlet login` or set OPENAI_API_KEY")
   }
+
   yield* Console.log(Array.join(renderSeatUpgrade(upgrade), "\n"))
 }, (effect) =>
   effect.pipe(
@@ -103,6 +114,7 @@ const hasOpenAISeat = (entry: CatalogEntry) =>
   entry._tag === "ValidRecipe" &&
   Array.some(seatFields, (field) => {
     const seat = entry.recipe[field]
+
     return seat !== undefined && upgradeProvider(seat) === "openai"
   })
 
@@ -122,26 +134,34 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
         "this is a source checkout, not a release binary — git pull and re-bundle instead",
     })
   }
+
   const latest = yield* probeLatestVersion().pipe(
     Effect.mapError((cause) =>
       UpgradeError.make({ reason: cause.reason, cause })),
   )
+
   if (!isNewer(latest, gauntletVersion)) {
     yield* Console.log(`already up to date (v${gauntletVersion})`)
+
     return
   }
+
   const asset = releaseAsset()
+
   if (asset === undefined) {
     return yield* UpgradeError.make({
       reason: `no release binary for ${process.platform}-${process.arch}`,
     })
   }
+
   // Pin the download to the probed tag rather than /latest/download: the two
   // resolve independently, and a release landing between the probe and the
   // download must not produce a binary that disagrees with the printed version.
   const url =
     `https://github.com/${repository}/releases/download/v${latest}/${asset}`
+
   yield* Console.error(`gauntlet: downloading ${url}`)
+
   const download = yield* Effect.gen(function* () {
     const client = (yield* HttpClient.HttpClient).pipe(
       // Per-attempt bound covers reaching the redirected download host, not
@@ -150,16 +170,19 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
         attempt.pipe(Effect.timeout("30 seconds"))),
       HttpClient.retryTransient({ times: 2 }),
     )
+
     const response = yield* client.get(url).pipe(
       Effect.mapError((cause) =>
         UpgradeError.make({ reason: `download failed (${url})`, cause })),
     )
+
     if (response.status !== 200) {
       return yield* UpgradeError.make({
         reason:
           `download failed with status ${String(response.status)} (${url})`,
       })
     }
+
     return yield* response.arrayBuffer.pipe(
       Effect.mapError((cause) =>
         UpgradeError.make({
@@ -168,6 +191,7 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
         })),
     )
   }).pipe(Effect.provide(FetchHttpClient.layer))
+
   // Sibling temp file + rename over the running executable: the process keeps
   // its inode, the path atomically becomes the new release.
   const targetPath = process.execPath
