@@ -22,8 +22,6 @@ export const CatalogEntry = Data.taggedEnum<CatalogEntry>()
 
 export type ValidRecipeEntry = Data.TaggedEnum.Value<CatalogEntry, "ValidRecipe">
 
-export type InvalidRecipeEntry = Data.TaggedEnum.Value<CatalogEntry, "InvalidRecipe">
-
 export class RecipeCatalogError extends Schema.TaggedError<
   RecipeCatalogError,
   { readonly brand: unique symbol }

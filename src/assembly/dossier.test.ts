@@ -96,6 +96,8 @@ describe("Dossier Assembly", () => {
       candidate: observation,
       judgment: Judgment.cases.Dropped.make({ reason: "taste, not cost" }),
     })])
+    // The discriminator dossier.json carries, pinned apart from the constructor.
+    expect(dossier.rejected.droppedObservations[0]?._tag).toBe("Dropped")
     expect(Array.map(dossier.coverageGaps, ({ stage }) => stage)).toEqual([
       "finders",
       "verification",

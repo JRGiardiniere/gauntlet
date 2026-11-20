@@ -15,7 +15,7 @@ import {
 } from "../github/github.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
 import {
-  // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- builds the scripted test Host's script state, not a service
+  // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- builds the scripted test double (its log and its factory), which scriptedLayer installs; not a service with requirements
   makeScripted,
   scriptedLayer,
   type Scripted,

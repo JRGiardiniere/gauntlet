@@ -114,8 +114,8 @@ const runTurns = (
       yield* Ref.update(turns, Array.append(result))
 
       // Undefined only for a Stopped turn that still has a corrective turn left.
-      const termination = TurnEnd.$match(result.end, {
-        Emitted: (): Termination | undefined => Termination.cases.Completed.make({}),
+      const termination: Termination | undefined = TurnEnd.$match(result.end, {
+        Emitted: () => Termination.cases.Completed.make({}),
         ContextLimit: () => Termination.cases.ContextLimit.make({}),
         ProviderFailed: () => Termination.cases.ProviderFailed.make({}),
         Interrupted: () => Termination.cases.Interrupted.make({}),
