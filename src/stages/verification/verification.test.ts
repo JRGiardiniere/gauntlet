@@ -19,6 +19,7 @@ import type { VerdictsOutput } from "./output-contract.ts"
 import { executeVerification } from "./verification.ts"
 
 const REVIEW_ROOT = "/fixture/review-worktree"
+
 const SPECIFICATION_NEEDLE = "SPECIFICATION-NEEDLE: alpha.txt must stay sorted"
 
 const target = ReviewTarget.cases.PullRequest.make({
@@ -76,6 +77,7 @@ const runVerification = (scripted: Scripted, seatless = false) =>
         text: SPECIFICATION_NEEDLE,
       }),
     }
+
     return yield* executeVerification({
       plan,
       reviewWorkingDirectory: REVIEW_ROOT,
@@ -146,6 +148,7 @@ describe("Verification stage interface", () => {
       expect(result.invocationCount).toBe(2)
 
       expect(scripted.specs).toHaveLength(2)
+
       for (const spec of scripted.specs) {
         expect(spec).toMatchObject({ role: "verifier", workspace: REVIEW_ROOT, tools: ["read", "grep", "glob"] })
         expect(spec.emit.name).toBe("emit_verdicts")
@@ -160,6 +163,7 @@ describe("Verification stage interface", () => {
             invocationId.endsWith(`-verification-${bundle}`)),
           { onNone: () => "", onSome: ({ text }) => text },
         )
+
       const first = promptFor("1")
       expect(first).not.toContain("{{")
       expect(first).toContain(`Repo root: ${REVIEW_ROOT}`)

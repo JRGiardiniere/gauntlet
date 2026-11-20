@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as TestClock from "effect/testing/TestClock"
 import { Termination } from "../domain/agent-outcome.ts"
+import { AdapterContractViolation, InvocationSetupError } from "./harness-session.ts"
 import {
   invoke,
   invokeSignaled,
@@ -15,6 +16,7 @@ import {
   makeScripted,
   scriptedLayer,
   type ScriptedBehavior,
+  ScriptedEnding,
   type ScriptedTurn,
   usageRow,
 } from "./scripted.ts"
@@ -49,6 +51,7 @@ const GOOD_EMIT: FindingsOutput = {
 }
 
 const emitting: ScriptedTurn = { afterMillis: 300, emits: [GOOD_EMIT] }
+
 const stopping: ScriptedTurn = { afterMillis: 300 }
 
 const run = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutput> = INPUT) =>
@@ -56,6 +59,7 @@ const run = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutput> = IN
     const scripted = makeScripted(behavior)
     const fiber = yield* invoke(input).pipe(Effect.provide(scriptedLayer(scripted)), Effect.forkChild)
     yield* TestClock.adjust(Duration.millis(input.deadlineMillis + 1))
+
     return { outcome: yield* Fiber.join(fiber), scripted }
   })
 
@@ -64,6 +68,7 @@ const runFailure = (behavior: ScriptedBehavior, input: InvokeInput<FindingsOutpu
     const scripted = makeScripted(behavior)
     const fiber = yield* invoke(input).pipe(Effect.provide(scriptedLayer(scripted)), Effect.flip, Effect.forkChild)
     yield* TestClock.adjust(Duration.millis(input.deadlineMillis + 1))
+
     return yield* Fiber.join(fiber)
   })
 
@@ -140,14 +145,14 @@ describe("invoke", () => {
     }))
 
   it.effect.each([
-    { ending: { _tag: "ContextLimit" }, termination: "ContextLimit", diagnostic: "context limit reached" },
+    { ending: ScriptedEnding.ContextLimit(), termination: "ContextLimit", diagnostic: "context limit reached" },
     {
-      ending: { _tag: "ProviderFailed", reason: "529 overloaded" },
+      ending: ScriptedEnding.ProviderFailed({ reason: "529 overloaded" }),
       termination: "ProviderFailed",
       diagnostic: "provider failed: 529 overloaded",
     },
     {
-      ending: { _tag: "Interrupted", reason: "stopped from outside" },
+      ending: ScriptedEnding.Interrupted({ reason: "stopped from outside" }),
       termination: "Interrupted",
       diagnostic: "interrupted: stopped from outside",
     },
@@ -169,7 +174,7 @@ describe("invoke", () => {
           turns: [
             { afterMillis: 20_000 },
             { afterMillis: 20_000 },
-            { ending: { _tag: "Hangs" }, usage: [usageRow({ input: 7 }), usageRow({ input: 9 })] },
+            { ending: ScriptedEnding.Hangs(), usage: [usageRow({ input: 7 }), usageRow({ input: 9 })] },
           ],
         }],
       })
@@ -186,19 +191,22 @@ describe("invoke", () => {
   it.effect("fails with InvocationSetupError when the session cannot open", () =>
     Effect.gen(function* () {
       const failure = yield* runFailure({ sessions: [{ failOpen: "agent not available", turns: [] }] })
-      expect(failure).toMatchObject({ _tag: "InvocationSetupError", reason: "agent not available" })
+      expect(failure).toBeInstanceOf(InvocationSetupError)
+      expect(failure).toMatchObject({ reason: "agent not available" })
     }))
 
   it.effect("fails with AdapterContractViolation when the Host breaks its contract", () =>
     Effect.gen(function* () {
       const failure = yield* runFailure({ sessions: [{ turns: [stopping] }] })
-      expect(failure).toMatchObject({ _tag: "AdapterContractViolation", reason: "no scripted turn 2 for open 1" })
+      expect(failure).toBeInstanceOf(AdapterContractViolation)
+      expect(failure).toMatchObject({ reason: "no scripted turn 2 for open 1" })
     }))
 
   it.effect("rejects an empty prompt before opening a session", () =>
     Effect.gen(function* () {
       const failure = yield* runFailure({ sessions: [{ turns: [emitting] }] }, { ...INPUT, prompt: "  " })
-      expect(failure).toMatchObject({ _tag: "InvocationSetupError", reason: "prompt must be non-empty" })
+      expect(failure).toBeInstanceOf(InvocationSetupError)
+      expect(failure).toMatchObject({ reason: "prompt must be non-empty" })
     }))
 })
 
@@ -208,6 +216,7 @@ describe("invokeSignaled", () => {
       const scripted = makeScripted(behavior)
       const running = yield* invokeSignaled(INPUT).pipe(Effect.provide(scriptedLayer(scripted)))
       const signal = yield* running.firstResponse.pipe(Effect.forkChild)
+
       return { running, signal }
     })
 
@@ -216,6 +225,7 @@ describe("invokeSignaled", () => {
       const { running, signal } = yield* signaled({
         sessions: [{ firstTokenAfterMillis: 100, turns: [{ afterMillis: 5_000, emits: [GOOD_EMIT] }] }],
       })
+
       const outcome = yield* running.outcome.pipe(Effect.forkChild)
       yield* TestClock.adjust(Duration.millis(100))
       const observed = yield* Fiber.join(signal)
@@ -229,8 +239,9 @@ describe("invokeSignaled", () => {
   it.effect("signals PrefixNotObserved when the invocation ends without a first token", () =>
     Effect.gen(function* () {
       const { running, signal } = yield* signaled({
-        sessions: [{ firstTokenAfterMillis: "never", turns: [{ afterMillis: 1_000, ending: { _tag: "ProviderFailed", reason: "down" } }] }],
+        sessions: [{ firstTokenAfterMillis: "never", turns: [{ afterMillis: 1_000, ending: ScriptedEnding.ProviderFailed({ reason: "down" }) }] }],
       })
+
       yield* TestClock.adjust(Duration.millis(1_000))
       const observed = yield* Fiber.join(signal)
       expect(observed).toEqual(PrefixSignal.PrefixNotObserved())

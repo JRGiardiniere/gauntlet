@@ -26,15 +26,18 @@ export const invokeStageAgent = Effect.fn("StageAgent.invoke")(function* <O>(
   { label, ...invocation }: StageInvocation<O>,
 ) {
   yield* runProgress(`invoking ${label}`)
+
   const outcome = yield* invoke({
     ...invocation,
     systemPrompt: EVALUATION_SYSTEM_PROMPT,
     deadlineMillis: REVIEW_INVOCATION_DEADLINE_MILLIS,
   })
+
   yield* runProgress(
     `${label} done — ${invocationTrail(outcome)}`,
     cacheShare([outcome.usage]),
   )
   yield* logDiagnostics(label, outcome.diagnostics)
+
   return outcome
 })

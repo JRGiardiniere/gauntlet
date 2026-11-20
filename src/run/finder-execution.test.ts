@@ -26,6 +26,7 @@ import {
   makeScripted,
   type Scripted,
   scriptedLayer,
+  ScriptedEnding,
   type ScriptedSession,
 } from "../harness/scripted.ts"
 import { FINDER_FOLLOWER_WAIT_MILLIS } from "./invocation-policy.ts"
@@ -51,6 +52,7 @@ const lens = (
     seat: SEAT,
     candidateCap: DEFAULT_CANDIDATE_CAP,
   }
+
   return finderClass === undefined ? core : { ...core, finderClass }
 }
 
@@ -80,9 +82,11 @@ const executeFixture = (
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+
     const root = yield* fs.makeTempDirectoryScoped({
       prefix: "gauntlet-finder-execution-test-",
     })
+
     const content = path.join(root, "content")
     yield* fs.makeDirectory(path.join(content, "prompts"), { recursive: true })
     yield* fs.writeFileString(
@@ -102,6 +106,7 @@ const executeFixture = (
       "touched:\n{{TOUCHED_FILES}}\nrelated:\n{{RELATED_FILES}}\n",
     )
     const runId = "finder-execution-test"
+
     const planCore = {
       runId,
       target: ReviewTarget.cases.PullRequest.make({
@@ -116,16 +121,20 @@ const executeFixture = (
       seats: {},
       lenses,
     }
+
     const specified = ReviewPlan.make(
       options.specification === undefined
         ? planCore
         : { ...planCore, specification: options.specification },
     )
+
     const plan = options.relatedFiles === undefined
       ? specified
       : ReviewPlan.make({ ...specified, relatedFiles: true })
+
     const paths = runPaths(path.join(root, "runs"), runId, path)
     yield* fs.makeDirectory(paths.root, { recursive: true })
+
     const effect = executeFinders({
       plan,
       paths,
@@ -139,6 +148,7 @@ const executeFixture = (
         Layer.succeed(ContentDirectory, content),
       ]),
     )
+
     return { effect, fs, paths, plan }
   }).pipe(Effect.provide(NodeServices.layer))
 
@@ -148,8 +158,10 @@ describe("Finder stage interface", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const { repo } = yield* makeGitFixture()
+
       const write = (file: string, text: string) =>
         fs.writeFileString(path.join(repo, file), text)
+
       yield* write("touched.ts", `import { helper } from "./helper.ts"\nTOUCHED-BODY\n`)
       yield* write("helper.ts", "HELPER-BODY\n")
       yield* write("touched.test.ts", `import "./touched"\nTEST-BODY\n`)
@@ -163,6 +175,7 @@ describe("Finder stage interface", () => {
       // A file that cannot be read is skipped, not a failed run.
       yield* fs.chmod(path.join(repo, "locked.ts"), 0o000)
       const scripted = makeScripted({ sessions: [successfulSession("one")] })
+
       const fixture = yield* executeFixture([lens("one", "one tail")], scripted, {
         relatedFiles: {
           snapshot: repo,
@@ -194,6 +207,7 @@ describe("Finder stage interface", () => {
           successfulSession("other-seat"),
         ],
       })
+
       const fixture = yield* executeFixture(
         [
           lens("standard-one", "standard one tail"),
@@ -211,11 +225,14 @@ describe("Finder stage interface", () => {
       expect(result.finders).toHaveLength(5)
       expect(new Set(Array.map(scripted.specs, ({ cacheGroup }) => cacheGroup)).size).toBe(3)
       expect(new Set(Array.map(scripted.specs, ({ role }) => role))).toEqual(new Set(["finder-1", "finder-2", "finder-3"]))
+
       for (const selectedLens of fixture.plan.lenses) {
         const prompt = Array.findFirst(scripted.prompts, ({ invocationId }) =>
           invocationId.endsWith(`-finder-${selectedLens.name}`))
+
         expect(Option.exists(prompt, ({ text }) => text.endsWith(`\n\n${selectedLens.promptText}`))).toBe(true)
       }
+
       for (const role of ["finder-1", "finder-2"]) {
         const specs = Array.filter(scripted.specs, (spec) => spec.role === role)
         expect(specs).toHaveLength(2)
@@ -231,6 +248,7 @@ describe("Finder stage interface", () => {
           parameters: specs[0]?.emit.parameters,
         })
       }
+
       // The shared block lives in the system prompt (provider instructions);
       // the user message is only the lens tail.
       const systemPromptFor = (fragment: string) =>
@@ -239,20 +257,24 @@ describe("Finder stage interface", () => {
           Array.filter(({ invocationId }) => invocationId.includes(fragment)),
           Array.map(({ openIndex }) => scripted.specs[openIndex - 1]?.systemPrompt),
         )
+
       const standardSystemPrompts = systemPromptFor("standard-")
       const interpretiveSystemPrompts = systemPromptFor("interpretive-")
       expect(standardSystemPrompts).toHaveLength(2)
       expect(interpretiveSystemPrompts).toHaveLength(2)
+
       for (const [first, second] of [standardSystemPrompts, interpretiveSystemPrompts]) {
         expect(first).toBe(second)
         expect(first).toContain("shared start")
       }
+
       expect(standardSystemPrompts[0]).toContain(
         `emitting with ${EmitFindings.toolName}\n`,
       )
       expect(standardSystemPrompts[0]).not.toContain("{{")
       expect(standardSystemPrompts[0]).not.toContain("SPECIFICATION-NEEDLE")
       expect(interpretiveSystemPrompts[0]).toContain("SPECIFICATION-NEEDLE")
+
       for (const { text } of scripted.prompts) {
         expect(text).not.toContain("shared start")
       }
@@ -264,6 +286,7 @@ describe("Finder stage interface", () => {
           Schema.decodeEffect(Schema.fromJsonString(FinderStageArtifact)),
         ),
       )
+
       expect(Array.map(artifact.finders, ({ invocationKey }) => invocationKey)).toEqual([
         "finder-standard-one",
         "finder-standard-two",
@@ -283,10 +306,13 @@ describe("Finder stage interface", () => {
           successfulSession("standard-two"),
         ],
       })
+
       const prefixObserved = yield* Deferred.make<void>()
+
       const fixture = yield* executeFixture(pair, scripted, {
         settle: Deferred.succeed(prefixObserved, undefined).pipe(Effect.andThen(FinderCacheSettleDelay)),
       })
+
       const fiber = yield* Effect.forkChild(fixture.effect)
 
       yield* Deferred.await(prefixObserved)
@@ -308,11 +334,12 @@ describe("Finder stage interface", () => {
           {
             forSession: "standard-one",
             firstTokenAfterMillis: "never",
-            turns: [{ afterMillis: 1_000, ending: { _tag: "ProviderFailed", reason: "down" } }],
+            turns: [{ afterMillis: 1_000, ending: ScriptedEnding.ProviderFailed({ reason: "down" }) }],
           },
           successfulSession("standard-two"),
         ],
       })
+
       const settled = yield* Deferred.make<void>()
       const fixture = yield* executeFixture(pair, scripted, { settle: Deferred.succeed(settled, undefined) })
       const fiber = yield* Effect.forkChild(fixture.effect)
@@ -340,6 +367,7 @@ describe("Finder stage interface", () => {
           successfulSession("standard-two"),
         ],
       })
+
       const settled = yield* Deferred.make<void>()
       const fixture = yield* executeFixture(pair, scripted, { settle: Deferred.succeed(settled, undefined) })
       const fiber = yield* Effect.forkChild(fixture.effect)
@@ -371,6 +399,7 @@ describe("Finder stage interface", () => {
           successfulSession("standard-two"),
         ],
       })
+
       const fixture = yield* executeFixture(
         [
           lens("standard-one", "standard one tail"),

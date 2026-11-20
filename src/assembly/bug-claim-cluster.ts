@@ -38,10 +38,12 @@ export const clusterEvaluatedBugClaims = (
 ): ReadonlyArray<EvaluatedBugClaimCluster> =>
   Array.map(Record.values(Array.groupBy(bugClaims, ({ cluster }) => String(cluster))), (mates) => {
       const first = Array.headNonEmpty(mates)
+
       const clustered: [BugClaim, ...Array<BugClaim>] = [
         first.candidate,
         ...Array.map(mates.slice(1), ({ candidate }) => candidate),
       ]
+
       return {
         cluster: first.cluster,
         bugClaims: clustered,

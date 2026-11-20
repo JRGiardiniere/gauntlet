@@ -95,6 +95,7 @@ export const compileBinary = Effect.fn("Compile.binary")(function* (options: Com
   // `autoloadBunfig: false` keeps a stray bunfig.toml in a user's cwd from
   // crashing the binary.
   const compileBase = { outfile: options.outfile, assets: ["content"], autoloadBunfig: false }
+
   const build = yield* Effect.tryPromise({
     try: () =>
       Bun.build({
@@ -117,8 +118,10 @@ export const compileBinary = Effect.fn("Compile.binary")(function* (options: Com
       }),
     catch: (cause) => CompileFailed.make({ cause }),
   })
+
   if (!build.success) {
     yield* Effect.forEach(build.logs, (log) => Console.error(log))
+
     return yield* CompileFailed.make({ cause: "Bun.build reported failure" })
   }
 
@@ -128,6 +131,7 @@ export const compileBinary = Effect.fn("Compile.binary")(function* (options: Com
   const targetsDarwin = options.target === undefined
     ? process.platform === "darwin"
     : options.target.includes("darwin")
+
   if (targetsDarwin && process.platform === "darwin") {
     const exitCode = yield* Effect.scoped(
       Effect.gen(function* () {
@@ -135,9 +139,11 @@ export const compileBinary = Effect.fn("Compile.binary")(function* (options: Com
           stdout: "inherit",
           stderr: "inherit",
         })
+
         return yield* handle.exitCode
       }),
     )
+
     if (exitCode !== 0) {
       return yield* CompileFailed.make({ cause: `codesign exited ${String(exitCode)}` })
     }

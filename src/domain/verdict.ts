@@ -1,6 +1,7 @@
 import * as Schema from "effect/Schema"
 
 export const ReviewPriority = Schema.Literals(["P1", "P2", "P3"])
+
 export type ReviewPriority = typeof ReviewPriority.Type
 
 // What Verification attaches to a BugClaim (GLOSSARY.md). Plausible is a
@@ -21,4 +22,5 @@ export const Verdict = Schema.TaggedUnion({
     evidence: Schema.optionalKey(Schema.NonEmptyString),
   },
 })
+
 export type Verdict = typeof Verdict.Type

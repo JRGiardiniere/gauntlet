@@ -50,13 +50,16 @@ const findingLine = (entry: DossierEntryView): string => {
   const priorityLabel = entry.reviewPriority === undefined
     ? ""
     : `**[${entry.reviewPriority}]** `
+
   const explained = explanation(entry.candidate, entry.detail)
   const detailLine = explained === undefined ? "" : `\n  - ${oneLine(explained)}`
+
   // A TestSuggestion stays next to the claim it serves, so the reason for
   // running a test remains visible with the finding's context.
   const suggestionLine = entry.testSuggestion === undefined
     ? ""
     : `\n  - suggested tests: ${pipe(entry.testSuggestion.tests, Array.map(oneLine), Array.join(", "))} — ${oneLine(entry.testSuggestion.reason)}`
+
   return `- ${priorityLabel}\`[${entry.tag}]\` ${location(entry.candidate)} — ${oneLine(entry.candidate.summary)} _(${attribution(entry.lenses)})_${detailLine}${suggestionLine}`
 }
 
@@ -71,6 +74,7 @@ const describeRecipe =(plan: ReviewPlan): string => {
     Array.map(([stage, seat]) => `${stage}: ${seat}`),
     Array.join(", "),
   )
+
   return plan.recipeName === undefined
     ? seatList === ""
       ? "none — no seats resolved"
@@ -98,9 +102,11 @@ export const renderDossierMarkdown = (
 ): string => {
   const view = viewDossier(dossier)
   const finderSelection = selectRunnableFinders(plan)
+
   const lensList = finderSelection.runnable.length === 0
     ? "none"
     : pipe(finderSelection.runnable, Array.map((lens) => `${lens.name} (${lens.seat})`), Array.join(", "))
+
   const coverageGaps = dossier.coverageGaps.length === 0
     ? "none"
     : pipe(
@@ -108,6 +114,7 @@ export const renderDossierMarkdown = (
       Array.map((gap) => `${gap.stage}${gap.lens === undefined ? "" : ` (${gap.lens})`}: ${gap.reason}`),
       Array.join("; "),
     )
+
   // Scope-degradation warnings (e.g. untracked files outside the diff) must
   // reach the reader — a review that silently narrowed its scope would
   // otherwise present as complete.
@@ -123,6 +130,7 @@ export const renderDossierMarkdown = (
     `- Coverage gaps: ${coverageGaps}`,
     `- Warnings: ${warnings}`,
   ]
+
   if (finderSelection.skipped.length > 0) {
     headerFacts.push(
       `- Skipped: ${
@@ -132,6 +140,7 @@ export const renderDossierMarkdown = (
   }
 
   const runNotes = describeRunNotes(accounting)
+
   const runNotesSection = runNotes.length === 0
     ? []
     : ["", "## Run notes", "", ...Array.map(runNotes, (note) => `- ${note}`)]

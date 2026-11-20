@@ -39,6 +39,7 @@ export const loadVerifierPromptTemplates = Effect.fn(
     [readPromptTemplate(templatePath), loadStageScopeTemplates()],
     { concurrency: 2 },
   )
+
   return { verifier, ...scope } satisfies VerifierPromptTemplates
 })
 
@@ -51,6 +52,7 @@ const verifierClaims = (
   const byIndex = HashMap.fromIterable(
     Array.map(claims, (claim) => [claim.index, claim] as const),
   )
+
   return pipe(
     bundle,
     Array.map((cluster) => {
@@ -61,6 +63,7 @@ const verifierClaims = (
           pipe(formatCandidateLine(claim).split("\n"), Array.map((line) => `  ${line}`), Array.join("\n"))),
         Array.join("\n"),
       )
+
       return `### [c${String(cluster.number)}] ${cluster.summary}\n${members}`
     }),
     Array.join("\n\n"),
@@ -82,6 +85,7 @@ export const assembleVerifierPrompt = (
       reviewRoot,
       specification,
     )
+
     return yield* renderPromptTemplate("verifier", templates.verifier, [
       ["SCOPE_BLOCK", scope],
       ["CLAIMS", verifierClaims(bundle, claims)],

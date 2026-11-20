@@ -32,6 +32,7 @@ export const fixtureGit = (cwd: string, args: ReadonlyArray<string>) =>
         env: scrubbedGitEnv,
         extendEnv: true,
       })
+
       const [, stderr, exitCode] = yield* Effect.all(
         [
           Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -40,6 +41,7 @@ export const fixtureGit = (cwd: string, args: ReadonlyArray<string>) =>
         ],
         { concurrency: 3 },
       )
+
       if (exitCode !== 0) {
         return yield* FixtureGitError.make({ args, exitCode, stderr })
       }
@@ -66,12 +68,15 @@ export const makeGitFixture = (options?: { readonly prefix?: string }) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+
     const temp = yield* fs.makeTempDirectoryScoped({
       prefix: options?.prefix ?? "gauntlet-git-test-",
     })
+
     const root = yield* fs.realPath(temp)
     const repo = path.join(root, "repo")
     yield* fs.makeDirectory(repo, { recursive: true })
     yield* fixtureGit(repo, ["init"])
+
     return { root, repo } satisfies GitFixture
   })

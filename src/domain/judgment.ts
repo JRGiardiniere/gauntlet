@@ -22,4 +22,5 @@ export const Judgment = Schema.TaggedUnion({
   },
   Undecided: {},
 })
+
 export type Judgment = typeof Judgment.Type

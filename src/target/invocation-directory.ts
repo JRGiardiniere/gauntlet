@@ -16,6 +16,7 @@ export const resolveInvocationProjectRoot = Effect.fn(
   "gauntlet.target.resolve_invocation_project_root",
 )(function* () {
   const directory = yield* InvocationDirectory
+
   return yield* runGit(directory, ["rev-parse", "--show-toplevel"]).pipe(
     Effect.map(chompLine),
     Effect.catchTag("GitCommandError", () => Effect.succeed(directory)),

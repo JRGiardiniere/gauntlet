@@ -1,4 +1,5 @@
 import * as Array from "effect/Array"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
@@ -12,21 +13,14 @@ import { loadSettings, recipesDirectory } from "./settings.ts"
 
 // One invalid Recipe never disables the catalog: listing carries it as an
 // entry with its path and Schema error; only selecting it fails (ADR 0005).
-export type CatalogEntry = ValidRecipeEntry | InvalidRecipeEntry
+export type CatalogEntry = Data.TaggedEnum<{
+  ValidRecipe: { readonly name: RecipeName; readonly path: string; readonly recipe: Recipe }
+  InvalidRecipe: { readonly name: string; readonly path: string; readonly error: string }
+}>
 
-export interface ValidRecipeEntry {
-  readonly _tag: "ValidRecipe"
-  readonly name: RecipeName
-  readonly path: string
-  readonly recipe: Recipe
-}
+export const CatalogEntry = Data.taggedEnum<CatalogEntry>()
 
-export interface InvalidRecipeEntry {
-  readonly _tag: "InvalidRecipe"
-  readonly name: string
-  readonly path: string
-  readonly error: string
-}
+export type ValidRecipeEntry = Data.TaggedEnum.Value<CatalogEntry, "ValidRecipe">
 
 export class RecipeCatalogError extends Schema.TaggedError<
   RecipeCatalogError,
@@ -49,7 +43,11 @@ export class RecipeSelectionError extends Schema.TaggedError<
 
 // Unknown keys are invalid so a misspelled stage cannot silently inherit the
 // default seat (ADR 0005).
-const decodeRecipe = Schema.decodeUnknownEffect(Schema.fromJsonString(Recipe), { onExcessProperty: "error" })
+// RecipeName is an unbranded string, so the schema's own guard would narrow a
+// rejected name to never.
+const isRecipeName = (name: string): boolean => Schema.is(RecipeName)(name)
+
+const decodeRecipe =Schema.decodeUnknownEffect(Schema.fromJsonString(Recipe), { onExcessProperty: "error" })
 
 const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
   directory: string,
@@ -59,14 +57,15 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
   const path = yield* Path.Path
   const filePath = path.join(directory, fileName)
   const name = path.basename(fileName, ".json")
-  if (!Schema.is(RecipeName)(name)) {
-    return {
-      _tag: "InvalidRecipe",
+
+  if (!isRecipeName(name)) {
+    return CatalogEntry.InvalidRecipe({
       name,
       path: filePath,
       error: "recipe filename is not lowercase-kebab-case",
-    } satisfies InvalidRecipeEntry
+    })
   }
+
   const source = yield* fs.readFileString(filePath).pipe(
     Effect.mapError((cause) =>
       RecipeCatalogError.make({
@@ -75,20 +74,11 @@ const readEntry = Effect.fn("gauntlet.recipe_catalog.read_entry")(function* (
         cause,
       })),
   )
+
   return yield* decodeRecipe(source).pipe(
-    Effect.map((recipe): CatalogEntry => ({
-      _tag: "ValidRecipe",
-      name,
-      path: filePath,
-      recipe,
-    })),
+    Effect.map((recipe) => CatalogEntry.ValidRecipe({ name, path: filePath, recipe })),
     Effect.catchTag("SchemaError", (failure) =>
-      Effect.succeed<CatalogEntry>({
-        _tag: "InvalidRecipe",
-        name,
-        path: filePath,
-        error: failure.message,
-      })),
+      Effect.succeed(CatalogEntry.InvalidRecipe({ name, path: filePath, error: failure.message }))),
   )
 })
 
@@ -100,6 +90,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const directory = yield* recipesDirectory()
+
     const entries = yield* fs.readDirectory(directory).pipe(
       Effect.catchTag("PlatformError", (failure) =>
         Predicate.isTagged("NotFound")(failure.reason)
@@ -112,10 +103,12 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
             }),
           )),
     )
+
     const fileNames = Array.sort(
       Array.filter(entries, (entry) => path.extname(entry) === ".json"),
       Order.String,
     )
+
     return yield* Effect.forEach(
       fileNames,
       (fileName) => readEntry(directory, fileName),
@@ -127,7 +120,7 @@ export const listRecipes = Effect.fn("gauntlet.recipe_catalog.list")(
 const availableRecipeNames = (
   entries: ReadonlyArray<CatalogEntry>,
 ): ReadonlyArray<RecipeName> =>
-  pipe(entries, Array.filter((entry) => entry._tag === "ValidRecipe"), Array.map((entry) => entry.name))
+  pipe(entries, Array.filter(CatalogEntry.$is("ValidRecipe")), Array.map((entry) => entry.name))
 
 // Select one named recipe from an already listed catalog: an absent or
 // invalid recipe fails and names what is available instead. Callers
@@ -137,7 +130,8 @@ export const selectRecipeFrom = (
   name: string,
 ): Effect.Effect<ValidRecipeEntry, RecipeSelectionError> => {
   const available = availableRecipeNames(entries)
-  if (!Schema.is(RecipeName)(name)) {
+
+  if (!isRecipeName(name)) {
     return Effect.fail(
       RecipeSelectionError.make({
         reason: `recipe name is not lowercase-kebab-case: ${name}`,
@@ -145,7 +139,9 @@ export const selectRecipeFrom = (
       }),
     )
   }
+
   const found = Array.findFirst(entries, (candidate) => candidate.name === name)
+
   if (Option.isNone(found)) {
     return Effect.fail(
       RecipeSelectionError.make({
@@ -154,8 +150,10 @@ export const selectRecipeFrom = (
       }),
     )
   }
+
   const entry = found.value
-  if (entry._tag === "InvalidRecipe") {
+
+  if (CatalogEntry.$is("InvalidRecipe")(entry)) {
     return Effect.fail(
       RecipeSelectionError.make({
         reason: `recipe ${name} is invalid (${entry.path}): ${entry.error}`,
@@ -163,6 +161,7 @@ export const selectRecipeFrom = (
       }),
     )
   }
+
   return Effect.succeed(entry)
 }
 
@@ -171,6 +170,7 @@ export const selectRecipeFrom = (
 export const selectRecipe = Effect.fn("gauntlet.recipe_catalog.select")(
   function* (name: string) {
     const entries = yield* listRecipes()
+
     return yield* selectRecipeFrom(entries, name)
   },
 )
@@ -183,15 +183,20 @@ export const resolveReviewRecipe = Effect.fn(
   if (Option.isSome(positional)) {
     return yield* selectRecipe(positional.value)
   }
+
   const settings = yield* loadSettings()
+
   if (Option.isNone(settings)) {
     const entries = yield* listRecipes()
+
     return yield* RecipeSelectionError.make({
       reason: "no default recipe is configured and the review names none",
       available: availableRecipeNames(entries),
     })
   }
+
   const name = settings.value["default-recipe"]
+
   return yield* selectRecipe(name).pipe(
     Effect.catchTag("RecipeSelectionError", (failure) =>
       RecipeSelectionError.make({

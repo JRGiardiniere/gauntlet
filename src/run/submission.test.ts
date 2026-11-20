@@ -70,12 +70,15 @@ const persistedPlan = (fixture: Fixture, runId: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
+
     const raw = yield* fs.readFileString(
       path.join(fixture.runsRoot, runId, "plan.json"),
     )
+
     const plan = yield* Schema.decodeEffect(Schema.fromJsonString(ReviewPlan))(
       raw,
     )
+
     return { plan, raw }
   })
 
@@ -110,6 +113,7 @@ describe("submission", () => {
         .toEqual([{ name: "fixture-review", seat: FIXTURE_SEAT }])
 
       expect(ReviewTarget.guards.WorkingTree(loaded.plan.target)).toBe(true)
+
       if (!ReviewTarget.guards.WorkingTree(loaded.plan.target)) return
       expect(loaded.plan.target.changedFiles).toEqual(["alpha.txt"])
       expect(loaded.plan.target.diff).toContain("+needle-added-line")
@@ -125,16 +129,21 @@ describe("submission", () => {
       const decoded = yield* Schema.decodeEffect(
         Schema.fromJsonString(Schema.Json),
       )(raw)
+
       const encoded = Predicate.isObject(decoded) ? decoded : {}
       expect(Record.keys(encoded)).not.toContain("specification")
       expect(Record.keys(encoded)).not.toContain("specificationSourceDiagnostic")
+
       const encodedTarget = Predicate.isObject(encoded["target"])
         ? encoded["target"]
         : {}
+
       expect(Record.keys(encodedTarget)).not.toContain("baseCommit")
+
       const encodedLenses = Array.isArray(encoded["lenses"])
         ? encoded["lenses"]
         : []
+
       expect(
         Array.some(encodedLenses, (lens) =>
           Predicate.isObject(lens) && "finderClass" in lens),
@@ -145,6 +154,7 @@ describe("submission", () => {
     Effect.gen(function* () {
       const { fixture, headCommit, mergeBase, trunk } =
         yield* makeCommitRangeFixture
+
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       yield* fs.writeFileString(
@@ -159,6 +169,7 @@ describe("submission", () => {
 
       expect(loaded.plan.relatedFiles).toBe(true)
       expect(ReviewTarget.guards.Commits(loaded.plan.target)).toBe(true)
+
       if (!ReviewTarget.guards.Commits(loaded.plan.target)) return
       expect(loaded.plan.target.baseCommit).toBe(mergeBase)
       expect(loaded.plan.target.headCommit).toBe(headCommit)
@@ -177,6 +188,7 @@ describe("submission", () => {
     Effect.gen(function* () {
       const { fixture, headCommit, mergeBase, trunk } =
         yield* makeCommitRangeFixture
+
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       yield* fs.writeFileString(
@@ -194,6 +206,7 @@ describe("submission", () => {
       )
 
       expect(ReviewTarget.guards.WorkingTree(loaded.plan.target)).toBe(true)
+
       if (!ReviewTarget.guards.WorkingTree(loaded.plan.target)) return
       // The review diff runs merge-base → working tree; the overlay stays
       // relative to the saved HEAD.
@@ -220,6 +233,7 @@ describe("submission", () => {
       )
 
       expect(ReviewTarget.guards.PullRequest(loaded.plan.target)).toBe(true)
+
       if (!ReviewTarget.guards.PullRequest(loaded.plan.target)) return
       expect(loaded.plan.target.number).toBe(7)
       expect(loaded.plan.target.baseCommit).toBe(baseCommit)
@@ -259,14 +273,18 @@ describe("submission", () => {
         "fixture-review",
         "fixture-local",
       ])
+
       const seatByLens = new Map(
         Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.seat]),
       )
+
       expect(seatByLens.get("fixture-review")).toBe(FIXTURE_SEAT)
       expect(seatByLens.get("fixture-local")).toBe("fixture/local-model:medium")
+
       const classByLens = new Map(
         Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.finderClass]),
       )
+
       expect(classByLens.get("fixture-review")).toBeUndefined()
       expect(classByLens.get("fixture-local")).toBe("interpretive")
       expect(loaded.plan.lenses[1]?.promptText).toBe("fixture local tail")
@@ -287,6 +305,7 @@ describe("submission", () => {
           addendum: undefined,
         },
       )
+
       expect(Array.map(loaded.plan.lenses, ({ name }) => name)).toEqual([
         "fixture-review",
       ])
@@ -304,7 +323,9 @@ describe("submission", () => {
         selectedLensNames: undefined,
         addendum: undefined,
       }))
+
       expect(refusal).toBeInstanceOf(SubmissionError)
+
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("no Default Lenses are configured")
       const runsRootExists = yield* fs.exists(fixture.runsRoot)
@@ -344,9 +365,11 @@ describe("submission", () => {
         verification: "fixture/verify-model:low",
         judgment: "fixture/judge-model:low",
       })
+
       const seatByLens = new Map(
         Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.seat]),
       )
+
       expect(seatByLens.get("fixture-review")).toBe("fixture/finder-model:low")
       expect(seatByLens.get("fixture-interpretive")).toBe(
         "fixture/interpretive-model:high",
@@ -356,6 +379,7 @@ describe("submission", () => {
   it.effect("freezes the caller addendum into plan.json", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
+
       const specification = ReviewSpecification.make({
         provenance: "/tmp/addendum.md",
         text: "ADDENDUM-REQUIREMENT: keep the caller note\n",
@@ -398,6 +422,7 @@ describe("submission", () => {
       const promptByLens = new Map(
         Array.map(loaded.plan.lenses, (lens) => [lens.name, lens.promptText]),
       )
+
       const standardsPrompt = promptByLens.get("standards") ?? ""
       expect(standardsPrompt).toContain("standards fixture tail")
       expect(standardsPrompt).toContain(GOVERNING_STANDARDS_HEADING)
@@ -453,6 +478,7 @@ describe("submission", () => {
       ))
 
       expect(refusal).toBeInstanceOf(SubmissionError)
+
       if (!Predicate.isTagged(refusal, "SubmissionError")) return
       expect(refusal.reason).toContain("Standards Manifest")
       expect(refusal.reason).toContain("missing-standards.md")

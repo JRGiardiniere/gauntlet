@@ -20,6 +20,7 @@ export const measureFinderToolHealth = (
       errored: sum.errored + outcome.toolCalls.errored,
     }),
   )
+
   return health.calls === 0 ? undefined : health
 }
 

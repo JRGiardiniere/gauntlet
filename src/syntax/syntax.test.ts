@@ -19,6 +19,7 @@ type Parsed = ReviewRequest & { readonly destination: Destination }
 
 const parse = (words: ReadonlyArray<string>) => {
   let parsed: Parsed | string | undefined
+
   const gauntlet = Command.make("gauntlet").pipe(
     Command.withSubcommands(reviewSyntax({
       review: (request, destination) =>
@@ -31,6 +32,7 @@ const parse = (words: ReadonlyArray<string>) => {
         }),
     })),
   )
+
   return Command.runWith(gauntlet, { version: "0.0.0-test" })(words).pipe(
     Effect.map(() => parsed),
     Effect.catchTags({
@@ -47,6 +49,7 @@ const parse = (words: ReadonlyArray<string>) => {
 }
 
 const workingTree = SubmissionTargetRequest.WorkingTree({ base: undefined })
+
 const pullRequest = (number: number) => SubmissionTargetRequest.PullRequest({ number })
 
 const AIMED_HEAD =
@@ -101,6 +104,7 @@ describe("the review syntax", () => {
     Effect.gen(function* () {
       for (const { becomes, words } of table) {
         const parsed = yield* parse(words)
+
         if (Predicate.isString(becomes)) expect(parsed, Array.join(words, " ")).toBe(becomes)
         else expect(parsed, Array.join(words, " ")).toMatchObject(becomes)
       }

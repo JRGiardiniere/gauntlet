@@ -41,6 +41,7 @@ const RunIdPathSegment = Schema.String.check(
 // schemas, no aggregate store, no retention machinery (ADR 0006).
 export const runPaths = (runsRoot: string, runId: string, path: Path.Path): RunPaths => {
   const root = path.join(runsRoot, runId)
+
   return {
     root,
     plan: path.join(root, "plan.json"),
@@ -58,6 +59,7 @@ export const makeRunId = Effect.fn("gauntlet.run_record.make_run_id")(
     const startedAt = yield* DateTime.now
     const suffix = yield* Random.nextIntBetween(0, 0xffff)
     const stamp = DateTime.formatIso(startedAt).replace(/[:.]/g, "-")
+
     return `${stamp}-${suffix.toString(16).padStart(4, "0")}`
   },
 )
@@ -71,6 +73,7 @@ export const createRunDirectory = Effect.fn("gauntlet.run_record.create_run_dire
     // The run directory itself is created non-recursively: a colliding run ID
     // fails loudly here instead of two runs silently sharing artifacts.
     yield* fs.makeDirectory(paths.root)
+
     return paths
   },
 )
@@ -100,9 +103,11 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
           cause,
         )),
     )
+
     const path = yield* Path.Path
     const paths = runPaths(runsRoot, runId, path)
     const fs = yield* FileSystem.FileSystem
+
     const source = yield* fs.readFileString(paths.plan).pipe(
       Effect.mapError((cause) =>
         runError(
@@ -114,6 +119,7 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
           cause,
         )),
     )
+
     const plan = yield* Schema.decodeEffect(
       Schema.fromJsonString(ReviewPlan),
     )(source).pipe(
@@ -127,6 +133,7 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
           cause,
         )),
     )
+
     if (plan.runId !== runId) {
       return yield* runError(
         "load-plan",
@@ -134,6 +141,7 @@ export const loadRun = Effect.fn("gauntlet.run_record.load_run")(
         runId,
       )
     }
+
     return { paths, plan } satisfies LoadedRun
   },
 )

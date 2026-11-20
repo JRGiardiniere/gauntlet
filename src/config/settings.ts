@@ -27,6 +27,7 @@ export const Settings = Schema.Struct({
   favorites: Schema.Array(RecipeName).check(Schema.isUnique()),
   "runs-root": Schema.optionalKey(RunsRoot),
 })
+
 export type Settings = typeof Settings.Type
 
 export class SettingsError extends Schema.TaggedError<
@@ -42,6 +43,7 @@ export class SettingsError extends Schema.TaggedError<
 // Config so tests point it at a temp directory instead of mutating env.
 export const gauntletHome = Effect.fn("gauntlet.settings.home")(function* () {
   const path = yield* Path.Path
+
   const home = yield* Config.String("HOME").pipe(
     Effect.mapError((cause) =>
       SettingsError.make({
@@ -50,12 +52,14 @@ export const gauntletHome = Effect.fn("gauntlet.settings.home")(function* () {
         cause,
       })),
   )
+
   return path.join(home, ".gauntlet")
 })
 
 export const settingsPath = Effect.fn("gauntlet.settings.path")(function* () {
   const path = yield* Path.Path
   const home = yield* gauntletHome()
+
   return path.join(home, "settings.json")
 })
 
@@ -64,6 +68,7 @@ export const recipesDirectory = Effect.fn(
 )(function* () {
   const path = yield* Path.Path
   const home = yield* gauntletHome()
+
   return path.join(home, "recipes")
 })
 
@@ -72,6 +77,7 @@ export const defaultRunsRoot = Effect.fn(
 )(function* () {
   const path = yield* Path.Path
   const home = yield* gauntletHome()
+
   return path.join(home, "runs")
 })
 
@@ -87,6 +93,7 @@ const decodeSettings = Schema.decodeUnknownEffect(
 export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* settingsPath()
+
   const source = yield* fs.readFileString(path).pipe(
     Effect.asSome,
     Effect.catchTag("PlatformError", (failure) =>
@@ -100,7 +107,9 @@ export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
           }),
         )),
   )
+
   if (Option.isNone(source)) return Option.none<Settings>()
+
   const settings = yield* decodeSettings(source.value).pipe(
     Effect.mapError((cause) =>
       SettingsError.make({
@@ -109,6 +118,7 @@ export const loadSettings = Effect.fn("gauntlet.settings.load")(function* () {
         cause,
       })),
   )
+
   return Option.some(settings)
 })
 
@@ -127,9 +137,11 @@ export const resolveRunsRoot = Effect.fn(
   "gauntlet.settings.resolve_runs_root",
 )(function* () {
   const settings = yield* loadSettings()
+
   const configured = Option.match(settings, {
     onNone: () => undefined,
     onSome: (value) => value["runs-root"],
   })
+
   return configured ?? (yield* defaultRunsRoot())
 })

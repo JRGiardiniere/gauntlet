@@ -24,36 +24,11 @@
     "**/*.mjs",
     ".convoy/**"
   ],
-  "rules": {
-    "typescript/no-unsafe-type-assertion": "off",
-    "typescript/no-unnecessary-type-arguments": "off",
-    "typescript/no-useless-default-assignment": "off",
-    "typescript/no-generated-empty-object-type": "off",
-    "typescript/restrict-template-expressions": "off",
-    "typescript/no-duplicate-type-constituents": "off",
-    "anti-slop/require-readable-spacing": "off",
-    "anti-slop-effect/no-manual-tagged-construction": "off",
-    "anti-slop-effect/no-manual-tag-comparison": "off",
-    "anti-slop-effect/no-service-constructor-imports": "off",
-    "anti-slop/no-array-filter-map": "off"
-  },
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.fixture.ts"],
       "rules": {
         "anti-slop-effect/no-manual-tag-comparison": "off"
-      }
-    },
-    {
-      "files": ["src/run/review-executor.ts", "src/cli/upgrade.ts", "src/harness/live-gate.ts"],
-      "rules": {
-        "effecttsgo/strict-effect-provide": "off"
-      }
-    },
-    {
-      "files": ["src/run/artifact.ts"],
-      "rules": {
-        "effecttsgo/any-unknown-in-error-context": "off"
       }
     }
   ]

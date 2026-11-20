@@ -10,9 +10,11 @@ describe("artifact writes", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+
       const dir = yield* fs.makeTempDirectoryScoped({
         prefix: "gauntlet-artifact-test-",
       })
+
       const target = path.join(dir, "artifact.md")
 
       yield* writeArtifactText(target, "a".repeat(4096))

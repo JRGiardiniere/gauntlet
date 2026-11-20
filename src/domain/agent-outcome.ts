@@ -14,6 +14,7 @@ export const Termination = Schema.TaggedUnion({
   ProviderFailed: {},
   Interrupted: {},
 })
+
 export type Termination = typeof Termination.Type
 
 const usageNumber = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0))
@@ -29,6 +30,7 @@ export const AgentUsage = Schema.Struct({
   reasoning: usageNumber,
   rawRows: Schema.Array(Schema.Json),
 })
+
 export interface AgentUsage extends Schema.Schema.Type<typeof AgentUsage> {}
 
 // Inspection tool calls the agent made (emit calls excluded — those are the
@@ -40,6 +42,7 @@ export const AgentToolCalls = Schema.Struct({
   total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   errored: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
 })
+
 export interface AgentToolCalls
   extends Schema.Schema.Type<typeof AgentToolCalls> {}
 

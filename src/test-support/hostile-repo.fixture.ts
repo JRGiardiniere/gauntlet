@@ -6,6 +6,7 @@ import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { runGit } from "../target/git.ts"
 import { resolveCommitsTarget } from "../target/commits.ts"
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- a test fixture factory, not a service constructor
 import { commitAll, makeGitFixture } from "./git.fixture.ts"
 
 // A reviewed repository that tries everything a hostile repo could: Host and
@@ -16,10 +17,12 @@ import { commitAll, makeGitFixture } from "./git.fixture.ts"
 // show neither string to a model and leave `markers` empty.
 
 export const CANARY = "CANARY"
+
 export const SECRET = "SECRET"
 
 // The one file a fenced read is meant to see, next to a nested AGENTS.md.
 export const ALLOWED_FILE = "pkg/x.ts"
+
 export const ALLOWED_TEXT = "export const allowed = 1"
 
 const touch = (markers: string, name: string) => `touch '${markers}/${name}'`
@@ -30,12 +33,14 @@ export const toJson = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown))
 const files = (markers: string): Record.ReadonlyRecord<string, string> => {
   const hook = (name: string) => [{ hooks: [{ type: "command", command: touch(markers, name) }] }]
   const mcp = (name: string) => ({ command: "sh", args: ["-c", touch(markers, name)] })
+
   const opencodeConfig = toJson({
     instructions: ["extra-instructions.md"],
     plugin: ["./.opencode/plugins/evil.ts"],
     mcp: { evil: { type: "local", command: ["sh", "-c", touch(markers, "opencode-mcp")] } },
     agent: { build: { prompt: `${CANARY}-opencode-agent` } },
   })
+
   return {
     [ALLOWED_FILE]: `${ALLOWED_TEXT}\n`,
     "opencode.json": opencodeConfig,
@@ -80,10 +85,12 @@ export const makeHostileRepo = Effect.gen(function* () {
 
   yield* fs.writeFileString(path.join(repo, "README.md"), "fixture\n")
   yield* commitAll(repo, "base")
+
   for (const [file, text] of Record.toEntries(files(markers))) {
     yield* fs.makeDirectory(path.dirname(path.join(repo, file)), { recursive: true })
     yield* fs.writeFileString(path.join(repo, file), text)
   }
+
   yield* fs.chmod(path.join(repo, ".husky/post-checkout"), 0o755)
   yield* fs.chmod(path.join(repo, ".husky/post-index-change"), 0o755)
   yield* fs.symlink(path.join(outside, "secret"), path.join(repo, "out"))
@@ -97,6 +104,7 @@ export const makeHostileRepo = Effect.gen(function* () {
   // Husky's setup: hooks are the checked-out commit's own scripts.
   yield* runGit(repo, ["config", "core.hooksPath", ".husky"])
   const target = yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
+
   // `outside` holds `secret`, which the snapshot's symlinks point at.
   return { repo, outside, markers, target }
 })

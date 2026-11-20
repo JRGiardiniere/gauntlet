@@ -19,6 +19,7 @@ export const toModelRef = (seat: Seat): ModelRef => {
   const colon = plain.lastIndexOf(":")
   const provider = plain.slice(0, slash)
   const model = plain.slice(slash + 1, colon)
+
   return {
     providerID: providerAliases.get(provider) ?? provider,
     modelID: fast ? `${model}-fast` : model,
@@ -30,6 +31,7 @@ export const toModelRef = (seat: Seat): ModelRef => {
 // Seat's effort as a variant.
 export const hostAccepts = (models: ReadonlyArray<HostModel>, seat: Seat): boolean => {
   const ref = toModelRef(seat)
+
   return Array.some(
     models,
     (model) =>

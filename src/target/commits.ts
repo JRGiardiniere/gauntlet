@@ -16,8 +16,10 @@ import {
 // any committish (ADR 0005).
 const splitRange = (spec: string) => {
   const separator = spec.indexOf("..")
+
   if (separator === -1) return { base: spec, head: "HEAD" }
   const head = spec.slice(separator + 2)
+
   return { base: spec.slice(0, separator), head: head === "" ? "HEAD" : head }
 }
 
@@ -30,13 +32,16 @@ export const resolveCommitsTarget = Effect.fn(
   "gauntlet.commits.resolve_commits_target",
 )(function* (directory: string, spec: string) {
   const range = splitRange(spec)
+
   const repoRoot = yield* runGit(directory, ["rev-parse", "--show-toplevel"]).pipe(
     explainGit("not inside a git repository"),
     Effect.map(chompLine),
   )
+
   const headCommit = yield* resolveCommittish(repoRoot, range.head)
   const resolvedBase = yield* resolveCommittish(repoRoot, range.base)
   const baseCommit = yield* mergeBaseOf(repoRoot, resolvedBase, headCommit)
+
   const [diff, changedFiles, submodules, uncommitted] = yield* Effect.all(
     [
       runGit(repoRoot, ["diff", baseCommit, headCommit]).pipe(

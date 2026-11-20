@@ -22,14 +22,18 @@ export const describePlatformError = (
 ): string => {
   const { reason } = failure
   const operation = `${reason.module}.${reason.method}`
-  if (reason._tag === "BadArgument") {
+
+  if (Predicate.isTagged(reason, "BadArgument")) {
     return `${operation} failed: ${reason.description ?? "bad argument"}`
   }
+
   const code = Predicate.hasProperty(reason.cause, "code") &&
       Predicate.isString(reason.cause.code)
     ? ` (${reason.cause.code})`
     : ""
+
   const detail = reason.description ?? `${reason._tag}${code}`
+
   return reason.pathOrDescriptor === undefined
     ? `${operation} failed: ${detail}`
     : `${operation} failed on ${String(reason.pathOrDescriptor)}: ${detail}`
@@ -49,6 +53,7 @@ export const readOptionalArtifactText = Effect.fn(
   "gauntlet.artifact.read_optional_text",
 )(function* (path: string) {
   const fs = yield* FileSystem.FileSystem
+
   return yield* fs.readFileString(path).pipe(
     Effect.asSome,
     Effect.catchTag("PlatformError", (failure) =>
@@ -68,7 +73,7 @@ export const writeArtifactAtomically = Effect.fn("gauntlet.artifact.write")(
     write: (
       fs: FileSystem.FileSystem,
       tempPath: string,
-    ) => Effect.Effect<void, unknown>,
+    ) => Effect.Effect<void, PlatformError.PlatformError>,
   ) {
     const fs = yield* FileSystem.FileSystem
     const suffix = yield* Random.nextIntBetween(0, 0xffffff)
@@ -93,6 +98,7 @@ export const writeArtifactJson = Effect.fn("gauntlet.artifact.write_json")(
     const json = yield* Schema.encodeEffect(
       Schema.fromJsonString(schema, { space: 2 }),
     )(value).pipe(Effect.mapError(artifactWriteError(path)))
+
     yield* writeArtifactText(path, `${json}\n`)
   },
 )

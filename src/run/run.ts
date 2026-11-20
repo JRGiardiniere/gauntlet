@@ -1,6 +1,7 @@
 import type * as Config from "effect/Config"
 import * as DateTime from "effect/DateTime"
 import * as Effect from "effect/Effect"
+import * as Match from "effect/Match"
 import type * as PlatformError from "effect/PlatformError"
 import * as Schema from "effect/Schema"
 import {
@@ -91,59 +92,52 @@ export type RunFailure =
   | SubmissionError
   | TargetUnresolvable
 
-export const refusalOf = (failure: RunFailure): RunRefusal => {
-  switch (failure._tag) {
-    // Configuration failures stand alone: their reasons already name the
-    // file or recipe at fault.
-    case "SettingsError":
-    case "RecipeCatalogError":
-      return RunRefusal.make({ reason: `${failure.reason} (${failure.path})` })
-    case "RecipeSelectionError":
-      return RunRefusal.make({
-        reason: `could not review — ${failure.reason}${
-          renderAvailable(failure.available)
-        }`,
-        unconfigured: failure.available.length === 0,
-      })
-    case "DeliveryError":
-      return failure.operation === "post" && failure.runId !== undefined
+// Configuration failures stand alone: their reasons already name the file or
+// recipe at fault.
+const configurationRefusal = (failure: { readonly reason: string; readonly path: string }) =>
+  RunRefusal.make({ reason: `${failure.reason} (${failure.path})` })
+
+const contentRefusal = (failure: { readonly reason: string; readonly path: string }) =>
+  RunRefusal.make({ reason: `could not review — ${failure.reason} (${failure.path})` })
+
+const reviewRefusal = (failure: { readonly reason: string }) =>
+  RunRefusal.make({ reason: `could not review — ${failure.reason}` })
+
+export const refusalOf = (failure: RunFailure): RunRefusal =>
+  Match.valueTags(failure, {
+    SettingsError: configurationRefusal,
+    RecipeCatalogError: configurationRefusal,
+    RecipeSelectionError: (selection) =>
+      RunRefusal.make({
+        reason: `could not review — ${selection.reason}${renderAvailable(selection.available)}`,
+        unconfigured: selection.available.length === 0,
+      }),
+    DeliveryError: (delivery) =>
+      delivery.operation === "post" && delivery.runId !== undefined
         ? RunRefusal.make({
-          reason: `could not deliver — ${failure.reason}`,
-          unconfirmedPost: failure.runId,
+          reason: `could not deliver — ${delivery.reason}`,
+          unconfirmedPost: delivery.runId,
         })
-        : RunRefusal.make({ reason: `could not deliver — ${failure.reason}` })
-    case "ArtifactWriteError":
-      return RunRefusal.make({
-        reason: `could not review — ${describeArtifactWrite(failure)}`,
-      })
-    case "ContentLoadError":
-    case "SpecificationLoadError":
-      return RunRefusal.make({
-        reason: `could not review — ${failure.reason} (${failure.path})`,
-      })
-    case "InvocationSetupError":
-      return RunRefusal.make({
-        reason:
-          `could not review — invocation could not start: ${failure.reason}`,
-      })
-    case "PlatformError":
-      return RunRefusal.make({
-        reason: `could not review — ${describePlatformError(failure)}`,
-      })
-    case "ConfigError":
-      return RunRefusal.make({ reason: `could not review — ${failure.message}` })
-    case "SubmissionError":
-      return RunRefusal.make({
-        reason: `could not review — ${failure.reason}`,
-        unconfigured: failure.unconfigured === true,
-      })
-    case "AdapterContractViolation":
-    case "PromptAssemblyError":
-    case "RunError":
-    case "TargetUnresolvable":
-      return RunRefusal.make({ reason: `could not review — ${failure.reason}` })
-  }
-}
+        : RunRefusal.make({ reason: `could not deliver — ${delivery.reason}` }),
+    ArtifactWriteError: (write) =>
+      RunRefusal.make({ reason: `could not review — ${describeArtifactWrite(write)}` }),
+    ContentLoadError: contentRefusal,
+    SpecificationLoadError: contentRefusal,
+    InvocationSetupError: (setup) =>
+      RunRefusal.make({ reason: `could not review — invocation could not start: ${setup.reason}` }),
+    PlatformError: (platform) =>
+      RunRefusal.make({ reason: `could not review — ${describePlatformError(platform)}` }),
+    ConfigError: (config) => RunRefusal.make({ reason: `could not review — ${config.message}` }),
+    SubmissionError: (submission) =>
+      RunRefusal.make({
+        reason: `could not review — ${submission.reason}`,
+        unconfigured: submission.unconfigured === true,
+      }),
+    AdapterContractViolation: reviewRefusal,
+    PromptAssemblyError: reviewRefusal,
+    RunError: reviewRefusal,
+    TargetUnresolvable: reviewRefusal,
+  })
 
 // Reviews the request to its Dossier: Submission, the Stages and the run
 // record. Posting the Dossier is `deliver`'s alone, which a Host calls once it
@@ -151,17 +145,21 @@ export const refusalOf = (failure: RunFailure): RunRefusal => {
 export const review = Effect.fn("Run.review")(
   function* (request: ReviewRequest) {
     const startedAt = yield* DateTime.now
+
     // An explicitly named unusable addendum fails here, before any Run
     // exists (issue #73): the caller selected the file, so absence is never
     // quiet.
     const addendum = request.specPath === undefined
       ? undefined
       : yield* loadCallerAddendum(request.specPath)
+
     const loaded = yield* submit({ ...request, addendum })
+
     const { coverageGaps, digest } = yield* executeReviewPlan({
       ...loaded,
       startedAt,
     })
+
     return {
       runId: loaded.plan.runId,
       paths: loaded.paths,
@@ -181,6 +179,7 @@ export const review = Effect.fn("Run.review")(
 export const deliver = Effect.fn("Run.deliver")(
   function* (runId: string) {
     const runsRoot = yield* resolveRunsRoot()
+
     const loaded = yield* loadRun(runsRoot, runId).pipe(
       Effect.mapError((cause) =>
         DeliveryError.make({
@@ -190,6 +189,7 @@ export const deliver = Effect.fn("Run.deliver")(
           cause,
         })),
     )
+
     return yield* deliverCompletedRun(loaded)
   },
   Effect.mapError(refusalOf),

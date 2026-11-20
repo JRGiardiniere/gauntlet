@@ -8,13 +8,16 @@ describe("domain model", () => {
   it.effect("requires 1-indexed Candidate lines", () =>
     Effect.gen(function* () {
       const decode = Schema.decodeUnknownEffect(Candidate)
+
       const candidate = {
+        // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- raw wire input for the decoder under test, independent of its constructor
         _tag: "Observation",
         id: "fixture-lens/1",
         lens: "fixture-lens",
         file: "src/alpha.ts",
         summary: "off-by-one in the pager",
       }
+
       const decodedCandidate = yield* decode({ ...candidate, line: 1 })
       expect(decodedCandidate).toEqual({
         ...candidate,

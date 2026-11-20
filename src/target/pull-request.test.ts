@@ -37,6 +37,7 @@ const makePrRepo = Effect.gen(function* () {
     path.join(repo, "alpha.txt"),
     "first line\npr-added-line\nuncommitted-line\n",
   )
+
   return { repo, baseCommit, headCommit }
 })
 
@@ -44,6 +45,7 @@ describe("resolvePullRequestTarget", () => {
   it.effect("freezes the PR range from GitHub OIDs, never the dirty working tree", () =>
     Effect.gen(function* () {
       const { baseCommit, headCommit, repo } = yield* makePrRepo
+
       const target = yield* resolvePullRequestTarget(repo, 7).pipe(
         Effect.provide(
           gitHubLayer({
@@ -67,6 +69,7 @@ describe("resolvePullRequestTarget", () => {
   it.effect("does not fall back to the working tree when the PR range is empty", () =>
     Effect.gen(function* () {
       const { headCommit, repo } = yield* makePrRepo
+
       const failed = yield* resolvePullRequestTarget(repo, 7).pipe(
         Effect.provide(
           gitHubLayer({

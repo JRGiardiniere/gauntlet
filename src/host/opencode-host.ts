@@ -14,17 +14,18 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- the per-Host plugin registry is plain Maps OpenCode's hooks read synchronously, and the session driver is built on it: neither is a service
 import { type FenceServices, GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
 import {
-  type ConnectionState,
+  ConnectionState,
   type HostContract,
   HostError,
   type HostModel,
   type HostPaths,
-  type ModelCatalog,
-  type PasteResult,
+  ModelCatalog,
+  PasteResult,
   type SignInAttempt,
-  type SignInStatus,
+  SignInStatus,
 } from "./host.ts"
 
 // What a Run needs from OpenCode: an agent, the two providers, three read
@@ -50,14 +51,20 @@ export const KEPT_PLUGINS = [
 ] as const
 
 const OPENAI = Integration.ID.make("openai")
+
 const CLAUDE = Integration.ID.make("claude-agent")
+
 const CHATGPT_METHOD = Integration.MethodID.make("chatgpt-token-sharing")
+
 const CLAUDE_METHOD = Integration.MethodID.make("claude-login")
+
 // Bounds each wait on the Host getting ready, so a stuck plugin or `claude`
 // probe fails the command instead of hanging it.
 const READY_TIMEOUT = Duration.seconds(30)
+
 // Past OpenCode's own 30-second start timeout for `claude`.
 const CLAUDE_PROBE_TIMEOUT = Duration.seconds(45)
+
 const attempt = (attemptID: string) => Integration.AttemptID.make(attemptID)
 
 const hostError = (operation: string) => (cause: unknown) =>
@@ -91,10 +98,10 @@ const HOST_CONFIG = {
   compaction: { auto: false },
 }
 
-const catalogOptions = (catalog: ModelCatalog) =>
-  catalog._tag === "File"
-    ? { file: catalog.path, fetch: false, snapshot: false }
-    : { snapshot: false }
+const catalogOptions = ModelCatalog.$match({
+  File: (catalog) => ({ file: catalog.path, fetch: false, snapshot: false }),
+  Fetch: () => ({ snapshot: false }),
+})
 
 const hostOptions = (
   paths: HostPaths,
@@ -155,13 +162,13 @@ const toSignInStatus = (
 ): SignInStatus => {
   switch (status.status) {
     case "pending":
-      return { _tag: "Pending" }
+      return SignInStatus.Pending()
     case "complete":
-      return { _tag: "Complete" }
+      return SignInStatus.Complete()
     case "expired":
-      return { _tag: "Expired" }
+      return SignInStatus.Expired()
     case "failed":
-      return { _tag: "Failed", message: status.message }
+      return SignInStatus.Failed({ message: status.message })
   }
 }
 
@@ -178,9 +185,11 @@ export const bootHost = Effect.fn("Host.boot")(function* (
   yield* fs.makeDirectory(paths.location, { recursive: true }).pipe(Effect.mapError(hostError("boot")))
   const content = yield* encodeJson(HOST_CONFIG).pipe(Effect.mapError(hostError("boot")))
   const registry = makeRegistry()
+
   const client = yield* OpenCode.create(hostOptions(paths, catalog, { fs, path }, content, registry), {
     overrides: [...hostOverrides(paths, path, content), ...testOverrides],
   }).pipe(Effect.mapError(hostError("boot")))
+
   const location = { directory: AbsolutePath.make(paths.location) }
 
   const integration = (integrationID: typeof OPENAI) =>
@@ -232,6 +241,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
       Effect.mapBoth({
         onSuccess: (response) => {
           const ids = new Set<string>(Array.map(response.data, (info) => info.id))
+
           return ids.has(OPENAI) && ids.has(CLAUDE)
         },
         onFailure: hostError("activate plugins"),
@@ -242,6 +252,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
   // Claude needs no sign-in: recording the external connection lets the
   // claude-agent provider use the installed `claude` login.
   const claudeConnected = yield* integration(CLAUDE).pipe(Effect.map((info) => info.connections.length > 0))
+
   if (!claudeConnected) {
     yield* client.integration.connect
       .external({ location, integrationID: CLAUDE, methodID: CLAUDE_METHOD })
@@ -269,11 +280,14 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     if (integrationID === "claude-agent") yield* claudeProbed
     const info = yield* integration(integrationID === "openai" ? OPENAI : CLAUDE)
     const first = info.connections[0]
-    if (first === undefined) return { _tag: "NotConnected" } satisfies ConnectionState
+
+    if (first === undefined) return ConnectionState.NotConnected()
+
     if (first.status !== undefined) {
-      return { _tag: "NeedsAuth", message: first.status.message } satisfies ConnectionState
+      return ConnectionState.NeedsAuth({ message: first.status.message })
     }
-    return { _tag: "Connected" } satisfies ConnectionState
+
+    return ConnectionState.Connected()
   })
 
   const sessions = makeSessions(client, registry)
@@ -305,15 +319,16 @@ export const bootHost = Effect.fn("Host.boot")(function* (
         ),
       paste: (attemptID, code) =>
         client.integration.oauth.complete({ location, integrationID: OPENAI, attemptID: attempt(attemptID), code }).pipe(
-          Effect.as<PasteResult>({ _tag: "Accepted" }),
+          Effect.as<PasteResult>(PasteResult.Accepted()),
           Effect.catchTag("InvalidRequestError", (refused) =>
-            Effect.succeed<PasteResult>({ _tag: "Rejected", reason: refused.message })),
+            Effect.succeed<PasteResult>(PasteResult.Rejected({ reason: refused.message }))),
           Effect.mapError(hostError("complete sign-in")),
         ),
       cancel: (attemptID) =>
         client.integration.oauth.cancel({ location, integrationID: OPENAI, attemptID: attempt(attemptID) }).pipe(Effect.ignore),
     },
   }
+
   // The raw client serves the Host's own tests.
   return { ...contract, client, location }
 })

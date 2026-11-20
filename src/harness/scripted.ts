@@ -1,3 +1,4 @@
+import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -20,17 +21,21 @@ import {
 // Host's emit tool does; the first that passes ends the turn, and each
 // rejected one is a diagnostic.
 
-export type ScriptedEnding =
-  | { readonly _tag: "Stopped" }
-  | { readonly _tag: "ContextLimit" }
-  | { readonly _tag: "ProviderFailed"; readonly reason: string }
-  | { readonly _tag: "Interrupted"; readonly reason: string }
+export type ScriptedEnding = Data.TaggedEnum<{
+  Stopped: {}
+  ContextLimit: {}
+  ProviderFailed: { readonly reason: string }
+  Interrupted: { readonly reason: string }
   // The turn never ends: only the deadline or an interruption stops it.
-  | { readonly _tag: "Hangs" }
+  Hangs: {}
+}>
+
+export const ScriptedEnding = Data.taggedEnum<ScriptedEnding>()
 
 export interface ScriptedTurn {
   readonly afterMillis?: number
-  readonly emits?: ReadonlyArray<unknown>
+  // Stand-ins for model-authored JSON arguments.
+  readonly emits?: ReadonlyArray<Schema.Json>
   // How the turn ends when none of its emits passes; Stopped by default.
   readonly ending?: ScriptedEnding
   readonly usage?: ReadonlyArray<UsageRow>
@@ -78,22 +83,15 @@ export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
   ...partial,
 })
 
-const STOPPED: ScriptedEnding = { _tag: "Stopped" }
+const STOPPED = ScriptedEnding.Stopped()
 
-const endingOf = (ending: ScriptedEnding): TurnEnd | undefined => {
-  switch (ending._tag) {
-    case "Stopped":
-      return TurnEnd.Stopped()
-    case "ContextLimit":
-      return TurnEnd.ContextLimit()
-    case "ProviderFailed":
-      return TurnEnd.ProviderFailed({ reason: ending.reason })
-    case "Interrupted":
-      return TurnEnd.Interrupted({ reason: ending.reason })
-    case "Hangs":
-      return undefined
-  }
-}
+const endingOf = ScriptedEnding.$match({
+  Stopped: (): TurnEnd | undefined => TurnEnd.Stopped(),
+  ContextLimit: () => TurnEnd.ContextLimit(),
+  ProviderFailed: (ending) => TurnEnd.ProviderFailed({ reason: ending.reason }),
+  Interrupted: (ending) => TurnEnd.Interrupted({ reason: ending.reason }),
+  Hangs: () => undefined,
+})
 
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
@@ -101,29 +99,38 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const prompts: Array<RecordedPrompt> = []
   const claimed = new Set<number>()
   const opens: Array<Deferred.Deferred<void>> = []
+
   const openSignal = (count: number) => {
     const existing = opens[count]
+
     if (existing !== undefined) return existing
     const created = Deferred.makeUnsafe<void>()
     opens[count] = created
+
     return created
   }
 
   const claimSession = (invocationId: string): ScriptedSession | undefined => {
     let unkeyed: number | undefined
+
     for (const [index, session] of behavior.sessions.entries()) {
       if (claimed.has(index)) continue
+
       if (session.forSession === undefined) {
         unkeyed = unkeyed ?? index
         continue
       }
+
       if (invocationId.includes(session.forSession)) {
         claimed.add(index)
+
         return session
       }
     }
+
     if (unkeyed === undefined) return undefined
     claimed.add(unkeyed)
+
     return behavior.sessions[unkeyed]
   }
 
@@ -134,12 +141,15 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
       log.push(`open:${String(openIndex)}`)
       yield* Deferred.succeed(openSignal(openIndex), undefined)
       const script = claimSession(spec.invocationId)
+
       if (script === undefined) {
         return yield* InvocationSetupError.make({ reason: `no scripted session for open ${String(openIndex)}` })
       }
+
       if (script.failOpen !== undefined) {
         return yield* InvocationSetupError.make({ reason: script.failOpen })
       }
+
       yield* Effect.addFinalizer(() => Effect.sync(() => log.push(`close:${String(openIndex)}`)))
       const scope = yield* Effect.scope
       const firstToken = yield* Deferred.make<void>()
@@ -152,19 +162,23 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           yield* Effect.sleep(Duration.millis(turn.afterMillis ?? 0))
           const diagnostics: Array<string> = []
           let emitted: Schema.Json | undefined
-          for (const raw of turn.emits ?? []) {
-            // SAFETY: scripts stand in for model-authored JSON arguments.
-            const json = raw as Schema.Json
+
+          for (const json of turn.emits ?? []) {
             const rejection = spec.emit.check(json)
+
             if (rejection === undefined) {
               emitted = json
               break
             }
+
             diagnostics.push(`${spec.emit.name} rejected: ${rejection}`)
           }
+
           const end = emitted === undefined ? endingOf(turn.ending ?? STOPPED) : TurnEnd.Emitted({ raw: emitted })
+
           if (end === undefined) return yield* Effect.never
           playing = undefined
+
           return {
             end,
             usage: turn.usage ?? [usageRow()],
@@ -177,6 +191,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
         firstToken: Deferred.await(firstToken),
         cutShort: Effect.sync(() => {
           log.push(`cut:${String(openIndex)}`)
+
           return playing?.usage ?? []
         }),
         turn: (text) =>
@@ -185,18 +200,22 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
             prompts.push({ openIndex, invocationId: spec.invocationId, text })
             log.push(`turn:${String(openIndex)}.${String(turnIndex)}`)
             const turn = script.turns[turnIndex - 1]
+
             if (turn === undefined) {
               return yield* AdapterContractViolation.make({
                 reason: `no scripted turn ${String(turnIndex)} for open ${String(openIndex)}`,
               })
             }
+
             if (turnIndex === 1 && script.firstTokenAfterMillis !== "never") {
               yield* Effect.sleep(Duration.millis(script.firstTokenAfterMillis ?? 0)).pipe(
                 Effect.andThen(Deferred.succeed(firstToken, undefined)),
                 Effect.forkIn(scope),
               )
             }
+
             playing = turn
+
             return yield* playTurn(turn)
           }),
       }

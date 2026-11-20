@@ -12,18 +12,21 @@ const target = ReviewTarget.cases.WorkingTree.make({
   untrackedFiles: [],
   warnings: [],
 })
+
 const reviewRoot = "/fixture/review-worktree"
 
 describe("Stage scope block", () => {
   it.effect("frames an embedded Markdown fence safely, under the snapshot root, naming the Host's tools", () =>
     Effect.gen(function* () {
       const scopeTemplates = yield* loadStageScopeTemplates()
+
       const scope = yield* assembleStageScope(
         scopeTemplates,
         target,
         reviewRoot,
         undefined,
       )
+
       expect(scope).not.toContain("{{")
       expect(scope).toContain(reviewRoot)
       expect(scope).not.toContain(target.repoRoot)

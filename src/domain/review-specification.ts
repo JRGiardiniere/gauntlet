@@ -8,4 +8,5 @@ export const ReviewSpecification = Schema.Struct({
   provenance: Schema.NonEmptyString,
   text: Schema.NonEmptyString,
 })
+
 export type ReviewSpecification = typeof ReviewSpecification.Type

@@ -20,12 +20,15 @@ const relatedTo = (
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
     const { repo } = yield* makeGitFixture()
+
     for (const [file, text] of Record.toEntries(files)) {
       yield* fs.makeDirectory(path.dirname(path.join(repo, file)), { recursive: true })
       yield* fs.writeFileString(path.join(repo, file), text)
     }
+
     yield* commitAll(repo, "fixture")
     const { related } = yield* gatherRelatedFiles(repo, changed)
+
     return Array.map(related, ({ file }) => file)
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 
@@ -38,6 +41,7 @@ describe("gatherRelatedFiles", () => {
         "lib/index.ts": "export {}\n",
         "src/unused.ts": "export {}\n",
       }, ["src/app.ts"])
+
       expect(related).toEqual(["lib/index.ts", "src/util.ts"])
     }))
 
@@ -51,6 +55,7 @@ describe("gatherRelatedFiles", () => {
         "billing/report.py": "import billing.tax_rates\n\nbilling.tax_rates.apply(1)\n",
         "billing/tax_rates.py": "def apply(x): return x\n",
       }, ["app/Http/Controllers/UserController.php", "billing/report.py"])
+
       expect(related).toEqual([
         "app/Models/Invoice.php",
         "app/Support/Money.php",
@@ -65,6 +70,7 @@ describe("gatherRelatedFiles", () => {
         "routes/web.php": "<?php\nuse App\\Models\\Invoice;\n",
         "docs/notes.md": "The invoice flow is described elsewhere.\n",
       }, ["app/Models/Invoice.php"])
+
       expect(related).toEqual(["routes/web.php"])
     }))
 
@@ -77,6 +83,7 @@ describe("gatherRelatedFiles", () => {
         "docs/database.md": "Run the setup first.\n",
         "docs/setup.md": "Create the database.\n",
       }, ["src/Billing/InvoiceTotal.php", "docs/database.md"])
+
       expect(related).toEqual(["src/Billing/Ledger.php", "src/Billing/TaxTable.php"])
     }))
 
@@ -87,6 +94,7 @@ describe("gatherRelatedFiles", () => {
         ...Record.fromEntries(Array.map(["a", "b", "c", "d"], (dir) => [`${dir}/models/user.py`, "x = 1\n"])),
         ...Record.fromEntries(Array.map(["a", "b", "c"], (dir) => [`${dir}/models/account.py`, "x = 1\n"])),
       }, ["app/main.py"])
+
       expect(related).toEqual(["a/models/account.py", "b/models/account.py", "c/models/account.py"])
     }))
 
@@ -95,6 +103,7 @@ describe("gatherRelatedFiles", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const { repo } = yield* makeGitFixture()
+
       const files = {
         "src/app.ts": `import "./util.ts"\n`,
         "src/util.ts": "export const util = 1\n",
@@ -105,10 +114,12 @@ describe("gatherRelatedFiles", () => {
         // Mentions the touched stem, but a lockfile is never related.
         "packages/web/yarn.lock": `"../../src/app.ts"\n`,
       }
+
       for (const [file, text] of Record.toEntries(files)) {
         yield* fs.makeDirectory(path.dirname(path.join(repo, file)), { recursive: true })
         yield* fs.writeFileString(path.join(repo, file), text)
       }
+
       yield* commitAll(repo, "fixture")
       const gathered = yield* gatherRelatedFiles(repo, ["src/app.ts", "bun.lock", "src/generated.ts"])
       expect(Array.map(gathered.touched, ({ file }) => file)).toEqual(["src/app.ts"])
@@ -126,15 +137,18 @@ describe("gatherRelatedFiles", () => {
       const gathered = yield* gatherRelatedFiles(snapshot, [...target.changedFiles, ".git"])
       const inlined = [...gathered.touched, ...gathered.related]
       expect(Array.map(inlined, ({ file }) => file)).toContain(ALLOWED_FILE)
+
       for (const refused of [".env", "pkg/.env.local", ".git", "gitlink", "out", "up"]) {
         expect(Array.map(inlined, ({ file }) => file)).not.toContain(refused)
       }
+
       expect(toJson(inlined)).not.toContain(SECRET)
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("keeps dependencies, then the most-linked and smallest files, within the budget", () =>
     Effect.gen(function* () {
       const filler = "x".repeat(55_000)
+
       const related = yield* relatedTo({
         // A dependency of a touched file outranks every referrer.
         "hub.ts": `import "./w.ts"\n`,
@@ -148,6 +162,7 @@ describe("gatherRelatedFiles", () => {
         // Over a quarter of the budget: skipped, and the fill goes on.
         "big.ts": `import "./hub.ts"\n${"x".repeat(70_000)}`,
       }, ["hub.ts", "other.ts"])
+
       expect(related).toEqual(["a.ts", "d.ts", "e.ts", "w.ts"])
     }))
 })

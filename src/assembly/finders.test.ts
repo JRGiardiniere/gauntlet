@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
 import { Termination } from "../domain/agent-outcome.ts"
+import { BugClaim, Observation } from "../domain/candidate.ts"
 import { FrozenLens } from "../domain/review-plan.ts"
 import { enforceCandidateCap, routeFinderResults } from "./finders.ts"
 
@@ -27,6 +28,7 @@ describe("enforceCandidateCap", () => {
       file: "alpha.ts",
       summary: `candidate ${String(index + 1)}`,
     }))
+
     const capped = enforceCandidateCap(fixtureLens(6), {
       termination: Termination.cases.Completed.make({}),
       output: { findings },
@@ -74,23 +76,25 @@ describe("finder assembly", () => {
     ])
 
     expect(routed).toEqual({
-      bugClaims: [{
-        _tag: "BugClaim",
+      bugClaims: [BugClaim.make({
         id: "fixture-lens/1",
         lens: "fixture-lens",
         file: "src/a.ts",
         summary: "a refutable defect",
         failureScenario: "empty input produces the wrong value",
         sourceReferences: ["src/helper.ts"],
-      }],
-      observations: [{
-        _tag: "Observation",
+      })],
+      observations: [Observation.make({
         id: "fixture-lens/2",
         lens: "fixture-lens",
         file: "src/b.ts",
         summary: "a judgment call",
-      }],
+      })],
       coverageGaps: [],
     })
+
+    // The discriminators dossier.json carries, pinned apart from the constructors.
+    expect(routed.bugClaims[0]?._tag).toBe("BugClaim")
+    expect(routed.observations[0]?._tag).toBe("Observation")
   })
 })

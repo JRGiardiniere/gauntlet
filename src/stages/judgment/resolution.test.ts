@@ -64,8 +64,8 @@ describe("Judgment resolution and Assembly accounting", () => {
       "fixture/1",
       "fixture/3",
     ])
+    expect(resolved.observations[0]?.judgment._tag).toBe("Kept")
     expect(resolved.observations[0]?.judgment).toMatchObject({
-      _tag: "Kept",
       mergedCandidateIds: ["fixture/2", "fixture/4"],
     })
     expect(resolved.notes).toEqual([])
@@ -147,8 +147,8 @@ describe("Judgment resolution and Assembly accounting", () => {
     })
 
     expect(resolved.observations[0]?.judgment).not.toHaveProperty("qualityNote")
+    expect(resolved.observations[1]?.judgment._tag).toBe("Kept")
     expect(resolved.observations[1]?.judgment).toMatchObject({
-      _tag: "Kept",
       qualityNote: "hard to act on",
     })
     expect(resolved.notes).toEqual([

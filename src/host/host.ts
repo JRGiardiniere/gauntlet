@@ -1,4 +1,5 @@
 import * as Context from "effect/Context"
+import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
@@ -26,10 +27,13 @@ export interface HostModel {
   readonly variants: ReadonlyArray<string>
 }
 
-export type ConnectionState =
-  | { readonly _tag: "Connected" }
-  | { readonly _tag: "NeedsAuth"; readonly message: string }
-  | { readonly _tag: "NotConnected" }
+export type ConnectionState = Data.TaggedEnum<{
+  Connected: {}
+  NeedsAuth: { readonly message: string }
+  NotConnected: {}
+}>
+
+export const ConnectionState = Data.taggedEnum<ConnectionState>()
 
 export interface SignInAttempt {
   readonly attemptID: string
@@ -39,13 +43,21 @@ export interface SignInAttempt {
   readonly paste: boolean
 }
 
-export type SignInStatus =
-  | { readonly _tag: "Pending" }
-  | { readonly _tag: "Complete" }
-  | { readonly _tag: "Failed"; readonly message: string }
-  | { readonly _tag: "Expired" }
+export type SignInStatus = Data.TaggedEnum<{
+  Pending: {}
+  Complete: {}
+  Failed: { readonly message: string }
+  Expired: {}
+}>
 
-export type PasteResult = { readonly _tag: "Accepted" } | { readonly _tag: "Rejected"; readonly reason: string }
+export const SignInStatus = Data.taggedEnum<SignInStatus>()
+
+export type PasteResult = Data.TaggedEnum<{
+  Accepted: {}
+  Rejected: { readonly reason: string }
+}>
+
+export const PasteResult = Data.taggedEnum<PasteResult>()
 
 export interface HostContract {
   // One AgentInvocation's session, stopped and removed when the scope closes.
@@ -79,6 +91,7 @@ export const hostPaths = Effect.fn("Host.paths")(function* () {
   const path = yield* Path.Path
   const gauntlet = yield* gauntletHome()
   const root = path.join(gauntlet, "opencode")
+
   return {
     home: path.dirname(gauntlet),
     root,
@@ -89,14 +102,18 @@ export const hostPaths = Effect.fn("Host.paths")(function* () {
 
 // OpenCode's own models.dev fetch, cached in the store, unless a test hands
 // the Host a fixture catalog file so it stays offline.
-export type ModelCatalog =
-  | { readonly _tag: "Fetch" }
-  | { readonly _tag: "File"; readonly path: string }
+export type ModelCatalog = Data.TaggedEnum<{
+  Fetch: {}
+  File: { readonly path: string }
+}>
+
+export const ModelCatalog = Data.taggedEnum<ModelCatalog>()
 
 export const hostLayer = (impl: HostContract) => Layer.succeed(Host, Host.of(impl))
 
 // For commands that must never boot the Host: any use is a defect.
 const untouched = Effect.die("the Host was used by a command that must not boot it")
+
 export const untouchedHostLayer = hostLayer({
   openSession: () => untouched,
   listModels: untouched,

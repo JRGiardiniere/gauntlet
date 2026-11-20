@@ -34,6 +34,7 @@ const freezeOverlay = Effect.fn("test.freeze_overlay")(function* (
     overlayPath,
     overlay,
   )
+
   return overlayPath
 })
 
@@ -48,9 +49,11 @@ const countWorktrees = (repo: string) =>
 const makeMismatchedPullRequestTarget = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+
   const { repo } = yield* makeGitFixture({
     prefix: "gauntlet-pr-worktree-test-",
   })
+
   const file = path.join(repo, "alpha.txt")
   yield* fs.writeFileString(file, "base\n")
   yield* commitAll(repo, "base")
@@ -120,6 +123,7 @@ describe("PR review working directory", () => {
       const reason = yield* Effect.scoped(
         Effect.gen(function* () {
           reviewDirectory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+
           return yield* Effect.fail("fixture failure")
         }),
       ).pipe(Effect.flip)
@@ -140,6 +144,7 @@ describe("PR review working directory", () => {
           const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
           // Removed behind the release's back, so its own removal fails.
           yield* runGit(repo, ["worktree", "remove", "--force", directory])
+
           return "reviewed"
         }),
       )
@@ -156,10 +161,12 @@ describe("PR review working directory", () => {
       const fs = yield* FileSystem.FileSystem
       const { repo, target } = yield* makeMismatchedPullRequestTarget
       const ready = yield* Deferred.make<string>()
+
       const fiber = yield* Effect.scoped(
         Effect.gen(function* () {
           const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
           yield* Deferred.succeed(ready, directory)
+
           return yield* Effect.never
         }),
       ).pipe(Effect.forkChild)
@@ -224,9 +231,11 @@ describe("working-tree review working directory", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+
       const { repo, root } = yield* makeGitFixture({
         prefix: "gauntlet-working-tree-snapshot-test-",
       })
+
       const inRepo = (name: string) => path.join(repo, name)
       yield* fs.writeFileString(inRepo("alpha.txt"), "base\n")
       yield* fs.writeFileString(inRepo("delete-me.txt"), "obsolete\n")
@@ -334,9 +343,11 @@ describe("working-tree review working directory", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+
       const { repo, root } = yield* makeGitFixture({
         prefix: "gauntlet-submodule-snapshot-test-",
       })
+
       const inner = path.join(root, "inner")
       yield* fs.makeDirectory(inner)
       yield* runGit(inner, ["init"])

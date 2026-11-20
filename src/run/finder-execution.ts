@@ -50,6 +50,7 @@ import { cacheShare, counted, invocationTrail, runProgress } from "./progress-te
 import { RunError, type RunPaths } from "./run-record.ts"
 
 const CACHE_SETTLE_MILLIS = 1_500
+
 export const FinderCacheSettleDelay = Effect.sleep(
   Duration.millis(CACHE_SETTLE_MILLIS),
 )
@@ -92,6 +93,7 @@ export const FinderStageArtifact = Schema.Struct({
   runId: Schema.NonEmptyString,
   finders: Schema.Array(FinderStageEntry),
 })
+
 export interface FinderStageArtifact extends Schema.Schema.Type<
   typeof FinderStageArtifact
 > {}
@@ -110,10 +112,12 @@ export const executeFinders = Effect.fn(
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
   const invocations = finderInvocationsInPlan(plan)
   const templates = yield* Effect.cached(loadFinderPromptTemplates())
+
   // Gathered once, by the first partition that needs it.
   const relatedFilesSection = yield* Effect.cached(
     Effect.gen(function* () {
       if (plan.relatedFiles !== true) return undefined
+
       const relatedFiles = yield* gatherRelatedFiles(
         reviewWorkingDirectory,
         plan.target.changedFiles,
@@ -127,7 +131,9 @@ export const executeFinders = Effect.fn(
           })
         ),
       )
+
       const template = yield* loadRelatedFilesTemplate()
+
       return yield* renderRelatedFiles(template, relatedFiles)
     }),
   )
@@ -139,6 +145,7 @@ export const executeFinders = Effect.fn(
     partition: Partition,
   ) {
     const promptTemplates = yield* templates
+
     return {
       invocationId: `${partition.label}-${invocation.invocationKey}`,
       role: partition.role,
@@ -170,6 +177,7 @@ export const executeFinders = Effect.fn(
     const uncappedOutcome = yield* invoked
     const outcome = enforceCandidateCap(invocation.lens, uncappedOutcome)
     yield* reportFinderDone({ lens: invocation.lens, outcome })
+
     return { invocation, outcome }
   })
 
@@ -181,16 +189,19 @@ export const executeFinders = Effect.fn(
   ) {
     yield* runProgress(`invoking finder ${invocation.lens.name}`)
     const input = yield* makeFinderInput(invocation, partition)
+
     return yield* finishFinder(invocation, invoke(input))
   })
 
   const groups = finderPartitionsInPlan(plan)
+
   const groupResults = yield* Effect.forEach(
     groups,
     (group, groupIndex) =>
       Effect.gen(function* () {
         const starter = Array.headNonEmpty(group)
         const promptTemplates = yield* templates
+
         // The Host's tools resolve relative paths in the snapshot, so the
         // prefix names no per-Run path.
         const baseContext = yield* assembleFinderContext(
@@ -199,16 +210,20 @@ export const executeFinders = Effect.fn(
           RELATIVE_REPO_ROOT,
           starter.context,
         )
+
         const relatedFiles = yield* relatedFilesSection
+
         const sharedContext = relatedFiles === undefined
           ? baseContext
           : `${baseContext}\n\n${relatedFiles}`
+
         const partition: Partition = {
           role: `finder-${String(groupIndex + 1)}`,
           label: `${plan.runId}-finders-${String(groupIndex + 1)}`,
           cacheGroup: cacheGroupFor(starter.seat, sharedContext),
           sharedContext,
         }
+
         if (group.length === 1) {
           const [completed, failed] = yield* Effect.partition(
             group,
@@ -217,15 +232,18 @@ export const executeFinders = Effect.fn(
                 Effect.mapError((error) => ({ invocation, error })),
               ),
           )
+
           return { failed, completed }
         }
 
         yield* runProgress(`invoking finder ${starter.lens.name}`)
         const starterInput = yield* makeFinderInput(starter, partition)
         const running = yield* invokeSignaled(starterInput)
+
         const signal = yield* running.firstResponse.pipe(
           Effect.timeoutOption(Duration.millis(FINDER_FOLLOWER_WAIT_MILLIS)),
         )
+
         if (Option.isNone(signal)) {
           yield* runProgress(
             `finder ${starter.lens.name} streamed nothing within ${String(FINDER_FOLLOWER_WAIT_MILLIS / 1000)}s; starting the rest of its partition`,
@@ -243,6 +261,7 @@ export const executeFinders = Effect.fn(
             ).pipe(Effect.mapError((error) => ({ invocation, error }))),
           { concurrency: "unbounded" },
         )
+
         return { failed, completed }
       }),
     { concurrency: "unbounded" },
@@ -250,6 +269,7 @@ export const executeFinders = Effect.fn(
 
   const failures = Array.flatMap(groupResults, ({ failed }) => failed)
   const firstFailure = Array.head(failures)
+
   if (Option.isSome(firstFailure)) return yield* firstFailure.value.error
 
   const completedByKey = HashMap.fromIterable(
@@ -259,15 +279,18 @@ export const executeFinders = Effect.fn(
       Array.map((result) => [result.invocation.invocationKey, result] as const),
     ),
   )
+
   const ordered = Array.filterMap(invocations, (invocation) =>
     HashMap.get(completedByKey, invocation.invocationKey).pipe(
       Result.fromOption(() => undefined),
       Result.map((result) => ({ invocation, outcome: result.outcome })),
     ))
+
   const finders = Array.map(ordered, ({ invocation, outcome }): FinderResult => ({
     lens: invocation.lens,
     outcome,
   }))
+
   yield* writeArtifactJson(paths.finderStage, FinderStageArtifact, {
     runId: plan.runId,
     finders: Array.map(ordered, ({ invocation, outcome }) => ({
@@ -276,5 +299,6 @@ export const executeFinders = Effect.fn(
     })),
   })
   yield* Effect.log("Finder stage recorded", { path: paths.finderStage })
+
   return { finders }
 })

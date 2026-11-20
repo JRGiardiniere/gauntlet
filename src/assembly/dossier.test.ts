@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
 import { Candidate } from "../domain/candidate.ts"
+import { DroppedObservation } from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
@@ -39,6 +40,7 @@ describe("Dossier Assembly", () => {
       summary: "claim",
       failureScenario: "input fails",
     })
+
     const observation = Candidate.cases.Observation.make({
       id: "fixture/2",
       lens: "fixture",
@@ -78,8 +80,10 @@ describe("Dossier Assembly", () => {
       },
     })
 
+    expect(dossier.findings).toHaveLength(1)
+    // The discriminator dossier.json carries, pinned apart from the constructor.
+    expect(dossier.findings[0]?._tag).toBe("Confirmed")
     expect(dossier.findings).toMatchObject([{
-      _tag: "Confirmed",
       bugClaims: [bugClaim],
       testSuggestion: {
         tests: ["src/fixture.test.ts"],
@@ -89,11 +93,12 @@ describe("Dossier Assembly", () => {
     }])
     expect(dossier.unresolved).toEqual([])
     expect(dossier.rejected.refutedClaims).toEqual([])
-    expect(dossier.rejected.droppedObservations).toEqual([{
-      _tag: "Dropped",
+    expect(dossier.rejected.droppedObservations).toEqual([DroppedObservation.make({
       candidate: observation,
       judgment: Judgment.cases.Dropped.make({ reason: "taste, not cost" }),
-    }])
+    })])
+    // The discriminator dossier.json carries, pinned apart from the constructor.
+    expect(dossier.rejected.droppedObservations[0]?._tag).toBe("Dropped")
     expect(Array.map(dossier.coverageGaps, ({ stage }) => stage)).toEqual([
       "finders",
       "verification",
@@ -103,6 +108,7 @@ describe("Dossier Assembly", () => {
 
   it("orders the actionable queue by priority and Confirmed before Judgment", () => {
     const priorities = ["P3", "P1", "P2"] as const
+
     const bugClaims = Array.map(priorities, (reviewPriority, index) => ({
       candidate: Candidate.cases.BugClaim.make({
         id: `fixture/claim-${String(index + 1)}`,
@@ -117,6 +123,7 @@ describe("Dossier Assembly", () => {
         evidence: "reproduced",
       }),
     }))
+
     const observations = Array.map(priorities, (reviewPriority, index) => ({
       candidate: Candidate.cases.Observation.make({
         id: `fixture/observation-${String(index + 1)}`,

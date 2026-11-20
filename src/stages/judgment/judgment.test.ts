@@ -15,6 +15,7 @@ import {
 import { executeJudgment } from "./judgment.ts"
 
 const REPO_ROOT = "/fixture/repo"
+
 const REVIEW_ROOT = "/fixture/review-worktree"
 
 const target = ReviewTarget.cases.PullRequest.make({
@@ -85,6 +86,7 @@ const runJudgment = (
         : { judgment: "openai-codex/gpt-5.6-luna:low" },
       lenses: [],
     }
+
     return yield* executeJudgment({
       plan,
       reviewWorkingDirectory: REVIEW_ROOT,
@@ -103,8 +105,9 @@ describe("Judgment stage interface", () => {
       const result = yield* runJudgment(scripted)
 
       expect(result.observations).toHaveLength(1)
+      // The discriminator dossier.json carries, pinned as a literal.
+      expect(result.observations[0]?.judgment._tag).toBe("Kept")
       expect(result.observations[0]?.judgment).toMatchObject({
-        _tag: "Kept",
         reviewPriority: "P2",
         mergedCandidateIds: ["fixture/2"],
       })

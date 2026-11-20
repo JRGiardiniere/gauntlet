@@ -4,6 +4,7 @@ import * as Array from "effect/Array"
 // inlined context: secrets, and the snapshot's `.git` file, which names the
 // reviewed repository's own git directory. Paths are snapshot-relative.
 const GIT = ".git"
+
 const SECRETS = ".env"
 
 const isProtectedSegment = (segment: string) => segment === GIT || segment.startsWith(SECRETS)

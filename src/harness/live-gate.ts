@@ -2,7 +2,6 @@ import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
 import {
   type AgentOutcome,
@@ -14,8 +13,6 @@ import {
   type FindingsOutput,
   projectOutputContract,
 } from "./output-contract.ts"
-import { liveHostLayer } from "../host/live-host.ts"
-import { hostHarnessLayer } from "./host-harness.ts"
 
 // The narrow live gate exercises what only a real provider can answer, for
 // one Seat on the embedded Host: the projected emit parameters round-trip
@@ -64,10 +61,12 @@ const reportChecks = Effect.fn("gauntlet.live_gate.report_checks")(
       const detail = entry.detail === "" ? "" : ` — ${entry.detail}`
       yield* Console.log(`${status}${entry.name}${detail}`)
     }
+
     const failures = Array.filter(checks, (entry) => !entry.ok).length
     yield* Console.log(
       failures === 0 ? "\nlive gate passed" : `\n${String(failures)} FAILED`,
     )
+
     return failures === 0 ? 0 : 1
   },
 )
@@ -80,12 +79,14 @@ interface GateResult {
 const outcomeDetail = (outcome: AgentOutcome<FindingsOutput>) => {
   const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
+
   return `termination=${outcome.termination._tag}${suffix}`
 }
 
 const usageDetail = (outcome: AgentOutcome<FindingsOutput>) => {
   const diagnostics = Array.join(outcome.diagnostics, "; ")
   const suffix = diagnostics === "" ? "" : ` diagnostics=${diagnostics}`
+
   return `rows=${String(outcome.usage.rawRows.length)} input=${String(outcome.usage.input)} cacheRead=${String(outcome.usage.cacheRead)} output=${String(outcome.usage.output)}${suffix}`
 }
 
@@ -97,6 +98,7 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
 
     const document = projectOutputContract(EmitFindings)
     const definitionCount = Record.keys(document.definitions).length
+
     if (definitionCount > 0) {
       return yield* reportChecks([
         check(
@@ -111,11 +113,13 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
       `running one live emit round-trip on ${provider}/${model}...`,
     )
     const fs = yield* FileSystem.FileSystem
+
     const run = Effect.scoped(
       Effect.gen(function* () {
         const cwd = yield* fs.makeTempDirectoryScoped({
           prefix: "gauntlet-live-gate-",
         })
+
         return yield* invoke({
           invocationId: "live-gate",
           role: "live-gate",
@@ -127,7 +131,6 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
           tools: [],
           deadlineMillis: 300_000,
         }).pipe(
-          Effect.provide(hostHarnessLayer.pipe(Layer.provide(liveHostLayer()))),
           Effect.map((outcome): GateResult => ({ outcome })),
           Effect.catchTags({
             InvocationSetupError: (error) =>

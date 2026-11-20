@@ -16,16 +16,20 @@ import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 import { CLAUDE_SESSION_VARIABLES, scrubHostEnvironment } from "./host-environment.ts"
-import { hostPaths, type HostPaths } from "./host.ts"
+import { hostPaths, type HostPaths, ModelCatalog } from "./host.ts"
 import { bootHost } from "./opencode-host.ts"
 
 // The embedded OpenCode Host booted for real, offline: a fixture catalog file
 // stands in for OpenCode's models.dev fetch, and every home is a temp dir.
 
 const FIXTURE_CATALOG = `${import.meta.dirname}/fixtures/models.json`
+
 const BOOT_SCRIPT = `${import.meta.dirname}/fixtures/boot-host.ts`
+
 const TRACE_PRELOAD = `${import.meta.dirname}/fixtures/trace-opencode.mjs`
+
 const GAUNTLET = `${import.meta.dirname}/../../bin/gauntlet.ts`
+
 const SLOW = 60_000
 
 const Booted = Schema.fromJsonString(Schema.Struct({
@@ -39,10 +43,12 @@ const Booted = Schema.fromJsonString(Schema.Struct({
 const writeCanaryHome = Effect.fn("test.writeCanaryHome")(function* (home: string) {
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
+
   const write = (file: string, text: string) =>
     fs.makeDirectory(path.dirname(path.join(home, file)), { recursive: true }).pipe(
       Effect.andThen(fs.writeFileString(path.join(home, file), text)),
     )
+
   const skill = (name: string) => `---\nname: ${name}\ndescription: canary ${name}\n---\nCANARY\n`
   yield* write(
     ".config/opencode/opencode.json",
@@ -61,6 +67,7 @@ const writeCanaryHome = Effect.fn("test.writeCanaryHome")(function* (home: strin
 const listTree = Effect.fn("test.listTree")(function* (root: string, skip: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem
   const entries = yield* fs.readDirectory(root, { recursive: true })
+
   return Array.sort(
     Array.filter(entries, (entry) => !Array.some(skip, (prefix) => entry.startsWith(prefix))),
     (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0),
@@ -86,6 +93,7 @@ const bootIn = Effect.fn("test.bootIn")(function* (home: string, mode: "gauntlet
       OPENCODE_CLAUDE_PATH: "/nonexistent/claude",
     },
   })
+
   const [stdout, stderr, exitCode] = yield* Effect.all(
     [
       Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -94,8 +102,10 @@ const bootIn = Effect.fn("test.bootIn")(function* (home: string, mode: "gauntlet
     ],
     { concurrency: 3 },
   )
+
   expect(stderr).toBe("")
   expect(exitCode).toBe(0)
+
   return yield* Schema.decodeEffect(Booted)(stdout)
 }, Effect.scoped)
 
@@ -153,6 +163,7 @@ describe("scrubHostEnvironment", () => {
         OPENCODE_FLAGS: "all",
         PATH: "/bin",
       }
+
       for (const name of CLAUDE_SESSION_VARIABLES) environment[name] = "session"
       yield* scrubHostEnvironment(environment)
       expect(environment).toEqual({
@@ -178,16 +189,20 @@ const sessionState = (paths: HostPaths, sessionID: string) =>
   Effect.sync(() => {
     const database = new DatabaseSync(paths.database)
     const row = database.prepare("select time_suspended is not null as claimed from session_v2 where id = ?").get(sessionID)
+
     const notices = database
       .prepare("select count(*) as count from session_message where session_id = ? and data like ?")
       .get(sessionID, '%"notice":"restart"%')
+
     database.close()
+
     return { claimed: row?.["claimed"] === 1, restartNotices: Number(notices?.["count"]) }
   })
 
 const resumeHome = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem
   const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-host-resume-" })
+
   return yield* hostPaths().pipe(
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))),
   )
@@ -198,7 +213,8 @@ const bootScoped = (paths: HostPaths) =>
   Effect.gen(function* () {
     const testScope = yield* Effect.scope
     const scope = yield* Scope.fork(testScope)
-    const host = yield* bootHost(paths, { _tag: "File", path: FIXTURE_CATALOG }).pipe(Scope.provide(scope))
+    const host = yield* bootHost(paths, ModelCatalog.File({ path: FIXTURE_CATALOG })).pipe(Scope.provide(scope))
+
     return { host, close: Scope.close(scope, Exit.void) }
   })
 
@@ -255,10 +271,12 @@ describe("the Host on a shared store", () => {
           ],
         },
       )
+
       const resumed = yield* sessionState(paths, session.id).pipe(
         Effect.repeat({ schedule: Schedule.spaced("50 millis"), until: (state) => state.restartNotices > 0 }),
         Effect.timeout(RESUME_WINDOW),
       )
+
       expect(resumed.restartNotices).toBe(1)
       yield* first.close
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
@@ -269,11 +287,13 @@ describe("the Host on a shared store", () => {
 const traceImports = Effect.fn("test.traceImports")(function* (args: ReadonlyArray<string>) {
   const fs = yield* FileSystem.FileSystem
   const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-host-startup-" })
+
   const handle = yield* ChildProcess.make(process.execPath, ["--preload", TRACE_PRELOAD, ...args], {
     cwd: home,
     extendEnv: true,
     env: { HOME: home },
   })
+
   const [, stderr, exitCode] = yield* Effect.all(
     [
       Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -282,6 +302,7 @@ const traceImports = Effect.fn("test.traceImports")(function* (args: ReadonlyArr
     ],
     { concurrency: 3 },
   )
+
   return { imports: Array.filter(stderr.split("\n"), (line) => line.startsWith("opencode-import")), exitCode }
 }, Effect.scoped)
 

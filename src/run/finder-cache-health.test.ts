@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import type * as Schema from "effect/Schema"
 import type { FinderResult } from "../assembly/finders.ts"
-import type { AgentOutcome } from "../domain/agent-outcome.ts"
+import { type AgentOutcome, Termination } from "../domain/agent-outcome.ts"
 import {
   DEFAULT_CANDIDATE_CAP,
   type FrozenLens,
@@ -14,6 +14,7 @@ import type { FindingsOutput } from "../harness/output-contract.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 
 const SEAT = "fixture/cache-model:low" as const
+
 const OTHER_SEAT = "fixture/other-model:low" as const
 
 const lens = (
@@ -27,6 +28,7 @@ const lens = (
     seat,
     candidateCap: DEFAULT_CANDIDATE_CAP,
   }
+
   return finderClass === undefined ? core : { ...core, finderClass }
 }
 
@@ -45,7 +47,7 @@ const rawUsage = (
 const outcome = (
   rawRows: ReadonlyArray<Schema.Json>,
 ): AgentOutcome<FindingsOutput> => ({
-  termination: { _tag: "Completed" },
+  termination: Termination.cases.Completed.make({}),
   output: { findings: [] },
   usage: {
     input: 0,
@@ -66,15 +68,25 @@ const specification: ReviewSpecification = {
 }
 
 const standardStarter = lens("standard-starter")
+
 const standardHealthy = lens("standard-healthy")
+
 const standardLow = lens("standard-low")
+
 const interpretiveStarter = lens("interpretive-starter", SEAT, "interpretive")
+
 const interpretiveMiss = lens("interpretive-miss", SEAT, "interpretive")
+
 const interpretiveLow = lens("interpretive-low", SEAT, "interpretive")
+
 const interpretiveInvalid = lens("interpretive-invalid", SEAT, "interpretive")
+
 const interpretiveMissing = lens("interpretive-missing", SEAT, "interpretive")
+
 const interpretiveZero = lens("interpretive-zero", SEAT, "interpretive")
+
 const singleton = lens("singleton", OTHER_SEAT)
+
 const lenses = [
   standardStarter,
   standardHealthy,

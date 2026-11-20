@@ -21,12 +21,15 @@ const dependencyFields = [
   "optionalDependencies",
   "overrides",
 ] as const
+
 const independentlyVersionedEffectPackages = new Set(["@effect/tsgo"])
+
 const exactVersionPattern = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/
 
 const quoted = Schema.encodeSync(Schema.fromJsonString(Schema.String))
 
 const DependencyMap = Schema.Record(Schema.String, Schema.String)
+
 const Manifest = Schema.fromJsonString(Schema.Struct({
   dependencies: Schema.optional(DependencyMap),
   devDependencies: Schema.optional(DependencyMap),
@@ -47,7 +50,9 @@ const program = Effect.gen(function* () {
   const effectPins = Array.flatMap(dependencyFields, (field) =>
     Array.flatMap(Record.toEntries(manifest[field] ?? {}), ([name, version]) => {
       if (name !== "effect" && !name.startsWith("@effect/")) return []
+
       if (independentlyVersionedEffectPackages.has(name)) return []
+
       return [{ name, version }]
     }))
 
@@ -57,6 +62,7 @@ const program = Effect.gen(function* () {
       : [`${name} must be an exact version; found ${quoted(version)}`])
 
   const distinctVersions = new Set(Array.map(effectPins, ({ version }) => version))
+
   if (violations.length === 0 && distinctVersions.size > 1) {
     violations.push(
       `effect packages must share one version; found ${Array.join([...distinctVersions], ", ")}`,
@@ -73,6 +79,7 @@ const program = Effect.gen(function* () {
 
   const locked = new Set(lockfile.match(lockedEffectPattern) ?? [])
   const pinned = `"effect@${manifest.overrides?.effect ?? ""}"`
+
   if (locked.size !== 1 || !locked.has(pinned)) {
     violations.push(
       `bun.lock must resolve exactly one effect, the pinned ${pinned}; found ${
@@ -85,8 +92,10 @@ const program = Effect.gen(function* () {
     yield* Console.error("Effect dependency pin check failed:")
     yield* Effect.forEach(violations, (violation) => Console.error(`- ${violation}`))
     process.exitCode = 1
+
     return
   }
+
   yield* Console.log(`Effect dependency pins are exact (${[...distinctVersions][0]}).`)
 })
 

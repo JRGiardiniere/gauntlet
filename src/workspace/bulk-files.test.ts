@@ -4,6 +4,7 @@ import * as Schema from "effect/Schema"
 import { inlinedDiff, isLockfile, LOCKFILE_NAMES } from "./bulk-files.ts"
 
 const header = (file: string) => `diff --git a/${file} b/${file}\nindex 1111111..2222222 100644`
+
 const section = (file: string, body: string) =>
   `${header(file)}\n--- a/${file}\n+++ b/${file}\n@@ -1 +1 @@\n-${body}\n+${body}!`
 
@@ -41,6 +42,7 @@ describe("inlinedDiff", () => {
       "@@ -1 +0,0 @@",
       "-lockfile body",
     ], "\n")
+
     expect(inlinedDiff(diff).diff).toBe("diff --git a/bun.lock b/bun.lock\ndeleted file mode 100644\nindex 1111111..0000000")
   })
 
@@ -62,6 +64,7 @@ describe("inlinedDiff", () => {
     lockfile: Schema.Literals([...LOCKFILE_NAMES]),
     isLock: Schema.Boolean,
   })
+
   it.prop(
     "keeps exactly the sections of files that are not lockfiles, in order",
     { files: Schema.Array(File).check(Schema.isMaxLength(6)) },

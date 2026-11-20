@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
@@ -28,6 +29,7 @@ export const PullRequestView = Schema.Struct({
   baseRefName: Schema.NonEmptyString,
   url: Schema.NonEmptyString,
 })
+
 export interface PullRequestView extends Schema.Schema.Type<typeof PullRequestView> {}
 
 export interface PostedComment {
@@ -76,6 +78,7 @@ const lastNonEmptyLine = (text: string): string => {
     Array.map((line) => line.trim()),
     Array.filter((line) => line !== ""),
   )
+
   return lines[lines.length - 1] ?? ""
 }
 
@@ -92,6 +95,7 @@ const runGh = (
         env: scrubbedGitEnv,
         extendEnv: true,
       })
+
       const [stdout, stderr, exitCode] = yield* Effect.all(
         [
           Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -100,8 +104,10 @@ const runGh = (
         ],
         { concurrency: 3 },
       )
+
       if (exitCode !== 0) {
         const detail = stderr.trim() === "" ? stdout.trim() : stderr.trim()
+
         return yield* GitHubError.make({
           operation,
           reason: detail === ""
@@ -109,6 +115,7 @@ const runGh = (
             : detail,
         })
       }
+
       return stdout
     }),
   ).pipe(
@@ -117,7 +124,7 @@ const runGh = (
       Effect.fail(
         GitHubError.make({
           operation,
-          reason: cause.reason._tag === "NotFound" &&
+          reason: Predicate.isTagged(cause.reason, "NotFound") &&
               cause.reason.module === "ChildProcess"
             ? "gh is not installed — install the GitHub CLI (https://cli.github.com) and run `gh auth login`"
             : `gh could not run: ${String(cause)}`,
@@ -144,6 +151,7 @@ const makeLive = Effect.gen(function* () {
         ],
         "view",
       )
+
       return yield* decodeView(stdout).pipe(
         Effect.mapError((cause) =>
           GitHubError.make({
@@ -161,6 +169,7 @@ const makeLive = Effect.gen(function* () {
         Effect.gen(function* () {
           const bodyFile = yield* fs.makeTempFileScoped()
           yield* fs.writeFileString(bodyFile, body)
+
           const stdout = yield* runGh(
             spawner,
             cwd,
@@ -173,13 +182,16 @@ const makeLive = Effect.gen(function* () {
             ],
             "post",
           )
+
           const url = lastNonEmptyLine(stdout)
+
           if (url === "") {
             return yield* GitHubError.make({
               operation: "post",
               reason: `gh pr comment #${String(number)} produced no comment URL`,
             })
           }
+
           return { url } satisfies PostedComment
         }),
       ).pipe(

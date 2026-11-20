@@ -42,6 +42,7 @@ export const ReviewTarget = Schema.TaggedUnion({
     warnings: Schema.Array(Schema.String),
   },
 })
+
 export type ReviewTarget = typeof ReviewTarget.Type
 
 // Target identity without the diff — what the Dossier carries (GLOSSARY.md:
@@ -64,6 +65,7 @@ export const TargetIdentity = Schema.TaggedUnion({
     baseCommit: Schema.String,
   },
 })
+
 export type TargetIdentity = typeof TargetIdentity.Type
 
 export const targetIdentityOf = (target: ReviewTarget): TargetIdentity =>

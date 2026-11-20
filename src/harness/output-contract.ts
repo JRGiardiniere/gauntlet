@@ -9,13 +9,13 @@ import * as String from "effect/String"
 export interface OutputContract<O> {
   readonly toolName: string
   readonly description: string
-  readonly schema: Schema.Codec<O, O, never, never>
+  readonly schema: Schema.Codec<O, O>
 }
 
 export const defineOutputContract = <O>(
   toolName: OutputContract<O>["toolName"],
   description: string,
-  schema: Schema.Codec<O, O, never, never>,
+  schema: Schema.Codec<O, O>,
 ): OutputContract<O> => ({
   toolName,
   description,
@@ -89,6 +89,7 @@ export const FindingsOutput = Schema.Struct({
     }),
   ),
 })
+
 export interface FindingsOutput
   extends Schema.Schema.Type<typeof FindingsOutput> {}
 

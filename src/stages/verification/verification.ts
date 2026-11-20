@@ -56,6 +56,7 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
 }: VerificationExecution) {
   if (pooled.claims.length === 0) {
     yield* runProgress(`skipping Verification (${counted(0, "BugClaim")})`)
+
     return {
       bugClaims: [],
       testSuggestions: [],
@@ -66,10 +67,13 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   }
 
   const seat = plan.seats.verification
+
   if (seat === undefined) {
     const reason =
       "verification has no seat frozen in the review plan; retained every claim as plausible without examination"
+
     yield* runProgress(coverageGapLine({ reason }))
+
     return {
       bugClaims: resolveVerification(pooled, []).bugClaims,
       testSuggestions: [],
@@ -83,11 +87,13 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   const templates = yield* loadVerifierPromptTemplates()
   const bundles = Array.chunksOf(pooled.clusters, VERIFIER_BUNDLE_SIZE)
   yield* runProgress(`${counted(bundles.length, "bundle")} → Verification`)
+
   const verified = yield* Effect.forEach(
     bundles,
     (clusters, index) =>
       Effect.gen(function* () {
         const bundleNumber = index + 1
+
         const prompt = yield* assembleVerifierPrompt(
           templates,
           plan.target,
@@ -96,6 +102,7 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
           clusters,
           plan.specification,
         )
+
         const outcome = yield* invokeStageAgent({
           label: `Verification bundle ${String(bundleNumber)}`,
           invocationId: `${plan.runId}-verification-${String(bundleNumber)}`,
@@ -106,15 +113,18 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
           contract: EmitVerdicts,
           tools: VERIFICATION_TOOLS,
         })
+
         return { bundleNumber, clusters, outcome } satisfies VerifiedBundle
       }),
     { concurrency: "unbounded" },
   )
 
   const resolved = resolveVerification(pooled, verified)
+
   for (const gap of resolved.coverageGaps) {
     yield* runProgress(coverageGapLine(gap))
   }
+
   const verdicts = Array.map(clusterEvaluatedBugClaims(resolved.bugClaims), ({ verdict }) => verdict)
   const confirmed = Array.filter(verdicts, Verdict.guards.Confirmed).length
   const refuted = Array.filter(verdicts, Verdict.guards.Refuted).length
@@ -123,6 +133,7 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   yield* runProgress(
     `Verification finished — ${String(confirmed)} confirmed · ${String(refuted)} refuted · ${String(plausible)} plausible · ${String(verificationSeconds)}s`,
   )
+
   return {
     ...resolved,
     usages: Array.map(verified, ({ outcome }) => outcome.usage),

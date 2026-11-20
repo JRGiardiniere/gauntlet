@@ -11,7 +11,7 @@ import {
   unusedGitHubContract,
   unusedGitHubLayer,
 } from "../github/github.ts"
-import { makeScripted, type Scripted } from "../harness/scripted.ts"
+import { makeScripted, type Scripted, ScriptedEnding } from "../harness/scripted.ts"
 import {
   emittingSession,
   FINDER_OUTPUT,
@@ -73,6 +73,7 @@ describe("Run.review", () => {
   it.effect("answers a failed Judgment as a short coverage gap, keeping its provider diagnostics in run.log", () =>
     Effect.gen(function* () {
       const fixture = yield* makeDirtyRepo
+
       const reviewed = yield* review(
         fixture,
         makeScripted({
@@ -81,11 +82,12 @@ describe("Run.review", () => {
             emittingSession(VERIFIER_OUTPUT, "-verification"),
             {
               forSession: "-judgment",
-              turns: [{ ending: { _tag: "ProviderFailed", reason: "529 overloaded: fixture provider body" } }],
+              turns: [{ ending: ScriptedEnding.ProviderFailed({ reason: "529 overloaded: fixture provider body" }) }],
             },
           ],
         }),
       )
+
       const fs = yield* FileSystem.FileSystem
       const runLog = yield* fs.readFileString(reviewed.paths.runLog)
       expect(runLog).toContain("529 overloaded: fixture provider body")
@@ -131,6 +133,7 @@ describe("Run.review", () => {
       const fixture = yield* makeDirtyRepo
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+
       const refusalOf = (fields: Partial<Run.ReviewRequest>) =>
         review(fixture, makeScripted({ sessions: [] }), fields).pipe(Effect.flip)
 
@@ -160,12 +163,14 @@ describe("Run.deliver", () => {
       const { baseCommit, fixture, headCommit } = yield* makePrReviewFixture
       const url = "https://github.com/example/repo/pull/7#issuecomment-1"
       const posts: Array<number> = []
+
       const github = gitHubLayer({
         ...unusedGitHubContract,
         viewPullRequest: () => Effect.succeed(prView(7, headCommit, baseCommit)),
         postComment: (_cwd, number) =>
           Effect.sync(() => {
             posts.push(number)
+
             return { url }
           }),
       })
@@ -178,11 +183,13 @@ describe("Run.deliver", () => {
         },
         github,
       )
+
       expect(posts).toEqual([])
 
       const deliver = Run.deliver(reviewed.runId).pipe(
         provideReviewFixture(fixture, makeScripted({ sessions: [] }), github),
       )
+
       expect((yield* deliver).url).toBe(url)
       expect((yield* deliver).url).toBe(url)
       expect(posts).toEqual([7])
@@ -197,6 +204,7 @@ describe("Run.deliver", () => {
         provideReviewFixture(fixture, makeScripted({ sessions: [] })),
         Effect.flip,
       )
+
       expect(refusal).toEqual(
         Run.RunRefusal.make({
           reason: `could not deliver — run ${reviewed.runId} is not a pull-request review and has no pull-request destination`,

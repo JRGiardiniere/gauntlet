@@ -19,6 +19,7 @@ export const readPromptTemplate = Effect.fn("PromptTemplate.read")(function* (
   path: string,
 ) {
   const fs = yield* FileSystem.FileSystem
+
   return yield* fs.readFileString(path).pipe(
     Effect.mapError((cause) =>
       ContentLoadError.make({ path, reason: "could not read prompt", cause })),
@@ -41,23 +42,28 @@ export const renderPromptTemplate = Effect.fn(
     const token = match[0]
     const placeholder = token.slice(2, -2)
     const value = HashMap.get(values, placeholder)
+
     if (Option.isNone(value)) {
       return yield* PromptAssemblyError.make({
         reason: `${name} template contains unresolved {{${placeholder}}}`,
       })
     }
+
     parts.push(template.slice(cursor, match.index), value.value)
     cursor = match.index + token.length
     missing = HashSet.remove(missing, placeholder)
   }
 
   const missingPlaceholder = missing.pipe(Array.fromIterable, Array.head)
+
   if (Option.isSome(missingPlaceholder)) {
     return yield* PromptAssemblyError.make({
       reason: `${name} template is missing {{${missingPlaceholder.value}}}`,
     })
   }
+
   parts.push(template.slice(cursor))
+
   return Array.join(parts, "").trimEnd()
 })
 
@@ -76,6 +82,8 @@ export const fenceMarkdownBlock = (language: string, content: string): string =>
     2,
     (longest, match) => Math.max(longest, match[0].length),
   )
+
   const fence = "`".repeat(longestBacktickRun + 1)
+
   return `${fence}${language}\n${content}\n${fence}`
 }

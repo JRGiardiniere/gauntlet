@@ -37,6 +37,7 @@ const reportUpdateNotice = Effect.fn("gauntlet.cli.report_update_notice")(
       Effect.map(Option.flatten),
       Effect.catchCause(() => Effect.succeed(Option.none<string>())),
     )
+
     if (Option.isSome(available)) {
       yield* progress(
         `v${available.value} is available (current v${gauntletVersion}) — run \`gauntlet upgrade\``,
@@ -73,5 +74,6 @@ export const runGauntlet = Effect.fn("gauntlet.cli.run")(function* (
   const notice = yield* Effect.forkChild(availableUpdateNotice())
   const exitCode = yield* runCli(argv)
   yield* reportUpdateNotice(notice)
+
   return exitCode
 })

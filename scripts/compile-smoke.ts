@@ -29,12 +29,14 @@ class SmokeStepFailed extends Schema.TaggedError<
 }) {}
 
 const repoRoot = `${import.meta.dirname}/..`
+
 process.chdir(repoRoot)
 
 // Runs a command under the fresh HOME and answers its stdout and wall time.
 const run = (step: string, command: string, args: ReadonlyArray<string>, home: string) =>
   Effect.gen(function* () {
     const started = yield* Clock.currentTimeMillis
+
     const handle = yield* ChildProcess.make(command, args, {
       cwd: home,
       extendEnv: true,
@@ -49,6 +51,7 @@ const run = (step: string, command: string, args: ReadonlyArray<string>, home: s
         OPENCODE_CLAUDE_PATH: "/nonexistent/claude",
       },
     })
+
     const [stdout, stderr, exitCode] = yield* Effect.all(
       [
         Stream.decodeText(handle.stdout).pipe(Stream.mkString),
@@ -57,11 +60,14 @@ const run = (step: string, command: string, args: ReadonlyArray<string>, home: s
       ],
       { concurrency: 3 },
     )
+
     const finished = yield* Clock.currentTimeMillis
     const elapsed = finished - started
+
     if (exitCode !== 0) {
       return yield* SmokeStepFailed.make({ step, reason: `exited ${String(exitCode)}\n${stdout}${stderr}` })
     }
+
     return { stdout, elapsed }
   }).pipe(Effect.scoped)
 

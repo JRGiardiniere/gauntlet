@@ -16,6 +16,7 @@ import { upgradeSeats } from "./upgrade.ts"
 // needs a release binary and is outside this suite.
 
 const variants = ["low", "medium", "high"]
+
 const models: ReadonlyArray<HostModel> = [
   { providerID: "openai", id: "gpt-6-luna", variants },
   { providerID: "openai", id: "gpt-6.1-terra", variants },
@@ -29,6 +30,7 @@ const models: ReadonlyArray<HostModel> = [
 
 const hostListing = (listModels: Effect.Effect<ReadonlyArray<HostModel>, HostError>) => {
   const untouched = Effect.die("unused")
+
   return hostLayer({
     openSession: () => untouched,
     listModels,
@@ -43,9 +45,11 @@ const withRecipes = Effect.fn("test.withRecipes")(function* (recipes: Record<str
   const home = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-upgrade-" })
   const directory = path.join(home, ".gauntlet", "recipes")
   yield* fs.makeDirectory(directory, { recursive: true })
+
   for (const [name, text] of Record.toEntries(recipes)) {
     yield* fs.writeFileString(path.join(directory, `${name}.json`), text)
   }
+
   return { home, directory }
 })
 
@@ -56,11 +60,13 @@ describe("upgradeSeats", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
+
       const { home, directory } = yield* withRecipes({
         quick: '{"default":"openai/gpt-6.1-terra:high+fast"}\n',
         medium: '{"default":"openai/gpt-6.1-sol:medium","finders":"openai/gpt-5.6-luna:high"}\n',
         "claude-high": '{"default":"claude-code/opus:high"}\n',
       })
+
       yield* upgradeSeats().pipe(
         Effect.provide([hostListing(Effect.succeed(models)), ConfigProvider.layer(ConfigProvider.fromUnknown({ HOME: home }))]),
       )

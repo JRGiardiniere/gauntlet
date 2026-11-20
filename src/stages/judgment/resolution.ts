@@ -47,8 +47,10 @@ const indexDecisions = (
   let decided = HashMap.empty<number, ReportedJudgment>()
   let conflicted = HashSet.empty<number>()
   const conflictedIndexes: Array<number> = []
+
   for (const decision of decisions) {
     if (HashSet.has(conflicted, decision.index)) continue
+
     if (HashMap.has(decided, decision.index)) {
       conflicted = HashSet.add(conflicted, decision.index)
       conflictedIndexes.push(decision.index)
@@ -57,6 +59,7 @@ const indexDecisions = (
       decided = HashMap.set(decided, decision.index, decision)
     }
   }
+
   return { decided, conflicted, conflictedIndexes }
 }
 
@@ -82,11 +85,14 @@ const planMerges = (
   const unkeptTargets: Array<number> = []
   let mergedInto = HashMap.empty<number, number>()
   let droppedWith = HashMap.empty<number, string>()
+
   for (const { index } of observations) {
     const decision = HashMap.get(ledger.decided, index)
+
     if (Option.isNone(decision) || decision.value.decision !== "merge") continue
     const { into } = decision.value
     const keeper = HashMap.get(ledger.decided, into)
+
     if (into === index) {
       selfMerges.push(index)
     } else if (!HashSet.has(validIndexes, into)) {
@@ -103,6 +109,7 @@ const planMerges = (
       mergedInto = HashMap.set(mergedInto, index, into)
     }
   }
+
   return { mergedInto, droppedWith, selfMerges, unknownTargets, unkeptTargets }
 }
 
@@ -120,8 +127,10 @@ const materialize = (
   plan: MergePlan,
 ): Materialized => {
   let mergedIds = HashMap.empty<number, ReadonlyArray<string>>()
+
   for (const { candidate, index } of observations) {
     const keeper = HashMap.get(plan.mergedInto, index)
+
     if (Option.isNone(keeper)) continue
     mergedIds = HashMap.modifyAt(mergedIds, keeper.value, (ids) =>
       Option.some([...Option.getOrElse(ids, () => []), candidate.id]))
@@ -129,24 +138,30 @@ const materialize = (
 
   const undecidedIndexes: Array<number> = []
   const discardedQualityNotes: Array<number> = []
+
   const resolved = Array.flatMap(
     observations,
     ({ candidate, index }): ReadonlyArray<JudgedObservation> => {
       if (HashMap.has(plan.mergedInto, index)) return []
       const sharedDrop = HashMap.get(plan.droppedWith, index)
+
       if (Option.isSome(sharedDrop)) {
         return [{
           candidate,
           judgment: Judgment.cases.Dropped.make({ reason: sharedDrop.value }),
         }]
       }
+
       const decision = HashMap.get(ledger.decided, index)
+
       if (Option.isNone(decision) || decision.value.decision === "merge") {
         if (Option.isNone(decision) && !HashSet.has(ledger.conflicted, index)) {
           undecidedIndexes.push(index)
         }
+
         return [{ candidate, judgment: Judgment.cases.Undecided.make({}) }]
       }
+
       if (decision.value.decision === "drop") {
         return [{
           candidate,
@@ -155,7 +170,9 @@ const materialize = (
           }),
         }]
       }
+
       const { cleanlyExplained, goodFind, qualityNote } = decision.value
+
       const core = {
         reviewPriority: decision.value.review_priority,
         reason: decision.value.reason,
@@ -166,6 +183,7 @@ const materialize = (
           () => [],
         ),
       }
+
       // The contract admits a quality note only when a rating is false.
       if (qualityNote !== undefined && !(goodFind && cleanlyExplained)) {
         return [{
@@ -173,10 +191,13 @@ const materialize = (
           judgment: Judgment.cases.Kept.make({ ...core, qualityNote }),
         }]
       }
+
       if (qualityNote !== undefined) discardedQualityNotes.push(index)
+
       return [{ candidate, judgment: Judgment.cases.Kept.make(core) }]
     },
   )
+
   return { observations: resolved, undecidedIndexes, discardedQualityNotes }
 }
 
@@ -193,8 +214,10 @@ export const resolveJudgment = (
   const validIndexes = HashSet.fromIterable(
     Array.map(observations, ({ index }) => index),
   )
+
   const known: Array<ReportedJudgment> = []
   const unknown: Array<ReportedJudgment> = []
+
   for (const decision of output?.decisions ?? []) {
     if (HashSet.has(validIndexes, decision.index)) known.push(decision)
     else unknown.push(decision)

@@ -15,4 +15,5 @@ export const DeliveryReceipt = Schema.TaggedUnion({
     reason: Schema.NonEmptyString,
   },
 })
+
 export type DeliveryReceipt = typeof DeliveryReceipt.Type

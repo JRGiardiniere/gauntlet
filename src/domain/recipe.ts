@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema"
 export const Seat = Schema.String.check(
   Schema.isPattern(/^[^/\s]+\/\S+:[^\s:]+$/),
 )
+
 export type Seat = typeof Seat.Type
 
 const FAST = "+fast"
@@ -23,11 +24,13 @@ export const seatSpeed = (seat: Seat): { readonly seat: string; readonly fast: b
 export const RecipeName = Schema.String.check(
   Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
 )
+
 export type RecipeName = typeof RecipeName.Type
 
 // A lens is specific by omission or opts into exactly `interpretive` (ADR
 // 0004); the recipe maps the class to a seat, the lens never names one.
 export const FinderClass = Schema.Literals(["specific", "interpretive"])
+
 export type FinderClass = typeof FinderClass.Type
 
 // A Recipe is user-owned content: one strict JSON file in the Recipe Catalog
@@ -42,6 +45,7 @@ export const Recipe = Schema.Struct({
   verification: Schema.optionalKey(Seat),
   judgment: Schema.optionalKey(Seat),
 })
+
 export type Recipe = typeof Recipe.Type
 
 // Specific finders resolve through `finders` then `default`; interpretive

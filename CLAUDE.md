@@ -80,7 +80,7 @@ skills (`effect` for Effect code). The skills come from Convoy, in `~/.claude/sk
   `~/.gauntlet/opencode`; session resume is replaced with a no-op because a
   claim has no owner on a shared store.
 - Span names in existing code still use `gauntlet.<module>.<method>`; new code
-  uses the skill's `Domain.operation`, and the renames are #126.
+  uses the skill's `Domain.operation`.
 
 ### Build and release
 

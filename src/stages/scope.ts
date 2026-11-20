@@ -29,15 +29,18 @@ export const loadStageScopeTemplates = Effect.fn("StageScope.loadTemplates")(
   function* () {
     const path = yield* Path.Path
     const contentDirectory = yield* ContentDirectory
+
     const workspacePromptPath = path.join(
       contentDirectory,
       "prompts",
       WORKSPACE_PROMPT,
     )
+
     const [stageScope, workspaceTools] = yield* Effect.all(
       [readPromptTemplate(templatePath), readPromptTemplate(workspacePromptPath)],
       { concurrency: 2 },
     )
+
     return { stageScope, workspaceTools } satisfies StageScopeTemplates
   },
 )
@@ -66,6 +69,7 @@ export const assembleStageScope = (
         diffSection("Diff under review", target.diff),
       ],
     ])
+
     return specification === undefined
       ? scope
       : `${scope}\n\n${renderSpecificationSection(specification)}`

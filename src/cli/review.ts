@@ -25,6 +25,7 @@ const review = Effect.fn("Cli.review")(function* (
 ) {
   const reviewed = yield* Run.review(request)
   yield* Console.log(reviewed.digest)
+
   if (destination === "local") return
   const receipt = yield* Run.deliver(reviewed.runId)
   yield* progress(`posted ${receipt.url}`)

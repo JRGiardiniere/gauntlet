@@ -10,6 +10,7 @@ export const formatCandidateLine = (
 ): string => {
   const location = `${candidate.file}${candidate.line === undefined ? "" : `:${String(candidate.line)}`}`
   const line = `[${String(index)}] (${candidate.lens}) ${location} — ${candidate.summary}`
+
   return Candidate.guards.BugClaim(candidate)
     ? `${line}\n    claimed failure: ${candidate.failureScenario}`
     : line

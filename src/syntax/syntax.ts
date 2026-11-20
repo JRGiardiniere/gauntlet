@@ -60,15 +60,19 @@ const resolveWritten = Effect.fn("Syntax.resolvePath")(function* (
   written: string,
 ) {
   const path = yield* Path.Path
+
   if (written !== "~" && !written.startsWith("~/")) {
     const invocationDirectory = yield* InvocationDirectory
+
     return path.resolve(invocationDirectory, written)
   }
+
   const home = yield* Config.String("HOME").pipe(
     Effect.mapError(() =>
       ReviewCommandError.make({ reason: `HOME is not set, so ${written} names no folder` })
     ),
   )
+
   return path.join(home, written.slice(1))
 })
 
@@ -76,11 +80,13 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
   input: ReviewInput,
 ) {
   const target = Option.getOrUndefined(input.target)
+
   // All digits is a pull request; anything else is a commit range as git
   // takes it, `<base>` meaning merge-base(base, HEAD)..HEAD.
   const pullRequest = target !== undefined && /^\d+$/.test(target)
     ? Number(target)
     : undefined
+
   if (
     input.workingTree &&
     (pullRequest !== undefined || target?.includes("..") === true)
@@ -90,11 +96,13 @@ const reviewRequestOf = Effect.fn("Syntax.reviewRequest")(function* (
         "--working-tree extends only a commit base; a pull request or a <base>..<head> range has its own head",
     })
   }
+
   if (input.destination === "pr" && pullRequest === undefined) {
     return yield* ReviewCommandError.make({
       reason: "--destination pr needs a pull request target",
     })
   }
+
   return {
     directory: Option.isSome(input.repo)
       ? yield* resolveWritten(input.repo.value)

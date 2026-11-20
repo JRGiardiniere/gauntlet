@@ -17,9 +17,11 @@ describe("EmitJudgments contract", () => {
     Effect.gen(function* () {
       const document = projectOutputContract(EmitJudgments)
       expect(Record.keys(document.definitions)).toHaveLength(0)
+
       const projected = yield* Schema.encodeEffect(
         Schema.fromJsonString(Schema.Unknown),
       )(document.schema)
+
       expect(projected).toContain("Reading ONLY the finder's own summary")
       expect(projected).toContain("never a priority")
     }))
@@ -38,6 +40,7 @@ describe("EmitJudgments contract", () => {
           ],
         }),
       )
+
       expect(dropFailure._tag).toBe("SchemaError")
 
       const kept = yield* strictDecode({
@@ -52,6 +55,7 @@ describe("EmitJudgments contract", () => {
           },
         ],
       })
+
       expect(kept.decisions).toHaveLength(1)
     }))
 })

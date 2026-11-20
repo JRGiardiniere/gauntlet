@@ -21,11 +21,14 @@ const firstEligibleUsage = (
   outcome: FinderResult["outcome"] | undefined,
 ): EligibleUsage | undefined => {
   const raw = outcome?.usage.rawRows[0]
+
   if (raw === undefined) return undefined
   const decoded = Schema.decodeUnknownOption(UsageRow)(raw)
+
   if (Option.isNone(decoded)) return undefined
   // `input` excludes cached tokens; a cache write is prompt the cache missed.
   const promptTokens = decoded.value.input + decoded.value.cacheRead + decoded.value.cacheWrite
+
   return promptTokens === 0
     ? undefined
     : { promptTokens, cacheRead: decoded.value.cacheRead }
@@ -40,16 +43,21 @@ export const measureLowFinderCacheHealth = (
   const outcomeByLens = new Map(
     Array.map(results, ({ lens, outcome }) => [lens.name, outcome] as const),
   )
+
   const eligible = Array.flatMap(finderPartitionsInPlan(plan), (partition) =>
     Array.flatMap(partition.slice(1), ({ lens }) => {
       const usage = firstEligibleUsage(outcomeByLens.get(lens.name))
+
       return usage === undefined ? [] : [usage]
     }))
+
   if (eligible.length < 2) return undefined
   const totalPromptTokens = Array.reduce(eligible, 0, (total, usage) => total + usage.promptTokens)
   const totalCacheRead = Array.reduce(eligible, 0, (total, usage) => total + usage.cacheRead)
   const reuse = totalCacheRead / totalPromptTokens
+
   if (reuse >= 0.5) return undefined
+
   return {
     reuse,
     eligibleFollowerCount: eligible.length,

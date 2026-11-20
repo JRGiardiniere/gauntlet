@@ -46,12 +46,14 @@ const claimEntry = (
   detail: string | undefined,
 ): DossierEntryView => {
   const projection = projectBugClaimCluster(entry.bugClaims)
+
   const core = {
     ...projection,
     tag,
     reviewPriority,
     detail,
   }
+
   return entry.testSuggestion === undefined
     ? core
     : { ...core, testSuggestion: entry.testSuggestion }
