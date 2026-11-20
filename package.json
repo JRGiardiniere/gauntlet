@@ -15,6 +15,7 @@
     "lint": "bun scripts/lint-house-style.ts",
     "live-gate": "bun scripts/live-gate.ts",
     "live-gate-compiled": "bun scripts/live-gate-compiled.ts",
+    "live-agent-config-probe": "bun scripts/live-agent-config-probe.ts",
     "prepare": "effect-tsgo patch --oxlint",
     "test": "bun --bun vitest run src/ && vitest run scripts/ .convoy/ && sh scripts/install.test.sh",
     "test:compile-smoke": "bun run bundle && bun scripts/compile-smoke.ts",

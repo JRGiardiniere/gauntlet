@@ -23,6 +23,7 @@ No gate copies a login.
 | --- | --- |
 | `bun run live-gate openai gpt-6-luna:low` | Real OpenAI login and model routing: one emit round-trip, usage decoded |
 | `bun run live-gate claude-code haiku:low` | The same for Claude |
+| `bun run live-agent-config-probe claude-code/haiku:low` | The real `claude` loads nothing from the reviewed repo: its instructions, settings, skills, MCP servers and hooks stay out of the transcript and do not run |
 | `bun run live-gate-compiled` | A compiled binary from a fresh `HOME`: an OpenAI review cold then warm (cache hit rate in the digest), and a mixed Recipe with Claude Finders and OpenAI Pool, Verification and Judgment. `openai` or `mixed` runs one half |
 
 Each prints its checks or digests and exits non-zero on a failure; a review
