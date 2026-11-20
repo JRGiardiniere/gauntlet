@@ -92,5 +92,9 @@ describe("finder assembly", () => {
       })],
       coverageGaps: [],
     })
+
+    // The discriminators dossier.json carries, pinned apart from the constructors.
+    expect(routed.bugClaims[0]?._tag).toBe("BugClaim")
+    expect(routed.observations[0]?._tag).toBe("Observation")
   })
 })

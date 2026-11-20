@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
 import { Candidate } from "../domain/candidate.ts"
-import { DossierFinding, DroppedObservation } from "../domain/dossier.ts"
+import { DroppedObservation } from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
@@ -81,7 +81,8 @@ describe("Dossier Assembly", () => {
     })
 
     expect(dossier.findings).toHaveLength(1)
-    expect(dossier.findings[0]).toSatisfy(DossierFinding.guards.Confirmed)
+    // The discriminator dossier.json carries, pinned apart from the constructor.
+    expect(dossier.findings[0]?._tag).toBe("Confirmed")
     expect(dossier.findings).toMatchObject([{
       bugClaims: [bugClaim],
       testSuggestion: {

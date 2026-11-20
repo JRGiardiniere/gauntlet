@@ -163,7 +163,9 @@ export const acquireReviewWorkingDirectory = Effect.fn(
       ),
   )
 
-  if (!ReviewTarget.guards.WorkingTree(target)) return directory
+  // The tag alone decides: a guard would re-validate every field and could
+  // skip the overlay.
+  if (!ReviewTarget.isAnyOf(["WorkingTree"])(target)) return directory
   yield* runGit(directory, [
     "apply",
     "--binary",
