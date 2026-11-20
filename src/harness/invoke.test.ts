@@ -81,7 +81,7 @@ describe("invoke", () => {
             afterMillis: 300,
             emits: [GOOD_EMIT],
             usage: [usageRow({ input: 10 }), usageRow({ input: 20, cacheRead: 5 })],
-            toolCalls: { total: 3, errored: 1 },
+            toolCalls: { total: 3, errored: 1, erroredPaths: ["node_modules/fixture-pkg"] },
           }],
         }],
       })
@@ -90,7 +90,7 @@ describe("invoke", () => {
       expect(outcome.output).toEqual(GOOD_EMIT)
       expect(outcome.usage).toMatchObject({ input: 30, output: 400, cacheRead: 805, cacheWrite: 200, reasoning: 100 })
       expect(outcome.usage.rawRows).toHaveLength(2)
-      expect(outcome.toolCalls).toEqual({ total: 3, errored: 1 })
+      expect(outcome.toolCalls).toEqual({ total: 3, errored: 1, erroredPaths: ["node_modules/fixture-pkg"] })
       expect(outcome.durationMillis).toBe(300)
       expect(outcome.diagnostics).toEqual([])
       expect(scripted.log).toEqual(["open:1", "turn:1.1", "close:1"])

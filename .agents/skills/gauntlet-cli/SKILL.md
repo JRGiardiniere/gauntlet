@@ -118,6 +118,13 @@ the digest lists every P1 and P2 entry, Unresolved ones included, and only
 counts P3s and entries with no priority. Machine truth: parse `dossier.json`, beside `dossier.md`. Stdout is
 the digest, not the Dossier.
 
+Agents read installed dependencies (`node_modules`) from the checkout the
+review runs in, so a change whose correctness depends on a library is
+checked against it only when they are installed there. `dossier.md` says when
+they were not (a Run notes line), when a lockfile differs from the reviewed
+version (a warning), and which paths finder tool calls failed on; relay these
+when they bear on a finding or on what went unchecked.
+
 A finding may carry a "suggested tests" line — existing repository tests the
 verifier believes would increase confidence. Running them is optional: run a
 relevant one with the repository's own instructions, ask the user, or leave it

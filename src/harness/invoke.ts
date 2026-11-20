@@ -50,6 +50,7 @@ export interface InvokeInput<O> {
   readonly role: string
   readonly seat: Seat
   readonly workspace: string
+  readonly dependencies?: ReadonlyArray<string>
   readonly systemPrompt: string
   readonly prompt: string
   readonly tools: ReadonlyArray<InspectionTool>
@@ -176,9 +177,10 @@ const finalizeOutcome = <O>(
     const outcome = {
       termination,
       usage: usageOf([...Array.flatMap(turns, (turn) => turn.usage), ...cutShort]),
-      toolCalls: Array.reduce(turns, { total: 0, errored: 0 }, (sum, turn) => ({
+      toolCalls: Array.reduce(turns, { total: 0, errored: 0, erroredPaths: Array.empty<string>() }, (sum, turn) => ({
         total: sum.total + turn.toolCalls.total,
         errored: sum.errored + turn.toolCalls.errored,
+        erroredPaths: Array.dedupe([...sum.erroredPaths, ...(turn.toolCalls.erroredPaths ?? [])]),
       })),
       durationMillis,
       diagnostics,
@@ -213,6 +215,7 @@ const invokeInternal = <O>(
       role: input.role,
       seat: input.seat,
       workspace: input.workspace,
+      dependencies: input.dependencies,
       systemPrompt: input.systemPrompt,
       tools: input.tools,
       emit: emitToolSpec(input.contract),

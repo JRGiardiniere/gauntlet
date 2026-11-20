@@ -2,6 +2,7 @@ import * as Array from "effect/Array"
 import { SeatedStageName } from "../domain/stage.ts"
 import type { FinderCacheHealth } from "./finder-cache-health.ts"
 import type { FinderToolHealth } from "./finder-tool-health.ts"
+import type { InstalledDependencies } from "./installed-dependencies.ts"
 import { cacheHitPercent } from "./progress-text.ts"
 
 // Tokens over a Run's invocations. `input` excludes cached tokens, so the
@@ -27,6 +28,7 @@ export interface RunAccounting {
   readonly wallTimeSeconds: number
   readonly finderCacheHealth: FinderCacheHealth | undefined
   readonly finderToolHealth: FinderToolHealth | undefined
+  readonly installedDependencies: InstalledDependencies
 }
 
 export const totalTokens = (stageTokens: RunAccounting["stageTokens"]): TokenTotals =>
