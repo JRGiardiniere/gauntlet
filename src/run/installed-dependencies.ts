@@ -15,7 +15,20 @@ import { RunError } from "./run-record.ts"
 
 export const DEPENDENCIES = "node_modules"
 
-const LOCKFILES = ["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
+// Where package managers keep the packages themselves. Every other dot-entry
+// directly in a `node_modules` is tool state (`.cache`, `.mf`, `.vite`), which
+// can hold account details and is never served.
+const PACKAGE_STORES = [".bin", ".bun", ".pnpm"]
+
+// `relative` is a `/`-separated path with `node_modules` among its segments.
+export const isDependencyToolState = (relative: string): boolean => {
+  const segments = relative.split("/")
+
+  return Array.some(segments, (segment, index) =>
+    index > 0 && segments[index - 1] === DEPENDENCIES && segment.startsWith(".") && !Array.contains(PACKAGE_STORES, segment))
+}
+
+const LOCKFILES =["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
 
 export interface ExposedDependencies {
   // Snapshot-relative package root; "" is the repository root.
@@ -80,9 +93,23 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
       Effect.orElseSucceed(() => false),
     )
 
+  const realSnapshot = yield* fs.realPath(snapshot).pipe(
+    Effect.mapError((cause) => failure(`could not resolve the review snapshot ${snapshot}`, cause)),
+  )
+
+  // A package root reached through a link (an overlay can turn a directory
+  // into one) would put the new link outside the snapshot.
+  const insideSnapshot = (root: string) =>
+    fs.realPath(path.join(snapshot, root)).pipe(
+      Effect.map((real) => real === path.join(realSnapshot, root)),
+      Effect.orElseSucceed(() => false),
+    )
+
   const exposeAt = (root: string) =>
     Effect.gen(function* () {
       const source = path.join(target.repoRoot, root, DEPENDENCIES)
+
+      if (!(yield* insideSnapshot(root))) return []
 
       // The fence admits everything below this real path, so a checkout
       // `node_modules` linked to some other kind of directory is not exposed.
@@ -107,11 +134,21 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
   const installed = yield* Effect.filter(roots, installedAt)
   const exposed = yield* Effect.forEach(installed, exposeAt).pipe(Effect.map(Array.flatten))
 
+  // Only a regular file is read: a tracked link named like a lockfile could
+  // point at anything on disk.
   const readIfPresent = (file: string) =>
-    fs.readFile(file).pipe(
-      Effect.map((bytes): Uint8Array | undefined => bytes),
-      Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
-    )
+    Effect.gen(function* () {
+      const kind = yield* fs.lstat(file).pipe(
+        Effect.map((info): string | undefined => info.type),
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
+      )
+
+      if (kind === undefined) return undefined
+
+      if (kind !== "File") return yield* failure(`${file} is not a regular file`)
+
+      return yield* fs.readFile(file)
+    })
 
   const consequence = "so dependency reads may not match the reviewed version"
 

@@ -139,6 +139,27 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
+  it.effect("never read a lockfile through a link", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-dependencies-link-" })
+      yield* writeFiles(repo, { ".gitignore": "node_modules/\n", "README.md": "base\n" })
+      yield* commitAll(repo, "base")
+      yield* fs.writeFileString(path.join(root, "elsewhere"), "not a lockfile\n")
+      yield* writeFiles(repo, { "package.json": "{}\n", "node_modules/fixture-pkg/index.js": "export const installed = 1\n" })
+      // Tracked, so the reviewed version and the checkout both have the link.
+      yield* fs.symlink(path.join(root, "elsewhere"), path.join(repo, "bun.lock"))
+      yield* commitAll(repo, "head")
+      const target = yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
+      const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
+      const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
+
+      expect(installed.lockfileWarnings).toEqual([
+        "bun.lock could not be read to compare it with your checkout, so dependency reads may not match the reviewed version",
+      ])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
+
   it.effect("take a working-tree review's package roots and lockfiles from the reviewed working tree, not its head commit", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem

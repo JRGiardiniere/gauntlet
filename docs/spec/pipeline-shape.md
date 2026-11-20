@@ -67,7 +67,9 @@ line for `spec-conformance`; invocation accounting counts only work that ran.
 
 Every Stage with tools reads the same snapshot, which links the Caller's
 installed `node_modules` at the repository root and beside each tracked
-`package.json`, read-only and on demand. A lockfile (`bun.lock`, `bun.lockb`,
+`package.json`, read-only and on demand. Only packages are served from there:
+a dot-entry directly in a `node_modules` other than `.bin`, `.bun` and `.pnpm`
+is tool state (`.cache`, `.mf`) and is refused. A lockfile (`bun.lock`, `bun.lockb`,
 `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`) at such a root that
 differs between the reviewed version and the Caller's checkout (or is on one
 side only) adds a Dossier warning; a repository with a `package.json` and no

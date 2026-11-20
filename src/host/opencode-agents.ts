@@ -19,7 +19,7 @@ import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import type { AgentToolCalls } from "../domain/agent-outcome.ts"
-import { DEPENDENCIES } from "../run/installed-dependencies.ts"
+import { DEPENDENCIES, isDependencyToolState } from "../run/installed-dependencies.ts"
 import { isProtectedPath, PROTECTED_RESOURCES } from "../workspace/protected-paths.ts"
 import {
   AdapterContractViolation,
@@ -177,7 +177,25 @@ const fenceRefusal = Effect.fn("Fence.refusal")(function* (
 
   if (isProtectedPath(lexical)) return unreadable
 
-  // A `node_modules` missing from the snapshot was not installed there.
+  const realResolved = yield* realPathOf(services, resolved)
+  const real = path.relative(realRoot, realResolved)
+
+  if (escapes(path, real)) {
+    return Option.match(Array.findFirst(dependencies, (directory) => within(path, directory, realResolved)), {
+      onNone: () => outside,
+      onSome: (directory) => {
+        const below = path.relative(directory, realResolved)
+
+        return isProtectedPath(below) || isDependencyToolState(`${DEPENDENCIES}/${below}`) ? unreadable : undefined
+      },
+    })
+  }
+
+  if (isProtectedPath(real)) return unreadable
+
+  // A `node_modules` missing from the snapshot was not installed there. Asked
+  // only once the real path is known to stay inside, so a tracked link cannot
+  // probe for a `node_modules` elsewhere on disk.
   const segments = lexical.split(path.sep)
   const dependencyIndex = segments.indexOf(DEPENDENCIES)
 
@@ -191,15 +209,7 @@ const fenceRefusal = Effect.fn("Fence.refusal")(function* (
     }
   }
 
-  const realResolved = yield* realPathOf(services, resolved)
-  const real = path.relative(realRoot, realResolved)
-
-  if (!escapes(path, real)) return isProtectedPath(real) ? unreadable : undefined
-
-  return Option.match(Array.findFirst(dependencies, (directory) => within(path, directory, realResolved)), {
-    onNone: () => outside,
-    onSome: (directory) => (isProtectedPath(path.relative(directory, realResolved)) ? unreadable : undefined),
-  })
+  return undefined
 })
 
 // The directory a grep or glob call searches, when it lies in exposed
@@ -451,7 +461,10 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
             dependencySearchDirectory(services, directory, dependencies(), searchPath)
 
           const belowSearched = (searched: string, glob: string) => (relative: string) =>
-            matchesSearchGlob(services.path, glob, services.path.relative(searched, services.path.resolve(directory, relative)))
+            !isDependencyToolState(relative)
+            && matchesSearchGlob(services.path, glob, services.path.relative(searched, services.path.resolve(directory, relative)))
+
+          const packagesOnly = (relative: string) => !isDependencyToolState(relative)
 
           editor.update("grep", (tool) => {
             tool.description = GREP_DESCRIPTION
@@ -466,7 +479,11 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
 
                     if (Option.isNone(searched)) return execute({ ...raw, limit }, context)
 
-                    if (include === undefined) return execute({ ...raw, limit, include: EVERYTHING }, context)
+                    if (include === undefined) {
+                      return execute({ ...raw, limit, include: EVERYTHING }, context).pipe(
+                        Effect.map((result) => keepMatches(services.path, directory, result, packagesOnly)),
+                      )
+                    }
 
                     return execute({ ...raw, include: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
                       Effect.map((result) => keepMatches(services.path, directory, result, belowSearched(searched.value, include), limit)),

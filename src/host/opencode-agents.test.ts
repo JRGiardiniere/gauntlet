@@ -485,10 +485,12 @@ const makeInstalledRepo = (installed: boolean) =>
     yield* write({ ".gitignore": "/node_modules/\ndist/\n*.log\n.dev.vars\npackages/w/\n", "README.md": "base\n" })
     yield* commitAll(repo, "base")
     yield* write({ "package.json": "{}\n", "vendored/package.json": "{}\n", "vendored/node_modules/kept.js": "tracked\n" })
-    yield* commitAll(repo, "head")
     const outside = path.join(root, "outside")
     yield* fs.makeDirectory(outside)
     yield* fs.writeFileString(path.join(outside, "secret"), `${SECRET}-outside\n`)
+    // Tracked, so the snapshot has it too.
+    yield* fs.symlink(outside, path.join(repo, "linked-out"))
+    yield* commitAll(repo, "head")
 
     yield* write({
       ".dev.vars": `TOKEN=${SECRET}-dev-vars\n`,
@@ -506,7 +508,12 @@ const makeInstalledRepo = (installed: boolean) =>
         // Its own package: ripgrep takes a directory holding `.git` as a
         // repository root and applies no ignore rules from above it.
         "node_modules/git-pkg/.git/config": `${SECRET}-dependency-git\n`,
+        "node_modules/.bin/fixture-tool": "a package's executable\n",
+        // Tool state beside the packages, as wrangler and Miniflare leave it.
+        "node_modules/.cache/tool/state.json": `TOKEN=${SECRET}-tool-state\n`,
       })
+      // A protected file under a name the lexical check does not catch.
+      yield* fs.symlink(".env", path.join(repo, "node_modules/fixture-pkg/innocent"))
       yield* fs.symlink(path.join(repo, "packages/w"), path.join(repo, "node_modules/workspace-link"))
       yield* fs.symlink(outside, path.join(repo, "node_modules/escape"))
     }
@@ -560,6 +567,10 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-dependencies", "/nonexistent/overlay.patch")
       const installed = yield* exposeInstalledDependencies(target, "fence-dependencies", snapshot)
       const dependencies = Array.map(installed.exposed, ({ directory }) => directory)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      // Ignored by the snapshot's own rules, which still apply outside dependencies.
+      yield* fs.writeFileString(path.join(snapshot, "scratch.log"), "HOOK_MARKER ignored in the snapshot\n")
 
       const { outcomes, sent, turn } = yield* runCalls(snapshot, dependencies, [
         ["read-dependency", "read", { path: "node_modules/fixture-pkg/lib/x.js" }, true],
@@ -578,6 +589,12 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
         ["read-dev-vars", "read", { path: ".dev.vars" }, false],
         ["read-build-output", "read", { path: "dist/build.js" }, false],
         ["read-untracked-over-tracked", "read", { path: "vendored/node_modules/untracked.js" }, false],
+        ["read-dependency-bin", "read", { path: "node_modules/.bin/fixture-tool" }, true],
+        ["glob-tool-state", "glob", { pattern: "**/*.json", path: "node_modules", hidden: true }, true],
+        ["grep-snapshot-ignored", "grep", { pattern: "HOOK_MARKER" }, true],
+        ["read-dependency-env-alias", "read", { path: "node_modules/fixture-pkg/innocent" }, false],
+        ["read-tool-state", "read", { path: "node_modules/.cache/tool/state.json" }, false],
+        ["read-probe-outside", "read", { path: "linked-out/node_modules/x" }, false],
       ])
 
       const text = (id: string) => outcomes.get(id)?.text ?? ""
@@ -595,6 +612,12 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
       expect(text("read-dependency-env")).toBe("Refused: node_modules/fixture-pkg/.env is not readable in the review snapshot.")
       expect(text("read-workspace-link")).toBe("Refused: node_modules/workspace-link/secret.ts is outside the review snapshot.")
       expect(text("read-escape")).toBe("Refused: node_modules/escape/secret is outside the review snapshot.")
+      expect(text("glob-tool-state")).not.toContain("state.json")
+      expect(text("grep-snapshot-ignored")).toBe("No matches found")
+      expect(text("read-dependency-env-alias")).toBe("Refused: node_modules/fixture-pkg/innocent is not readable in the review snapshot.")
+      expect(text("read-tool-state")).toBe("Refused: node_modules/.cache/tool/state.json is not readable in the review snapshot.")
+      // Not "Unavailable": that would tell whether a node_modules exists out there.
+      expect(text("read-probe-outside")).toBe("Refused: linked-out/node_modules/x is outside the review snapshot.")
       expect(sent).not.toContain(SECRET)
 
       expect(turn.toolCalls.erroredPaths).toEqual([
@@ -606,6 +629,9 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
         ".dev.vars",
         "dist/build.js",
         "vendored/node_modules/untracked.js",
+        "node_modules/fixture-pkg/innocent",
+        "node_modules/.cache/tool/state.json",
+        "linked-out/node_modules/x",
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 

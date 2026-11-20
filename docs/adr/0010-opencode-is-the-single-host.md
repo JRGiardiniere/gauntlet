@@ -38,7 +38,9 @@ Pi, `claude -p` and `just-bash` are deleted.
   outside paths), not hardened isolation. Amended per #189: the snapshot
   links the Caller's installed `node_modules` (repository root and beside
   each tracked `package.json`), and the fence admits a path whose real path
-  lies in one of them; everything else it refuses stays refused. The tools
+  lies in one of them, apart from the tool state kept there (`.cache`, `.mf`
+  and other dot-entries that are not a package store); everything else it
+  refuses stays refused. The tools
   stay read-only, so nothing can write there or run code from there.
 - **No session resume.** A claim on a shared store has no owner, so resuming
   at start would re-run another process's live turns; each invocation removes
