@@ -16,7 +16,7 @@ const EVALUATION_SYSTEM_PROMPT =
 
 export interface StageInvocation<O> extends Pick<
   InvokeInput<O>,
-  "invocationId" | "role" | "seat" | "workspace" | "prompt" | "contract" | "tools"
+  "invocationId" | "role" | "seat" | "workspace" | "dependencies" | "prompt" | "contract" | "tools"
 > {
   // How the progress lines and run.log name the invocation.
   readonly label: string

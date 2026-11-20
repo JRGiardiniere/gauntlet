@@ -36,6 +36,8 @@ const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
 export interface JudgmentExecution {
   readonly plan: ReviewPlan
   readonly reviewWorkingDirectory: string
+  // The Caller's installed dependency directories the snapshot exposes.
+  readonly dependencies?: ReadonlyArray<string>
   readonly observations: ReadonlyArray<Observation>
   // Pool's BugClaim clusters, which an Observation must not restate.
   readonly pooled: PooledBugClaims
@@ -57,6 +59,7 @@ export const executeJudgment = Effect.fn(
   plan,
   pooled,
   reviewWorkingDirectory,
+  dependencies,
 }: JudgmentExecution) {
   const indexed = indexObservations(observations)
 
@@ -106,6 +109,7 @@ export const executeJudgment = Effect.fn(
     role: "judge",
     seat,
     workspace: reviewWorkingDirectory,
+    dependencies,
     prompt,
     contract: EmitJudgments,
     tools: JUDGMENT_TOOLS,

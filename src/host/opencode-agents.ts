@@ -1,5 +1,8 @@
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- Effect's Path has no glob matcher, and this is the OpenCode tool adapter boundary
+import { matchesGlob } from "node:path"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
 import { FileAccess } from "@opencode/core/file-access"
+import { GlobTool } from "@opencode/core/tool/plugin/glob"
 import { GrepTool } from "@opencode/core/tool/plugin/grep"
 import { Plugin } from "@opencode/plugin/effect"
 import { AbsolutePath, Agent, Model, type OpenCode, Provider, type Session, Tool } from "@opencode/sdk/effect"
@@ -16,6 +19,7 @@ import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import type { AgentToolCalls } from "../domain/agent-outcome.ts"
+import { DEPENDENCIES } from "../run/installed-dependencies.ts"
 import { isProtectedPath, PROTECTED_RESOURCES } from "../workspace/protected-paths.ts"
 import {
   AdapterContractViolation,
@@ -42,6 +46,15 @@ const AGENT_READY_TIMEOUT = Duration.seconds(60)
 // The spike's grep default: enough matches to locate code, small enough that
 // a broad pattern does not flood the context.
 const GREP_DEFAULT_LIMIT = 30
+
+// OpenCode's own glob default.
+const GLOB_DEFAULT_LIMIT = 100
+
+// A search of exposed dependencies with its own include or pattern collects
+// this many results before filtering them.
+const DEPENDENCY_SEARCH_LIMIT = 2000
+
+const EVERYTHING = "*"
 
 // Bounds paging through a session's assistant messages.
 const MESSAGE_PAGE = 200
@@ -86,6 +99,8 @@ interface Registry {
   readonly emitTools: Map<string, EmitDefinition>
   readonly contexts: Map<string, Plugin.Context>
   readonly sessions: Map<string, SessionRoute>
+  // Each Location's exposed dependency directories, as real paths.
+  readonly dependencies: Map<string, ReadonlyArray<string>>
 }
 
 export const makeRegistry = (): Registry => ({
@@ -93,6 +108,7 @@ export const makeRegistry = (): Registry => ({
   emitTools: new Map(),
   contexts: new Map(),
   sessions: new Map(),
+  dependencies: new Map(),
 })
 
 // Last match wins: everything denied, so nothing falls through to asking;
@@ -131,34 +147,88 @@ const realPathOf = ({ fs, path }: FenceServices, target: string): Effect.Effect<
     }),
   )
 
-// Why the snapshot at `root` (real path `realRoot`) refuses a tool's `path`,
-// resolved exactly as the tool resolves it (`~`, `..`, absolute), or
-// undefined when it serves it. OpenCode decides "inside" lexically and reads
-// follow symlinks, so the real path is checked as well: an outbound symlink is
-// refused here. grep and glob check their pattern, not their path, against
-// the rules, so the protected paths are refused here for them too.
+const escapes = (path: Path.Path, relative: string) =>
+  relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+
+const within = (path: Path.Path, directory: string, target: string) => !escapes(path, path.relative(directory, target))
+
+// The tool error for a `path` the snapshot at `root` (real path `realRoot`)
+// does not serve, resolved exactly as the tool resolves it (`~`, `..`,
+// absolute), or undefined when it serves it. OpenCode decides "inside"
+// lexically and reads follow symlinks, so the real path is checked as well:
+// an outbound symlink is refused here, unless its real path lies in one of
+// the Caller's installed `node_modules` the snapshot exposes
+// (`dependencies`). grep and glob check their pattern, not their path,
+// against the rules, so the protected paths are refused here for them too.
 const fenceRefusal = Effect.fn("Fence.refusal")(function* (
   services: FenceServices,
   root: string,
   realRoot: string,
+  dependencies: ReadonlyArray<string>,
   input: string,
 ) {
-  const { path } = services
-
-  const escapes = (relative: string) =>
-    relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
-
+  const { fs, path } = services
+  const outside = `Refused: ${input} is outside the review snapshot.`
+  const unreadable = `Refused: ${input} is not readable in the review snapshot.`
   const resolved = FileAccess.resolvePath(root, input)
-  const realResolved = yield* realPathOf(services, resolved)
   const lexical = path.relative(root, resolved)
+
+  if (escapes(path, lexical)) return outside
+
+  if (isProtectedPath(lexical)) return unreadable
+
+  // A `node_modules` missing from the snapshot was not installed there.
+  const segments = lexical.split(path.sep)
+  const dependencyIndex = segments.indexOf(DEPENDENCIES)
+
+  if (dependencyIndex >= 0) {
+    const installed = yield* fs.exists(path.join(root, ...segments.slice(0, dependencyIndex + 1))).pipe(
+      Effect.orElseSucceed(() => false),
+    )
+
+    if (!installed) {
+      return `Unavailable: dependencies were not installed in the caller's checkout, so ${input} is not available to this review.`
+    }
+  }
+
+  const realResolved = yield* realPathOf(services, resolved)
   const real = path.relative(realRoot, realResolved)
 
-  if (escapes(lexical) || escapes(real)) return `${input} is outside the review snapshot`
+  if (!escapes(path, real)) return isProtectedPath(real) ? unreadable : undefined
 
-  if (isProtectedPath(lexical) || isProtectedPath(real)) return `${input} is not readable in the review snapshot`
-
-  return undefined
+  return Option.match(Array.findFirst(dependencies, (directory) => within(path, directory, realResolved)), {
+    onNone: () => outside,
+    onSome: (directory) => (isProtectedPath(path.relative(directory, realResolved)) ? unreadable : undefined),
+  })
 })
+
+// The directory a grep or glob call searches, when it lies in exposed
+// dependencies.
+const dependencySearchDirectory = (
+  services: FenceServices,
+  root: string,
+  dependencies: ReadonlyArray<string>,
+  input: string | undefined,
+): Effect.Effect<Option.Option<string>> =>
+  Effect.gen(function* () {
+    if (dependencies.length === 0) return Option.none()
+    const resolved = FileAccess.resolvePath(root, input ?? ".")
+    const real = yield* realPathOf(services, resolved)
+
+    if (!Array.some(dependencies, (directory) => within(services.path, directory, real))) return Option.none()
+
+    const directory = yield* services.fs.stat(resolved).pipe(
+      Effect.map((info) => info.type === "Directory"),
+      Effect.orElseSucceed(() => false),
+    )
+
+    return Option.some(directory ? resolved : services.path.dirname(resolved))
+  })
+
+// How ripgrep reads an include or glob pattern: without a slash it matches a
+// file's name at any depth, with one the path below the searched directory.
+const matchesSearchGlob = (path: Path.Path, glob: string, relative: string) =>
+  glob.includes("/") ? matchesGlob(relative, glob.replace(/^\//, "")) : matchesGlob(path.basename(relative), glob)
 
 const PathInput = Schema.Struct({ path: Schema.optionalKey(Schema.String) })
 
@@ -166,27 +236,69 @@ const decodePathInput = Schema.decodeUnknownOption(PathInput)
 
 const decodeGrepMatches = Schema.decodeUnknownOption(GrepTool.Output)
 
-// grep searches hidden files, so a directory search would quote a tracked
-// `.env` and the snapshot's `.git` file; their matches are dropped.
+const decodeGlobEntries = Schema.decodeUnknownOption(GlobTool.Output)
+
 type ToolResult = Effect.Success<ReturnType<Tool.Info["execute"]>>
 
-const withoutSensitiveMatches = (path: Path.Path, root: string, result: ToolResult): ToolResult =>
+const truncatedResult = (result: ToolResult) => result.metadata?.["truncated"] === true
+
+// A grep result cut to the matches whose snapshot-relative path is kept, and
+// to `limit` of them.
+const keepMatches = (
+  path: Path.Path,
+  root: string,
+  result: ToolResult,
+  keep: (relative: string) => boolean,
+  limit = Number.POSITIVE_INFINITY,
+): ToolResult =>
   Option.match(decodeGrepMatches(result.output), {
     onNone: () => result,
     onSome: (matches) => {
-      const kept = Array.filter(matches, (match) => !isProtectedPath(match.entry.path))
+      const matching = Array.filter(matches, (match) => keep(match.entry.path))
 
-      if (kept.length === matches.length) return result
+      if (matching.length === matches.length && matching.length <= limit) return result
+      const kept = matching.slice(0, limit)
+      const truncated = truncatedResult(result) || matching.length > limit
       const shown = Array.map(kept, (match) => ({ ...match, entry: { ...match.entry, path: path.resolve(root, match.entry.path) } }))
 
       return {
         ...result,
         output: kept,
-        content: GrepTool.toModelContent(shown, result.metadata?.["truncated"] === true),
-        metadata: { ...result.metadata, matches: kept.length },
+        content: GrepTool.toModelContent(shown, truncated),
+        metadata: { ...result.metadata, matches: kept.length, truncated },
       }
     },
   })
+
+// The same for a glob result's entries.
+const keepEntries = (
+  path: Path.Path,
+  root: string,
+  result: ToolResult,
+  keep: (relative: string) => boolean,
+  limit: number,
+): ToolResult =>
+  Option.match(decodeGlobEntries(result.output), {
+    onNone: () => result,
+    onSome: (entries) => {
+      const matching = Array.filter(entries, (entry) => keep(entry.path))
+      const kept = matching.slice(0, limit)
+      const truncated = truncatedResult(result) || matching.length > limit
+      const shown = Array.map(kept, (entry) => ({ ...entry, path: path.resolve(root, entry.path) }))
+
+      return {
+        ...result,
+        output: kept,
+        content: GlobTool.toModelContent(shown, truncated),
+        metadata: { ...result.metadata, count: kept.length, truncated },
+      }
+    },
+  })
+
+// grep searches hidden files, so a directory search would quote a tracked
+// `.env` and the snapshot's `.git` file; their matches are dropped.
+const withoutSensitiveMatches = (path: Path.Path, root: string, result: ToolResult): ToolResult =>
+  keepMatches(path, root, result, (relative) => !isProtectedPath(relative))
 
 const agentID = (role: string) => `gauntlet-${role}`
 
@@ -292,7 +404,17 @@ export const withCacheKey = (request: Request, key: string) =>
     Effect.orElseSucceed(() => request),
   )
 
-const decodeGrepInput = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))
+const decodeToolInput = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))
+
+// The grep and glob fields the wrappers read; the rest pass through as given.
+const SearchInput = Schema.Struct({
+  path: Schema.optionalKey(Schema.String),
+  pattern: Schema.optionalKey(Schema.String),
+  include: Schema.optionalKey(Schema.String),
+  limit: Schema.optionalKey(Schema.Finite),
+})
+
+const decodeSearchFields = Schema.decodeUnknownOption(SearchInput)
 
 export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
   Plugin.define({
@@ -318,17 +440,58 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
           editor.update("read", (tool) => {
             tool.description = READ_DESCRIPTION
           })
+          const dependencies = () => registry.dependencies.get(directory) ?? []
+
+          // ripgrep runs in a search's real directory, which for exposed
+          // dependencies is inside the Caller's checkout, so that checkout's
+          // ignore rules (`dist/`, `*.log`) would prune it. A glob matching
+          // everything overrides them; the call's own include or pattern
+          // then filters what came back.
+          const searchingDependencies = (searchPath: string | undefined) =>
+            dependencySearchDirectory(services, directory, dependencies(), searchPath)
+
+          const belowSearched = (searched: string, glob: string) => (relative: string) =>
+            matchesSearchGlob(services.path, glob, services.path.relative(searched, services.path.resolve(directory, relative)))
+
           editor.update("grep", (tool) => {
             tool.description = GREP_DESCRIPTION
             const execute = tool.execute
             tool.execute = (input, context) =>
-              execute(
-                Option.match(decodeGrepInput(input), {
-                  onNone: () => input,
-                  onSome: (fields) => (fields["limit"] === undefined ? { ...fields, limit: GREP_DEFAULT_LIMIT } : fields),
-                }),
-                context,
-              ).pipe(Effect.map((result) => withoutSensitiveMatches(services.path, directory, result)))
+              Option.match(Option.all({ raw: decodeToolInput(input), fields: decodeSearchFields(input) }), {
+                onNone: () => execute(input, context),
+                onSome: ({ fields, raw }) =>
+                  searchingDependencies(fields.path).pipe(Effect.flatMap((searched) => {
+                    const limit = fields.limit ?? GREP_DEFAULT_LIMIT
+                    const include = fields.include
+
+                    if (Option.isNone(searched)) return execute({ ...raw, limit }, context)
+
+                    if (include === undefined) return execute({ ...raw, limit, include: EVERYTHING }, context)
+
+                    return execute({ ...raw, include: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
+                      Effect.map((result) => keepMatches(services.path, directory, result, belowSearched(searched.value, include), limit)),
+                    )
+                  })),
+              }).pipe(Effect.map((result) => withoutSensitiveMatches(services.path, directory, result)))
+          })
+
+          editor.update("glob", (tool) => {
+            const execute = tool.execute
+            tool.execute = (input, context) =>
+              Option.match(Option.all({ raw: decodeToolInput(input), fields: decodeSearchFields(input) }), {
+                onNone: () => execute(input, context),
+                onSome: ({ fields, raw }) =>
+                  searchingDependencies(fields.path).pipe(Effect.flatMap((searched) => {
+                    const pattern = fields.pattern
+
+                    if (Option.isNone(searched) || pattern === undefined) return execute(input, context)
+
+                    return execute({ ...raw, pattern: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
+                      Effect.map((result) =>
+                        keepEntries(services.path, directory, result, belowSearched(searched.value, pattern), fields.limit ?? GLOB_DEFAULT_LIMIT)),
+                    )
+                  })),
+              })
           })
 
           // The fence check wraps the tool itself rather than an
@@ -339,14 +502,12 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
             editor.update(name, (tool) => {
               const execute = tool.execute
               tool.execute = (input, context) =>
-                fenceRefusal(services, directory, realRoot, Option.match(decodePathInput(input), {
+                fenceRefusal(services, directory, realRoot, dependencies(), Option.match(decodePathInput(input), {
                   onNone: () => ".",
                   onSome: (fields) => fields.path ?? ".",
                 })).pipe(
                   Effect.flatMap((refusal) =>
-                    refusal === undefined
-                      ? execute(input, context)
-                      : Effect.fail(Tool.Error.make({ message: `Refused: ${refusal}.` }))),
+                    refusal === undefined ? execute(input, context) : Effect.fail(Tool.Error.make({ message: refusal }))),
                 )
             })
           }
@@ -463,17 +624,27 @@ const endOf = (route: SessionRoute, last: Assistant): TurnEnd => {
   return TurnEnd.Stopped()
 }
 
-const toolCallsOf = (messages: ReadonlyArray<Assistant>, emit: string): AgentToolCalls => {
+const toolCallsOf = (path: Path.Path, workspace: string, messages: ReadonlyArray<Assistant>, emit: string): AgentToolCalls => {
   const calls = Array.flatMap(messages, (message) =>
     Array.filter(message.content, (part) => part.type === "tool" && part.name !== emit))
 
-  return {
-    total: calls.length,
-    errored: Array.filter(calls, (part) => part.type === "tool" && part.state.status === "error").length,
-  }
+  const errored = Array.filter(calls, (part) => part.type === "tool" && part.state.status === "error")
+
+  const erroredPaths = Array.flatMap(errored, (part) =>
+    Option.match(part.type === "tool" ? decodePathInput(part.state.input) : Option.none(), {
+      onNone: () => [],
+      onSome: ({ path: input }) => {
+        if (input === undefined) return []
+        const relative = path.relative(workspace, FileAccess.resolvePath(workspace, input))
+
+        return [escapes(path, relative) ? input : relative === "" ? "." : relative]
+      },
+    }))
+
+  return { total: calls.length, errored: errored.length, erroredPaths: Array.dedupe(erroredPaths) }
 }
 
-export const makeSessions = (client: Client, registry: Registry) => {
+export const makeSessions = (client: Client, registry: Registry, path: Path.Path) => {
   const registering = Semaphore.makeUnsafe(1)
 
   // Declares the role's agent (and its emit tool) for the Location, reloading
@@ -482,6 +653,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
   const ensureAgent = Effect.fn("Host.ensureAgent")(function* (spec: AgentSpec) {
     const id = agentID(spec.role)
     const definition: AgentDefinition = { system: spec.systemPrompt, tools: spec.tools, emit: spec.emit.name }
+    registry.dependencies.set(spec.workspace, spec.dependencies ?? [])
     yield* registering.withPermits(1)(Effect.gen(function* () {
       const newTool = !registry.emitTools.has(spec.emit.name)
 
@@ -629,7 +801,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
         return {
           end: endOf(route, last.value),
           usage: usageOf(fresh),
-          toolCalls: toolCallsOf(fresh, spec.emit.name),
+          toolCalls: toolCallsOf(path, spec.workspace, fresh, spec.emit.name),
           diagnostics,
         } satisfies TurnResult
       })

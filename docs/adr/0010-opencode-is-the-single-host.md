@@ -35,7 +35,11 @@ Pi, `claude -p` and `just-bash` are deleted.
   tools, the symlink check, stop-after-emit and tool description overrides.
 - **The ReviewWorkspace is a permission fence** (deny all, then allow `read`,
   `grep`, `glob` and the Stage's emit tool, then deny `.env*`, `.git` and
-  outside paths), not hardened isolation.
+  outside paths), not hardened isolation. Amended per #189: the snapshot
+  links the Caller's installed `node_modules` (repository root and beside
+  each tracked `package.json`), and the fence admits a path whose real path
+  lies in one of them; everything else it refuses stays refused. The tools
+  stay read-only, so nothing can write there or run code from there.
 - **No session resume.** A claim on a shared store has no owner, so resuming
   at start would re-run another process's live turns; each invocation removes
   its own session.

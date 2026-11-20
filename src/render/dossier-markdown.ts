@@ -8,7 +8,7 @@ import type { ReviewPlan } from "../domain/review-plan.ts"
 import {
   describeFinderCacheHealth,
 } from "../run/finder-cache-health.ts"
-import { describeFinderToolHealth } from "../run/finder-tool-health.ts"
+import { describeErroredPaths, describeFinderToolHealth } from "../run/finder-tool-health.ts"
 import {
   describeTokens,
   type RunAccounting,
@@ -89,8 +89,16 @@ const describeRunNotes =(
     `Finder cache ${describeFinderCacheHealth(accounting.finderCacheHealth)}.`,
   ]),
   ...(accounting.finderToolHealth === undefined ? [] : [
-    `Finder tools: ${describeFinderToolHealth(accounting.finderToolHealth)}.`,
+    oneLine(`Finder tools: ${
+      Array.join([
+        describeFinderToolHealth(accounting.finderToolHealth),
+        ...Array.fromNullishOr(describeErroredPaths(accounting.finderToolHealth)),
+      ], " ")
+    }.`),
   ]),
+  ...(accounting.installedDependencies.installable && accounting.installedDependencies.exposed.length === 0
+    ? ["Dependencies: none are installed in the caller's checkout (no `node_modules`), so agents could not read any."]
+    : []),
 ]
 
 // Rendered from the Dossier alone plus the frozen plan's header facts —
@@ -117,10 +125,10 @@ export const renderDossierMarkdown = (
 
   // Scope-degradation warnings (e.g. untracked files outside the diff) must
   // reach the reader — a review that silently narrowed its scope would
-  // otherwise present as complete.
-  const warnings = plan.target.warnings.length === 0
-    ? "none"
-    : Array.join(plan.target.warnings, "; ")
+  // otherwise present as complete. So must dependency reads that may not
+  // match the reviewed version.
+  const allWarnings = [...plan.target.warnings, ...accounting.installedDependencies.lockfileWarnings]
+  const warnings = allWarnings.length === 0 ? "none" : Array.join(allWarnings, "; ")
 
   const headerFacts = [
     `- Target: ${describeTargetIdentity(dossier.target)}`,

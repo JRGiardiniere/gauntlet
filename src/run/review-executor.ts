@@ -17,6 +17,7 @@ import { writeArtifactJson, writeArtifactText } from "./artifact.ts"
 import { measureLowFinderCacheHealth } from "./finder-cache-health.ts"
 import { measureFinderToolHealth } from "./finder-tool-health.ts"
 import { executeFinders } from "./finder-execution.ts"
+import { exposeInstalledDependencies } from "./installed-dependencies.ts"
 import {
   cacheShare,
   counted,
@@ -51,6 +52,13 @@ export const executeReviewPlan = Effect.fn(
         paths.workspaceOverlay,
       )
 
+      const installedDependencies = yield* exposeInstalledDependencies(plan.target, plan.runId, reviewWorkingDirectory)
+      const dependencies = Array.map(installedDependencies.exposed, ({ directory }) => directory)
+
+      for (const warning of installedDependencies.lockfileWarnings) {
+        yield* Console.error(`gauntlet: warning — ${warning}`)
+      }
+
       return yield* Effect.gen(function* () {
         yield* Effect.log(`run ${plan.runId} executing`)
         const findersStartedAt = yield* DateTime.now
@@ -59,6 +67,7 @@ export const executeReviewPlan = Effect.fn(
           plan,
           paths,
           reviewWorkingDirectory,
+          dependencies,
         })
 
         const results = finderStage.finders
@@ -89,10 +98,11 @@ export const executeReviewPlan = Effect.fn(
 
         const [verification, judgment] = yield* Effect.all(
           [
-            executeVerification({ plan, reviewWorkingDirectory, pooled }),
+            executeVerification({ plan, reviewWorkingDirectory, dependencies, pooled }),
             executeJudgment({
               plan,
               reviewWorkingDirectory,
+              dependencies,
               observations: routed.observations,
               pooled,
             }),
@@ -131,6 +141,7 @@ export const executeReviewPlan = Effect.fn(
           wallTimeSeconds: Math.round(Duration.toSeconds(wallTime)),
           finderCacheHealth: measureLowFinderCacheHealth(plan, results),
           finderToolHealth: measureFinderToolHealth(results),
+          installedDependencies,
         }
 
         const dossierMarkdown = renderDossierMarkdown(plan, dossier, accounting)

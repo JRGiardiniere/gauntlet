@@ -170,6 +170,11 @@ const accounting: RunAccounting = {
   wallTimeSeconds: 42,
   finderCacheHealth: undefined,
   finderToolHealth: undefined,
+  installedDependencies: {
+    exposed: [{ root: "", directory: "/caller/node_modules" }],
+    installable: true,
+    lockfileWarnings: [],
+  },
 }
 
 const lowCacheAccounting: RunAccounting = {
@@ -183,12 +188,12 @@ const lowCacheAccounting: RunAccounting = {
 
 const quietToolAccounting: RunAccounting = {
   ...accounting,
-  finderToolHealth: { calls: 30, errored: 2 },
+  finderToolHealth: { calls: 30, errored: 2, erroredPaths: [] },
 }
 
 const deadToolAccounting: RunAccounting = {
   ...accounting,
-  finderToolHealth: { calls: 24, errored: 24 },
+  finderToolHealth: { calls: 24, errored: 24, erroredPaths: [] },
 }
 
 const dossierMarkdownPath = "/runs/run-fixture/dossier.md"
@@ -314,6 +319,39 @@ describe("dossier markdown rendering", () => {
     expect(withToolNote).toContain(
       "Finder tools: 2/30 finder tool calls errored.",
     )
+  })
+
+  it("names the paths behind errored finder tool calls below the cascade ratio, up to ten", () => {
+    const named = (erroredPaths: ReadonlyArray<string>) =>
+      renderDossierMarkdown(plan, dossier, { ...accounting, finderToolHealth: { calls: 40, errored: erroredPaths.length, erroredPaths } })
+
+    expect(named(["node_modules/fixture-pkg/dist", "src/missing.ts"])).toContain(
+      "- Finder tools: 2/40 finder tool calls errored on `node_modules/fixture-pkg/dist`, `src/missing.ts`.",
+    )
+    const many = Array.makeBy(12, (index) => `missing-${String(index)}.ts`)
+    expect(named(many)).toContain("`missing-9.ts` (+2 more).")
+    expect(named(many)).not.toContain("missing-10.ts")
+  })
+
+  it("notes once that no dependencies were installed, only where there was something to install", () => {
+    const missing = (installable: boolean) =>
+      renderDossierMarkdown(plan, dossier, {
+        ...accounting,
+        installedDependencies: { exposed: [], installable, lockfileWarnings: [] },
+      })
+
+    expect(missing(true).match(/Dependencies: none are installed in the caller's checkout/g)).toHaveLength(1)
+    expect(missing(false)).not.toContain("Dependencies:")
+    expect(markdown).not.toContain("Dependencies:")
+  })
+
+  it("adds lockfile mismatches to the header warnings", () => {
+    const warned = renderDossierMarkdown(plan, dossier, {
+      ...accounting,
+      installedDependencies: { ...accounting.installedDependencies, lockfileWarnings: ["bun.lock differs from the fixture"] },
+    })
+
+    expect(warned).toMatch(/^- Warnings: .*stray\.txt.*; bun\.lock differs from the fixture$/m)
   })
 })
 

@@ -37,10 +37,13 @@ export interface AgentUsage extends Schema.Schema.Type<typeof AgentUsage> {}
 // output contract, judged elsewhere). `errored` counts calls whose result
 // went back to the model marked isError; a dead tool shows as errored ===
 // total, which is invisible in findings alone (measured 2026-09-10: three
-// weeks of every finder bash call erroring under Bun).
+// weeks of every finder bash call erroring under Bun). `erroredPaths` names
+// the distinct paths the errored calls asked for, snapshot-relative when
+// inside it, so a reader can see what went unchecked.
 export const AgentToolCalls = Schema.Struct({
   total: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   errored: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  erroredPaths: Schema.String.pipe(Schema.Array, Schema.optionalKey),
 })
 
 export interface AgentToolCalls

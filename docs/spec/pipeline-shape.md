@@ -65,6 +65,15 @@ line for `spec-conformance`; invocation accounting counts only work that ran.
 
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
+Every Stage with tools reads the same snapshot, which links the Caller's
+installed `node_modules` at the repository root and beside each tracked
+`package.json`, read-only and on demand. A lockfile at such a root that
+differs between the reviewed version and the Caller's checkout (or is on one
+side only) adds a Dossier warning; a repository with a `package.json` and no
+installed `node_modules` gets one run note, and a tool call on a missing
+`node_modules` path says why. The finder tool run note names the distinct
+paths behind errored or refused calls, at most ten, then "+N more".
+
 ## Routing
 
 A Candidate routes by its own type, decided at emit time by the presence of a

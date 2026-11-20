@@ -1,0 +1,124 @@
+import * as Array from "effect/Array"
+import * as Effect from "effect/Effect"
+import * as FileSystem from "effect/FileSystem"
+import * as Path from "effect/Path"
+import type { ReviewTarget } from "../domain/review-target.ts"
+import { describeGitFailure, runGit } from "../target/git.ts"
+import { RunError } from "./run-record.ts"
+
+// The Caller's installed dependencies, exposed read-only in a Run's snapshot:
+// the `node_modules` at the repository root and beside each package.json the
+// head commit tracks is linked from the Caller's checkout, never copied or
+// installed. The fence admits a read whose real path lies in one of these
+// directories (src/host/opencode-agents.ts); nothing else ignored is exposed.
+
+export const DEPENDENCIES = "node_modules"
+
+const LOCKFILES = ["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
+
+export interface ExposedDependencies {
+  // Snapshot-relative package root; "" is the repository root.
+  readonly root: string
+  // The real path of the Caller's `node_modules` there.
+  readonly directory: string
+}
+
+export interface InstalledDependencies {
+  readonly exposed: ReadonlyArray<ExposedDependencies>
+  // The head commit tracks a package.json, so there was something to install.
+  readonly installable: boolean
+  // Lockfiles at an exposed root that differ between the reviewed version and
+  // the Caller's checkout, which the exposed dependencies were installed from.
+  readonly lockfileWarnings: ReadonlyArray<string>
+}
+
+const joinRelative = (root: string, name: string) => (root === "" ? name : `${root}/${name}`)
+
+const sameBytes = (left: Uint8Array, right: Uint8Array) =>
+  left.length === right.length && left.every((byte, index) => byte === right[index])
+
+// Links the Caller's `node_modules` into the snapshot at `snapshot`, after any
+// working-tree overlay is applied: the snapshot is then the reviewed version
+// the lockfiles are compared against. The links go with the snapshot, and
+// removing a link never touches what it points to.
+export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expose")(function* (
+  target: ReviewTarget,
+  runId: string,
+  snapshot: string,
+) {
+  const fs = yield* FileSystem.FileSystem
+  const path = yield* Path.Path
+
+  const failure = (reason: string, cause?: unknown) =>
+    RunError.make({ operation: "execute-plan", reason, runId, cause })
+
+  const tracked = yield* runGit(target.repoRoot, ["ls-tree", "-r", "-z", "--name-only", target.headCommit]).pipe(
+    Effect.mapError((cause) => failure(describeGitFailure("could not list the reviewed package roots", cause), cause)),
+  )
+
+  const manifests = Array.filter(tracked.split("\0"), (file) =>
+    (file === "package.json" || file.endsWith("/package.json")) && !Array.contains(file.split("/"), DEPENDENCIES))
+
+  const roots = Array.dedupe(["", ...Array.map(manifests, (file) => file.slice(0, Math.max(file.lastIndexOf("/"), 0)))])
+
+  const exposeAt = (root: string) =>
+    Effect.gen(function* () {
+      const source = path.join(target.repoRoot, root, DEPENDENCIES)
+
+      const installed = yield* fs.stat(source).pipe(
+        Effect.map((info) => info.type === "Directory"),
+        Effect.orElseSucceed(() => false),
+      )
+
+      if (!installed) return []
+
+      // Tracked content wins: a `node_modules` the snapshot already has is
+      // left as it is, and a package root it no longer has gets nothing.
+      const linked = yield* fs.symlink(source, path.join(snapshot, root, DEPENDENCIES)).pipe(
+        Effect.as(true),
+        Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.succeed(false)),
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+        Effect.mapError((cause) => failure(`could not expose ${joinRelative(root, DEPENDENCIES)} in the review snapshot`, cause)),
+      )
+
+      if (!linked) return []
+
+      const directory = yield* fs.realPath(source).pipe(
+        Effect.mapError((cause) => failure(`could not resolve ${source}`, cause)),
+      )
+
+      return [{ root, directory }]
+    })
+
+  const exposed = yield* Effect.forEach(roots, exposeAt).pipe(Effect.map(Array.flatten))
+
+  const readIfPresent = (file: string) =>
+    fs.readFile(file).pipe(
+      Effect.map((bytes): Uint8Array | undefined => bytes),
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
+      Effect.mapError((cause) => failure(`could not read ${file}`, cause)),
+    )
+
+  const compare = (root: string, name: string) =>
+    Effect.gen(function* () {
+      const file = joinRelative(root, name)
+      const reviewed = yield* readIfPresent(path.join(snapshot, file))
+      const installedFrom = yield* readIfPresent(path.join(target.repoRoot, file))
+      const consequence = "so dependency reads may not match the reviewed version"
+
+      if (reviewed === undefined) {
+        return installedFrom === undefined ? [] : [`${file} is in your checkout but not in the reviewed version, ${consequence}`]
+      }
+
+      if (installedFrom === undefined) return [`${file} is in the reviewed version but not in your checkout, ${consequence}`]
+
+      return sameBytes(reviewed, installedFrom) ? [] : [`${file} differs between the reviewed version and your checkout, ${consequence}`]
+    })
+
+  const lockfileWarnings = yield* Effect.forEach(
+    Array.flatMap(exposed, ({ root }) => Array.map(LOCKFILES, (name) => [root, name] as const)),
+    ([root, name]) => compare(root, name),
+  ).pipe(Effect.map(Array.flatten))
+
+  return { exposed, installable: manifests.length > 0, lockfileWarnings } satisfies InstalledDependencies
+})

@@ -12,6 +12,7 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import { toEntries as recordEntries } from "effect/Record"
 import * as References from "effect/References"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
 import { emitToolSpec } from "../harness/invoke.ts"
@@ -21,7 +22,10 @@ import { EmitPool } from "../stages/pool/output-contract.ts"
 import { hostPaths, ModelCatalog } from "./host.ts"
 import { Permission } from "@opencode/core/permission"
 import * as Schema from "effect/Schema"
+import { exposeInstalledDependencies } from "../run/installed-dependencies.ts"
 import { acquireReviewWorkingDirectory } from "../run/review-working-directory.ts"
+import { resolveCommitsTarget } from "../target/commits.ts"
+import { commitAll, makeGitFixture } from "../test-support/git.fixture.ts"
 import {
   ALLOWED_FILE,
   ALLOWED_TEXT,
@@ -138,7 +142,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
         { input: 1_200, output: 30, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
         { input: 200, output: 40, reasoning: 0, cacheRead: 1_200, cacheWrite: 0 },
       ])
-      expect(turn.toolCalls).toEqual({ total: 1, errored: 0 })
+      expect(turn.toolCalls).toEqual({ total: 1, errored: 0, erroredPaths: [] })
       yield* session.firstToken
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
@@ -460,5 +464,163 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
       expect(Array.map(requests[0]?.system ?? [], (part) => part.text)).toEqual(["fixture finder system prompt"])
       const afterRun = yield* markersWritten(markers)
       expect(afterRun).toEqual([])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+})
+
+// A reviewed repo whose Caller installed dependencies and has other ignored
+// files: build output, `.dev.vars`, a workspace package linked from
+// node_modules, and a link out of the checkout altogether.
+const makeInstalledRepo = (installed: boolean) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem
+    const path = yield* Path.Path
+    const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-agents-dependencies-" })
+
+    const write = (files: Readonly<Record<string, string>>) =>
+      Effect.forEach(recordEntries(files), ([file, text]) =>
+        fs.makeDirectory(path.dirname(path.join(repo, file)), { recursive: true }).pipe(
+          Effect.andThen(fs.writeFileString(path.join(repo, file), text)),
+        ), { discard: true })
+
+    yield* write({ ".gitignore": "/node_modules/\ndist/\n*.log\n.dev.vars\npackages/w/\n", "README.md": "base\n" })
+    yield* commitAll(repo, "base")
+    yield* write({ "package.json": "{}\n", "vendored/package.json": "{}\n", "vendored/node_modules/kept.js": "tracked\n" })
+    yield* commitAll(repo, "head")
+    const outside = path.join(root, "outside")
+    yield* fs.makeDirectory(outside)
+    yield* fs.writeFileString(path.join(outside, "secret"), `${SECRET}-outside\n`)
+
+    yield* write({
+      ".dev.vars": `TOKEN=${SECRET}-dev-vars\n`,
+      "dist/build.js": "build output\n",
+      "packages/w/secret.ts": `${SECRET}-workspace\n`,
+      "vendored/node_modules/untracked.js": "installed over tracked content\n",
+    })
+
+    if (installed) {
+      yield* write({
+        "node_modules/fixture-pkg/dist/index.js": "HOOK_MARKER in dist\n",
+        "node_modules/fixture-pkg/lib/x.js": "HOOK_MARKER in lib\n",
+        "node_modules/fixture-pkg/debug.log": "HOOK_MARKER in a log\n",
+        "node_modules/fixture-pkg/.env": `TOKEN=${SECRET}-dependency-env\n`,
+        // Its own package: ripgrep takes a directory holding `.git` as a
+        // repository root and applies no ignore rules from above it.
+        "node_modules/git-pkg/.git/config": `${SECRET}-dependency-git\n`,
+      })
+      yield* fs.symlink(path.join(repo, "packages/w"), path.join(repo, "node_modules/workspace-link"))
+      yield* fs.symlink(outside, path.join(repo, "node_modules/escape"))
+    }
+
+    return yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
+  })
+
+const fencedFinder = (snapshot: string, dependencies: ReadonlyArray<string>): AgentSpec => ({
+  invocationId: "dependency-finder",
+  role: "finder-1",
+  seat: SEAT,
+  workspace: snapshot,
+  dependencies,
+  systemPrompt: "fixture finder system prompt",
+  tools: ["read", "grep", "glob"],
+  emit: emitToolSpec(EmitFindings),
+})
+
+type FenceCall = readonly [string, string, Readonly<Record<string, string>>, boolean]
+
+// Runs every call in one model step, then the emit; answers each call's
+// outcome and the turn.
+const runCalls = (snapshot: string, dependencies: ReadonlyArray<string>, calls: ReadonlyArray<FenceCall>) =>
+  Effect.gen(function* () {
+    const { host, llm } = yield* bootEmbedded
+
+    yield* llm.push(
+      TestLLM.complete(
+        { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
+        ...Array.map(calls, ([id, name, input]) => LLMEvent.toolCall({ id, name, input })),
+      ),
+      emitCall("emit-1", "emit_findings", FINDINGS),
+    )
+
+    const session = yield* host.openSession(fencedFinder(snapshot, dependencies))
+    const turn = yield* session.turn("review")
+    const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
+    const opened = Array.findFirst(sessions.data, (info) => info.title === "dependency-finder")
+    const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
+    const served = Array.map(calls, ([id, name]) => [id, name, outcomes.get(id)?.status === "completed"])
+    expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed]))
+    const requests = yield* llm.requests()
+
+    return { outcomes, turn, sent: toJson(requests) }
+  })
+
+describe("the ReviewWorkspace fence over the Caller's installed dependencies", () => {
+  it.live("serves explicit dependency paths to read, grep and glob past the checkout's ignore rules, and nothing else ignored", () =>
+    Effect.gen(function* () {
+      const target = yield* makeInstalledRepo(true)
+      const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-dependencies", "/nonexistent/overlay.patch")
+      const installed = yield* exposeInstalledDependencies(target, "fence-dependencies", snapshot)
+      const dependencies = Array.map(installed.exposed, ({ directory }) => directory)
+
+      const { outcomes, sent, turn } = yield* runCalls(snapshot, dependencies, [
+        ["read-dependency", "read", { path: "node_modules/fixture-pkg/lib/x.js" }, true],
+        ["read-dependency-directory", "read", { path: "node_modules/fixture-pkg" }, true],
+        ["grep-dependency", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg" }, true],
+        ["grep-dependency-include", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg", include: "*.js" }, true],
+        ["glob-dependency", "glob", { pattern: "**/*.js", path: "node_modules/fixture-pkg" }, true],
+        ["grep-dependency-secrets", "grep", { pattern: "TOKEN|dependency-git", path: "node_modules" }, true],
+        ["read-tracked-node-modules", "read", { path: "vendored/node_modules/kept.js" }, true],
+        ["read-dependency-env", "read", { path: "node_modules/fixture-pkg/.env" }, false],
+        ["read-dependency-git", "read", { path: "node_modules/git-pkg/.git/config" }, false],
+        ["read-workspace-link", "read", { path: "node_modules/workspace-link/secret.ts" }, false],
+        ["grep-workspace-link", "grep", { pattern: "workspace", path: "node_modules/workspace-link" }, false],
+        ["read-escape", "read", { path: "node_modules/escape/secret" }, false],
+        ["read-dev-vars", "read", { path: ".dev.vars" }, false],
+        ["read-build-output", "read", { path: "dist/build.js" }, false],
+        ["read-untracked-over-tracked", "read", { path: "vendored/node_modules/untracked.js" }, false],
+      ])
+
+      const text = (id: string) => outcomes.get(id)?.text ?? ""
+      expect(text("read-dependency")).toContain("HOOK_MARKER in lib")
+      expect(text("grep-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
+      expect(text("grep-dependency")).toContain("node_modules/fixture-pkg/debug.log")
+      expect(text("grep-dependency-include")).toContain("node_modules/fixture-pkg/dist/index.js")
+      expect(text("grep-dependency-include")).toContain("node_modules/fixture-pkg/lib/x.js")
+      expect(text("grep-dependency-include")).not.toContain("debug.log")
+      expect(text("glob-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
+      expect(text("glob-dependency")).not.toContain("debug.log")
+      expect(text("grep-dependency-secrets")).toBe("No matches found")
+      expect(text("read-dependency-env")).toBe("Refused: node_modules/fixture-pkg/.env is not readable in the review snapshot.")
+      expect(text("read-workspace-link")).toBe("Refused: node_modules/workspace-link/secret.ts is outside the review snapshot.")
+      expect(text("read-escape")).toBe("Refused: node_modules/escape/secret is outside the review snapshot.")
+      expect(sent).not.toContain(SECRET)
+
+      expect(turn.toolCalls.erroredPaths).toEqual([
+        "node_modules/fixture-pkg/.env",
+        "node_modules/git-pkg/.git/config",
+        "node_modules/workspace-link/secret.ts",
+        "node_modules/workspace-link",
+        "node_modules/escape/secret",
+        ".dev.vars",
+        "dist/build.js",
+        "vendored/node_modules/untracked.js",
+      ])
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+
+  it.live("answers a dependency path with why it is missing when nothing was installed", () =>
+    Effect.gen(function* () {
+      const target = yield* makeInstalledRepo(false)
+      const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-no-dependencies", "/nonexistent/overlay.patch")
+      const installed = yield* exposeInstalledDependencies(target, "fence-no-dependencies", snapshot)
+      expect(installed.exposed).toEqual([])
+
+      const { outcomes } = yield* runCalls(snapshot, [], [
+        ["read-missing", "read", { path: "node_modules/fixture-pkg/index.js" }, false],
+        ["glob-missing", "glob", { pattern: "**/*.d.ts", path: "node_modules" }, false],
+      ])
+
+      expect(outcomes.get("read-missing")?.text).toBe(
+        "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg/index.js is not available to this review.",
+      )
+      expect(outcomes.get("glob-missing")?.text).toContain("dependencies were not installed in the caller's checkout")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 })
