@@ -170,11 +170,7 @@ const accounting: RunAccounting = {
   wallTimeSeconds: 42,
   finderCacheHealth: undefined,
   finderToolHealth: undefined,
-  installedDependencies: {
-    exposed: [{ root: "", directory: "/caller/node_modules" }],
-    missing: false,
-    lockfileWarnings: [],
-  },
+  installedDependencies: { missing: false, lockfileWarnings: [] },
 }
 
 const lowCacheAccounting: RunAccounting = {
@@ -338,7 +334,7 @@ describe("dossier markdown rendering", () => {
   it("notes once that no dependencies were installed", () => {
     const noted = renderDossierMarkdown(plan, dossier, {
       ...accounting,
-      installedDependencies: { exposed: [], missing: true, lockfileWarnings: [] },
+      installedDependencies: { missing: true, lockfileWarnings: [] },
     })
 
     expect(noted.match(/Dependencies: none are installed in the caller's checkout/g)).toHaveLength(1)

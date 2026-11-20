@@ -124,7 +124,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
   yield* Effect.acquireRelease(
     // runGit runs no hooks, so the reviewed commit's post-checkout does not
     // run here. The snapshot keeps its `.git` file: OpenCode finds the
-    // project root by it, and the fence refuses reading it.
+    // project root by it.
     runGit(target.repoRoot, [
       "worktree",
       "add",

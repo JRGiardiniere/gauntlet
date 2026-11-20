@@ -66,10 +66,12 @@ line for `spec-conformance`; invocation accounting counts only work that ran.
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
 Every Stage with tools reads the same snapshot, which links the Caller's
-installed `node_modules` at the repository root and beside each tracked
-`package.json`, read-only and on demand. Only packages are served from there:
-a dot-entry directly in a `node_modules` other than `.bin`, `.bun` and `.pnpm`
-is tool state (`.cache`, `.mf`) and is refused. A lockfile (`bun.lock`, `bun.lockb`,
+installed `node_modules` at the repository root and beside each
+`package.json` the reviewed version has (for a working-tree review, a new
+uncommitted one too, and not one it deletes), read-only and on demand. The
+tools serve any path inside the snapshot as written, and a path through a link
+reads its target; Gauntlet reviews trusted repositories and does not defend
+against a hostile one. A lockfile (`bun.lock`, `bun.lockb`,
 `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`) at such a root that
 differs between the reviewed version and the Caller's checkout (or is on one
 side only) adds a Dossier warning; a repository with a `package.json` and no

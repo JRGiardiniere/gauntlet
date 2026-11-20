@@ -20,8 +20,8 @@ Runs on an embedded OpenCode Host, so Claude and OpenAI models mix freely across
 a review's stages, and special care was taken to make sure it caches well.
 Agents get at most read-only `read`, `grep` and `glob` over a frozen snapshot
 of your change, plus the `node_modules` you have installed: no shell, no
-writes, no network. That is a permission fence,
-not hardened isolation for reviewing a hostile repository.
+writes, no network. Gauntlet is for repositories and PRs you trust: it does
+not defend against a hostile one.
 
 ## How it works
 

@@ -15,7 +15,7 @@ import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- the per-Host plugin registry is plain Maps OpenCode's hooks read synchronously, and the session driver is built on it: neither is a service
-import { type FenceServices, GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
+import { type PluginServices, GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
 import {
   ConnectionState,
   type HostContract,
@@ -106,7 +106,7 @@ const catalogOptions = ModelCatalog.$match({
 const hostOptions = (
   paths: HostPaths,
   catalog: ModelCatalog,
-  services: FenceServices,
+  services: PluginServices,
   content: string,
   registry: ReturnType<typeof makeRegistry>,
 ) => ({

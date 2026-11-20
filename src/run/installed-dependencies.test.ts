@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
-import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
@@ -70,14 +69,7 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
         snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
         const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
 
-        expect(installed).toEqual({
-          exposed: [
-            { root: "", directory: path.join(repo, "node_modules") },
-            { root: "packages/a", directory: path.join(repo, "packages/a/node_modules") },
-          ],
-          missing: false,
-          lockfileWarnings: [],
-        })
+        expect(installed).toEqual({ missing: false, lockfileWarnings: [] })
 
         const seen = yield* Effect.forEach(
           [
@@ -139,33 +131,19 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("never read a lockfile through a link", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-dependencies-link-" })
-      yield* writeFiles(repo, { ".gitignore": "node_modules/\n", "README.md": "base\n" })
-      yield* commitAll(repo, "base")
-      yield* fs.writeFileString(path.join(root, "elsewhere"), "not a lockfile\n")
-      yield* writeFiles(repo, { "package.json": "{}\n", "node_modules/fixture-pkg/index.js": "export const installed = 1\n" })
-      // Tracked, so the reviewed version and the checkout both have the link.
-      yield* fs.symlink(path.join(root, "elsewhere"), path.join(repo, "bun.lock"))
-      yield* commitAll(repo, "head")
-      const target = yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
-      const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
-      const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
-
-      expect(installed.lockfileWarnings).toEqual([
-        "bun.lock could not be read to compare it with your checkout, so dependency reads may not match the reviewed version",
-      ])
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
-
   it.effect("take a working-tree review's package roots and lockfiles from the reviewed working tree, not its head commit", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-dependencies-wt-" })
-      yield* writeFiles(repo, { ".gitignore": "node_modules/\n", "package.json": "{}\n", "bun.lock": "committed\n" })
+
+      yield* writeFiles(repo, {
+        ".gitignore": "node_modules/\n",
+        "package.json": "{}\n",
+        "bun.lock": "committed\n",
+        "packages/old/package.json": "{}\n",
+        "packages/old/index.js": "kept\n",
+      })
       yield* commitAll(repo, "base")
 
       yield* writeFiles(repo, {
@@ -173,7 +151,9 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
         "bun.lock": "uncommitted\n",
         "packages/new/package.json": "{}\n",
         "packages/new/node_modules/fixture-new/index.js": "export const added = 1\n",
+        "packages/old/node_modules/fixture-old/index.js": "export const old = 1\n",
       })
+      yield* fs.remove(path.join(repo, "packages/old/package.json"))
       const target = yield* resolveWorkingTreeTarget(repo, undefined)
 
       if (!ReviewTarget.guards.WorkingTree(target)) return expect.unreachable()
@@ -183,32 +163,14 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
       const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlay)
       const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
 
-      expect(Array.map(installed.exposed, ({ root: exposedRoot }) => exposedRoot)).toEqual(["", "packages/new"])
       expect(installed.lockfileWarnings).toEqual([])
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
-  it.effect("expose a linked checkout node_modules only when its real path is a node_modules directory", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
+      const linked = yield* Effect.forEach(
+        ["node_modules", "packages/new/node_modules", "packages/old/node_modules"],
+        (directory) => fs.exists(path.join(snapshot, directory)),
+      )
 
-      const expose = (linkedTo: string) =>
-        Effect.gen(function* () {
-          const repo = yield* makeRepo({ "package.json": "{}\n" })
-          const store = path.join(path.dirname(repo), linkedTo)
-          yield* fs.makeDirectory(store, { recursive: true })
-          yield* fs.symlink(store, path.join(repo, "node_modules"))
-          const target = yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
-          const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
-          const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
-
-          return { store, exposed: installed.exposed }
-        })
-
-      const cached = yield* expose("cache/node_modules")
-      const home = yield* expose("home")
-      expect(cached.exposed).toEqual([{ root: "", directory: cached.store }])
-      expect(home.exposed).toEqual([])
+      expect(linked).toEqual([true, true, false])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("call dependencies missing only when a package root exists and none has node_modules", () =>
@@ -228,9 +190,9 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
 
       const exposed = yield* Effect.forEach([withManifest, withoutManifest, trackedOnly], expose)
       expect(exposed).toEqual([
-        { exposed: [], missing: true, lockfileWarnings: [] },
-        { exposed: [], missing: false, lockfileWarnings: [] },
-        { exposed: [], missing: false, lockfileWarnings: [] },
+        { missing: true, lockfileWarnings: [] },
+        { missing: false, lockfileWarnings: [] },
+        { missing: false, lockfileWarnings: [] },
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

@@ -11,7 +11,7 @@ import { ReviewTarget } from "../domain/review-target.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { resolveWorkingTreeTarget } from "../target/working-tree.ts"
 import { commitAll, fixtureGit, makeGitFixture } from "../test-support/git.fixture.ts"
-import { makeHostileRepo, markersWritten } from "../test-support/hostile-repo.fixture.ts"
+import { makeAgentConfigRepo, markersWritten } from "../test-support/agent-config-repo.fixture.ts"
 import {
   acquireReviewWorkingDirectory,
   captureWorkspaceOverlay,
@@ -184,12 +184,12 @@ describe("PR review working directory", () => {
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })
 
-describe("snapshot creation on a hostile repo", () => {
+describe("snapshot creation on a repo with its own git hooks", () => {
   it.effect("never runs the reviewed commit's husky post-checkout hook, and keeps the snapshot's .git file", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const { repo, markers, target } = yield* makeHostileRepo
+      const { repo, markers, target } = yield* makeAgentConfigRepo
 
       const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
       const afterSnapshot = yield* markersWritten(markers)
@@ -207,11 +207,11 @@ describe("snapshot creation on a hostile repo", () => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
-      const { repo, markers } = yield* makeHostileRepo
+      const { repo, markers } = yield* makeAgentConfigRepo
       yield* fs.writeFileString(path.join(repo, "pkg/x.ts"), "export const allowed = 2\n")
 
       const target = yield* resolveWorkingTreeTarget(repo, undefined)
-      const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-hostile-overlay-" })
+      const scratch = yield* fs.makeTempDirectoryScoped({ prefix: "gauntlet-agent-config-overlay-" })
       const overlayPath = yield* freezeOverlay(target, scratch)
       const directory = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlayPath)
       const edited = yield* fs.readFileString(path.join(directory, "pkg/x.ts"))

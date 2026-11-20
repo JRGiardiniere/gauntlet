@@ -7,7 +7,6 @@ import * as Path from "effect/Path"
 import * as Predicate from "effect/Predicate"
 import { runGit } from "../target/git.ts"
 import { isLockfile } from "./bulk-files.ts"
-import { isProtectedPath } from "./protected-paths.ts"
 import type { SourceFile } from "./source-context.ts"
 
 // The opt-in related-file context for Finders (#134, #140): the whole
@@ -78,29 +77,13 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
   const stem = (file: string) => path.basename(extensionless(file))
 
   // Optional context: a file the change deleted, a binary file, or one that
-  // cannot be read is left out; only the last is worth a log line. The
-  // ReviewWorkspace fence holds here too: a protected path, or a symlink whose
-  // real path leaves the snapshot, is never inlined.
-  const realRoot = yield* fs.realPath(snapshotRoot)
-
-  const fenced = (real: string) => {
-    const relative = path.relative(realRoot, real)
-
-    return relative === ".." || relative.startsWith("../") || path.isAbsolute(relative) || isProtectedPath(relative)
-  }
-
+  // cannot be read is left out; only the last is worth a log line.
   const readText = (file: string): Effect.Effect<Option.Option<SourceFile>> =>
-    (isProtectedPath(file) ? Effect.succeed(Option.none<SourceFile>()) : fs.realPath(path.join(snapshotRoot, file)).pipe(
-      Effect.flatMap((real) =>
-        fenced(real)
-          ? Effect.succeed(Option.none<SourceFile>())
-          : fs.readFile(real).pipe(
-            Effect.map((bytes) =>
-              isUtf8(bytes) && !bytes.includes(0)
-                ? Option.some({ file, text: new TextDecoder().decode(bytes) })
-                : Option.none<SourceFile>()
-            ),
-          )
+    fs.readFile(path.join(snapshotRoot, file)).pipe(
+      Effect.map((bytes) =>
+        isUtf8(bytes) && !bytes.includes(0)
+          ? Option.some({ file, text: new TextDecoder().decode(bytes) })
+          : Option.none<SourceFile>()
       ),
       Effect.catch((error) =>
         Predicate.isTagged(error.reason, "NotFound")
@@ -108,7 +91,7 @@ export const gatherRelatedFiles = Effect.fn("RelatedFiles.gather")(function* (
           : Effect.logWarning(`related file skipped, unreadable: ${file}`, error)
             .pipe(Effect.as(Option.none<SourceFile>()))
       ),
-    ))
+    )
 
   const readAll = (files: Iterable<string>) =>
     Effect.forEach(files, readText, { concurrency: 32 }).pipe(

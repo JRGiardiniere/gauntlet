@@ -50,7 +50,6 @@ export interface InvokeInput<O> {
   readonly role: string
   readonly seat: Seat
   readonly workspace: string
-  readonly dependencies?: ReadonlyArray<string>
   readonly systemPrompt: string
   readonly prompt: string
   readonly tools: ReadonlyArray<InspectionTool>
@@ -215,7 +214,6 @@ const invokeInternal = <O>(
       role: input.role,
       seat: input.seat,
       workspace: input.workspace,
-      dependencies: input.dependencies,
       systemPrompt: input.systemPrompt,
       tools: input.tools,
       emit: emitToolSpec(input.contract),

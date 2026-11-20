@@ -76,13 +76,13 @@ _Avoid_: host (that's the agent platform), host path, host file
 **ReviewWorkspace**:
 The permission fence over the Run's frozen snapshot that filesystem-capable
 AgentInvocations see: the Host's read-only `read`, `grep` and `glob` tools,
-allowed inside the snapshot and refused on `.git`, `.env*` and any path that
-leaves it, through a symlink included. The one exception is the Caller's
-installed dependencies (`node_modules`), served read-only from the Caller's
-checkout; nothing else the checkout ignores is. The reviewed repository's own agent
-configuration never loads. The snapshot stays unmodified, and the Machine is
-out of reach by capability reduction — no shell, writes, or network — not by
-hardened isolation against a hostile repository.
+allowed on any path inside the snapshot as written and refused on one that
+leaves it; a link in the snapshot is followed like any file. The snapshot also
+links the Caller's installed dependencies (`node_modules`) from the Caller's
+checkout; nothing else the checkout ignores is there. The reviewed
+repository's own agent configuration never loads. The snapshot stays
+unmodified, and there is no shell, writes, or network. Gauntlet reviews
+repositories the Caller trusts: the fence does not defend against a hostile one.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 
