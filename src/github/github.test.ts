@@ -12,6 +12,7 @@ const missingGh = Layer.succeed(
   ChildProcessSpawner.make(() =>
     Effect.fail(
       PlatformError.systemError({
+        // oxlint-disable-next-line anti-slop-effect/no-manual-tagged-construction -- systemError is Effect's constructor, and `_tag` is its error-kind argument
         _tag: "NotFound",
         module: "ChildProcess",
         method: "spawn",

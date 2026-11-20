@@ -15,6 +15,7 @@ import {
 } from "../github/github.ts"
 import type { FindingsOutput } from "../harness/output-contract.ts"
 import {
+  // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- builds the scripted test Host's script state, not a service
   makeScripted,
   scriptedLayer,
   type Scripted,
@@ -25,6 +26,7 @@ import type { JudgmentsOutput } from "../stages/judgment/output-contract.ts"
 import type { VerdictsOutput } from "../stages/verification/output-contract.ts"
 import { chompLine, runGit } from "../target/git.ts"
 import { InvocationDirectory } from "../target/invocation-directory.ts"
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- a test fixture factory, not a service constructor
 import { commitAll, makeGitFixture } from "./git.fixture.ts"
 import { untouchedHostLayer } from "../host/host.ts"
 

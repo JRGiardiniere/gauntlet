@@ -163,7 +163,7 @@ export const acquireReviewWorkingDirectory = Effect.fn(
       ),
   )
 
-  if (target._tag !== "WorkingTree") return directory
+  if (!ReviewTarget.guards.WorkingTree(target)) return directory
   yield* runGit(directory, [
     "apply",
     "--binary",

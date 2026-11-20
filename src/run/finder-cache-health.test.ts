@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import type * as Schema from "effect/Schema"
 import type { FinderResult } from "../assembly/finders.ts"
-import type { AgentOutcome } from "../domain/agent-outcome.ts"
+import { type AgentOutcome, Termination } from "../domain/agent-outcome.ts"
 import {
   DEFAULT_CANDIDATE_CAP,
   type FrozenLens,
@@ -47,7 +47,7 @@ const rawUsage = (
 const outcome = (
   rawRows: ReadonlyArray<Schema.Json>,
 ): AgentOutcome<FindingsOutput> => ({
-  termination: { _tag: "Completed" },
+  termination: Termination.cases.Completed.make({}),
   output: { findings: [] },
   usage: {
     input: 0,

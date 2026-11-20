@@ -3,6 +3,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as Array from "effect/Array"
 import * as Effect from "effect/Effect"
 import { Candidate } from "../../domain/candidate.ts"
+import { Judgment } from "../../domain/judgment.ts"
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { ReviewTarget } from "../../domain/review-target.ts"
 import {
@@ -105,8 +106,8 @@ describe("Judgment stage interface", () => {
       const result = yield* runJudgment(scripted)
 
       expect(result.observations).toHaveLength(1)
+      expect(result.observations[0]?.judgment).toSatisfy(Judgment.guards.Kept)
       expect(result.observations[0]?.judgment).toMatchObject({
-        _tag: "Kept",
         reviewPriority: "P2",
         mergedCandidateIds: ["fixture/2"],
       })

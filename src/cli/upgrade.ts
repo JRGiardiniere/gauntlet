@@ -13,7 +13,7 @@ import * as FetchHttpClient from "effect/http/FetchHttpClient"
 import * as HttpClient from "effect/http/HttpClient"
 import { type SeatChange, seatFields, upgradeProvider, upgradeRecipeSeats } from "../config/seat-upgrade.ts"
 import { isCompiledBinary } from "../content/lens.ts"
-import { type CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
+import { CatalogEntry, listRecipes } from "../config/recipe-catalog.ts"
 import { Host, HostError } from "../host/host.ts"
 import { hostAccepts } from "../host/model-ref.ts"
 import { writeArtifactAtomically } from "../run/artifact.ts"
@@ -70,7 +70,7 @@ export const renderSeatUpgrade = (
 export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
   const entries = yield* listRecipes()
 
-  if (!Array.some(entries, (entry) => entry._tag === "ValidRecipe")) {
+  if (!Array.some(entries, CatalogEntry.$is("ValidRecipe"))) {
     yield* Console.log(Array.join(renderSeatUpgrade({ changes: [], skipped: invalidNames(entries) }), "\n"))
 
     return
@@ -111,7 +111,7 @@ export const upgradeSeats = Effect.fn("Upgrade.seats")(function* () {
   ))
 
 const hasOpenAISeat = (entry: CatalogEntry) =>
-  entry._tag === "ValidRecipe" &&
+  CatalogEntry.$is("ValidRecipe")(entry) &&
   Array.some(seatFields, (field) => {
     const seat = entry.recipe[field]
 
@@ -119,7 +119,7 @@ const hasOpenAISeat = (entry: CatalogEntry) =>
   })
 
 const invalidNames = (entries: ReadonlyArray<CatalogEntry>) =>
-  Array.flatMap(entries, (entry) => (entry._tag === "InvalidRecipe" ? [entry.name] : []))
+  Array.flatMap(entries, (entry) => (CatalogEntry.$is("InvalidRecipe")(entry) ? [entry.name] : []))
 
 // The Host's own waits are bounded; this bounds the step as a whole.
 const MODEL_LIST_TIMEOUT = "90 seconds"
@@ -190,7 +190,10 @@ const upgradeBinary = Effect.fn("gauntlet.cli.upgrade_binary")(function* () {
           cause,
         })),
     )
-  }).pipe(Effect.provide(FetchHttpClient.layer))
+  }).pipe(
+    // oxlint-disable-next-line effecttsgo/strict-effect-provide -- the download owns its client, as the update probe owns its fetch: an outer HttpClient Layer must not replace it
+    Effect.provide(FetchHttpClient.layer),
+  )
 
   // Sibling temp file + rename over the running executable: the process keeps
   // its inode, the path atomically becomes the new release.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest"
 import * as Array from "effect/Array"
 import { Candidate } from "../domain/candidate.ts"
+import { DossierFinding, DroppedObservation } from "../domain/dossier.ts"
 import { Judgment } from "../domain/judgment.ts"
 import { FrozenLens, ReviewPlan } from "../domain/review-plan.ts"
 import { ReviewTarget } from "../domain/review-target.ts"
@@ -79,8 +80,9 @@ describe("Dossier Assembly", () => {
       },
     })
 
+    expect(dossier.findings).toHaveLength(1)
+    expect(dossier.findings[0]).toSatisfy(DossierFinding.guards.Confirmed)
     expect(dossier.findings).toMatchObject([{
-      _tag: "Confirmed",
       bugClaims: [bugClaim],
       testSuggestion: {
         tests: ["src/fixture.test.ts"],
@@ -90,11 +92,10 @@ describe("Dossier Assembly", () => {
     }])
     expect(dossier.unresolved).toEqual([])
     expect(dossier.rejected.refutedClaims).toEqual([])
-    expect(dossier.rejected.droppedObservations).toEqual([{
-      _tag: "Dropped",
+    expect(dossier.rejected.droppedObservations).toEqual([DroppedObservation.make({
       candidate: observation,
       judgment: Judgment.cases.Dropped.make({ reason: "taste, not cost" }),
-    }])
+    })])
     expect(Array.map(dossier.coverageGaps, ({ stage }) => stage)).toEqual([
       "finders",
       "verification",

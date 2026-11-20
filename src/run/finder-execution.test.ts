@@ -26,6 +26,7 @@ import {
   makeScripted,
   type Scripted,
   scriptedLayer,
+  ScriptedEnding,
   type ScriptedSession,
 } from "../harness/scripted.ts"
 import { FINDER_FOLLOWER_WAIT_MILLIS } from "./invocation-policy.ts"
@@ -333,7 +334,7 @@ describe("Finder stage interface", () => {
           {
             forSession: "standard-one",
             firstTokenAfterMillis: "never",
-            turns: [{ afterMillis: 1_000, ending: { _tag: "ProviderFailed", reason: "down" } }],
+            turns: [{ afterMillis: 1_000, ending: ScriptedEnding.ProviderFailed({ reason: "down" }) }],
           },
           successfulSession("standard-two"),
         ],

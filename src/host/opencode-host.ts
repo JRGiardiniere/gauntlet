@@ -14,17 +14,18 @@ import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- the per-Host plugin registry is plain Maps OpenCode's hooks read synchronously, and the session driver is built on it: neither is a service
 import { type FenceServices, GAUNTLET_PLUGIN_ID, gauntletPlugin, makeRegistry, makeSessions } from "./opencode-agents.ts"
 import {
-  type ConnectionState,
+  ConnectionState,
   type HostContract,
   HostError,
   type HostModel,
   type HostPaths,
-  type ModelCatalog,
-  type PasteResult,
+  ModelCatalog,
+  PasteResult,
   type SignInAttempt,
-  type SignInStatus,
+  SignInStatus,
 } from "./host.ts"
 
 // What a Run needs from OpenCode: an agent, the two providers, three read
@@ -97,10 +98,10 @@ const HOST_CONFIG = {
   compaction: { auto: false },
 }
 
-const catalogOptions = (catalog: ModelCatalog) =>
-  catalog._tag === "File"
-    ? { file: catalog.path, fetch: false, snapshot: false }
-    : { snapshot: false }
+const catalogOptions = ModelCatalog.$match({
+  File: (catalog) => ({ file: catalog.path, fetch: false, snapshot: false }),
+  Fetch: () => ({ snapshot: false }),
+})
 
 const hostOptions = (
   paths: HostPaths,
@@ -161,13 +162,13 @@ const toSignInStatus = (
 ): SignInStatus => {
   switch (status.status) {
     case "pending":
-      return { _tag: "Pending" }
+      return SignInStatus.Pending()
     case "complete":
-      return { _tag: "Complete" }
+      return SignInStatus.Complete()
     case "expired":
-      return { _tag: "Expired" }
+      return SignInStatus.Expired()
     case "failed":
-      return { _tag: "Failed", message: status.message }
+      return SignInStatus.Failed({ message: status.message })
   }
 }
 
@@ -280,13 +281,13 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     const info = yield* integration(integrationID === "openai" ? OPENAI : CLAUDE)
     const first = info.connections[0]
 
-    if (first === undefined) return { _tag: "NotConnected" } satisfies ConnectionState
+    if (first === undefined) return ConnectionState.NotConnected()
 
     if (first.status !== undefined) {
-      return { _tag: "NeedsAuth", message: first.status.message } satisfies ConnectionState
+      return ConnectionState.NeedsAuth({ message: first.status.message })
     }
 
-    return { _tag: "Connected" } satisfies ConnectionState
+    return ConnectionState.Connected()
   })
 
   const sessions = makeSessions(client, registry)
@@ -318,9 +319,9 @@ export const bootHost = Effect.fn("Host.boot")(function* (
         ),
       paste: (attemptID, code) =>
         client.integration.oauth.complete({ location, integrationID: OPENAI, attemptID: attempt(attemptID), code }).pipe(
-          Effect.as<PasteResult>({ _tag: "Accepted" }),
+          Effect.as<PasteResult>(PasteResult.Accepted()),
           Effect.catchTag("InvalidRequestError", (refused) =>
-            Effect.succeed<PasteResult>({ _tag: "Rejected", reason: refused.message })),
+            Effect.succeed<PasteResult>(PasteResult.Rejected({ reason: refused.message }))),
           Effect.mapError(hostError("complete sign-in")),
         ),
       cancel: (attemptID) =>

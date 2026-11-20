@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import { pipe } from "effect/Function"
 import * as Layer from "effect/Layer"
+import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
@@ -123,7 +124,7 @@ const runGh = (
       Effect.fail(
         GitHubError.make({
           operation,
-          reason: cause.reason._tag === "NotFound" &&
+          reason: Predicate.isTagged(cause.reason, "NotFound") &&
               cause.reason.module === "ChildProcess"
             ? "gh is not installed — install the GitHub CLI (https://cli.github.com) and run `gh auth login`"
             : `gh could not run: ${String(cause)}`,

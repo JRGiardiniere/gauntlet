@@ -6,7 +6,6 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Option from "effect/Option"
-import type * as Record from "effect/Record"
 import * as Ref from "effect/Ref"
 import * as Result from "effect/Result"
 import type * as Scope from "effect/Scope"
@@ -60,8 +59,8 @@ export interface InvokeInput<O> {
 }
 
 export type PrefixSignal = Data.TaggedEnum<{
-  PrefixObserved: Record.ReadonlyRecord<never, never>
-  PrefixNotObserved: Record.ReadonlyRecord<never, never>
+  PrefixObserved: {}
+  PrefixNotObserved: {}
 }>
 
 export const PrefixSignal = Data.taggedEnum<PrefixSignal>()
@@ -114,23 +113,21 @@ const runTurns = (
       const result = yield* session.turn(text)
       yield* Ref.update(turns, Array.append(result))
 
-      switch (result.end._tag) {
-        case "Emitted":
-          return Termination.cases.Completed.make({})
-        case "ContextLimit":
-          return Termination.cases.ContextLimit.make({})
-        case "ProviderFailed":
-          return Termination.cases.ProviderFailed.make({})
-        case "Interrupted":
-          return Termination.cases.Interrupted.make({})
-        case "Stopped": {
-          if (corrective >= MAX_CORRECTIVE_TURNS) {
-            return Termination.cases.MissingEmit.make({ correctiveTurns: corrective })
-          }
+      // Undefined only for a Stopped turn that still has a corrective turn left.
+      const termination = TurnEnd.$match(result.end, {
+        Emitted: (): Termination | undefined => Termination.cases.Completed.make({}),
+        ContextLimit: () => Termination.cases.ContextLimit.make({}),
+        ProviderFailed: () => Termination.cases.ProviderFailed.make({}),
+        Interrupted: () => Termination.cases.Interrupted.make({}),
+        Stopped: () =>
+          corrective >= MAX_CORRECTIVE_TURNS
+            ? Termination.cases.MissingEmit.make({ correctiveTurns: corrective })
+            : undefined,
+      })
 
-          text = correctivePrompt(input.contract.toolName)
-        }
-      }
+      if (termination !== undefined) return termination
+
+      text = correctivePrompt(input.contract.toolName)
     }
   })
 

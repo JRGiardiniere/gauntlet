@@ -16,9 +16,9 @@ import * as References from "effect/References"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
 import { emitToolSpec } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
-import type { AgentSpec } from "../harness/harness-session.ts"
+import { type AgentSpec, TurnEnd } from "../harness/harness-session.ts"
 import { EmitPool } from "../stages/pool/output-contract.ts"
-import { hostPaths } from "./host.ts"
+import { hostPaths, ModelCatalog } from "./host.ts"
 import { Permission } from "@opencode/core/permission"
 import * as Schema from "effect/Schema"
 import { acquireReviewWorkingDirectory } from "../run/review-working-directory.ts"
@@ -75,7 +75,7 @@ const bootEmbedded = Effect.gen(function* () {
   // No fallback: a request the test did not script fails the session.
   const llm = yield* TestLLM.Test.pipe(Effect.provide(TestLLM.testLayer()))
 
-  const host = yield* bootHost(paths, { _tag: "File", path: FIXTURE_CATALOG }, [
+  const host = yield* bootHost(paths, ModelCatalog.File({ path: FIXTURE_CATALOG }), [
     llmClient.replace(Layer.succeed(LLMClient.Service, llm)),
   ])
 
@@ -130,7 +130,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       const session = yield* host.openSession(finder())
       const turn = yield* session.turn("review alpha.txt")
 
-      expect(turn.end).toEqual({ _tag: "Emitted", raw: FINDINGS })
+      expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
       const requests = yield* llm.requests()
       expect(requests).toHaveLength(2)
       // The usage is the session's own step totals, once each.
@@ -152,7 +152,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       expect(first.end._tag).toBe("Stopped")
       expect(first.usage).toHaveLength(1)
       const second = yield* session.turn("You ended without calling emit_findings.")
-      expect(second.end).toEqual({ _tag: "Emitted", raw: FINDINGS })
+      expect(second.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
       expect(second.usage).toHaveLength(1)
       const requests = yield* llm.requests()
       expect(requests).toHaveLength(2)
@@ -207,7 +207,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       })
 
       const pooled = yield* pool.turn("cluster")
-      expect(pooled.end).toEqual({ _tag: "Emitted", raw: { clusters: [] } })
+      expect(pooled.end).toEqual(TurnEnd.Emitted({ raw: { clusters: [] } }))
 
       const [finderRequest, poolRequest] = yield* llm.requests()
       expect(finderRequest === undefined ? [] : toolNames(finderRequest)).toEqual(["emit_findings", "glob", "grep", "read"])
@@ -432,7 +432,7 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
       })
 
       const turn = yield* session.turn("review")
-      expect(turn.end).toEqual({ _tag: "Emitted", raw: FINDINGS })
+      expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
 
       const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
       const opened = Array.findFirst(sessions.data, (info) => info.title === "fence-finder")

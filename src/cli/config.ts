@@ -26,7 +26,7 @@ import {
 } from "../config/initial-config.ts"
 import type { LensName } from "../domain/review-plan.ts"
 import {
-  type CatalogEntry,
+  CatalogEntry,
   listRecipes,
   type RecipeSelectionError,
   renderAvailable,
@@ -72,11 +72,11 @@ const describeEntry = (
   entry: CatalogEntry,
   defaultRecipe: string | undefined,
 ): string =>
-  entry._tag === "ValidRecipe"
-    ? `- ${entry.name}${
-      entry.name === defaultRecipe ? " (default recipe)" : ""
-    } — ${summarizeRecipe(entry.recipe)}`
-    : `- ${entry.name} — invalid (${entry.path}): ${entry.error}`
+  CatalogEntry.$match(entry, {
+    ValidRecipe: (valid) =>
+      `- ${valid.name}${valid.name === defaultRecipe ? " (default recipe)" : ""} — ${summarizeRecipe(valid.recipe)}`,
+    InvalidRecipe: (invalid) => `- ${invalid.name} — invalid (${invalid.path}): ${invalid.error}`,
+  })
 
 // Bare `gauntlet config` is the discoverability surface (ADR 0005): it prints
 // the edit locations and the whole catalog — favorites in configured order,
@@ -293,7 +293,7 @@ const runInit = Effect.fn("gauntlet.cli.config_init")(function* () {
   const entry = Array.findFirst(entries, (candidate) =>
     candidate.name === defaultRecipe)
 
-  if (Option.isNone(entry) || entry.value._tag === "InvalidRecipe") {
+  if (Option.isNone(entry) || CatalogEntry.$is("InvalidRecipe")(entry.value)) {
     return yield* ConfigCommandError.make({
       reason:
         `default-recipe ${defaultRecipe} does not name an available valid recipe — ` +

@@ -14,9 +14,10 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
+import { TurnEnd } from "../src/harness/harness-session.ts"
 import { emitToolSpec } from "../src/harness/invoke.ts"
 import { EmitFindings } from "../src/harness/output-contract.ts"
-import { hostPaths } from "../src/host/host.ts"
+import { hostPaths, ModelCatalog } from "../src/host/host.ts"
 
 class SmokeFailed extends Schema.TaggedError<
   SmokeFailed,
@@ -49,7 +50,7 @@ const program = Effect.gen(function* () {
   const llm = yield* TestLLM.Test.pipe(Effect.provide(TestLLM.testLayer()))
   const paths = yield* hostPaths()
 
-  const host = yield* module.bootHost(paths, { _tag: "File", path: catalog }, [
+  const host = yield* module.bootHost(paths, ModelCatalog.File({ path: catalog }), [
     llmClient.replace(Layer.succeed(LLMClient.Service, llm)),
   ])
 
@@ -82,7 +83,7 @@ const program = Effect.gen(function* () {
 
   const turn = yield* session.turn("Find the needle.")
 
-  if (turn.end._tag !== "Emitted") {
+  if (!TurnEnd.$is("Emitted")(turn.end)) {
     return yield* SmokeFailed.make({ reason: `the turn ended ${turn.end._tag}, not at the emit` })
   }
 

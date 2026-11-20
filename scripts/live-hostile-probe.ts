@@ -22,6 +22,7 @@ import { acquireReviewWorkingDirectory } from "../src/run/review-working-directo
 import {
   ALLOWED_TEXT,
   CANARY,
+  // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- the hostile-repo test fixture, not a service constructor
   makeHostileRepo,
   markersWritten,
   SECRET,

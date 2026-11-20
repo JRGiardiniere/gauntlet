@@ -12,7 +12,7 @@ import * as TestClock from "effect/testing/TestClock"
 import * as TestConsole from "effect/testing/TestConsole"
 import { unusedGitHubLayer } from "../github/github.ts"
 import { makeScripted, scriptedLayer } from "../harness/scripted.ts"
-import { HostError, hostLayer, type SignInStatus } from "../host/host.ts"
+import { ConnectionState, HostError, hostLayer, PasteResult, SignInStatus } from "../host/host.ts"
 import { runGauntlet } from "./main.ts"
 
 // `gauntlet login` against a fake ChatGPT integration: the Host's sign-in
@@ -45,7 +45,7 @@ const fakeHost = (
       listModels: untouched,
       connection: (id) =>
         id === "claude-agent"
-          ? Effect.succeed({ _tag: "NeedsAuth", message: "Claude Code is not logged in." })
+          ? Effect.succeed(ConnectionState.NeedsAuth({ message: "Claude Code is not logged in." }))
           : untouched,
       chatGptSignIn: {
         start: Effect.succeed({
@@ -67,12 +67,12 @@ const fakeHost = (
           }),
         paste: (_attemptID, url) =>
           url === REDIRECT
-            ? Ref.update(integration.pasted, (all) => [...all, url]).pipe(Effect.as({ _tag: "Accepted" } as const))
+            ? Ref.update(integration.pasted, (all) => [...all, url]).pipe(Effect.as(PasteResult.Accepted()))
             : url === FAILING_PASTE
             ? Ref.set(failed, true).pipe(
               Effect.andThen(HostError.make({ operation: "complete sign-in", reason: "token exchange failed" })),
             )
-            : Effect.succeed({ _tag: "Rejected", reason: "invalid redirect URL" } as const),
+            : Effect.succeed(PasteResult.Rejected({ reason: "invalid redirect URL" })),
         cancel: (attemptID) => Ref.update(integration.cancelled, (all) => [...all, attemptID]),
       },
     })
@@ -124,7 +124,7 @@ describe("gauntlet login", () => {
       const integration = yield* makeIntegration
 
       const host = fakeHost(integration, (_checks, pasted) =>
-        pasted.length > 0 ? { _tag: "Complete" } : { _tag: "Pending" })
+        pasted.length > 0 ? SignInStatus.Complete() : SignInStatus.Pending())
 
       const running = yield* Effect.forkChild(login(host, ["", "http://wrong", REDIRECT]))
       yield* TestClock.adjust("2 seconds")
@@ -151,7 +151,7 @@ describe("gauntlet login", () => {
       const integration = yield* makeIntegration
 
       const host = fakeHost(integration, (_checks, pasted) =>
-        pasted.length > 0 ? { _tag: "Complete" } : { _tag: "Pending" })
+        pasted.length > 0 ? SignInStatus.Complete() : SignInStatus.Pending())
 
       const running = yield* Effect.forkChild(login(host, [FAILING_PASTE, REDIRECT]))
       yield* TestClock.adjust("2 seconds")
@@ -166,7 +166,7 @@ describe("gauntlet login", () => {
   it.effect("exits 1 when a failed paste leaves a Host that cannot report the attempt", () =>
     Effect.gen(function* () {
       const integration = yield* makeIntegration
-      const host = fakeHost(integration, () => ({ _tag: "Pending" }), true)
+      const host = fakeHost(integration, () => SignInStatus.Pending(), true)
       const running = yield* Effect.forkChild(login(host, [FAILING_PASTE, REDIRECT]))
       yield* TestClock.adjust("2 seconds")
       const exitCode = yield* Fiber.join(running)
@@ -180,7 +180,7 @@ describe("gauntlet login", () => {
   it.effect("finishes when the browser completes the sign-in, with nothing pasted", () =>
     Effect.gen(function* () {
       const integration = yield* makeIntegration
-      const host = fakeHost(integration, (checks) => (checks >= 3 ? { _tag: "Complete" } : { _tag: "Pending" }))
+      const host = fakeHost(integration, (checks) => (checks >= 3 ? SignInStatus.Complete() : SignInStatus.Pending()))
       const running = yield* Effect.forkChild(login(host, []))
       yield* TestClock.adjust("2 seconds")
       const exitCode = yield* Fiber.join(running)
@@ -194,7 +194,7 @@ describe("gauntlet login", () => {
   it.effect("exits 1 with the integration's reason when the sign-in fails", () =>
     Effect.gen(function* () {
       const integration = yield* makeIntegration
-      const host = fakeHost(integration, () => ({ _tag: "Failed", message: "token exchange failed" }))
+      const host = fakeHost(integration, () => SignInStatus.Failed({ message: "token exchange failed" }))
       const exitCode = yield* login(host, [])
       expect(exitCode).toBe(1)
       const errorLines = yield* TestConsole.errorLines

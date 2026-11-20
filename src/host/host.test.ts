@@ -16,7 +16,7 @@ import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as ChildProcess from "effect/process/ChildProcess"
 import { CLAUDE_SESSION_VARIABLES, scrubHostEnvironment } from "./host-environment.ts"
-import { hostPaths, type HostPaths } from "./host.ts"
+import { hostPaths, type HostPaths, ModelCatalog } from "./host.ts"
 import { bootHost } from "./opencode-host.ts"
 
 // The embedded OpenCode Host booted for real, offline: a fixture catalog file
@@ -213,7 +213,7 @@ const bootScoped = (paths: HostPaths) =>
   Effect.gen(function* () {
     const testScope = yield* Effect.scope
     const scope = yield* Scope.fork(testScope)
-    const host = yield* bootHost(paths, { _tag: "File", path: FIXTURE_CATALOG }).pipe(Scope.provide(scope))
+    const host = yield* bootHost(paths, ModelCatalog.File({ path: FIXTURE_CATALOG })).pipe(Scope.provide(scope))
 
     return { host, close: Scope.close(scope, Exit.void) }
   })

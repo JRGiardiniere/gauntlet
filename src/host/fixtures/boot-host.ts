@@ -14,7 +14,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import { hostPaths } from "../host.ts"
+import { hostPaths, ModelCatalog } from "../host.ts"
 import { bootHost } from "../opencode-host.ts"
 
 const [mode = "gauntlet", catalogPath = ""] = process.argv.slice(2)
@@ -24,7 +24,7 @@ const encode = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown))
 const client = Effect.gen(function* () {
   if (mode === "gauntlet") {
     const paths = yield* hostPaths()
-    const host = yield* bootHost(paths, { _tag: "File", path: catalogPath })
+    const host = yield* bootHost(paths, ModelCatalog.File({ path: catalogPath }))
 
     return { client: host.client, location: host.location }
   }

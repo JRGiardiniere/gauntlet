@@ -141,7 +141,7 @@ export const executeReviewPlan = Effect.fn(
           digest: renderDigest(plan, dossier, accounting, paths.dossierMarkdown),
           coverageGaps: dossier.coverageGaps,
         }
-      }).pipe(Effect.provide(Logger.layer([fileLogger])))
+      }).pipe(Effect.provideService(Logger.CurrentLoggers, new Set([fileLogger])))
     }),
   )
 })

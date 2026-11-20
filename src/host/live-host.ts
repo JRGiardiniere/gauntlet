@@ -4,7 +4,7 @@ import * as Layer from "effect/Layer"
 import type * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
 import * as Scope from "effect/Scope"
-import { Host, HostError, hostPaths, type ModelCatalog } from "./host.ts"
+import { Host, HostError, hostPaths, ModelCatalog } from "./host.ts"
 import { scrubHostEnvironment } from "./host-environment.ts"
 
 const failure = (operation: string) => (cause: unknown) =>
@@ -16,7 +16,7 @@ const failure = (operation: string) => (cause: unknown) =>
 
 // The Host boots on first use and stays up for the rest of the layer's
 // lifetime, so commands that never touch it never load OpenCode.
-export const liveHostLayer = (catalog: ModelCatalog = { _tag: "Fetch" }) =>
+export const liveHostLayer = (catalog: ModelCatalog = ModelCatalog.Fetch()) =>
   Layer.effect(
     Host,
     Effect.gen(function* () {

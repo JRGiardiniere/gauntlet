@@ -619,7 +619,7 @@ export const makeSessions = (client: Client, registry: Registry) => {
         yield* logTranscript(fresh)
         const last = Array.last(fresh)
 
-        if (last._tag === "None") {
+        if (Option.isNone(last)) {
           return yield* AdapterContractViolation.make({ reason: "the turn ended with no assistant message" })
         }
 

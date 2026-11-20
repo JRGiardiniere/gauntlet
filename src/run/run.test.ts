@@ -11,7 +11,7 @@ import {
   unusedGitHubContract,
   unusedGitHubLayer,
 } from "../github/github.ts"
-import { makeScripted, type Scripted } from "../harness/scripted.ts"
+import { makeScripted, type Scripted, ScriptedEnding } from "../harness/scripted.ts"
 import {
   emittingSession,
   FINDER_OUTPUT,
@@ -82,7 +82,7 @@ describe("Run.review", () => {
             emittingSession(VERIFIER_OUTPUT, "-verification"),
             {
               forSession: "-judgment",
-              turns: [{ ending: { _tag: "ProviderFailed", reason: "529 overloaded: fixture provider body" } }],
+              turns: [{ ending: ScriptedEnding.ProviderFailed({ reason: "529 overloaded: fixture provider body" }) }],
             },
           ],
         }),

@@ -4,7 +4,7 @@ import * as Option from "effect/Option"
 import * as Record from "effect/Record"
 import { Recipe, type RecipeName, type Seat } from "../domain/recipe.ts"
 import { writeArtifactJson } from "../run/artifact.ts"
-import { listRecipes } from "./recipe-catalog.ts"
+import { CatalogEntry, listRecipes } from "./recipe-catalog.ts"
 
 // Seat upgrade (#121): `gauntlet upgrade` moves recipe seats to the newest
 // Luna/Terra/Sol their provider's catalog lists. Only this hardcoded family
@@ -133,7 +133,7 @@ export const upgradeRecipeSeats = Effect.fn("gauntlet.seat_upgrade.upgrade")(
     const skipped: Array<string> = []
 
     for (const entry of yield* listRecipes()) {
-      if (entry._tag === "InvalidRecipe") {
+      if (CatalogEntry.$is("InvalidRecipe")(entry)) {
         skipped.push(entry.name)
         continue
       }

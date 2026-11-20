@@ -95,8 +95,8 @@ describe("output contracts", () => {
 
       expect(output.findings[0]?.source_references).toEqual(references)
 
-      const candidate: Candidate = { _tag: "Observation", id: "a", lens: "test", file: "a.ts",
-        summary: "claim", sourceReferences: references }
+      const candidate = Candidate.cases.Observation.make({ id: "a", lens: "test", file: "a.ts",
+        summary: "claim", sourceReferences: references })
 
       const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(Candidate))(candidate)
       const decodedCandidate = yield* Schema.decodeEffect(Schema.fromJsonString(Candidate))(encoded)

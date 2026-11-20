@@ -6,6 +6,7 @@ import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import { runGit } from "../target/git.ts"
 import { resolveCommitsTarget } from "../target/commits.ts"
+// oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- a test fixture factory, not a service constructor
 import { commitAll, makeGitFixture } from "./git.fixture.ts"
 
 // A reviewed repository that tries everything a hostile repo could: Host and

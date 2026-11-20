@@ -1,3 +1,4 @@
+import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
@@ -20,17 +21,21 @@ import {
 // Host's emit tool does; the first that passes ends the turn, and each
 // rejected one is a diagnostic.
 
-export type ScriptedEnding =
-  | { readonly _tag: "Stopped" }
-  | { readonly _tag: "ContextLimit" }
-  | { readonly _tag: "ProviderFailed"; readonly reason: string }
-  | { readonly _tag: "Interrupted"; readonly reason: string }
+export type ScriptedEnding = Data.TaggedEnum<{
+  Stopped: {}
+  ContextLimit: {}
+  ProviderFailed: { readonly reason: string }
+  Interrupted: { readonly reason: string }
   // The turn never ends: only the deadline or an interruption stops it.
-  | { readonly _tag: "Hangs" }
+  Hangs: {}
+}>
+
+export const ScriptedEnding = Data.taggedEnum<ScriptedEnding>()
 
 export interface ScriptedTurn {
   readonly afterMillis?: number
-  readonly emits?: ReadonlyArray<unknown>
+  // Stand-ins for model-authored JSON arguments.
+  readonly emits?: ReadonlyArray<Schema.Json>
   // How the turn ends when none of its emits passes; Stopped by default.
   readonly ending?: ScriptedEnding
   readonly usage?: ReadonlyArray<UsageRow>
@@ -78,22 +83,15 @@ export const usageRow = (partial?: Partial<UsageRow>): UsageRow => ({
   ...partial,
 })
 
-const STOPPED: ScriptedEnding = { _tag: "Stopped" }
+const STOPPED = ScriptedEnding.Stopped()
 
-const endingOf = (ending: ScriptedEnding): TurnEnd | undefined => {
-  switch (ending._tag) {
-    case "Stopped":
-      return TurnEnd.Stopped()
-    case "ContextLimit":
-      return TurnEnd.ContextLimit()
-    case "ProviderFailed":
-      return TurnEnd.ProviderFailed({ reason: ending.reason })
-    case "Interrupted":
-      return TurnEnd.Interrupted({ reason: ending.reason })
-    case "Hangs":
-      return undefined
-  }
-}
+const endingOf = ScriptedEnding.$match({
+  Stopped: (): TurnEnd | undefined => TurnEnd.Stopped(),
+  ContextLimit: () => TurnEnd.ContextLimit(),
+  ProviderFailed: (ending) => TurnEnd.ProviderFailed({ reason: ending.reason }),
+  Interrupted: (ending) => TurnEnd.Interrupted({ reason: ending.reason }),
+  Hangs: () => undefined,
+})
 
 export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
   const log: Array<string> = []
@@ -165,9 +163,7 @@ export const makeScripted = (behavior: ScriptedBehavior): Scripted => {
           const diagnostics: Array<string> = []
           let emitted: Schema.Json | undefined
 
-          for (const raw of turn.emits ?? []) {
-            // SAFETY: scripts stand in for model-authored JSON arguments.
-            const json = raw as Schema.Json
+          for (const json of turn.emits ?? []) {
             const rejection = spec.emit.check(json)
 
             if (rejection === undefined) {

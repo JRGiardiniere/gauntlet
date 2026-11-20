@@ -2,7 +2,6 @@ import * as Array from "effect/Array"
 import * as Console from "effect/Console"
 import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
-import * as Layer from "effect/Layer"
 import * as Record from "effect/Record"
 import {
   type AgentOutcome,
@@ -14,8 +13,6 @@ import {
   type FindingsOutput,
   projectOutputContract,
 } from "./output-contract.ts"
-import { liveHostLayer } from "../host/live-host.ts"
-import { hostHarnessLayer } from "./host-harness.ts"
 
 // The narrow live gate exercises what only a real provider can answer, for
 // one Seat on the embedded Host: the projected emit parameters round-trip
@@ -134,7 +131,6 @@ export const runLiveGate = Effect.fn("gauntlet.live_gate.run")(
           tools: [],
           deadlineMillis: 300_000,
         }).pipe(
-          Effect.provide(hostHarnessLayer.pipe(Layer.provide(liveHostLayer()))),
           Effect.map((outcome): GateResult => ({ outcome })),
           Effect.catchTags({
             InvocationSetupError: (error) =>

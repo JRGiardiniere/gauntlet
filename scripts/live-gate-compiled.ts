@@ -25,6 +25,7 @@ import * as Effect from "effect/Effect"
 import * as FileSystem from "effect/FileSystem"
 import * as Option from "effect/Option"
 import * as Path from "effect/Path"
+import * as Predicate from "effect/Predicate"
 import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
@@ -132,7 +133,7 @@ const review = (step: string, binary: string, recipe: string, cwd: string, env: 
       return yield* LiveGateStepFailed.make({ step, reason: `degraded (${String(dossier.coverageGaps.length)} coverage gaps)` })
     }
 
-    const verdicts = Array.filter(dossier.findings, (finding) => finding._tag === "Confirmed").length +
+    const verdicts = Array.filter(dossier.findings, Predicate.isTagged("Confirmed")).length +
       dossier.rejected.refutedClaims.length
 
     if (verdicts === 0) {

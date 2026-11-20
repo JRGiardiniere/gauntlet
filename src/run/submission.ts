@@ -4,7 +4,7 @@ import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Schema from "effect/Schema"
-import { listRecipes, resolveReviewRecipe } from "../config/recipe-catalog.ts"
+import { CatalogEntry, listRecipes, resolveReviewRecipe } from "../config/recipe-catalog.ts"
 import { loadSettings, resolveRunsRoot } from "../config/settings.ts"
 import { loadGoverningStandardsBlock } from "../config/standards-manifest.ts"
 import { loadFinderLenses } from "../content/lens.ts"
@@ -27,6 +27,7 @@ import { writeArtifactBytes, writeArtifactJson } from "./artifact.ts"
 import { captureWorkspaceOverlay } from "./review-working-directory.ts"
 import {
   createRunDirectory,
+  // oxlint-disable-next-line anti-slop-effect/no-service-constructor-imports -- generates a RunId value, not a service constructor
   makeRunId,
   type LoadedRun,
 } from "./run-record.ts"
@@ -81,7 +82,7 @@ const hintRecipe = (written: string) => (failure: TargetUnresolvable) =>
   listRecipes().pipe(
     Effect.map((entries) =>
       Array.some(entries, (entry) =>
-        entry._tag === "ValidRecipe" && entry.name === written)
+        CatalogEntry.$is("ValidRecipe")(entry) && entry.name === written)
     ),
     Effect.orElseSucceed(() => false),
     Effect.flatMap((named) =>

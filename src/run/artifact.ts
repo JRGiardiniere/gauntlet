@@ -23,7 +23,7 @@ export const describePlatformError = (
   const { reason } = failure
   const operation = `${reason.module}.${reason.method}`
 
-  if (reason._tag === "BadArgument") {
+  if (Predicate.isTagged(reason, "BadArgument")) {
     return `${operation} failed: ${reason.description ?? "bad argument"}`
   }
 
@@ -73,7 +73,7 @@ export const writeArtifactAtomically = Effect.fn("gauntlet.artifact.write")(
     write: (
       fs: FileSystem.FileSystem,
       tempPath: string,
-    ) => Effect.Effect<void, unknown>,
+    ) => Effect.Effect<void, PlatformError.PlatformError>,
   ) {
     const fs = yield* FileSystem.FileSystem
     const suffix = yield* Random.nextIntBetween(0, 0xffffff)
