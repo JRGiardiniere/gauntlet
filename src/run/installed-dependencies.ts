@@ -17,9 +17,6 @@ export const DEPENDENCIES = "node_modules"
 const LOCKFILES = ["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
 
 export interface InstalledDependencies {
-  // Snapshot-relative package roots whose `node_modules` was linked; "" is
-  // the repository root.
-  readonly exposed: ReadonlyArray<string>
   // The reviewed version has a package.json, yet the Caller's checkout has no
   // `node_modules` at any of its package roots.
   readonly missing: boolean
@@ -55,14 +52,18 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
     Effect.mapError((cause) => failure(describeGitFailure("could not list the reviewed package roots", cause), cause)),
   )
 
-  // A working-tree review also has the manifests its overlay adds.
+  // A working-tree review also has the manifests its overlay adds, and lacks
+  // the ones it deletes.
   const overlaid = ReviewTarget.match(target, {
     WorkingTree: ({ changedFiles, untrackedFiles }) => [...changedFiles, ...untrackedFiles],
     Commits: () => [],
     PullRequest: () => [],
   })
 
-  const manifests = Array.filter(Array.dedupe([...tracked.split("\0"), ...overlaid]), isManifest)
+  const manifests = yield* Effect.filter(
+    Array.filter(Array.dedupe([...tracked.split("\0"), ...overlaid]), isManifest),
+    (file) => fs.exists(path.join(snapshot, file)),
+  ).pipe(Effect.mapError((cause) => failure("could not list the reviewed package roots", cause)))
 
   const roots = Array.dedupe(["", ...Array.map(manifests, (file) => file.slice(0, Math.max(file.lastIndexOf("/"), 0)))])
 
@@ -120,5 +121,5 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
     { concurrency: "unbounded" },
   ).pipe(Effect.map(Array.flatten))
 
-  return { exposed, missing: manifests.length > 0 && installed.length === 0, lockfileWarnings } satisfies InstalledDependencies
+  return { missing: manifests.length > 0 && installed.length === 0, lockfileWarnings } satisfies InstalledDependencies
 })

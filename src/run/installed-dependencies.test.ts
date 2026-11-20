@@ -69,11 +69,7 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
         snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, NO_OVERLAY)
         const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
 
-        expect(installed).toEqual({
-          exposed: ["", "packages/a"],
-          missing: false,
-          lockfileWarnings: [],
-        })
+        expect(installed).toEqual({ missing: false, lockfileWarnings: [] })
 
         const seen = yield* Effect.forEach(
           [
@@ -140,7 +136,14 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-dependencies-wt-" })
-      yield* writeFiles(repo, { ".gitignore": "node_modules/\n", "package.json": "{}\n", "bun.lock": "committed\n" })
+
+      yield* writeFiles(repo, {
+        ".gitignore": "node_modules/\n",
+        "package.json": "{}\n",
+        "bun.lock": "committed\n",
+        "packages/old/package.json": "{}\n",
+        "packages/old/index.js": "kept\n",
+      })
       yield* commitAll(repo, "base")
 
       yield* writeFiles(repo, {
@@ -148,7 +151,9 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
         "bun.lock": "uncommitted\n",
         "packages/new/package.json": "{}\n",
         "packages/new/node_modules/fixture-new/index.js": "export const added = 1\n",
+        "packages/old/node_modules/fixture-old/index.js": "export const old = 1\n",
       })
+      yield* fs.remove(path.join(repo, "packages/old/package.json"))
       const target = yield* resolveWorkingTreeTarget(repo, undefined)
 
       if (!ReviewTarget.guards.WorkingTree(target)) return expect.unreachable()
@@ -158,8 +163,14 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
       const snapshot = yield* acquireReviewWorkingDirectory(target, RUN_ID, overlay)
       const installed = yield* exposeInstalledDependencies(target, RUN_ID, snapshot)
 
-      expect(installed.exposed).toEqual(["", "packages/new"])
       expect(installed.lockfileWarnings).toEqual([])
+
+      const linked = yield* Effect.forEach(
+        ["node_modules", "packages/new/node_modules", "packages/old/node_modules"],
+        (directory) => fs.exists(path.join(snapshot, directory)),
+      )
+
+      expect(linked).toEqual([true, true, false])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 
   it.effect("call dependencies missing only when a package root exists and none has node_modules", () =>
@@ -179,9 +190,9 @@ describe("the Caller's installed dependencies in a Run snapshot", () => {
 
       const exposed = yield* Effect.forEach([withManifest, withoutManifest, trackedOnly], expose)
       expect(exposed).toEqual([
-        { exposed: [], missing: true, lockfileWarnings: [] },
-        { exposed: [], missing: false, lockfileWarnings: [] },
-        { exposed: [], missing: false, lockfileWarnings: [] },
+        { missing: true, lockfileWarnings: [] },
+        { missing: false, lockfileWarnings: [] },
+        { missing: false, lockfileWarnings: [] },
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)))
 })

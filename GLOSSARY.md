@@ -82,7 +82,7 @@ links the Caller's installed dependencies (`node_modules`) from the Caller's
 checkout; nothing else the checkout ignores is there. The reviewed
 repository's own agent configuration never loads. The snapshot stays
 unmodified, and there is no shell, writes, or network. Gauntlet reviews
-repositories its user trusts: the fence does not defend against a hostile one.
+repositories the Caller trusts: the fence does not defend against a hostile one.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 

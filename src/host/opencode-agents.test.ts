@@ -575,8 +575,7 @@ describe("the read tools over the Caller's installed dependencies", () => {
     Effect.gen(function* () {
       const target = yield* makeInstalledRepo(false)
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-no-dependencies", "/nonexistent/overlay.patch")
-      const installed = yield* exposeInstalledDependencies(target, "fence-no-dependencies", snapshot)
-      expect(installed.exposed).toEqual([])
+      yield* exposeInstalledDependencies(target, "fence-no-dependencies", snapshot)
 
       const { outcomes } = yield* runCalls(snapshot, [
         ["read-missing", "read", { path: "node_modules/fixture-pkg/index.js" }, false],

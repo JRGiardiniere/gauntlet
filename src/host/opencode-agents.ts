@@ -118,32 +118,32 @@ export const permissionsFor = (definition: Pick<AgentDefinition, "tools" | "emit
   { action: "external_directory", resource: "*", effect: "deny" as const },
 ]
 
-// What the plugin checks paths with; it runs inside OpenCode, so Gauntlet
-// hands these over when it boots the Host.
-export interface FenceServices {
+// The filesystem services the plugin's tool wrappers use; it runs inside
+// OpenCode, so Gauntlet hands these over when it boots the Host.
+export interface PluginServices {
   readonly fs: FileSystem.FileSystem
   readonly path: Path.Path
 }
-
-const escapes = (path: Path.Path, relative: string) =>
-  relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
 
 const PathInput = Schema.Struct({ path: Schema.optionalKey(Schema.String) })
 
 const decodePathInput = Schema.decodeUnknownOption(PathInput)
 
-// That path's segments below the snapshot at `root`, resolved as the tool
-// resolves it (`~`, `..`, absolute) without following links; none when it
-// leaves the snapshot, which OpenCode's `external_directory` rule refuses.
-const segmentsAsWritten = (path: Path.Path, root: string, input: string) => {
+// A tool call's path relative to the snapshot at `root`, resolved as the tool
+// resolves it (`~`, `..`, absolute) without following links; undefined when
+// it leaves the snapshot, which OpenCode's `external_directory` rule refuses.
+const relativeAsWritten = (path: Path.Path, root: string, input: string) => {
   const relative = path.relative(root, FileAccess.resolvePath(root, input))
 
-  return escapes(path, relative) ? [] : relative.split(path.sep)
+  return relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) ? undefined : relative
 }
+
+const segmentsAsWritten = (path: Path.Path, root: string, input: string) =>
+  relativeAsWritten(path, root, input)?.split(path.sep) ?? []
 
 // A tool call naming a path under a `node_modules` the snapshot lacks fails
 // with why: the Caller's checkout had none installed there.
-const requiringInstalled = ({ fs, path }: FenceServices, root: string, execute: Execute): Execute =>
+const requiringInstalled = ({ fs, path }: PluginServices, root: string, execute: Execute): Execute =>
   (input, context) => {
     const given = Option.match(decodePathInput(input), { onNone: () => ".", onSome: (fields) => fields.path ?? "." })
     const segments = segmentsAsWritten(path, root, given)
@@ -165,7 +165,7 @@ const requiringInstalled = ({ fs, path }: FenceServices, root: string, execute: 
 // The directory a grep or glob call searches, when its path as written passes
 // through a `node_modules`.
 const dependencySearchDirectory = (
-  { fs, path }: FenceServices,
+  { fs, path }: PluginServices,
   root: string,
   input: string | undefined,
 ): Effect.Effect<Option.Option<string>> => {
@@ -209,6 +209,8 @@ const keepMatches = (
     onNone: () => result,
     onSome: (matches) => {
       const matching = Array.filter(matches, (match) => keep(match.entry.path))
+
+      if (matching.length === matches.length && matching.length <= limit) return result
       const kept = matching.slice(0, limit)
       const truncated = truncatedResult(result) || matching.length > limit
       const shown = Array.map(kept, (match) => ({ ...match, entry: { ...match.entry, path: path.resolve(root, match.entry.path) } }))
@@ -356,14 +358,14 @@ const decodeToolInput = Schema.decodeUnknownOption(Schema.Record(Schema.String, 
 // The grep and glob fields the wrappers read; the rest pass through as given.
 const SearchInput = Schema.Struct({
   path: Schema.optionalKey(Schema.String),
-  pattern: Schema.optionalKey(Schema.String),
+  pattern: Schema.String,
   include: Schema.optionalKey(Schema.String),
   limit: Schema.optionalKey(Schema.Finite),
 })
 
 const decodeSearchFields = Schema.decodeUnknownOption(SearchInput)
 
-export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
+export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
   Plugin.define({
     id: GAUNTLET_PLUGIN_ID,
     effect: (ctx) =>
@@ -426,16 +428,13 @@ export const gauntletPlugin = (registry: Registry, services: FenceServices) =>
               Option.match(Option.all({ raw: decodeToolInput(input), fields: decodeSearchFields(input) }), {
                 onNone: () => execute(input, context),
                 onSome: ({ fields, raw }) =>
-                  searchingDependencies(fields.path).pipe(Effect.flatMap((searched) => {
-                    const pattern = fields.pattern
-
-                    if (Option.isNone(searched) || pattern === undefined) return execute(input, context)
-
-                    return execute({ ...raw, pattern: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
-                      Effect.map((result) =>
-                        keepEntries(services.path, directory, result, belowSearched(searched.value, pattern), fields.limit ?? GLOB_DEFAULT_LIMIT)),
-                    )
-                  })),
+                  searchingDependencies(fields.path).pipe(Effect.flatMap((searched) =>
+                    Option.isNone(searched)
+                      ? execute(input, context)
+                      : execute({ ...raw, pattern: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
+                        Effect.map((result) =>
+                          keepEntries(services.path, directory, result, belowSearched(searched.value, fields.pattern), fields.limit ?? GLOB_DEFAULT_LIMIT)),
+                      ))),
               })
           })
 
@@ -568,9 +567,9 @@ const toolCallsOf = (path: Path.Path, workspace: string, messages: ReadonlyArray
       onNone: () => [],
       onSome: ({ path: input }) => {
         if (input === undefined) return []
-        const relative = path.relative(workspace, FileAccess.resolvePath(workspace, input))
+        const relative = relativeAsWritten(path, workspace, input)
 
-        return [escapes(path, relative) ? input : relative === "" ? "." : relative]
+        return [relative === undefined ? input : relative === "" ? "." : relative]
       },
     }))
 

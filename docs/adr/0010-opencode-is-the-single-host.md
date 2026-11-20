@@ -39,7 +39,7 @@ Pi, `claude -p` and `just-bash` are deleted.
   Caller's installed `node_modules` (repository root and beside each
   `package.json` the reviewed version has). The tools stay read-only, so
   nothing can write there or run code from there. Amended per #213: Gauntlet
-  reviews repositories and PRs its user trusts and does not defend against a
+  reviews repositories and PRs the Caller trusts and does not defend against a
   hostile one. "Outside" is judged on the path as written; a link in the
   snapshot is followed like any file, and nothing is refused by name
   (`.env*`, `.git`, tool state).
