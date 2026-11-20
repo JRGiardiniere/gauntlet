@@ -53,7 +53,6 @@ export const executeReviewPlan = Effect.fn(
       )
 
       const installedDependencies = yield* exposeInstalledDependencies(plan.target, plan.runId, reviewWorkingDirectory)
-      const dependencies = Array.map(installedDependencies.exposed, ({ directory }) => directory)
 
       for (const warning of installedDependencies.lockfileWarnings) {
         yield* Console.error(`gauntlet: warning — ${warning}`)
@@ -67,7 +66,6 @@ export const executeReviewPlan = Effect.fn(
           plan,
           paths,
           reviewWorkingDirectory,
-          dependencies,
         })
 
         const results = finderStage.finders
@@ -98,11 +96,10 @@ export const executeReviewPlan = Effect.fn(
 
         const [verification, judgment] = yield* Effect.all(
           [
-            executeVerification({ plan, reviewWorkingDirectory, dependencies, pooled }),
+            executeVerification({ plan, reviewWorkingDirectory, pooled }),
             executeJudgment({
               plan,
               reviewWorkingDirectory,
-              dependencies,
               observations: routed.observations,
               pooled,
             }),

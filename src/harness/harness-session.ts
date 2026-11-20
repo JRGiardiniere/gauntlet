@@ -77,9 +77,6 @@ export interface AgentSpec {
   readonly seat: Seat
   // The Run's frozen snapshot, the root every inspection tool sees.
   readonly workspace: string
-  // Real paths of the Caller's installed `node_modules` the snapshot links
-  // to; reads inside them are served read-only.
-  readonly dependencies?: ReadonlyArray<string>
   readonly systemPrompt: string
   readonly tools: ReadonlyArray<InspectionTool>
   readonly emit: EmitToolSpec

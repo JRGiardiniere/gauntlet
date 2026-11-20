@@ -9,36 +9,17 @@ import { RunError } from "./run-record.ts"
 
 // The Caller's installed dependencies, exposed read-only in a Run's snapshot:
 // the `node_modules` at the repository root and beside each package.json the
-// head commit tracks is linked from the Caller's checkout, never copied or
-// installed. The fence admits a read whose real path lies in one of these
-// directories (src/host/opencode-agents.ts); nothing else ignored is exposed.
+// reviewed version has is linked from the Caller's checkout, never copied or
+// installed. Nothing else the checkout ignores is exposed.
 
 export const DEPENDENCIES = "node_modules"
 
-// Where package managers keep the packages themselves. Every other dot-entry
-// directly in a `node_modules` is tool state (`.cache`, `.mf`, `.vite`), which
-// can hold account details and is never served.
-const PACKAGE_STORES = [".bin", ".bun", ".pnpm"]
-
-// `relative` is a `/`-separated path with `node_modules` among its segments.
-export const isDependencyToolState = (relative: string): boolean => {
-  const segments = relative.split("/")
-
-  return Array.some(segments, (segment, index) =>
-    index > 0 && segments[index - 1] === DEPENDENCIES && segment.startsWith(".") && !Array.contains(PACKAGE_STORES, segment))
-}
-
-const LOCKFILES =["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
-
-export interface ExposedDependencies {
-  // Snapshot-relative package root; "" is the repository root.
-  readonly root: string
-  // The real path of the Caller's `node_modules` there.
-  readonly directory: string
-}
+const LOCKFILES = ["bun.lock", "bun.lockb", "package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
 
 export interface InstalledDependencies {
-  readonly exposed: ReadonlyArray<ExposedDependencies>
+  // Snapshot-relative package roots whose `node_modules` was linked; "" is
+  // the repository root.
+  readonly exposed: ReadonlyArray<string>
   // The reviewed version has a package.json, yet the Caller's checkout has no
   // `node_modules` at any of its package roots.
   readonly missing: boolean
@@ -93,62 +74,21 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
       Effect.orElseSucceed(() => false),
     )
 
-  const realSnapshot = yield* fs.realPath(snapshot).pipe(
-    Effect.mapError((cause) => failure(`could not resolve the review snapshot ${snapshot}`, cause)),
-  )
-
-  // A package root reached through a link (an overlay can turn a directory
-  // into one) would put the new link outside the snapshot.
-  const insideSnapshot = (root: string) =>
-    fs.realPath(path.join(snapshot, root)).pipe(
-      Effect.map((real) => real === path.join(realSnapshot, root)),
-      Effect.orElseSucceed(() => false),
-    )
-
+  // Tracked content wins: a `node_modules` the snapshot already has is left
+  // as it is, and a package root it no longer has gets nothing.
   const exposeAt = (root: string) =>
-    Effect.gen(function* () {
-      const source = path.join(target.repoRoot, root, DEPENDENCIES)
-
-      if (!(yield* insideSnapshot(root))) return []
-
-      // The fence admits everything below this real path, so a checkout
-      // `node_modules` linked to some other kind of directory is not exposed.
-      const directory = yield* fs.realPath(source).pipe(
-        Effect.mapError((cause) => failure(`could not resolve ${source}`, cause)),
-      )
-
-      if (path.basename(directory) !== DEPENDENCIES) return []
-
-      // Tracked content wins: a `node_modules` the snapshot already has is
-      // left as it is, and a package root it no longer has gets nothing.
-      const linked = yield* fs.symlink(source, path.join(snapshot, root, DEPENDENCIES)).pipe(
-        Effect.as(true),
-        Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.succeed(false)),
-        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
-        Effect.mapError((cause) => failure(`could not expose ${joinRelative(root, DEPENDENCIES)} in the review snapshot`, cause)),
-      )
-
-      return linked ? [{ root, directory }] : []
-    })
+    fs.symlink(path.join(target.repoRoot, root, DEPENDENCIES), path.join(snapshot, root, DEPENDENCIES)).pipe(
+      Effect.as([root]),
+      Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.succeed([])),
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])),
+      Effect.mapError((cause) => failure(`could not expose ${joinRelative(root, DEPENDENCIES)} in the review snapshot`, cause)),
+    )
 
   const installed = yield* Effect.filter(roots, installedAt)
   const exposed = yield* Effect.forEach(installed, exposeAt).pipe(Effect.map(Array.flatten))
 
-  // Only a regular file is read: a tracked link named like a lockfile could
-  // point at anything on disk.
   const readIfPresent = (file: string) =>
-    Effect.gen(function* () {
-      const kind = yield* fs.lstat(file).pipe(
-        Effect.map((info): string | undefined => info.type),
-        Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined),
-      )
-
-      if (kind === undefined) return undefined
-
-      if (kind !== "File") return yield* failure(`${file} is not a regular file`)
-
-      return yield* fs.readFile(file)
-    })
+    fs.readFile(file).pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.undefined))
 
   const consequence = "so dependency reads may not match the reviewed version"
 
@@ -175,7 +115,7 @@ export const exposeInstalledDependencies = Effect.fn("InstalledDependencies.expo
     })
 
   const lockfileWarnings = yield* Effect.forEach(
-    Array.flatMap(exposed, ({ root }) => Array.map(LOCKFILES, (name) => [root, name] as const)),
+    Array.flatMap(exposed, (root) => Array.map(LOCKFILES, (name) => [root, name] as const)),
     ([root, name]) => compare(root, name),
     { concurrency: "unbounded" },
   ).pipe(Effect.map(Array.flatten))

@@ -35,8 +35,6 @@ const VERIFICATION_TOOLS = INSPECTION_TOOLS
 export interface VerificationExecution {
   readonly plan: ReviewPlan
   readonly reviewWorkingDirectory: string
-  // The Caller's installed dependency directories the snapshot exposes.
-  readonly dependencies?: ReadonlyArray<string>
   readonly pooled: PooledBugClaims
 }
 
@@ -55,7 +53,6 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
   plan,
   pooled,
   reviewWorkingDirectory,
-  dependencies,
 }: VerificationExecution) {
   if (pooled.claims.length === 0) {
     yield* runProgress(`skipping Verification (${counted(0, "BugClaim")})`)
@@ -112,7 +109,6 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
           role: "verifier",
           seat,
           workspace: reviewWorkingDirectory,
-          dependencies,
           prompt,
           contract: EmitVerdicts,
           tools: VERIFICATION_TOOLS,

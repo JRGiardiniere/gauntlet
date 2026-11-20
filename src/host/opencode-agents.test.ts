@@ -30,11 +30,10 @@ import {
   ALLOWED_FILE,
   ALLOWED_TEXT,
   CANARY,
-  makeHostileRepo,
+  makeAgentConfigRepo,
   markersWritten,
-  SECRET,
   toJson,
-} from "../test-support/hostile-repo.fixture.ts"
+} from "../test-support/agent-config-repo.fixture.ts"
 import { permissionsFor, rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
 import { bootHost } from "./opencode-host.ts"
 
@@ -312,11 +311,10 @@ describe("the ReviewWorkspace permission rules", () => {
   )
 
   it.prop(
-    "allow reading a path only when no segment is .git or starts with .env",
+    "allow reading any path in the snapshot",
     { segments: Schema.NonEmptyArray(Segment) },
     ({ segments }) => {
-      const sensitive = Array.some(segments, (segment) => segment === ".git" || segment.startsWith(".env"))
-      expect(Permission.evaluate("read", Array.join(segments, "/"), rules).effect).toBe(sensitive ? "deny" : "allow")
+      expect(Permission.evaluate("read", Array.join(segments, "/"), rules).effect).toBe("allow")
     },
   )
 
@@ -379,11 +377,11 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
     }),
   )
 
-describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
-  it.live("serves reads inside the snapshot, refuses every escape, and lets nothing from the repo reach a model", () =>
+describe("a review of a repo carrying its own agent config", () => {
+  it.live("serves reads inside the snapshot as written, offers no write or shell, and loads nothing from the repo", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path
-      const { markers, outside, target } = yield* makeHostileRepo
+      const { markers, repo, target } = yield* makeAgentConfigRepo
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-test", "/nonexistent/overlay.patch")
       const afterSnapshot = yield* markersWritten(markers)
       expect(afterSnapshot).toEqual([])
@@ -393,28 +391,17 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
       const calls: ReadonlyArray<readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]> = [
         ["read-allowed", "read", { path: ALLOWED_FILE }, true],
         ["read-directory", "read", { path: "pkg" }, true],
-        ["grep-walk", "grep", { pattern: "TOKEN=|gitdir" }, true],
+        ["grep-walk", "grep", { pattern: "allowed" }, true],
         ["glob-walk", "glob", { pattern: "**/*", hidden: true }, true],
         ["write", "write", { path: "new.txt", content: "x" }, false],
         ["edit", "edit", { path: ALLOWED_FILE, oldString: "allowed", newString: "x" }, false],
         ["shell", "shell", { command: `touch ${markers}/shell` }, false],
         ["bash", "bash", { command: `touch ${markers}/bash` }, false],
-        ["read-parent", "read", { path: path.relative(snapshot, path.join(outside, "secret")) }, false],
-        ["read-absolute", "read", { path: path.join(outside, "secret") }, false],
+        ["read-parent", "read", { path: path.relative(snapshot, path.join(repo, ALLOWED_FILE)) }, false],
+        ["read-absolute", "read", { path: path.join(repo, ALLOWED_FILE) }, false],
         ["read-home", "read", { path: "~/.bashrc" }, false],
-        ["read-symlink", "read", { path: "out" }, false],
-        ["read-symlinked-directory", "read", { path: "dirout/secret" }, false],
-        ["read-up", "read", { path: "up" }, false],
-        ["read-recovered-symlink", "read", { path: "pkg/link’s.ts" }, false],
-        ["grep-symlink", "grep", { pattern: "TOKEN", path: "out" }, false],
-        ["grep-symlinked-directory", "grep", { pattern: "TOKEN", path: "dirout" }, false],
-        ["glob-symlinked-directory", "glob", { pattern: "*", path: "dirout" }, false],
-        ["read-git", "read", { path: ".git" }, false],
-        ["read-git-symlink", "read", { path: "gitlink" }, false],
-        ["grep-git", "grep", { pattern: "gitdir", path: ".git" }, false],
-        ["read-env", "read", { path: ".env" }, false],
-        ["read-nested-env", "read", { path: "pkg/.env.local" }, false],
-        ["grep-env", "grep", { pattern: "TOKEN", path: "pkg/.env.local" }, false],
+        ["grep-absolute", "grep", { pattern: "allowed", path: repo }, false],
+        ["glob-absolute", "glob", { pattern: "*", path: repo }, false],
       ]
 
       yield* llm.push(
@@ -444,18 +431,15 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
       const served = Array.map(calls, ([id, name, , allowed]) => [id, name, outcomes.get(id)?.status === "completed", allowed])
       expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed, allowed]))
       expect(outcomes.get("read-allowed")?.text).toContain(ALLOWED_TEXT)
-      expect(outcomes.get("grep-walk")?.text).toBe("No matches found")
-      expect(outcomes.get("read-symlink")?.text).toBe("Refused: out is outside the review snapshot.")
-      expect(outcomes.get("read-env")?.text).toBe("Refused: .env is not readable in the review snapshot.")
+      expect(outcomes.get("grep-walk")?.text).toContain(ALLOWED_FILE)
 
       // Nothing the repo wrote reached a model: no config, plugin, MCP
       // server, skill or instructions (root, nested next to the allowed
-      // read, or CLAUDE.md), and no secret through any tool.
+      // read, or CLAUDE.md).
       const requests = yield* llm.requests()
       expect(requests).toHaveLength(2)
       const sent = toJson(requests)
       expect(sent).not.toContain(CANARY)
-      expect(sent).not.toContain(SECRET)
       expect(sent).not.toContain("BANANA")
       expect(Array.map(requests, toolNames)).toEqual([
         ["emit_findings", "glob", "grep", "read"],
@@ -468,13 +452,13 @@ describe("the ReviewWorkspace fence on a hostile repo's snapshot", () => {
 })
 
 // A reviewed repo whose Caller installed dependencies and has other ignored
-// files: build output, `.dev.vars`, a workspace package linked from
-// node_modules, and a link out of the checkout altogether.
+// files: build output, `.dev.vars`, and a workspace package linked from
+// node_modules.
 const makeInstalledRepo = (installed: boolean) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem
     const path = yield* Path.Path
-    const { root, repo } = yield* makeGitFixture({ prefix: "gauntlet-agents-dependencies-" })
+    const { repo } = yield* makeGitFixture({ prefix: "gauntlet-agents-dependencies-" })
 
     const write = (files: Readonly<Record<string, string>>) =>
       Effect.forEach(recordEntries(files), ([file, text]) =>
@@ -485,17 +469,12 @@ const makeInstalledRepo = (installed: boolean) =>
     yield* write({ ".gitignore": "/node_modules/\ndist/\n*.log\n.dev.vars\npackages/w/\n", "README.md": "base\n" })
     yield* commitAll(repo, "base")
     yield* write({ "package.json": "{}\n", "vendored/package.json": "{}\n", "vendored/node_modules/kept.js": "tracked\n" })
-    const outside = path.join(root, "outside")
-    yield* fs.makeDirectory(outside)
-    yield* fs.writeFileString(path.join(outside, "secret"), `${SECRET}-outside\n`)
-    // Tracked, so the snapshot has it too.
-    yield* fs.symlink(outside, path.join(repo, "linked-out"))
     yield* commitAll(repo, "head")
 
     yield* write({
-      ".dev.vars": `TOKEN=${SECRET}-dev-vars\n`,
+      ".dev.vars": "TOKEN=x\n",
       "dist/build.js": "build output\n",
-      "packages/w/secret.ts": `${SECRET}-workspace\n`,
+      "packages/w/w.ts": "export const workspace = 1\n",
       "vendored/node_modules/untracked.js": "installed over tracked content\n",
     })
 
@@ -504,39 +483,29 @@ const makeInstalledRepo = (installed: boolean) =>
         "node_modules/fixture-pkg/dist/index.js": "HOOK_MARKER in dist\n",
         "node_modules/fixture-pkg/lib/x.js": "HOOK_MARKER in lib\n",
         "node_modules/fixture-pkg/debug.log": "HOOK_MARKER in a log\n",
-        "node_modules/fixture-pkg/.env": `TOKEN=${SECRET}-dependency-env\n`,
-        // Its own package: ripgrep takes a directory holding `.git` as a
-        // repository root and applies no ignore rules from above it.
-        "node_modules/git-pkg/.git/config": `${SECRET}-dependency-git\n`,
         "node_modules/.bin/fixture-tool": "a package's executable\n",
-        // Tool state beside the packages, as wrangler and Miniflare leave it.
-        "node_modules/.cache/tool/state.json": `TOKEN=${SECRET}-tool-state\n`,
       })
-      // A protected file under a name the lexical check does not catch.
-      yield* fs.symlink(".env", path.join(repo, "node_modules/fixture-pkg/innocent"))
       yield* fs.symlink(path.join(repo, "packages/w"), path.join(repo, "node_modules/workspace-link"))
-      yield* fs.symlink(outside, path.join(repo, "node_modules/escape"))
     }
 
     return yield* resolveCommitsTarget(repo, "HEAD~1..HEAD")
   })
 
-const fencedFinder = (snapshot: string, dependencies: ReadonlyArray<string>): AgentSpec => ({
+const dependencyFinder = (snapshot: string): AgentSpec => ({
   invocationId: "dependency-finder",
   role: "finder-1",
   seat: SEAT,
   workspace: snapshot,
-  dependencies,
   systemPrompt: "fixture finder system prompt",
   tools: ["read", "grep", "glob"],
   emit: emitToolSpec(EmitFindings),
 })
 
-type FenceCall = readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]
+type ToolCall = readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]
 
 // Runs every call in one model step, then the emit; answers each call's
 // outcome and the turn.
-const runCalls = (snapshot: string, dependencies: ReadonlyArray<string>, calls: ReadonlyArray<FenceCall>) =>
+const runCalls = (snapshot: string, calls: ReadonlyArray<ToolCall>) =>
   Effect.gen(function* () {
     const { host, llm } = yield* bootEmbedded
 
@@ -548,53 +517,42 @@ const runCalls = (snapshot: string, dependencies: ReadonlyArray<string>, calls: 
       emitCall("emit-1", "emit_findings", FINDINGS),
     )
 
-    const session = yield* host.openSession(fencedFinder(snapshot, dependencies))
+    const session = yield* host.openSession(dependencyFinder(snapshot))
     const turn = yield* session.turn("review")
     const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
     const opened = Array.findFirst(sessions.data, (info) => info.title === "dependency-finder")
     const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
     const served = Array.map(calls, ([id, name]) => [id, name, outcomes.get(id)?.status === "completed"])
     expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed]))
-    const requests = yield* llm.requests()
 
-    return { outcomes, turn, sent: toJson(requests) }
+    return { outcomes, turn }
   })
 
-describe("the ReviewWorkspace fence over the Caller's installed dependencies", () => {
-  it.live("serves explicit dependency paths to read, grep and glob past the checkout's ignore rules, and nothing else ignored", () =>
+describe("the read tools over the Caller's installed dependencies", () => {
+  it.live("serve explicit dependency paths to read, grep and glob past the checkout's ignore rules, and nothing else ignored", () =>
     Effect.gen(function* () {
       const target = yield* makeInstalledRepo(true)
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-dependencies", "/nonexistent/overlay.patch")
-      const installed = yield* exposeInstalledDependencies(target, "fence-dependencies", snapshot)
-      const dependencies = Array.map(installed.exposed, ({ directory }) => directory)
+      yield* exposeInstalledDependencies(target, "fence-dependencies", snapshot)
       const fs = yield* FileSystem.FileSystem
       const path = yield* Path.Path
       // Ignored by the snapshot's own rules, which still apply outside dependencies.
       yield* fs.writeFileString(path.join(snapshot, "scratch.log"), "HOOK_MARKER ignored in the snapshot\n")
 
-      const { outcomes, sent, turn } = yield* runCalls(snapshot, dependencies, [
+      const { outcomes, turn } = yield* runCalls(snapshot, [
         ["read-dependency", "read", { path: "node_modules/fixture-pkg/lib/x.js" }, true],
         ["read-dependency-directory", "read", { path: "node_modules/fixture-pkg" }, true],
         ["grep-dependency", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg" }, true],
         ["grep-dependency-include", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg", include: "*.js" }, true],
         ["glob-dependency", "glob", { pattern: "**/*.js", path: "node_modules/fixture-pkg" }, true],
         ["glob-dependency-hidden", "glob", { pattern: "**/*", path: "node_modules/fixture-pkg", hidden: true }, true],
-        ["grep-dependency-secrets", "grep", { pattern: "TOKEN|dependency-git", path: "node_modules" }, true],
         ["read-tracked-node-modules", "read", { path: "vendored/node_modules/kept.js" }, true],
-        ["read-dependency-env", "read", { path: "node_modules/fixture-pkg/.env" }, false],
-        ["read-dependency-git", "read", { path: "node_modules/git-pkg/.git/config" }, false],
-        ["read-workspace-link", "read", { path: "node_modules/workspace-link/secret.ts" }, false],
-        ["grep-workspace-link", "grep", { pattern: "workspace", path: "node_modules/workspace-link" }, false],
-        ["read-escape", "read", { path: "node_modules/escape/secret" }, false],
+        ["read-workspace-link", "read", { path: "node_modules/workspace-link/w.ts" }, true],
+        ["read-dependency-bin", "read", { path: "node_modules/.bin/fixture-tool" }, true],
+        ["grep-snapshot-ignored", "grep", { pattern: "HOOK_MARKER" }, true],
         ["read-dev-vars", "read", { path: ".dev.vars" }, false],
         ["read-build-output", "read", { path: "dist/build.js" }, false],
         ["read-untracked-over-tracked", "read", { path: "vendored/node_modules/untracked.js" }, false],
-        ["read-dependency-bin", "read", { path: "node_modules/.bin/fixture-tool" }, true],
-        ["glob-tool-state", "glob", { pattern: "**/*.json", path: "node_modules", hidden: true }, true],
-        ["grep-snapshot-ignored", "grep", { pattern: "HOOK_MARKER" }, true],
-        ["read-dependency-env-alias", "read", { path: "node_modules/fixture-pkg/innocent" }, false],
-        ["read-tool-state", "read", { path: "node_modules/.cache/tool/state.json" }, false],
-        ["read-probe-outside", "read", { path: "linked-out/node_modules/x" }, false],
       ])
 
       const text = (id: string) => outcomes.get(id)?.text ?? ""
@@ -607,32 +565,10 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
       expect(text("glob-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
       expect(text("glob-dependency")).not.toContain("debug.log")
       expect(text("glob-dependency-hidden")).toContain("node_modules/fixture-pkg/debug.log")
-      expect(text("glob-dependency-hidden")).not.toContain(".env")
-      expect(text("grep-dependency-secrets")).toBe("No matches found")
-      expect(text("read-dependency-env")).toBe("Refused: node_modules/fixture-pkg/.env is not readable in the review snapshot.")
-      expect(text("read-workspace-link")).toBe("Refused: node_modules/workspace-link/secret.ts is outside the review snapshot.")
-      expect(text("read-escape")).toBe("Refused: node_modules/escape/secret is outside the review snapshot.")
-      expect(text("glob-tool-state")).not.toContain("state.json")
+      expect(text("read-workspace-link")).toContain("export const workspace = 1")
       expect(text("grep-snapshot-ignored")).toBe("No matches found")
-      expect(text("read-dependency-env-alias")).toBe("Refused: node_modules/fixture-pkg/innocent is not readable in the review snapshot.")
-      expect(text("read-tool-state")).toBe("Refused: node_modules/.cache/tool/state.json is not readable in the review snapshot.")
-      // Not "Unavailable": that would tell whether a node_modules exists out there.
-      expect(text("read-probe-outside")).toBe("Refused: linked-out/node_modules/x is outside the review snapshot.")
-      expect(sent).not.toContain(SECRET)
 
-      expect(turn.toolCalls.erroredPaths).toEqual([
-        "node_modules/fixture-pkg/.env",
-        "node_modules/git-pkg/.git/config",
-        "node_modules/workspace-link/secret.ts",
-        "node_modules/workspace-link",
-        "node_modules/escape/secret",
-        ".dev.vars",
-        "dist/build.js",
-        "vendored/node_modules/untracked.js",
-        "node_modules/fixture-pkg/innocent",
-        "node_modules/.cache/tool/state.json",
-        "linked-out/node_modules/x",
-      ])
+      expect(turn.toolCalls.erroredPaths).toEqual([".dev.vars", "dist/build.js", "vendored/node_modules/untracked.js"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
   it.live("answers a dependency path with why it is missing when nothing was installed", () =>
@@ -642,7 +578,7 @@ describe("the ReviewWorkspace fence over the Caller's installed dependencies", (
       const installed = yield* exposeInstalledDependencies(target, "fence-no-dependencies", snapshot)
       expect(installed.exposed).toEqual([])
 
-      const { outcomes } = yield* runCalls(snapshot, [], [
+      const { outcomes } = yield* runCalls(snapshot, [
         ["read-missing", "read", { path: "node_modules/fixture-pkg/index.js" }, false],
         ["glob-missing", "glob", { pattern: "**/*.d.ts", path: "node_modules" }, false],
       ])

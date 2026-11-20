@@ -32,16 +32,17 @@ Pi, `claude -p` and `just-bash` are deleted.
   login (`OPENCODE_CLAUDE_PATH` overrides where `claude` is found). Gauntlet
   never reads or copies another tool's login.
 - **One Gauntlet plugin** holds the host-side policy: per-Run agents, the emit
-  tools, the symlink check, stop-after-emit and tool description overrides.
+  tools, stop-after-emit and tool description overrides.
 - **The ReviewWorkspace is a permission fence** (deny all, then allow `read`,
-  `grep`, `glob` and the Stage's emit tool, then deny `.env*`, `.git` and
-  outside paths), not hardened isolation. Amended per #189: the snapshot
-  links the Caller's installed `node_modules` (repository root and beside
-  each tracked `package.json`), and the fence admits a path whose real path
-  lies in one of them, apart from the tool state kept there (`.cache`, `.mf`
-  and other dot-entries that are not a package store); everything else it
-  refuses stays refused. The tools
-  stay read-only, so nothing can write there or run code from there.
+  `grep`, `glob` and the Stage's emit tool, then deny paths outside the
+  snapshot), not hardened isolation. Amended per #189: the snapshot links the
+  Caller's installed `node_modules` (repository root and beside each
+  `package.json` the reviewed version has). The tools stay read-only, so
+  nothing can write there or run code from there. Amended per #213: Gauntlet
+  reviews repositories and PRs its user trusts and does not defend against a
+  hostile one. "Outside" is judged on the path as written; a link in the
+  snapshot is followed like any file, and nothing is refused by name
+  (`.env*`, `.git`, tool state).
 - **No session resume.** A claim on a shared store has no owner, so resuming
   at start would re-run another process's live turns; each invocation removes
   its own session.

@@ -82,8 +82,6 @@ interface FinderExecutionInput {
   readonly plan: ReviewPlan
   readonly paths: RunPaths
   readonly reviewWorkingDirectory: string
-  // The Caller's installed dependency directories the snapshot exposes.
-  readonly dependencies?: ReadonlyArray<string>
 }
 
 const FinderStageEntry = Schema.Struct({
@@ -111,7 +109,7 @@ const reportFinderDone = (result: FinderResult) =>
 // in any Finder fails the whole stage.
 export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
-)(function* ({ plan, paths, reviewWorkingDirectory, dependencies }: FinderExecutionInput) {
+)(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
   const invocations = finderInvocationsInPlan(plan)
   const templates = yield* Effect.cached(loadFinderPromptTemplates())
 
@@ -153,7 +151,6 @@ export const executeFinders = Effect.fn(
       role: partition.role,
       seat: invocation.seat,
       workspace: reviewWorkingDirectory,
-      dependencies,
       // The shared block rides in the system prompt, not the first user
       // message: OpenAI Codex shares a cached prefix across requests only for
       // `instructions`, and a user-message prefix is reused only within one

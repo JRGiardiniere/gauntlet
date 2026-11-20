@@ -171,7 +171,7 @@ const accounting: RunAccounting = {
   finderCacheHealth: undefined,
   finderToolHealth: undefined,
   installedDependencies: {
-    exposed: [{ root: "", directory: "/caller/node_modules" }],
+    exposed: [""],
     missing: false,
     lockfileWarnings: [],
   },
