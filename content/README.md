@@ -23,6 +23,9 @@ and lens files, no plumbing. The companion specifications live in
   The Pool, Verification and Judgment templates live with their Stage modules
   under `src/stages/`, next to the code that assembles them; the slot format
   is identical.
+- `apps/` — the self-contained HTML pages `gauntlet mcp` serves as MCP Apps
+  (`dossier.html` shows `show_dossier`'s result). Inline script and styles
+  only: hosts block external origins.
 
 ## Template slots
 

@@ -292,6 +292,8 @@ const traceImports = Effect.fn("test.traceImports")(function* (args: ReadonlyArr
     cwd: home,
     extendEnv: true,
     env: { HOME: home },
+    // At end of input from the start, so `mcp` serves nothing and exits.
+    stdin: "ignore",
   })
 
   const [, stderr, exitCode] = yield* Effect.all(
@@ -312,6 +314,7 @@ describe("startup", () => {
     { argv: ["--version"] },
     { argv: ["config"] },
     { argv: ["config", "init"] },
+    { argv: ["mcp"] },
   ])("gauntlet $argv never loads OpenCode", ({ argv }) =>
     Effect.gen(function* () {
       const traced = yield* traceImports([GAUNTLET, ...argv])

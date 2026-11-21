@@ -15,11 +15,19 @@ export interface PlannedFinderInvocation {
   readonly context: ResolvedFinderContext
 }
 
+const FINDER_INVOCATION_PREFIX = "finder-"
+
+// finder-stage.json names each Finder only by this key.
+export const lensOfFinderInvocationKey = (invocationKey: string): string =>
+  invocationKey.startsWith(FINDER_INVOCATION_PREFIX)
+    ? invocationKey.slice(FINDER_INVOCATION_PREFIX.length)
+    : invocationKey
+
 export const finderInvocationsInPlan = (
   plan: ReviewPlan,
 ): ReadonlyArray<PlannedFinderInvocation> =>
   Array.map(selectRunnableFinders(plan).runnable, (lens) => ({
-    invocationKey: `finder-${lens.name}`,
+    invocationKey: `${FINDER_INVOCATION_PREFIX}${lens.name}`,
     lens,
     seat: lens.seat,
     context: resolveFinderContext(lens, plan.specification),

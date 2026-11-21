@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gauntlet Dossier</title>
+<style>
+  /* Fallbacks only: a host's styles.variables replace these. */
+  :root {
+    color-scheme: light dark;
+    --color-background-primary: light-dark(#ffffff, #161618);
+    --color-background-secondary: light-dark(#f4f4f5, #232326);
+    --color-text-primary: light-dark(#18181b, #f4f4f5);
+    --color-text-secondary: light-dark(#5b5b66, #a1a1aa);
+    --color-text-danger: light-dark(#b91c1c, #f87171);
+    --color-text-warning: light-dark(#a14a06, #fbbf24);
+    --color-text-info: light-dark(#1d4ed8, #60a5fa);
+    --color-border-primary: light-dark(#e4e4e7, #2e2e33);
+    --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    --ring: var(--color-ring-primary, var(--color-text-info));
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  ::selection { background: color-mix(in srgb, var(--ring) 30%, transparent); }
+  main { padding: 16px; }
+  p, ul, h1, h2 { margin: 0; }
+  ul { padding: 0; list-style: none; }
+
+  h1 { font-size: 18px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
+  .tally { display: flex; flex-wrap: wrap; gap: 4px 28px; margin-top: 4px; font-size: 13px; color: var(--color-text-secondary); }
+  .tally > span { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
+  .tally b { color: var(--color-text-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tally .quiet b { color: var(--color-text-secondary); }
+
+  h2 {
+    margin: 28px 0 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--color-border-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--color-text-warning);
+  }
+  .count { margin-left: 6px; color: var(--color-text-secondary); font-weight: 400; font-variant-numeric: tabular-nums; }
+  .gaps ul { display: grid; gap: 4px; }
+
+  /* The matrix: one row per Lens, one mark per item. */
+  .matrix { margin-top: 28px; }
+  table { border-collapse: collapse; }
+  caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  th { text-align: left; }
+  thead th {
+    padding: 0 12px 6px 0;
+    border-bottom: 1px solid var(--color-border-primary);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    vertical-align: bottom;
+  }
+  thead th .count { margin-left: 4px; }
+  thead .axis { color: var(--color-text-secondary); font-weight: 400; }
+  tbody th {
+    padding: 4px 16px 4px 0;
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 1.3;
+    vertical-align: middle;
+  }
+  tbody th.idle { color: var(--color-text-secondary); }
+  tbody tr:first-child > * { padding-top: 8px; }
+  td { padding: 0 12px 0 0; vertical-align: middle; }
+  td:last-child, thead th:last-child { padding-right: 0; }
+  /* A cell wraps its marks only after three, so a narrow table takes its
+     width from the Lens names instead of stacking marks one per line. */
+  .marks { display: flex; flex-wrap: wrap; min-width: calc(min(var(--marks), 3) * var(--pick)); }
+  .p1 { color: var(--color-text-danger); }
+  .p2 { color: var(--color-text-warning); }
+  .p3, .none, .rejected { color: var(--color-text-secondary); }
+
+  .matrix { --pick: 18px; }
+  .pick {
+    display: inline-grid;
+    place-items: center;
+    width: var(--pick);
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .pick:focus-visible { outline: 2px solid var(--ring); outline-offset: -2px; border-radius: 4px; }
+  .mark { display: block; width: 12px; height: 12px; border-radius: 2px; background: currentColor; }
+  .mark.round { border-radius: 50%; }
+  .mark.open { background: none; border: 2px solid currentColor; }
+  .on .mark, .hover .mark { outline: 2px solid color-mix(in srgb, var(--ring) 55%, transparent); outline-offset: 1px; }
+  .pinned .mark { outline-color: var(--ring); }
+  /* Narrow panels: counts drop under their labels and columns tighten, so
+     the table fits instead of squeezing every cell to one mark. */
+  @media (max-width: 34rem) {
+    thead th .count { display: block; margin-left: 0; }
+    thead th { font-size: 12px; }
+    thead th, td { padding-right: 6px; }
+    tbody th { padding-right: 10px; overflow-wrap: anywhere; }
+    .matrix { --pick: 16px; }
+  }
+
+  .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 12px; font-size: 12px; color: var(--color-text-secondary); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+  /* A preview keeps one height so hovering never resizes the host's frame:
+     meta, three summary lines and the location, or for a rejected item two
+     summary lines, the location and one line of its reason. */
+  .detail { display: grid; align-content: start; gap: 4px; margin-top: 16px; }
+  .detail.preview { height: 108px; overflow: hidden; }
+  .detail-meta { display: flex; flex-wrap: wrap; gap: 0 14px; font-size: 12px; line-height: 18px; color: var(--color-text-secondary); }
+  .caution { color: var(--color-text-warning); }
+  .detail-summary { line-height: 21px; max-width: 72ch; text-wrap: pretty; overflow-wrap: break-word; }
+  .detail-reason { font-size: 12px; line-height: 18px; max-width: 80ch; color: var(--color-text-secondary); }
+  .location { font-family: var(--font-mono); font-size: 12px; line-height: 18px; color: var(--color-text-secondary); overflow-wrap: anywhere; font-variant-ligatures: none; }
+  .preview .detail-summary, .preview .location, .preview .detail-reason {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .preview .detail-summary { -webkit-line-clamp: 3; }
+  .preview.rejected .detail-summary { -webkit-line-clamp: 2; }
+  .preview .location, .preview .detail-reason { -webkit-line-clamp: 1; }
+
+  code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    /* T3's muted surface is within 1% of its canvas: a touch of the text
+       colour keeps the span visible on any host. */
+    background: color-mix(in srgb, var(--color-text-primary) 7%, var(--color-background-tertiary, var(--color-background-secondary)));
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+    font-variant-ligatures: none;
+  }
+
+  .state { color: var(--color-text-secondary); }
+  .error { color: var(--color-text-danger); white-space: pre-wrap; }
+  .clean { margin-top: 4px; }
+  .clean span { color: var(--color-text-secondary); }
+
+  footer {
+    margin-top: 28px;
+    padding-top: 8px;
+    border-top: 1px solid var(--color-border-primary);
+    font-size: 12px;
+    color: var(--color-text-secondary);
+    overflow-wrap: anywhere;
+  }
+  footer[hidden] { display: none; }
+  .path { font-family: var(--font-mono); font-variant-ligatures: none; }
+</style>
+</head>
+<body>
+<main>
+  <div id="view"><p class="state">Waiting for the Dossier…</p></div>
+  <footer id="footer" hidden></footer>
+</main>
+<script>
+(() => {
+  "use strict"
+  const view = document.getElementById("view")
+  const footer = document.getElementById("footer")
+  const pending = new Map()
+  let nextId = 1
+
+  const post = (message) => window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*")
+  const notify = (method, params) => post({ method, params })
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const id = nextId++
+    pending.set(id, { resolve, reject })
+    post({ id, method, params })
+  })
+
+  const el = (tag, className, ...children) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    node.append(...children)
+    return node
+  }
+
+  // Backtick spans become <code>; everything else stays plain text.
+  const withCode = (text) => String(text).split("`").map((part, index) =>
+    index % 2 === 1 && part !== "" ? el("code", "", part) : part)
+
+  // Lens names break after their hyphens rather than mid-word.
+  const breakable = (name) => name.split("-").flatMap((part, index, parts) =>
+    index < parts.length - 1 ? [`${part}-`, document.createElement("wbr")] : [part])
+
+  const showState = (className, ...children) => view.replaceChildren(el("p", className, ...children))
+  const showError = (text) => showState("error", text)
+
+  const showFooter = (...children) => {
+    footer.replaceChildren(...children)
+    footer.hidden = false
+  }
+
+  const applyContext = (context) => {
+    if (!context) return
+    if (context.theme === "light" || context.theme === "dark") {
+      document.documentElement.dataset.theme = context.theme
+    }
+    const variables = context.styles && context.styles.variables
+    if (variables) {
+      for (const [name, value] of Object.entries(variables)) {
+        if (typeof value === "string") document.documentElement.style.setProperty(name, value)
+      }
+    }
+  }
+
+  const COLUMNS = [
+    { key: "P1", label: "P1", className: "p1" },
+    { key: "P2", label: "P2", className: "p2" },
+    { key: "P3", label: "P3", className: "p3" },
+    { key: "none", label: "No priority", className: "none" },
+    { key: "rejected", label: "Rejected", className: "rejected" },
+  ]
+  const REJECTED = new Set(["refuted", "dropped"])
+  const UNSETTLED = new Set(["plausible", "undecided"])
+  const columnOf = (item) => REJECTED.has(item.status) ? "rejected" : item.priority || "none"
+  const labelOf = (key) => COLUMNS.find((column) => column.key === key).label
+
+  const tallyLine = (display) => {
+    const group = (className, keys, source) => {
+      const present = keys.filter((key) => Number(source[key]) > 0)
+      return present.length === 0 ? [] : [el("span", className, ...present.map((key) =>
+        el("span", "", el("b", "", String(source[key])), ` ${key}`)))]
+    }
+    const groups = [
+      ...group("", ["confirmed", "kept", "plausible", "undecided"], display.tally),
+      ...group("quiet", ["refuted", "dropped"], display.tally),
+      ...group("quiet", ["candidates"], display),
+    ]
+    return groups.length === 0 ? [] : [el("p", "tally", ...groups)]
+  }
+
+  const legend = () => el("p", "legend",
+    el("span", "", el("span", "mark"), "bug claim"),
+    el("span", "", el("span", "mark round"), "observation"),
+    el("span", "", el("span", "mark open"), "plausible or undecided"))
+
+  const matrix = (display) => {
+    const items = display.items
+    const names = [...new Set([...(display.lenses || []), ...items.flatMap((item) => item.lenses)])]
+    const rows = names.map((name) => {
+      const cells = Object.fromEntries(COLUMNS.map(({ key }) => [key, []]))
+      items.forEach((item, index) => {
+        if (item.lenses.includes(name)) cells[columnOf(item)].push(index)
+      })
+      return { name, cells }
+    })
+    const weight = (row) => ["P1", "P2", "P3", "none", "rejected"].map((key) => row.cells[key].length)
+    rows.sort((left, right) => {
+      const a = weight(left)
+      const b = weight(right)
+      for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return b[i] - a[i]
+      return left.name < right.name ? -1 : left.name > right.name ? 1 : 0
+    })
+    const columns = COLUMNS.filter(({ key }) => key !== "none" || items.some((item) => columnOf(item) === "none"))
+
+    const buttons = []
+    const pick = (index, lens, column) => {
+      const item = items[index]
+      const summary = item.summary.length > 80 ? `${item.summary.slice(0, 79)}…` : item.summary
+      const button = el("button", "pick",
+        el("span", `mark${item.kind === "Observation" ? " round" : ""}${UNSETTLED.has(item.status) || column === "rejected" ? " open" : ""}`))
+      button.type = "button"
+      button.dataset.item = String(index)
+      button.setAttribute("aria-label", `${lens}, ${labelOf(column)}, ${item.status}: ${summary}`)
+      buttons.push(button)
+      return button
+    }
+
+    const table = el("table", "",
+      el("caption", "", "Dossier items by Lens and Review Priority"),
+      el("thead", "", el("tr", "",
+        el("th", "axis", "Lens"),
+        ...columns.map(({ key, label }) => el("th", "", label,
+          el("span", "count", String(items.filter((item) => columnOf(item) === key).length)))))),
+      el("tbody", "", ...rows.map((row) => {
+        const empty = columns.every(({ key }) => row.cells[key].length === 0)
+        const header = el("th", empty ? "idle" : "", ...breakable(row.name))
+        header.scope = "row"
+        return el("tr", "", header, ...columns.map(({ key, className }) => {
+          const marks = el("div", "marks", ...row.cells[key].map((index) => pick(index, row.name, key)))
+          marks.style.setProperty("--marks", String(row.cells[key].length))
+          return el("td", className, marks)
+        }))
+      })))
+    for (const cell of table.tHead.rows[0].cells) cell.scope = "col"
+
+    const detail = el("div", "detail preview")
+    let shown = -1
+    let pinned = false
+
+    const mark = (index, className, on) => {
+      for (const button of buttons) {
+        const match = button.dataset.item === String(index)
+        if (className === "pinned") button.setAttribute("aria-pressed", String(match && on))
+        button.classList.toggle(className, match && on)
+      }
+    }
+
+    const show = (index) => {
+      const item = items[index]
+      const status = el("span", UNSETTLED.has(item.status) ? "caution" : "", item.status)
+      const parts = [
+        el("p", "detail-meta", status, el("span", "", labelOf(columnOf(item))), el("span", "", item.lenses.join(", "))),
+        el("p", "detail-summary", ...withCode(item.summary)),
+        el("p", "location", item.location),
+      ]
+      if (item.reason) parts.push(el("p", "detail-reason", `${item.status === "refuted" ? "Refuted" : "Dropped"}: `, ...withCode(item.reason)))
+      detail.replaceChildren(...parts)
+      detail.classList.toggle("preview", !pinned)
+      detail.classList.toggle("rejected", Boolean(item.reason))
+      mark(shown, "on", false)
+      shown = index
+      mark(shown, "on", true)
+    }
+
+    const unpin = () => {
+      pinned = false
+      mark(shown, "pinned", false)
+      detail.classList.add("preview")
+    }
+
+    for (const button of buttons) {
+      const index = Number(button.dataset.item)
+      const enter = () => pinned ? mark(index, "hover", true) : show(index)
+      const leave = () => mark(index, "hover", false)
+      button.addEventListener("mouseenter", enter)
+      button.addEventListener("focus", enter)
+      button.addEventListener("mouseleave", leave)
+      button.addEventListener("blur", leave)
+      button.addEventListener("click", () => {
+        if (pinned && shown === index) return unpin()
+        mark(shown, "pinned", false)
+        pinned = true
+        show(index)
+        mark(index, "pinned", true)
+      })
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && pinned) unpin()
+    })
+
+    if (buttons.length > 0) show(Number(buttons[0].dataset.item))
+    return el("section", "matrix", table, legend(), detail)
+  }
+
+  const render = (display) => {
+    const parts = [el("header", "", el("h1", "", display.target), ...tallyLine(display))]
+
+    if (display.coverageGaps.length > 0) {
+      parts.push(el("section", "gaps",
+        el("h2", "", "Coverage gaps", el("span", "count", String(display.coverageGaps.length))),
+        el("ul", "", ...display.coverageGaps.map((gap) => el("li", "", gap)))))
+    }
+
+    if (display.items.length === 0) {
+      parts.push(el("p", "clean", "No findings.", el("span", "", " Nothing was confirmed, kept or left unresolved.")))
+    } else {
+      parts.push(matrix(display))
+    }
+
+    view.replaceChildren(...parts)
+    showFooter("Full Dossier: ", el("span", "path", display.dossierMarkdown))
+  }
+
+  const onToolResult = (result) => {
+    const text = result && Array.isArray(result.content) && result.content[0] && result.content[0].text
+    if (result && result.isError) return showError(text || "show_dossier failed.")
+    const display = result && result.structuredContent
+    if (!display || !display.tally || !Array.isArray(display.items)) {
+      return showError("This host passed no structured result, so there is nothing to draw. The Dossier is in dossier.md.")
+    }
+    render(display)
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return
+    const message = event.data
+    if (!message || message.jsonrpc !== "2.0") return
+
+    if (message.id !== undefined && message.method === undefined) {
+      const waiter = pending.get(message.id)
+      if (!waiter) return
+      pending.delete(message.id)
+      if (message.error) waiter.reject(new Error(message.error.message || "host error"))
+      else waiter.resolve(message.result)
+      return
+    }
+
+    if (message.id !== undefined) {
+      if (message.method === "ping" || message.method === "ui/resource-teardown") post({ id: message.id, result: {} })
+      else post({ id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } })
+      return
+    }
+
+    switch (message.method) {
+      case "ui/notifications/tool-input": {
+        const runDir = message.params && message.params.arguments && message.params.arguments.run_dir
+        if (typeof runDir === "string") showState("state", `Waiting for the Dossier in ${runDir}…`)
+        break
+      }
+      case "ui/notifications/tool-result":
+        onToolResult(message.params)
+        break
+      case "ui/notifications/tool-cancelled":
+        showError(`show_dossier was cancelled${message.params && message.params.reason ? `: ${message.params.reason}` : "."}`)
+        break
+      case "ui/notifications/host-context-changed":
+        applyContext(message.params)
+        break
+    }
+  })
+
+  let lastSize = ""
+  const reportSize = () => {
+    // The body's own box, so the page can shrink below an initial iframe height.
+    const box = document.body.getBoundingClientRect()
+    const width = Math.ceil(box.width)
+    const height = Math.ceil(box.height)
+    const size = `${width}x${height}`
+    if (size === lastSize) return
+    lastSize = size
+    notify("ui/notifications/size-changed", { width, height })
+  }
+
+  request("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "gauntlet-dossier", version: "0.1.0" },
+    appCapabilities: { availableDisplayModes: ["inline"] },
+  }).then((result) => {
+    applyContext(result && result.hostContext)
+    notify("ui/notifications/initialized", {})
+    new ResizeObserver(reportSize).observe(document.body)
+    reportSize()
+  }, (error) => {
+    showFooter(el("span", "error", `ui/initialize failed: ${error.message}`))
+  })
+})()
+</script>
+</body>
+</html>
