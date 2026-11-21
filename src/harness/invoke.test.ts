@@ -34,7 +34,7 @@ const INPUT: InvokeInput<FindingsOutput> = {
   systemPrompt: "finder system prompt",
   prompt: "review this diff",
   contract: EmitFindings,
-  tools: ["read", "grep", "glob"],
+  tools: ["execute", "read", "shell"],
   deadlineMillis: DEADLINE_MILLIS,
 }
 
@@ -98,7 +98,7 @@ describe("invoke", () => {
         role: "finder-1",
         workspace: "/fixture/snapshot",
         systemPrompt: "finder system prompt",
-        tools: ["read", "grep", "glob"],
+        tools: ["execute", "read", "shell"],
       })
       expect(scripted.specs[0]?.emit.name).toBe("emit_findings")
     }))

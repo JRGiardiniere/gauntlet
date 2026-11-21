@@ -53,7 +53,7 @@ export interface TurnResult {
   readonly diagnostics: ReadonlyArray<string>
 }
 
-export const INSPECTION_TOOLS = ["read", "grep", "glob"] as const
+export const INSPECTION_TOOLS = ["execute", "read", "shell"] as const
 
 export type InspectionTool = (typeof INSPECTION_TOOLS)[number]
 

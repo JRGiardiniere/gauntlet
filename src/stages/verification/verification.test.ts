@@ -150,7 +150,7 @@ describe("Verification stage interface", () => {
       expect(scripted.specs).toHaveLength(2)
 
       for (const spec of scripted.specs) {
-        expect(spec).toMatchObject({ role: "verifier", workspace: REVIEW_ROOT, tools: ["read", "grep", "glob"] })
+        expect(spec).toMatchObject({ role: "verifier", workspace: REVIEW_ROOT, tools: ["execute", "read", "shell"] })
         expect(spec.emit.name).toBe("emit_verdicts")
       }
 

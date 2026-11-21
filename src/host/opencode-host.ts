@@ -28,9 +28,9 @@ import {
   SignInStatus,
 } from "./host.ts"
 
-// What a Run needs from OpenCode: an agent, the two providers, three read
-// tools and the prompt and config plugins they lean on. `-*` also drops SDK
-// plugins, so Gauntlet's own plugin is listed too.
+// What a Run needs from OpenCode: an agent, the two providers, Code Mode's
+// read and shell tools, and the prompt and config plugins they lean on. `-*`
+// also drops SDK plugins, so Gauntlet's own plugin is listed too.
 export const KEPT_PLUGINS = [
   GAUNTLET_PLUGIN_ID,
   "opencode.agent",
@@ -46,8 +46,7 @@ export const KEPT_PLUGINS = [
   "opencode.prompt.openai",
   "opencode.tool.input.repair",
   "opencode.tool.read",
-  "opencode.tool.grep",
-  "opencode.tool.glob",
+  "opencode.tool.shell",
 ] as const
 
 const OPENAI = Integration.ID.make("openai")
@@ -96,6 +95,7 @@ const HOST_CONFIG = {
   snapshots: false,
   share: "disabled",
   compaction: { auto: false },
+  experimental: { full_codemode: true },
 }
 
 const catalogOptions = ModelCatalog.$match({

@@ -1,12 +1,9 @@
-- Use `read` to open unchanged files, `grep` (ripgrep regular expressions,
-  narrowed by path or include glob) to find callers, definitions, and prior
-  art, and `glob` to list files by name pattern.
-- Your tools are read-only and see only the review snapshot rooted at
-  {{REPO_ROOT}}; a path outside it is refused. There is no shell, no network,
-  no `git`, and no toolchain: tests, builds, typechecks, and package managers
-  are unavailable, so ground every claim in code you have actually read.
-- Installed dependencies, when present, are readable by explicit path under
-  `node_modules/` (for example `node_modules/<package>/`); a search from the
-  snapshot root does not include them. They are the versions installed in
-  the caller's checkout, which may differ from what this change expects, so
-  treat them as evidence about the library, not as part of the change.
+- Use `execute` (Code Mode JavaScript) to inspect the review snapshot rooted
+  at {{REPO_ROOT}}: `tools.read` to read files and directories, `tools.shell`
+  for ripgrep (`rg`), `git` (`git log`, `git blame`, `git diff`), file listing,
+  typechecks, or targeted tests, and `path` for path manipulation.
+- Batch independent lookups with `Promise.all` / `Promise.allSettled` and slice
+  or filter inside `execute` so you return only the lines and facts you need.
+- The review snapshot is a frozen copy of the change: file-edit tools are
+  disabled and you should not modify repository files from the shell. Ground
+  every claim in code or command output you have actually observed.

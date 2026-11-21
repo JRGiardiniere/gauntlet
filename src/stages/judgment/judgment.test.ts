@@ -120,7 +120,7 @@ describe("Judgment stage interface", () => {
         role: "judge",
         seat: "openai-codex/gpt-5.6-luna:low",
         workspace: REVIEW_ROOT,
-        tools: ["read", "grep", "glob"],
+        tools: ["execute", "read", "shell"],
       })
       expect(scripted.specs[0]?.cacheGroup).toBeUndefined()
       expect(scripted.specs[0]?.emit.name).toBe("emit_judgments")

@@ -14,7 +14,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import { TurnEnd } from "../src/harness/harness-session.ts"
+import { INSPECTION_TOOLS, TurnEnd } from "../src/harness/harness-session.ts"
 import { emitToolSpec } from "../src/harness/invoke.ts"
 import { EmitFindings } from "../src/harness/output-contract.ts"
 import { hostPaths, ModelCatalog } from "../src/host/host.ts"
@@ -63,7 +63,13 @@ const program = Effect.gen(function* () {
   yield* llm.push(
     TestLLM.complete(
       { reason: { normalized: "tool-calls" }, usage },
-      LLMEvent.toolCall({ id: "grep-1", name: "grep", input: { pattern: "needle" } }),
+      LLMEvent.toolCall({
+        id: "exec-1",
+        name: "execute",
+        input: {
+          code: `const [file, ran] = await Promise.all([tools.read({ path: "alpha.txt" }), tools.shell({ command: "echo shell-ok" })]); return { file, ran }`,
+        },
+      }),
     ),
     TestLLM.complete(
       { reason: { normalized: "tool-calls" }, usage },
@@ -77,7 +83,7 @@ const program = Effect.gen(function* () {
     seat: "openai/gpt-6-luna:low",
     workspace,
     systemPrompt: "compile smoke finder",
-    tools: ["read", "grep", "glob"],
+    tools: INSPECTION_TOOLS,
     emit: emitToolSpec(EmitFindings),
   })
 
@@ -87,15 +93,15 @@ const program = Effect.gen(function* () {
     return yield* SmokeFailed.make({ reason: `the turn ended ${turn.end._tag}, not at the emit` })
   }
 
-  // The grep's result is in the request that follows it.
-  const [, afterGrep] = yield* llm.requests()
-  const sent = yield* toJson(afterGrep ?? null)
+  // The Code Mode result is in the request that follows it.
+  const [, afterExecute] = yield* llm.requests()
+  const sent = yield* toJson(afterExecute ?? null)
 
-  if (!sent.includes(NEEDLE)) {
-    return yield* SmokeFailed.make({ reason: "the grep did not find the needle" })
+  if (!sent.includes(NEEDLE) || !sent.includes("shell-ok")) {
+    return yield* SmokeFailed.make({ reason: "execute did not return both read and shell output" })
   }
 
-  yield* Console.log(`compile smoke ok: Host opened, grep matched, emit landed (${String(turn.usage.length)} requests)`)
+  yield* Console.log(`compile smoke ok: Host opened, execute (read + shell) ran, emit landed (${String(turn.usage.length)} requests)`)
 })
 
 NodeRuntime.runMain(program.pipe(Effect.scoped, Effect.provide(NodeServices.layer)))

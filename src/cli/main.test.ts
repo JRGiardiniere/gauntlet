@@ -180,7 +180,7 @@ describe("gauntlet review", () => {
       for (const spec of run.scripted.specs) {
         expect(spec.workspace).toBe(snapshot)
         expect(spec.workspace).not.toBe(fixture.repo)
-        expect(spec.tools).toEqual(["read", "grep", "glob"])
+        expect(spec.tools).toEqual(["execute", "read", "shell"])
       }
 
       // Verification and Judgment run side by side, so their order varies.

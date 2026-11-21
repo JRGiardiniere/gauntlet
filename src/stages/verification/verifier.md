@@ -11,17 +11,16 @@ reason through the concrete failure scenario.
 ## Verdict ladder
 
 - CONFIRMED — you can name the triggering inputs/state and the wrong output,
-  and every fact the failure rests on is witnessed in this workspace. Quote
-  the line for each. Your tools are confined to a snapshot: they cannot
-  run host binaries, tests, or the network — so what an external tool,
-  library, or service actually does is never witnessable here, and a claim
-  that rests on such behavior is at most PLAUSIBLE no matter how confident
-  the reasoning.
+  and every fact the failure rests on is witnessed in this workspace (in code
+  you read or command output you ran via `execute`). Quote the line or output
+  for each. What an unreachable external service or unseen runtime environment
+  does is never witnessable here, and a claim that rests on such behavior is
+  at most PLAUSIBLE no matter how confident the reasoning.
 - PLAUSIBLE — the mechanism is real, but the trigger is uncertain (timing,
-  env, config) or a load-bearing fact lives outside the workspace (external
-  tool or library behavior); name the exact command or check that would
-  settle it. Do not refute a real mechanism just
-  because its trigger depends on realistic runtime state — races,
+  env, config) or a load-bearing fact lives outside what you can witness here
+  (external service, unrunnable environment, or missing toolchain); name the
+  exact command or check that would settle it. Do not refute a real mechanism
+  just because its trigger depends on realistic runtime state — races,
   rare-but-reachable error paths, boundary values are PLAUSIBLE, not refuted.
 - REFUTED — factually wrong (quote the actual line), provably impossible (show
   the invariant), already guarded (cite the guard), or pure style with no

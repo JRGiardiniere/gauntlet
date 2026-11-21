@@ -17,7 +17,7 @@ import * as References from "effect/References"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
 import { emitToolSpec } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
-import { type AgentSpec, TurnEnd } from "../harness/harness-session.ts"
+import { type AgentSpec, INSPECTION_TOOLS, TurnEnd } from "../harness/harness-session.ts"
 import { EmitPool } from "../stages/pool/output-contract.ts"
 import { hostPaths, ModelCatalog } from "./host.ts"
 import { Permission } from "@opencode/core/permission"
@@ -57,6 +57,9 @@ const usage = (input: number, cacheRead: number, output: number) => ({
 
 const emitCall = (id: string, name: string, input: typeof FINDINGS | { readonly clusters: ReadonlyArray<never> }, tokens = usage(1_000, 0, 50)) =>
   TestLLM.complete({ reason: { normalized: "tool-calls" }, usage: tokens }, LLMEvent.toolCall({ id, name, input }))
+
+const executeCall = (id: string, code: string, tokens = usage(1_200, 0, 30)) =>
+  TestLLM.complete({ reason: { normalized: "tool-calls" }, usage: tokens }, LLMEvent.toolCall({ id, name: "execute", input: { code } }))
 
 const textStop = (text: string, tokens = usage(900, 100, 20)) =>
   TestLLM.complete(
@@ -105,7 +108,7 @@ const embedded = Effect.gen(function* () {
     seat: SEAT,
     workspace: path.resolve(workspace),
     systemPrompt: "fixture finder system prompt",
-    tools: ["read", "grep", "glob"],
+    tools: INSPECTION_TOOLS,
     emit: emitToolSpec(EmitFindings),
   })
 
@@ -119,14 +122,15 @@ const toolNames = (request: { readonly tools: ReadonlyArray<{ readonly name: str
   Array.sort(Array.map(request.tools, (tool) => tool.name), (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0))
 
 describe("an AgentInvocation session on the embedded Host", () => {
-  it.live("ends the turn at a valid emit with no further model request, counting each request once", () =>
+  it.live("ends the turn at a valid emit with no further model request, counting each request and inner execute call once", () =>
     Effect.gen(function* () {
       const { host, llm, finder } = yield* embedded
       yield* llm.push(
-        // A read, then the emit in the next step.
-        TestLLM.complete(
-          { reason: { normalized: "tool-calls" }, usage: usage(1_200, 0, 30) },
-          LLMEvent.toolCall({ id: "read-1", name: "read", input: { path: "alpha.txt" } }),
+        // A Code Mode execute call running read and shell concurrently, then the emit.
+        executeCall(
+          "exec-1",
+          `const [file, ran] = await Promise.all([tools.read({ path: "alpha.txt" }), tools.shell({ command: "echo hi" })]); return { file, ran }`,
+          usage(1_200, 0, 30),
         ),
         emitCall("emit-1", "emit_findings", FINDINGS, usage(200, 1_200, 40)),
       )
@@ -141,7 +145,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
         { input: 1_200, output: 30, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
         { input: 200, output: 40, reasoning: 0, cacheRead: 1_200, cacheWrite: 0 },
       ])
-      expect(turn.toolCalls).toEqual({ total: 1, errored: 0, erroredPaths: [] })
+      expect(turn.toolCalls).toEqual({ total: 2, errored: 0, erroredPaths: [] })
       yield* session.firstToken
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
@@ -190,7 +194,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
-  it.live("offers a Finder read, grep, glob and its emit tool, and Pool its emit tool only", () =>
+  it.live("offers a Finder execute plus its emit tool (with the Code Mode catalog only), and Pool its emit tool only", () =>
     Effect.gen(function* () {
       const { host, llm, finder } = yield* embedded
       yield* llm.push(
@@ -213,10 +217,19 @@ describe("an AgentInvocation session on the embedded Host", () => {
       expect(pooled.end).toEqual(TurnEnd.Emitted({ raw: { clusters: [] } }))
 
       const [finderRequest, poolRequest] = yield* llm.requests()
-      expect(finderRequest === undefined ? [] : toolNames(finderRequest)).toEqual(["emit_findings", "glob", "grep", "read"])
+      expect(finderRequest === undefined ? [] : toolNames(finderRequest)).toEqual(["emit_findings", "execute"])
       expect(poolRequest === undefined ? [] : toolNames(poolRequest)).toEqual(["emit_pool"])
-      // OpenAI gets the agent's own system prompt and nothing after it.
-      expect(Array.map(finderRequest?.system ?? [], (part) => part.text)).toEqual(["fixture finder system prompt"])
+      // OpenAI gets the agent's own system prompt plus the Code Mode catalog,
+      // never date/environment builtins; Pool has no Code Mode catalog.
+      const finderSystem = Array.map(finderRequest?.system ?? [], (part) => part.text)
+      expect(finderSystem).toHaveLength(2)
+      expect(finderSystem[0]).toBe("fixture finder system prompt")
+      expect(finderSystem[1]).toContain("# Code Mode")
+      expect(finderSystem[1]).toContain("tools.read")
+      expect(finderSystem[1]).toContain("tools.shell")
+      expect(finderSystem[1]).not.toContain("<env>")
+      expect(finderSystem[1]).not.toContain("Today's date")
+      expect(Array.map(poolRequest?.system ?? [], (part) => part.text)).toEqual(["fixture stage system prompt"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
   it.live("sends every session of a cache group the group's key", () =>
@@ -299,7 +312,7 @@ describe("the partition cache key on an outgoing request", () => {
 })
 
 describe("the ReviewWorkspace permission rules", () => {
-  const rules = [...permissionsFor({ tools: ["read", "grep", "glob"], emit: "emit_findings" })]
+  const rules = [...permissionsFor({ tools: INSPECTION_TOOLS, emit: "emit_findings" })]
   const Segment = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,12}$/))
 
   it.prop(
@@ -319,12 +332,12 @@ describe("the ReviewWorkspace permission rules", () => {
   )
 
   it.each([
-    ["grep", "anything", "allow"],
-    ["glob", "**/*", "allow"],
+    ["execute", "*", "allow"],
+    ["shell", "rg foo", "allow"],
     ["emit_findings", "*", "allow"],
+    ["glob", "**/*", "deny"],
     ["write", "src/x.ts", "deny"],
     ["edit", "src/x.ts", "deny"],
-    ["shell", "touch x", "deny"],
     ["webfetch", "https://example.com", "deny"],
     ["external_directory", "/etc/*", "deny"],
   ])("%s %s → %s", (action, resource, effect) => {
@@ -335,13 +348,13 @@ describe("the ReviewWorkspace permission rules", () => {
     const pool = [...permissionsFor({ tools: [], emit: "emit_pool" })]
     expect(Permission.evaluate("emit_pool", "*", pool).effect).toBe("allow")
 
-    for (const action of ["read", "grep", "glob", "emit_findings"]) {
+    for (const action of ["execute", "read", "shell", "emit_findings"]) {
       expect(Permission.evaluate(action, "src/x.ts", pool).effect).toBe("deny")
     }
   })
 })
 
-type ToolOutcome = { readonly status: string; readonly text: string }
+type ToolOutcome = { readonly status: string; readonly text: string; readonly error: boolean }
 
 // Each tool call's ending in a session, by call id.
 const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], sessionID: string) =>
@@ -358,17 +371,18 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
 
           switch (state.status) {
             case "error":
-              outcomes.set(part.id, { status: state.status, text: state.error.message })
+              outcomes.set(part.id, { status: state.status, text: state.error.message, error: true })
               break
             case "completed":
               outcomes.set(part.id, {
                 status: state.status,
                 text: Array.join(Array.map(state.content, (item) => (item.type === "text" ? item.text : item.uri)), "\n"),
+                error: state.metadata?.["error"] === true,
               })
               break
             case "running":
             case "streaming":
-              outcomes.set(part.id, { status: state.status, text: "" })
+              outcomes.set(part.id, { status: state.status, text: "", error: false })
           }
         }
       }
@@ -378,7 +392,7 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
   )
 
 describe("a review of a repo carrying its own agent config", () => {
-  it.live("serves reads inside the snapshot as written, offers no write or shell, and loads nothing from the repo", () =>
+  it.live("runs Code Mode (read, shell, path) inside the snapshot, blocks edits, fetch and external paths, and loads nothing from the repo", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path
       const { markers, repo, target } = yield* makeAgentConfigRepo
@@ -387,21 +401,28 @@ describe("a review of a repo carrying its own agent config", () => {
       expect(afterSnapshot).toEqual([])
       const { host, llm } = yield* bootEmbedded
 
-      // [call id, tool, input, served].
-      const calls: ReadonlyArray<readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]> = [
-        ["read-allowed", "read", { path: ALLOWED_FILE }, true],
-        ["read-directory", "read", { path: "pkg" }, true],
-        ["grep-walk", "grep", { pattern: "allowed" }, true],
-        ["glob-walk", "glob", { pattern: "**/*", hidden: true }, true],
-        ["write", "write", { path: "new.txt", content: "x" }, false],
-        ["edit", "edit", { path: ALLOWED_FILE, oldString: "allowed", newString: "x" }, false],
-        ["shell", "shell", { command: `touch ${markers}/shell` }, false],
-        ["bash", "bash", { command: `touch ${markers}/bash` }, false],
-        ["read-parent", "read", { path: path.relative(snapshot, path.join(repo, ALLOWED_FILE)) }, false],
-        ["read-absolute", "read", { path: path.join(repo, ALLOWED_FILE) }, false],
-        ["read-home", "read", { path: "~/.bashrc" }, false],
-        ["grep-absolute", "grep", { pattern: "allowed", path: repo }, false],
-        ["glob-absolute", "glob", { pattern: "*", path: repo }, false],
+      // [call id, tool, input, succeeded].
+      const calls: ReadonlyArray<readonly [string, string, Readonly<Record<string, string>>, boolean]> = [
+        [
+          "exec-read",
+          "execute",
+          {
+            code: `const target = path.join("pkg", "x.ts");
+            const [toolRead, dirRead, ran] = await Promise.all([
+              tools.read({ path: target }),
+              tools.read({ path: "pkg" }),
+              tools.shell({ command: "git rev-parse --is-inside-work-tree" }),
+            ]);
+            return { toolRead, dirRead, ran }`,
+          },
+          true,
+        ],
+        ["exec-fetch", "execute", { code: `await fetch("https://example.com")` }, false],
+        ["exec-read-parent", "execute", { code: `await tools.read({ path: ${toJson(path.relative(snapshot, path.join(repo, ALLOWED_FILE)))} })` }, false],
+        ["exec-read-absolute", "execute", { code: `await tools.read({ path: ${toJson(path.join(repo, ALLOWED_FILE))} })` }, false],
+        ["exec-read-home", "execute", { code: `await tools.read({ path: "~/.bashrc" })` }, false],
+        ["direct-write", "write", { path: "new.txt", content: "x" }, false],
+        ["direct-edit", "edit", { path: ALLOWED_FILE, oldString: "allowed", newString: "x" }, false],
       ]
 
       yield* llm.push(
@@ -418,7 +439,7 @@ describe("a review of a repo carrying its own agent config", () => {
         seat: SEAT,
         workspace: snapshot,
         systemPrompt: "fixture finder system prompt",
-        tools: ["read", "grep", "glob"],
+        tools: INSPECTION_TOOLS,
         emit: emitToolSpec(EmitFindings),
       })
 
@@ -428,10 +449,17 @@ describe("a review of a repo carrying its own agent config", () => {
       const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
       const opened = Array.findFirst(sessions.data, (info) => info.title === "fence-finder")
       const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
-      const served = Array.map(calls, ([id, name, , allowed]) => [id, name, outcomes.get(id)?.status === "completed", allowed])
-      expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed, allowed]))
-      expect(outcomes.get("read-allowed")?.text).toContain(ALLOWED_TEXT)
-      expect(outcomes.get("grep-walk")?.text).toContain(ALLOWED_FILE)
+
+      const served = Array.map(calls, ([id, name, , allowed]) => {
+        const outcome = outcomes.get(id)
+        const ok = outcome?.status === "completed" && !outcome.error
+
+        return [id, name, ok, allowed, ok === allowed ? "" : outcome?.text ?? ""]
+      })
+
+      expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed, allowed, ""]))
+      expect(outcomes.get("exec-read")?.text).toContain(ALLOWED_TEXT)
+      expect(outcomes.get("exec-read")?.text).toContain("true")
 
       // Nothing the repo wrote reached a model: no config, plugin, MCP
       // server, skill or instructions (root, nested next to the allowed
@@ -442,10 +470,9 @@ describe("a review of a repo carrying its own agent config", () => {
       expect(sent).not.toContain(CANARY)
       expect(sent).not.toContain("BANANA")
       expect(Array.map(requests, toolNames)).toEqual([
-        ["emit_findings", "glob", "grep", "read"],
-        ["emit_findings", "glob", "grep", "read"],
+        ["emit_findings", "execute"],
+        ["emit_findings", "execute"],
       ])
-      expect(Array.map(requests[0]?.system ?? [], (part) => part.text)).toEqual(["fixture finder system prompt"])
       const afterRun = yield* markersWritten(markers)
       expect(afterRun).toEqual([])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
@@ -497,22 +524,22 @@ const dependencyFinder = (snapshot: string): AgentSpec => ({
   seat: SEAT,
   workspace: snapshot,
   systemPrompt: "fixture finder system prompt",
-  tools: ["read", "grep", "glob"],
+  tools: INSPECTION_TOOLS,
   emit: emitToolSpec(EmitFindings),
 })
 
-type ToolCall = readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]
+type ScriptCall = readonly [string, string, boolean]
 
-// Runs every call in one model step, then the emit; answers each call's
-// outcome and the turn.
-const runCalls = (snapshot: string, calls: ReadonlyArray<ToolCall>) =>
+// Runs every Code Mode script in one model step, then the emit; answers each
+// call's outcome and the turn.
+const runScripts = (snapshot: string, calls: ReadonlyArray<ScriptCall>) =>
   Effect.gen(function* () {
     const { host, llm } = yield* bootEmbedded
 
     yield* llm.push(
       TestLLM.complete(
         { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
-        ...Array.map(calls, ([id, name, input]) => LLMEvent.toolCall({ id, name, input })),
+        ...Array.map(calls, ([id, code]) => LLMEvent.toolCall({ id, name: "execute", input: { code } })),
       ),
       emitCall("emit-1", "emit_findings", FINDINGS),
     )
@@ -522,69 +549,73 @@ const runCalls = (snapshot: string, calls: ReadonlyArray<ToolCall>) =>
     const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
     const opened = Array.findFirst(sessions.data, (info) => info.title === "dependency-finder")
     const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
-    const served = Array.map(calls, ([id, name]) => [id, name, outcomes.get(id)?.status === "completed"])
-    expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed]))
+
+    const served = Array.map(calls, ([id, , allowed]) => {
+      const outcome = outcomes.get(id)
+      const ok = outcome?.status === "completed" && !outcome.error
+
+      return [id, ok, ok === allowed ? "" : outcome?.text ?? ""]
+    })
+
+    expect(served).toEqual(Array.map(calls, ([id, , allowed]) => [id, allowed, ""]))
 
     return { outcomes, turn }
   })
 
-describe("the read tools over the Caller's installed dependencies", () => {
-  it.live("serve explicit dependency paths to read, grep and glob past the checkout's ignore rules, and nothing else ignored", () =>
+describe("Code Mode over the Caller's installed dependencies", () => {
+  it.live("reads exposed dependency paths through tools.read and tools.shell, and reports missing files cleanly", () =>
     Effect.gen(function* () {
       const target = yield* makeInstalledRepo(true)
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-dependencies", "/nonexistent/overlay.patch")
       yield* exposeInstalledDependencies(target, "fence-dependencies", snapshot)
-      const fs = yield* FileSystem.FileSystem
-      const path = yield* Path.Path
-      // Ignored by the snapshot's own rules, which still apply outside dependencies.
-      yield* fs.writeFileString(path.join(snapshot, "scratch.log"), "HOOK_MARKER ignored in the snapshot\n")
 
-      const { outcomes, turn } = yield* runCalls(snapshot, [
-        ["read-dependency", "read", { path: "node_modules/fixture-pkg/lib/x.js" }, true],
-        ["read-dependency-directory", "read", { path: "node_modules/fixture-pkg" }, true],
-        ["grep-dependency", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg" }, true],
-        ["grep-dependency-include", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg", include: "*.js" }, true],
-        ["glob-dependency", "glob", { pattern: "**/*.js", path: "node_modules/fixture-pkg" }, true],
-        ["glob-dependency-hidden", "glob", { pattern: "**/*", path: "node_modules/fixture-pkg", hidden: true }, true],
-        ["read-tracked-node-modules", "read", { path: "vendored/node_modules/kept.js" }, true],
-        ["read-workspace-link", "read", { path: "node_modules/workspace-link/w.ts" }, true],
-        ["read-dependency-bin", "read", { path: "node_modules/.bin/fixture-tool" }, true],
-        ["grep-snapshot-ignored", "grep", { pattern: "HOOK_MARKER" }, true],
-        ["read-dev-vars", "read", { path: ".dev.vars" }, false],
-        ["read-build-output", "read", { path: "dist/build.js" }, false],
-        ["read-untracked-over-tracked", "read", { path: "vendored/node_modules/untracked.js" }, false],
+      const { outcomes, turn } = yield* runScripts(snapshot, [
+        [
+          "read-dependencies",
+          `const [lib, dist, tracked, workspace, bin, found] = await Promise.all([
+            tools.read({ path: "node_modules/fixture-pkg/lib/x.js" }),
+            tools.read({ path: "node_modules/fixture-pkg/dist/index.js" }),
+            tools.read({ path: "vendored/node_modules/kept.js" }),
+            tools.read({ path: "node_modules/workspace-link/w.ts" }),
+            tools.read({ path: "node_modules/.bin/fixture-tool" }),
+            tools.shell({ command: "ls node_modules/fixture-pkg" }),
+          ]);
+          return { lib, dist, tracked, workspace, bin, found }`,
+          true,
+        ],
+        ["read-dev-vars", `await tools.read({ path: ".dev.vars" })`, false],
+        ["read-build-output", `await tools.read({ path: "dist/build.js" })`, false],
+        ["read-untracked-over-tracked", `await tools.read({ path: "vendored/node_modules/untracked.js" })`, false],
       ])
 
       const text = (id: string) => outcomes.get(id)?.text ?? ""
-      expect(text("read-dependency")).toContain("HOOK_MARKER in lib")
-      expect(text("grep-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
-      expect(text("grep-dependency")).toContain("node_modules/fixture-pkg/debug.log")
-      expect(text("grep-dependency-include")).toContain("node_modules/fixture-pkg/dist/index.js")
-      expect(text("grep-dependency-include")).toContain("node_modules/fixture-pkg/lib/x.js")
-      expect(text("grep-dependency-include")).not.toContain("debug.log")
-      expect(text("glob-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
-      expect(text("glob-dependency")).not.toContain("debug.log")
-      expect(text("glob-dependency-hidden")).toContain("node_modules/fixture-pkg/debug.log")
-      expect(text("read-workspace-link")).toContain("export const workspace = 1")
-      expect(text("grep-snapshot-ignored")).toBe("No matches found")
-
+      expect(text("read-dependencies")).toContain("HOOK_MARKER in lib")
+      expect(text("read-dependencies")).toContain("HOOK_MARKER in dist")
+      expect(text("read-dependencies")).toContain("tracked")
+      expect(text("read-dependencies")).toContain("export const workspace = 1")
+      expect(text("read-dependencies")).toContain("a package's executable")
+      expect(turn.toolCalls.total).toBe(9)
+      expect(turn.toolCalls.errored).toBe(3)
       expect(turn.toolCalls.erroredPaths).toEqual([".dev.vars", "dist/build.js", "vendored/node_modules/untracked.js"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
-  it.live("answers a dependency path with why it is missing when nothing was installed", () =>
+  it.live("answers a missing dependency path with why it is missing when nothing was installed", () =>
     Effect.gen(function* () {
       const target = yield* makeInstalledRepo(false)
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-no-dependencies", "/nonexistent/overlay.patch")
       yield* exposeInstalledDependencies(target, "fence-no-dependencies", snapshot)
 
-      const { outcomes } = yield* runCalls(snapshot, [
-        ["read-missing", "read", { path: "node_modules/fixture-pkg/index.js" }, false],
-        ["glob-missing", "glob", { pattern: "**/*.d.ts", path: "node_modules" }, false],
+      const { outcomes, turn } = yield* runScripts(snapshot, [
+        ["read-missing", `await tools.read({ path: "node_modules/fixture-pkg/index.js" })`, false],
       ])
 
-      expect(outcomes.get("read-missing")?.text).toBe(
+      expect(outcomes.get("read-missing")?.text).toContain(
         "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg/index.js is not available to this review.",
       )
-      expect(outcomes.get("glob-missing")?.text).toContain("dependencies were not installed in the caller's checkout")
+      expect(turn.toolCalls).toEqual({
+        total: 1,
+        errored: 1,
+        erroredPaths: ["node_modules/fixture-pkg/index.js"],
+      })
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 })
