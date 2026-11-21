@@ -1,7 +1,8 @@
 // The compile smoke's entry, compiled by scripts/compile-smoke.ts exactly as
 // the release binary is: it opens the embedded Host through the same lazy
 // import, offline (a fixture catalog and OpenCode's fake language model), and
-// runs one Finder turn that executes read + shell in Code Mode and then emits.
+// runs one Verifier turn that executes read, grep, and shell in Code Mode and
+// then emits.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { LLMClient, LLMEvent } from "@opencode/ai/effect"
@@ -67,7 +68,12 @@ const program = Effect.gen(function* () {
         id: "exec-1",
         name: "execute",
         input: {
-          code: `const [file, ran] = await Promise.all([tools.read({ path: "alpha.txt" }), tools.shell({ command: "printf 'smoke_%s_verified' ok" })]); return { file, ran }`,
+          code: `const [file, hits, ran] = await Promise.all([
+            tools.read({ path: "alpha.txt" }),
+            tools.grep({ pattern: "${NEEDLE}" }),
+            tools.shell({ command: "printf 'smoke_%s_verified' ok" }),
+          ]);
+          return { file, grepStatus: hits.length > 0 && hits[0]?.entry?.path === "alpha.txt" ? "GREP" + "_MATCHED" : "GREP_EMPTY", ran }`,
         },
       }),
     ),
@@ -79,7 +85,7 @@ const program = Effect.gen(function* () {
 
   const session = yield* host.openSession({
     invocationId: "compile-smoke",
-    role: "finder-1",
+    role: "verifier-1",
     seat: "openai/gpt-6-luna:low",
     workspace,
     systemPrompt: "compile smoke verifier",
@@ -93,16 +99,16 @@ const program = Effect.gen(function* () {
     return yield* SmokeFailed.make({ reason: `the turn ended ${turn.end._tag}, not at the emit` })
   }
 
-  // The Code Mode result is in the request that follows it; `smoke_ok_verified`
-  // is produced by `printf` and never appears verbatim in the command input.
+  // The Code Mode result is in the request that follows it; both markers are
+  // computed at runtime and never appear verbatim in the tool input.
   const [, afterExecute] = yield* llm.requests()
   const sent = yield* toJson(afterExecute ?? null)
 
-  if (!sent.includes(NEEDLE) || !sent.includes("smoke_ok_verified")) {
-    return yield* SmokeFailed.make({ reason: "execute did not return both read and shell output" })
+  if (!sent.includes(NEEDLE) || !sent.includes("smoke_ok_verified") || !sent.includes("GREP_MATCHED")) {
+    return yield* SmokeFailed.make({ reason: "execute did not return read, grep, and shell output" })
   }
 
-  yield* Console.log(`compile smoke ok: Host opened, execute (read + shell) ran, emit landed (${String(turn.usage.length)} requests)`)
+  yield* Console.log(`compile smoke ok: Host opened, execute (read + grep + shell) ran, emit landed (${String(turn.usage.length)} requests)`)
 })
 
 NodeRuntime.runMain(program.pipe(Effect.scoped, Effect.provide(NodeServices.layer)))

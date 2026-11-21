@@ -10,7 +10,7 @@ import type {
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Verdict } from "../../domain/verdict.ts"
 import type { AgentUsage } from "../../domain/agent-outcome.ts"
-import { VERIFICATION_TOOLS } from "../../harness/harness-session.ts"
+import { VERIFICATION_WORKSPACE_POLICY } from "../../harness/harness-session.ts"
 import {
   counted,
   coverageGapLine,
@@ -109,7 +109,7 @@ export const executeVerification = Effect.fn("Verification.execute")(function* (
           workspace: reviewWorkingDirectory,
           prompt,
           contract: EmitVerdicts,
-          tools: VERIFICATION_TOOLS,
+          tools: VERIFICATION_WORKSPACE_POLICY.tools,
         })
 
         return { bundleNumber, clusters, outcome } satisfies VerifiedBundle

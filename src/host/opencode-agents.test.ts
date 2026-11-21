@@ -600,9 +600,11 @@ describe("the read tools over the Caller's installed dependencies", () => {
 describe("Code Mode and provider-aware hybrid inspection", () => {
   it("gives Claude seats read-only Code Mode and non-Claude seats native read-only tools", () => {
     expect(readOnlyToolsFor("claude-code/opus:medium")).toEqual(READ_ONLY_CODEMODE_TOOLS)
+    expect(readOnlyToolsFor("claude-agent/opus:medium")).toEqual(READ_ONLY_CODEMODE_TOOLS)
     expect(readOnlyToolsFor("openai/gpt-6.2-sol:medium")).toEqual(READ_ONLY_TOOLS)
     expect(readOnlyToolsFor("openrouter/qwen3-coder:high")).toEqual(READ_ONLY_TOOLS)
     expect(workspacePromptForReadOnly("claude-code/sonnet:medium")).toBe("workspace-codemode-readonly.md")
+    expect(workspacePromptForReadOnly("claude-agent/sonnet:medium")).toBe("workspace-codemode-readonly.md")
     expect(workspacePromptForReadOnly("openai/gpt-6.2-sol:medium")).toBe("workspace.md")
     expect(workspacePromptForReadOnly("openrouter/qwen3-coder:high")).toBe("workspace.md")
   })
@@ -674,11 +676,15 @@ describe("Code Mode and provider-aware hybrid inspection", () => {
             id: "exec-verify",
             name: "execute",
             input: {
-              code: `const [gitEnv, textSearch] = await Promise.all([
-                tools.shell({ command: "printf '%s|%s' \\"\${GIT_WORK_TREE:-unset}\\" \\"\${GIT_DIR:-unset}\\"" }),
+              code: `const [gitWorkTree, gitDir, textSearch] = await Promise.all([
+                tools.shell({ command: "printenv GIT_WORK_TREE" }),
+                tools.shell({ command: "printenv GIT_DIR" }),
                 tools.shell({ command: "printf '%s' node_modules" }),
               ]);
-              return { gitEnv, textSearch }`,
+              return {
+                scrubbed: gitWorkTree.exitCode !== 0 && gitDir.exitCode !== 0 ? "GIT" + "_SCRUBBED" : "LEAKED",
+                textSearch,
+              }`,
             },
           }),
           LLMEvent.toolCall({
@@ -693,11 +699,11 @@ describe("Code Mode and provider-aware hybrid inspection", () => {
       const session = yield* host.openSession(spec)
       const turn = yield* session.turn("verify")
       expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
-      expect(turn.toolCalls).toEqual({ total: 3, errored: 1, erroredPaths: ["node_modules"] })
+      expect(turn.toolCalls).toEqual({ total: 4, errored: 1, erroredPaths: ["node_modules"] })
 
       const [, secondRequest] = yield* llm.requests()
       const sent = toJson(secondRequest ?? null)
-      expect(sent).toContain("unset|unset")
+      expect(sent).toContain("GIT_SCRUBBED")
       expect(sent).toContain("Unavailable: dependencies were not installed in the caller's checkout, so node_modules is not available to this review.")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 })

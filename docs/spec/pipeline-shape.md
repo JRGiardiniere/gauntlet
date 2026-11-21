@@ -71,11 +71,12 @@ the reviewed version has (for a working-tree review, a new uncommitted one too,
 and not one it deletes), on demand. Finders and Judgment are read-only (`read`,
 `grep`, `glob` — batched via Code Mode `execute` on Claude seats and direct on
 OpenAI and other models); Verification runs Code Mode (`execute`) with
-`tools.read`, `tools.grep`, `tools.glob`, and `tools.shell` (edit/write and
-web-fetch tools denied). The read/search tools serve any path inside the
-snapshot as written, and a path through a link reads its target; Gauntlet
-reviews trusted internal repositories and does not defend against a hostile one.
-A lockfile (`bun.lock`, `bun.lockb`,
+`tools.read`, `tools.grep`, `tools.glob`, and `tools.shell` (running in the
+snapshot working directory with Git repository-selection variables scrubbed, not
+sandboxed against writes or network). The read/search tools serve any path
+inside the snapshot as written, and a path through a link reads its target;
+Gauntlet reviews trusted internal repositories and does not defend against a
+hostile one. A lockfile (`bun.lock`, `bun.lockb`,
 `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`) at such a root that
 differs between the reviewed version and the Caller's checkout (or is on one
 side only) adds a Dossier warning; a repository with a `package.json` and no

@@ -1,8 +1,9 @@
 - Use `execute` (Code Mode JavaScript) to inspect and test claims against the
   review snapshot rooted at {{REPO_ROOT}}: `tools.read` to read files and
   directories, `tools.grep` to search code with ripgrep, `tools.glob` to list
-  files, and `tools.shell` for `git` (`git log`, `git blame`, `git diff`),
-  typechecks, or targeted read-only repro checks.
+  files, and `tools.shell` for read-only `git` history (`git log`, `git blame`,
+  `git show` — the snapshot is checked out at the review head), typechecks, or
+  targeted read-only repro checks.
 - Batch independent lookups with `Promise.all` / `Promise.allSettled` and slice
   or filter inside `execute` so you return only the lines and facts you need.
 - File-edit and web-fetch tools are disabled; treat the snapshot as read-only

@@ -4,8 +4,8 @@ import { pipe } from "effect/Function"
 import * as HashMap from "effect/HashMap"
 import * as Result from "effect/Result"
 import { formatCandidateLine } from "../../content/candidate-line.ts"
-import { CODEMODE_VERIFY_WORKSPACE_PROMPT } from "../../content/finder-prompt.ts"
 import { isCompiledBinary } from "../../content/lens.ts"
+import { VERIFICATION_WORKSPACE_POLICY } from "../../harness/harness-session.ts"
 import {
   type PromptAssemblyError,
   readPromptTemplate,
@@ -37,7 +37,7 @@ export const loadVerifierPromptTemplates = Effect.fn(
   "Verification.loadPromptTemplates",
 )(function* () {
   const [verifier, scope] = yield* Effect.all(
-    [readPromptTemplate(templatePath), loadStageScopeTemplates(CODEMODE_VERIFY_WORKSPACE_PROMPT)],
+    [readPromptTemplate(templatePath), loadStageScopeTemplates(VERIFICATION_WORKSPACE_POLICY.workspacePrompt)],
     { concurrency: 2 },
   )
 

@@ -23,19 +23,15 @@ import type { Seat } from "../domain/recipe.ts"
 import {
   READ_ONLY_TOOLS,
   readOnlyToolsFor,
-  usesCodeModeForReadOnly,
+  readOnlyWorkspacePolicy,
 } from "../harness/harness-session.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
 
-// What every Stage with tools is told about them.
+// What every Stage with tools is told about them by default.
 export const WORKSPACE_PROMPT = "workspace.md"
 
-export const CODEMODE_READONLY_WORKSPACE_PROMPT = "workspace-codemode-readonly.md"
-
-export const CODEMODE_VERIFY_WORKSPACE_PROMPT = "workspace-codemode-verify.md"
-
 export const workspacePromptForReadOnly = (seat: Seat): string =>
-  usesCodeModeForReadOnly(seat) ? CODEMODE_READONLY_WORKSPACE_PROMPT : WORKSPACE_PROMPT
+  readOnlyWorkspacePolicy(seat).workspacePrompt
 
 // The repo root as a Finder's prompt names it: the session's working
 // directory is the snapshot, and a path in the prefix would differ per Run.

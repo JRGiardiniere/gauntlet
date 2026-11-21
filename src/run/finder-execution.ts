@@ -15,21 +15,21 @@ import {
 import {
   assembleFinderAssignment,
   assembleFinderContext,
-  finderToolsFor,
   loadFinderPromptTemplates,
   loadRelatedFilesTemplate,
   RELATIVE_REPO_ROOT,
   renderRelatedFiles,
-  workspacePromptForReadOnly,
 } from "../content/finder-prompt.ts"
 import {
   AgentOutcome,
   type AgentOutcome as AgentOutcomeType,
 } from "../domain/agent-outcome.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
-import type {
-  HarnessSessionFactory,
-  InvocationFailure,
+import {
+  type HarnessSessionFactory,
+  type InspectionTool,
+  type InvocationFailure,
+  readOnlyWorkspacePolicy,
 } from "../harness/harness-session.ts"
 import {
   invoke,
@@ -73,6 +73,7 @@ interface Partition {
   readonly cacheGroup: string
   readonly systemPrompt: string
   readonly sharedContext: string
+  readonly tools: ReadonlyArray<InspectionTool>
 }
 
 // The provider cache key comes from the prefix itself, not the Run, so a
@@ -155,7 +156,7 @@ export const executeFinders = Effect.fn(
     prompt: assembleFinderAssignment(invocation.lens),
     cacheGroup: partition.cacheGroup,
     contract: EmitFindings,
-    tools: finderToolsFor(invocation.seat),
+    tools: partition.tools,
     deadlineMillis: REVIEW_INVOCATION_DEADLINE_MILLIS,
   })
 
@@ -194,7 +195,8 @@ export const executeFinders = Effect.fn(
     (group, groupIndex) =>
       Effect.gen(function* () {
         const starter = Array.headNonEmpty(group)
-        const promptTemplates = yield* loadFinderPromptTemplates(workspacePromptForReadOnly(starter.seat))
+        const policy = readOnlyWorkspacePolicy(starter.seat)
+        const promptTemplates = yield* loadFinderPromptTemplates(policy.workspacePrompt)
 
         // The Host's tools resolve relative paths in the snapshot, so the
         // prefix names no per-Run path.
@@ -217,6 +219,7 @@ export const executeFinders = Effect.fn(
           cacheGroup: cacheGroupFor(starter.seat, sharedContext),
           systemPrompt: promptTemplates.systemPrompt,
           sharedContext,
+          tools: policy.tools,
         }
 
         if (group.length === 1) {

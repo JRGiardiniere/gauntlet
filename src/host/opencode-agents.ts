@@ -61,7 +61,7 @@ const EVERYTHING = "*"
 const MESSAGE_PAGE = 200
 
 const READ_DESCRIPTION = Array.join([
-  "Read lines of a file, or a directory's entries. Each text line is prefixed by its 1-based line number as <line>: <content>; the prefix is not part of the file.",
+  "Read lines of a file, or a directory's entries (direct tool calls prefix each text line with its 1-based line number as <line>: <content>; Code Mode returns structured lines/content).",
   "Read only the region you need: find it with grep first, then pass offset and limit (usually 40-150 lines). The change's diff and touched files are already in your context, so do not re-read them.",
   "Output is capped at 2000 lines or 50 KB.",
 ], " ")

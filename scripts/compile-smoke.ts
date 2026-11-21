@@ -2,7 +2,7 @@
 // binary, check its cheap commands from a fresh HOME, then compile
 // scripts/compile-smoke-entry.ts for the same target and run it. Nothing
 // reaches a model, models.dev or GitHub's release lookup (the update cache is
-// seeded fresh); the smoke runs `execute` with `tools.read` and `tools.shell`.
+// seeded fresh); the smoke runs `execute` with `tools.read`, `tools.grep`, and `tools.shell`.
 // Prints the binary's size and timings.
 //
 //   bun scripts/compile-smoke.ts   (GAUNTLET_OUTFILE and GAUNTLET_TARGET as for bundle.ts)
