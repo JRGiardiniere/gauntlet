@@ -7,19 +7,25 @@
 <style>
   :root {
     color-scheme: light dark;
-    --color-background-primary: light-dark(#ffffff, #1a1a1a);
-    --color-background-secondary: light-dark(#f4f4f5, #262626);
-    --color-text-primary: light-dark(#18181b, #fafafa);
-    --color-text-secondary: light-dark(#52525b, #a1a1aa);
-    --color-text-danger: light-dark(#b91c1c, #f87171);
-    --color-text-warning: light-dark(#a16207, #facc15);
-    --color-text-info: light-dark(#1d4ed8, #60a5fa);
-    --color-border-primary: light-dark(#e4e4e7, #3f3f46);
+    --color-background-primary: light-dark(#ffffff, #161618);
+    --color-background-secondary: light-dark(#f4f4f5, #232326);
+    --color-text-primary: light-dark(#18181b, #f4f4f5);
+    --color-text-secondary: light-dark(#5f5f69, #a1a1aa);
+    --color-text-tertiary: light-dark(#8a8a93, #71717a);
+    --color-text-danger: light-dark(#c0262d, #f87171);
+    --color-text-warning: light-dark(#a35c00, #fbbf24);
+    --color-text-info: light-dark(#1f5fd1, #7aa7ff);
+    --color-text-success: light-dark(#1d7a46, #4ade80);
+    --color-border-primary: light-dark(#e4e4e7, #2e2e33);
     --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
-    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-variant-ligatures: none;
+    --font-text-xs-size: 12px;
     --font-text-sm-size: 13px;
     --font-text-md-size: 14px;
+    --font-heading-sm-size: 16px;
     --border-radius-sm: 4px;
+    --border-radius-md: 8px;
   }
   :root[data-theme="light"] { color-scheme: light; }
   :root[data-theme="dark"] { color-scheme: dark; }
@@ -30,37 +36,59 @@
     color: var(--color-text-primary);
     font-family: var(--font-sans);
     font-size: var(--font-text-md-size);
-    line-height: 1.45;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
   }
-  main { padding: 12px 14px; }
+  main { padding: 16px; }
+  p { margin: 0; }
   .muted { color: var(--color-text-secondary); }
-  .error { color: var(--color-text-danger); white-space: pre-wrap; }
-  header { margin-bottom: 10px; }
-  header .target { font-weight: 600; }
-  .tally { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; font-size: var(--font-text-sm-size); }
-  .tally b { font-variant-numeric: tabular-nums; }
-  h2 { font-size: var(--font-text-sm-size); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
-  ul { list-style: none; margin: 0; padding: 0; }
-  li { padding: 5px 0; border-top: 1px solid var(--color-border-primary); }
-  .badge {
-    display: inline-block; min-width: 72px; margin-right: 6px; padding: 0 6px;
-    border-radius: var(--border-radius-sm); background: var(--color-background-secondary);
-    font-size: var(--font-text-sm-size); text-align: center;
-  }
-  .badge.confirmed { color: var(--color-text-danger); }
-  .badge.plausible { color: var(--color-text-warning); }
-  .badge.judgment { color: var(--color-text-info); }
-  .badge.undecided { color: var(--color-text-secondary); }
-  .location { font-family: var(--font-mono); font-size: var(--font-text-sm-size); word-break: break-all; }
-  .summary { display: block; margin-top: 2px; }
-  footer { margin-top: 12px; font-size: var(--font-text-sm-size); }
-  .path { font-family: var(--font-mono); word-break: break-all; }
+  .tint { --tone: var(--color-text-secondary); color: var(--tone); background: color-mix(in srgb, var(--tone) 13%, transparent); }
+  .t-confirmed, .t-P1 { --tone: var(--color-text-danger); }
+  .t-plausible, .t-P2 { --tone: var(--color-text-warning); }
+  .t-judgment { --tone: var(--color-text-info); }
+  .t-undecided, .t-P3, .t-none { --tone: var(--color-text-tertiary); }
+
+  header { padding-bottom: 14px; border-bottom: 1px solid var(--color-border-primary); }
+  .eyebrow { font-size: var(--font-text-xs-size); color: var(--color-text-tertiary); letter-spacing: 0.06em; text-transform: uppercase; }
+  .target { margin-top: 2px; font-size: var(--font-heading-sm-size); font-weight: 600; }
+  .run { font-family: var(--font-mono); font-size: var(--font-text-xs-size); color: var(--color-text-tertiary); }
+  .tally { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-top: 12px; }
+  .chip { padding: 6px 8px; border-radius: var(--border-radius-md); line-height: 1.25; overflow-wrap: normal; }
+  .chip b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .chip span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-text-xs-size); }
+  .chip.zero { --tone: var(--color-text-tertiary); }
+
+  .gaps { margin-top: 14px; padding: 10px 12px; border-radius: var(--border-radius-md); border-left: 3px solid var(--tone); }
+  .gaps { --tone: var(--color-text-warning); background: color-mix(in srgb, var(--tone) 10%, transparent); }
+  .gaps strong { color: var(--tone); }
+  .gaps ul { margin: 4px 0 0; padding-left: 18px; }
+
+  section { margin-top: 20px; }
+  h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; font-size: var(--font-text-sm-size); font-weight: 600; }
+  .pill { padding: 1px 8px; border-radius: 999px; font-size: var(--font-text-xs-size); font-weight: 700; }
+  .count { color: var(--color-text-tertiary); font-weight: 500; }
+  ul.entries { list-style: none; margin: 0; padding: 0; }
+  .entries li { padding: 9px 0; border-top: 1px solid var(--color-border-primary); }
+  .entries li:first-child { border-top: 0; }
+  .t-P1 .entries { padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--color-text-danger) 55%, transparent); }
+  .meta { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .badge { flex: none; padding: 0 7px; border-radius: var(--border-radius-sm); font-size: var(--font-text-xs-size); font-weight: 600; }
+  .location { min-width: 0; font-family: var(--font-mono); font-size: var(--font-text-xs-size); color: var(--color-text-tertiary); }
+  .summary { margin-top: 3px; }
+  .t-P3 .summary, .t-none .summary { color: var(--color-text-secondary); }
+  code { padding: 0 4px; border-radius: var(--border-radius-sm); background: var(--color-background-secondary); font-family: var(--font-mono); font-size: 0.9em; }
+
+  .state { margin-top: 16px; padding: 14px; border-radius: var(--border-radius-md); background: var(--color-background-secondary); }
+  .state.error { color: var(--color-text-danger); white-space: pre-wrap; }
+  .state.clean strong { color: var(--color-text-success); }
+  footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--color-border-primary); font-size: var(--font-text-xs-size); color: var(--color-text-tertiary); }
+  footer .path { font-family: var(--font-mono); }
 </style>
 </head>
 <body>
 <main>
-  <div id="view"><p class="muted">Waiting for the Dossier…</p></div>
-  <footer class="muted"><div id="source"></div><div id="host">Connecting to host…</div></footer>
+  <div id="view"><p class="state muted">Waiting for the Dossier…</p></div>
+  <footer><div id="source"></div><div id="host">Connecting to host…</div></footer>
 </main>
 <script>
 (() => {
@@ -79,14 +107,19 @@
     post({ id, method, params })
   })
 
-  const el = (tag, className, text) => {
+  const el = (tag, className, ...children) => {
     const node = document.createElement(tag)
     if (className) node.className = className
-    if (text !== undefined) node.textContent = text
+    node.append(...children)
     return node
   }
 
-  const showError = (text) => view.replaceChildren(el("p", "error", text))
+  // Backtick spans become <code>; everything else stays plain text.
+  const withCode = (text) => String(text).split("`").map((part, index) =>
+    index % 2 === 1 && part !== "" ? el("code", "", part) : part)
+
+  const showState = (className, ...children) => view.replaceChildren(el("p", `state ${className}`, ...children))
+  const showError = (text) => showState("error", text)
 
   const applyContext = (context) => {
     if (!context) return
@@ -101,39 +134,41 @@
     }
   }
 
+  const TAG_LABELS = { confirmed: "confirmed", judgment: "kept", plausible: "plausible", undecided: "undecided" }
+  const TALLY = [["confirmed", "confirmed"], ["kept", "judgment"], ["plausible", "plausible"], ["undecided", "undecided"]]
   const PRIORITIES = [["P1", "P1"], ["P2", "P2"], ["P3", "P3"], [undefined, "No priority"]]
 
   const render = (digest) => {
-    const header = el("header")
-    header.append(el("div", "target", digest.target), el("div", "muted", digest.runId))
-    const tally = el("div", "tally")
-    for (const [key, label] of [["confirmed", "confirmed"], ["kept", "kept"], ["plausible", "plausible"], ["undecided", "undecided"]]) {
-      const item = el("span")
-      item.append(el("b", "", String(digest.tally[key])), document.createTextNode(` ${label}`))
-      tally.append(item)
-    }
-    header.append(tally)
-    const parts = [header]
+    const tally = el("div", "tally", ...TALLY.map(([key, tag]) => {
+      const count = Number(digest.tally[key]) || 0
+      return el("div", `chip tint t-${tag}${count === 0 ? " zero" : ""}`, el("b", "", String(count)), el("span", "", key))
+    }))
+    const parts = [el("header", "",
+      el("div", "eyebrow", "Gauntlet Dossier"),
+      el("div", "target", digest.target),
+      el("div", "run", digest.runId),
+      tally)]
 
     if (digest.coverageGaps.length > 0) {
-      parts.push(el("h2", "error", `Coverage gaps (${digest.coverageGaps.length})`))
-      const list = el("ul")
-      for (const gap of digest.coverageGaps) list.append(el("li", "", gap))
-      parts.push(list)
+      parts.push(el("div", "gaps",
+        el("strong", "", `Coverage gaps (${digest.coverageGaps.length})`),
+        el("ul", "", ...digest.coverageGaps.map((gap) => el("li", "", gap)))))
     }
 
-    if (digest.entries.length === 0) parts.push(el("p", "muted", "No findings."))
+    if (digest.entries.length === 0) {
+      parts.push(el("p", "state clean", el("strong", "", "No findings. "), "Nothing was confirmed, kept or left unresolved."))
+    }
     for (const [priority, heading] of PRIORITIES) {
       const group = digest.entries.filter((entry) => entry.priority === priority)
       if (group.length === 0) continue
-      parts.push(el("h2", "muted", `${heading} (${group.length})`))
-      const list = el("ul")
-      for (const entry of group) {
-        const item = el("li")
-        item.append(el("span", `badge ${entry.tag}`, entry.tag), el("span", "location", entry.location), el("span", "summary", entry.summary))
-        list.append(item)
-      }
-      parts.push(list)
+      const tone = priority || "none"
+      parts.push(el("section", `t-${tone}`,
+        el("h2", "", el("span", `pill tint t-${tone}`, heading), el("span", "count", `${group.length}`)),
+        el("ul", "entries", ...group.map((entry) => el("li", "",
+          el("div", "meta",
+            el("span", `badge tint t-${entry.tag}`, TAG_LABELS[entry.tag] || entry.tag),
+            el("span", "location", entry.location)),
+          el("p", "summary", ...withCode(entry.summary)))))))
     }
 
     view.replaceChildren(...parts)
@@ -174,7 +209,7 @@
     switch (message.method) {
       case "ui/notifications/tool-input": {
         const runDir = message.params && message.params.arguments && message.params.arguments.run_dir
-        if (typeof runDir === "string") view.replaceChildren(el("p", "muted", `Waiting for the Dossier in ${runDir}…`))
+        if (typeof runDir === "string") showState("muted", `Waiting for the Dossier in ${runDir}…`)
         break
       }
       case "ui/notifications/tool-result":
