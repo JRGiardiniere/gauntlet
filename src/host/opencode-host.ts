@@ -290,7 +290,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     return ConnectionState.Connected()
   })
 
-  const sessions = makeSessions(client, registry, path)
+  const sessions = makeSessions(client, registry)
 
   const contract: HostContract = {
     openSession: sessions.open,

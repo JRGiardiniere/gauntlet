@@ -74,15 +74,15 @@ processes, and credentials.
 _Avoid_: host (that's the agent platform), host path, host file
 
 **ReviewWorkspace**:
-The permission fence over the Run's frozen snapshot that filesystem-capable
-AgentInvocations see: the Host's read-only `read`, `grep` and `glob` tools,
-allowed on any path inside the snapshot as written and refused on one that
-leaves it; a link in the snapshot is followed like any file. The snapshot also
-links the Caller's installed dependencies (`node_modules`) from the Caller's
-checkout; nothing else the checkout ignores is there. The reviewed
-repository's own agent configuration never loads. The snapshot stays
-unmodified, and there is no shell, writes, or network. Gauntlet reviews
-repositories the Caller trusts: the fence does not defend against a hostile one.
+The permission fence over the Run's frozen snapshot that inspection-capable
+AgentInvocations see: OpenCode Code Mode (`execute`) exposing `tools.read` and
+`tools.shell` rooted at the snapshot, with edit/write, web-fetch, and
+`external_directory` tool calls denied; a link in the snapshot is followed like
+any file. The snapshot also links the Caller's installed dependencies
+(`node_modules`) from the Caller's checkout; nothing else the checkout ignores
+is there. The reviewed repository's own agent configuration never loads.
+Gauntlet reviews internal repositories the Caller trusts: the snapshot is a
+working directory, not a sandbox, and does not defend against a hostile repo.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 

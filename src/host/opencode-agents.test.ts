@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest"
+import { describe, expect, it, vi } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { LLMClient, LLMEvent } from "@opencode/ai/effect"
 import { TestLLM } from "@opencode/ai/testing"
@@ -7,6 +7,7 @@ import { AbsolutePath, Agent, Integration, Model, Provider, Session } from "@ope
 import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -34,7 +35,7 @@ import {
   markersWritten,
   toJson,
 } from "../test-support/agent-config-repo.fixture.ts"
-import { permissionsFor, rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
+import { makeTurnLifecycle, permissionsFor, rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
 import { bootHost } from "./opencode-host.ts"
 
 // The embedded Host, offline: OpenCode's fake language model answers every
@@ -452,7 +453,7 @@ describe("a review of a repo carrying its own agent config", () => {
 
       const served = Array.map(calls, ([id, name, , allowed]) => {
         const outcome = outcomes.get(id)
-        const ok = outcome?.status === "completed" && !outcome.error
+        const ok = outcomeSucceeded(outcome)
 
         return [id, name, ok, allowed, ok === allowed ? "" : outcome?.text ?? ""]
       })
@@ -528,6 +529,9 @@ const dependencyFinder = (snapshot: string): AgentSpec => ({
   emit: emitToolSpec(EmitFindings),
 })
 
+const outcomeSucceeded = (outcome: { readonly status: string; readonly error: boolean } | undefined) =>
+  outcome?.status === "completed" && !outcome.error
+
 type ScriptCall = readonly [string, string, boolean]
 
 // Runs every Code Mode script in one model step, then the emit; answers each
@@ -552,7 +556,7 @@ const runScripts = (snapshot: string, calls: ReadonlyArray<ScriptCall>) =>
 
     const served = Array.map(calls, ([id, , allowed]) => {
       const outcome = outcomes.get(id)
-      const ok = outcome?.status === "completed" && !outcome.error
+      const ok = outcomeSucceeded(outcome)
 
       return [id, ok, ok === allowed ? "" : outcome?.text ?? ""]
     })
@@ -607,15 +611,110 @@ describe("Code Mode over the Caller's installed dependencies", () => {
 
       const { outcomes, turn } = yield* runScripts(snapshot, [
         ["read-missing", `await tools.read({ path: "node_modules/fixture-pkg/index.js" })`, false],
+        ["shell-workdir-missing", `await tools.shell({ command: "ls", workdir: "node_modules" })`, false],
+        ["shell-cmd-missing", `await tools.shell({ command: "ls node_modules/fixture-pkg" })`, false],
       ])
 
       expect(outcomes.get("read-missing")?.text).toContain(
         "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg/index.js is not available to this review.",
       )
+      expect(outcomes.get("shell-workdir-missing")?.text).toContain(
+        "Unavailable: dependencies were not installed in the caller's checkout, so node_modules is not available to this review.",
+      )
+      expect(outcomes.get("shell-cmd-missing")?.text).toContain(
+        "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg is not available to this review.",
+      )
       expect(turn.toolCalls).toEqual({
-        total: 1,
-        errored: 1,
-        erroredPaths: ["node_modules/fixture-pkg/index.js"],
+        total: 3,
+        errored: 3,
+        erroredPaths: ["node_modules/fixture-pkg/index.js", "node_modules"],
       })
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+
+  it.live("scrubs caller GIT_WORK_TREE and counts shell exit codes >= 2 as tool errors", () =>
+    Effect.gen(function* () {
+      const target = yield* makeInstalledRepo(true)
+      const snapshot = yield* acquireReviewWorkingDirectory(target, "shell-git-health", "/nonexistent/overlay.patch")
+
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          vi.stubEnv("GIT_WORK_TREE", "/tmp")
+          vi.stubEnv("GIT_DIR", "/nonexistent/git-dir")
+        }),
+        () => Effect.sync(() => vi.unstubAllEnvs()),
+      )
+
+      const { outcomes, turn } = yield* runScripts(snapshot, [
+        [
+          "shell-checks",
+          `const [gitEnv, noMatch, failed] = await Promise.all([
+            tools.shell({ command: "printf '%s|%s' \\"\${GIT_WORK_TREE:-unset}\\" \\"\${GIT_DIR:-unset}\\"" }),
+            tools.shell({ command: "exit 1" }),
+            tools.shell({ command: "exit 127" }),
+          ]);
+          return { gitEnv, noMatch, failed }`,
+          true,
+        ],
+      ])
+
+      expect(outcomes.get("shell-checks")?.text).toContain("unset|unset")
+      expect(turn.toolCalls).toEqual({ total: 3, errored: 1, erroredPaths: [] })
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+})
+
+describe("makeTurnLifecycle", () => {
+  it.effect("returns immediately when idle with no background work", () =>
+    Effect.gen(function* () {
+      const lifecycle = makeTurnLifecycle()
+      lifecycle.onIdle(false)
+      const woke = yield* lifecycle.awaitNextWake
+      expect(woke).toBe(false)
+    }))
+
+  it.effect("holds awaitNextWake open until execution starts when background work is running", () =>
+    Effect.gen(function* () {
+      const lifecycle = makeTurnLifecycle()
+      lifecycle.trackDetached("cm_1")
+      lifecycle.onIdle(true)
+
+      const waiting = yield* Effect.forkChild(lifecycle.awaitNextWake)
+      yield* Effect.yieldNow
+      yield* lifecycle.onExecutionStarted
+
+      const woke = yield* Fiber.join(waiting)
+      expect(woke).toBe(true)
+
+      // Once delivered, a subsequent idle without background work settles cleanly.
+      lifecycle.markDelivered("cm_1")
+      lifecycle.onIdle(false)
+      const settled = yield* lifecycle.awaitNextWake
+      expect(settled).toBe(false)
+    }))
+
+  it.effect("unblocks even when execution starts between onIdle and awaitNextWake", () =>
+    Effect.gen(function* () {
+      const lifecycle = makeTurnLifecycle()
+      lifecycle.trackDetached("cm_2")
+      lifecycle.onIdle(true)
+      yield* lifecycle.onExecutionStarted
+
+      const woke = yield* lifecycle.awaitNextWake
+      expect(woke).toBe(true)
+    }))
+
+  it.effect("still waits when a detached job finished before idle but has not yet been delivered", () =>
+    Effect.gen(function* () {
+      const lifecycle = makeTurnLifecycle()
+      lifecycle.trackDetached("cm_3")
+      // jobs.runningBackground is empty because the job already exited,
+      // yet its synthetic delivery has not entered context.
+      lifecycle.onIdle(false)
+
+      const waiting = yield* Effect.forkChild(lifecycle.awaitNextWake)
+      yield* Effect.yieldNow
+      yield* lifecycle.onExecutionStarted
+
+      const woke = yield* Fiber.join(waiting)
+      expect(woke).toBe(true)
+    }))
 })

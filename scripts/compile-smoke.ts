@@ -2,7 +2,7 @@
 // binary, check its cheap commands from a fresh HOME, then compile
 // scripts/compile-smoke-entry.ts for the same target and run it. Nothing
 // reaches a model, models.dev or GitHub's release lookup (the update cache is
-// seeded fresh); grep uses `rg` from PATH, or OpenCode fetches it once.
+// seeded fresh); the smoke runs `execute` with `tools.read` and `tools.shell`.
 // Prints the binary's size and timings.
 //
 //   bun scripts/compile-smoke.ts   (GAUNTLET_OUTFILE and GAUNTLET_TARGET as for bundle.ts)
@@ -111,7 +111,7 @@ const program = Effect.gen(function* () {
   const { size } = yield* fs.stat(binary)
   yield* Console.log(smoke.stdout.trim())
   yield* Console.log(
-    `${path.basename(binary)}: ${(Number(size) / 1_048_576).toFixed(1)} MiB · --version ${String(version.elapsed)} ms (cold) · Host open, grep and emit ${String(smoke.elapsed)} ms`,
+    `${path.basename(binary)}: ${(Number(size) / 1_048_576).toFixed(1)} MiB · --version ${String(version.elapsed)} ms (cold) · Host open, execute and emit ${String(smoke.elapsed)} ms`,
   )
 })
 

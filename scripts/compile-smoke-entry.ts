@@ -1,7 +1,7 @@
 // The compile smoke's entry, compiled by scripts/compile-smoke.ts exactly as
 // the release binary is: it opens the embedded Host through the same lazy
 // import, offline (a fixture catalog and OpenCode's fake language model), and
-// runs one Finder turn that greps the snapshot and then emits.
+// runs one Finder turn that executes read + shell in Code Mode and then emits.
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { LLMClient, LLMEvent } from "@opencode/ai/effect"
@@ -67,7 +67,7 @@ const program = Effect.gen(function* () {
         id: "exec-1",
         name: "execute",
         input: {
-          code: `const [file, ran] = await Promise.all([tools.read({ path: "alpha.txt" }), tools.shell({ command: "echo shell-ok" })]); return { file, ran }`,
+          code: `const [file, ran] = await Promise.all([tools.read({ path: "alpha.txt" }), tools.shell({ command: "printf 'smoke_%s_verified' ok" })]); return { file, ran }`,
         },
       }),
     ),
@@ -93,11 +93,12 @@ const program = Effect.gen(function* () {
     return yield* SmokeFailed.make({ reason: `the turn ended ${turn.end._tag}, not at the emit` })
   }
 
-  // The Code Mode result is in the request that follows it.
+  // The Code Mode result is in the request that follows it; `smoke_ok_verified`
+  // is produced by `printf` and never appears verbatim in the command input.
   const [, afterExecute] = yield* llm.requests()
   const sent = yield* toJson(afterExecute ?? null)
 
-  if (!sent.includes(NEEDLE) || !sent.includes("shell-ok")) {
+  if (!sent.includes(NEEDLE) || !sent.includes("smoke_ok_verified")) {
     return yield* SmokeFailed.make({ reason: "execute did not return both read and shell output" })
   }
 

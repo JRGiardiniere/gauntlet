@@ -18,10 +18,11 @@ Findings arrive in a report called a dossier, every bug claim carries a verdict
 
 Runs on an embedded OpenCode Host, so Claude and OpenAI models mix freely across
 a review's stages, and special care was taken to make sure it caches well.
-Agents get at most read-only `read`, `grep` and `glob` over a frozen snapshot
-of your change, plus the `node_modules` you have installed: no shell, no
-writes, no network. Gauntlet is for repositories and PRs you trust: it does
-not defend against a hostile one.
+Agents inspect a frozen snapshot of your change (plus the `node_modules` you
+have installed) through OpenCode Code Mode (`execute` with `tools.read` and
+`tools.shell`); edit/write and web-fetch tools are disabled. Gauntlet is for
+internal repositories and PRs you trust: the snapshot is a working directory,
+not a sandbox.
 
 ## How it works
 
