@@ -19,11 +19,19 @@ import {
 import { renderSpecificationSection } from "./specification-section.ts"
 import type { RelatedFiles } from "../workspace/related-files.ts"
 import { inlinedDiff, omittedLockfilesNote } from "../workspace/bulk-files.ts"
-import { INSPECTION_TOOLS } from "../harness/harness-session.ts"
+import type { Seat } from "../domain/recipe.ts"
+import {
+  READ_ONLY_TOOLS,
+  readOnlyToolsFor,
+  readOnlyWorkspacePolicy,
+} from "../harness/harness-session.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
 
-// What every Stage with tools is told about them.
+// What every Stage with tools is told about them by default.
 export const WORKSPACE_PROMPT = "workspace.md"
+
+export const workspacePromptForReadOnly = (seat: Seat): string =>
+  readOnlyWorkspacePolicy(seat).workspacePrompt
 
 // The repo root as a Finder's prompt names it: the session's working
 // directory is the snapshot, and a path in the prefix would differ per Run.
@@ -38,7 +46,9 @@ export const diffSection = (heading: string, diff: string): string => {
   return `## ${heading}\n\n${fenceMarkdownBlock("diff", inlined.diff)}${omittedLockfilesNote(inlined.omitted)}`
 }
 
-export const FINDER_TOOLS = INSPECTION_TOOLS
+export const FINDER_TOOLS = READ_ONLY_TOOLS
+
+export const finderToolsFor = readOnlyToolsFor
 
 export interface FinderPromptTemplates {
   readonly systemPrompt: string
@@ -92,14 +102,14 @@ const promptReader = Effect.fn("FinderPrompt.promptReader")(
 
 export const loadFinderPromptTemplates = Effect.fn(
   "gauntlet.finder_prompt.load_templates",
-)(function* () {
+)(function* (workspacePrompt: string = WORKSPACE_PROMPT) {
   const readPrompt = yield* promptReader()
 
   const [systemTemplate, sharedPromptTemplate, workspaceTools] = yield* Effect.all(
     [
       readPrompt("finder-system.md"),
       readPrompt("finder-shared-block.md"),
-      readPrompt(WORKSPACE_PROMPT),
+      readPrompt(workspacePrompt),
     ],
     { concurrency: 3 },
   )

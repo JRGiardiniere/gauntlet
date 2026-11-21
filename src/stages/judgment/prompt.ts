@@ -36,12 +36,12 @@ export interface JudgmentPromptTemplates extends StageScopeTemplates {
 
 export const loadJudgmentPromptTemplates = Effect.fn(
   "gauntlet.judgment.load_prompt_templates",
-)(function* () {
+)(function* (workspacePrompt?: string) {
   const [judge, bugClaimClusters, scope] = yield* Effect.all(
     [
       readPromptTemplate(templatePath("judge.md")),
       readPromptTemplate(templatePath("bug-claim-clusters.md")),
-      loadStageScopeTemplates(),
+      loadStageScopeTemplates(workspacePrompt),
     ],
     { concurrency: 3 },
   )

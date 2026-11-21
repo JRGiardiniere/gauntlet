@@ -107,6 +107,14 @@ export const makeFixture = Effect.gen(function* () {
     path.join(content, "prompts", "workspace.md"),
     "fixture workspace tools at {{REPO_ROOT}}\n",
   )
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "workspace-codemode-readonly.md"),
+    "fixture codemode readonly tools at {{REPO_ROOT}}\n",
+  )
+  yield* fs.writeFileString(
+    path.join(content, "prompts", "workspace-codemode-verify.md"),
+    "fixture codemode verify tools at {{REPO_ROOT}}\n",
+  )
 
   const fixture: Fixture = {
     repo,

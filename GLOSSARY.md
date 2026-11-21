@@ -74,15 +74,20 @@ processes, and credentials.
 _Avoid_: host (that's the agent platform), host path, host file
 
 **ReviewWorkspace**:
-The permission fence over the Run's frozen snapshot that filesystem-capable
-AgentInvocations see: the Host's read-only `read`, `grep` and `glob` tools,
-allowed on any path inside the snapshot as written and refused on one that
-leaves it; a link in the snapshot is followed like any file. The snapshot also
-links the Caller's installed dependencies (`node_modules`) from the Caller's
-checkout; nothing else the checkout ignores is there. The reviewed
-repository's own agent configuration never loads. The snapshot stays
-unmodified, and there is no shell, writes, or network. Gauntlet reviews
-repositories the Caller trusts: the fence does not defend against a hostile one.
+The working directory over the Run's frozen snapshot that inspection-capable
+AgentInvocations see: Finders and Judges get read-only `read`, `grep`, and
+`glob` (exposed directly on OpenAI and other models, and batched inside OpenCode
+Code Mode `execute` on Claude seats), allowed on any path inside the snapshot as
+written and refused on one that leaves it; a link in the snapshot is followed
+like any file. Verifiers also get `tools.shell` inside `execute` (running as the
+caller in the snapshot working directory with Git repository-selection variables
+scrubbed) so they can run targeted empirical checks; shell commands are not
+sandboxed against writes or network. The snapshot links the Caller's installed
+dependencies (`node_modules`) from the Caller's checkout; nothing else the
+checkout ignores is there. The reviewed repository's own agent configuration
+never loads. Gauntlet reviews internal repositories the Caller trusts: the
+snapshot is a working directory, not a sandbox, and does not defend against a
+hostile repo.
 _Avoid_: sandbox (a future project-execution environment has a materially
 different trust and capability boundary), jail, container
 
@@ -223,11 +228,12 @@ Assembly
 
 **Verdict**:
 What Verification attaches to a BugClaim: confirmed, refuted, or plausible.
-Confirmed means every load-bearing fact was witnessed in the workspace;
-plausible means the mechanism is coherent but at least one load-bearing fact
-is not witnessable there (external tool behavior, timing, env, config) — or
-the claim was never examined at all. Plausible is a first-class verdict,
-never an absence.
+Confirmed means every load-bearing fact was witnessed in the workspace (in code
+read or command output observed via `execute`); plausible means the mechanism is
+coherent but at least one load-bearing fact is not witnessable there (an
+unreachable external service, unseen runtime environment, missing toolchain,
+timing, env, config) — or the claim was never examined at all. Plausible is a
+first-class verdict, never an absence.
 _Avoid_: evaluation, judgment (that word belongs to Observations), unverified
 (the pre-2026-08-22 name for plausible)
 

@@ -14,18 +14,20 @@ import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
 import type * as Path from "effect/Path"
+import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
 import type * as Scope from "effect/Scope"
 import * as Semaphore from "effect/Semaphore"
 import * as Stream from "effect/Stream"
 import type { AgentToolCalls } from "../domain/agent-outcome.ts"
 import { DEPENDENCIES } from "../run/installed-dependencies.ts"
+import { scrubbedGitEnv } from "../target/git.ts"
 import {
   AdapterContractViolation,
   type AgentSpec,
   type HarnessSession,
-  INSPECTION_TOOLS,
   type InspectionTool,
+  READ_ONLY_TOOLS,
   TurnEnd,
   type TurnResult,
   type UsageRow,
@@ -59,7 +61,7 @@ const EVERYTHING = "*"
 const MESSAGE_PAGE = 200
 
 const READ_DESCRIPTION = Array.join([
-  "Read lines of a file, or a directory's entries. Each text line is prefixed by its 1-based line number as <line>: <content>; the prefix is not part of the file.",
+  "Read lines of a file, or a directory's entries (direct tool calls prefix each text line with its 1-based line number as <line>: <content>; Code Mode returns structured lines/content).",
   "Read only the region you need: find it with grep first, then pass offset and limit (usually 40-150 lines). The change's diff and touched files are already in your context, so do not re-read them.",
   "Output is capped at 2000 lines or 50 KB.",
 ], " ")
@@ -129,6 +131,10 @@ const PathInput = Schema.Struct({ path: Schema.optionalKey(Schema.String) })
 
 const decodePathInput = Schema.decodeUnknownOption(PathInput)
 
+const WorkdirInput = Schema.Struct({ workdir: Schema.optionalKey(Schema.String) })
+
+const decodeWorkdirInput = Schema.decodeUnknownOption(WorkdirInput)
+
 // A tool call's path relative to the snapshot at `root`, resolved as the tool
 // resolves it (`~`, `..`, absolute) without following links; undefined when
 // it leaves the snapshot, which OpenCode's `external_directory` rule refuses.
@@ -141,25 +147,46 @@ const relativeAsWritten = (path: Path.Path, root: string, input: string) => {
 const segmentsAsWritten = (path: Path.Path, root: string, input: string) =>
   relativeAsWritten(path, root, input)?.split(path.sep) ?? []
 
+const requiringInstalledAt = (
+  { fs, path }: PluginServices,
+  root: string,
+  given: string,
+  run: () => ReturnType<Execute>,
+) => {
+  const segments = segmentsAsWritten(path, root, given)
+  const index = segments.indexOf(DEPENDENCIES)
+
+  if (index < 0) return run()
+
+  return fs.exists(path.join(root, ...segments.slice(0, index + 1))).pipe(
+    Effect.orElseSucceed(() => false),
+    Effect.flatMap((installed) =>
+      installed
+        ? run()
+        : Effect.fail(Tool.Error.make({
+          message: `Unavailable: dependencies were not installed in the caller's checkout, so ${given} is not available to this review.`,
+        }))),
+  )
+}
+
 // A tool call naming a path under a `node_modules` the snapshot lacks fails
 // with why: the Caller's checkout had none installed there.
-const requiringInstalled = ({ fs, path }: PluginServices, root: string, execute: Execute): Execute =>
+const requiringInstalled = (services: PluginServices, root: string, execute: Execute): Execute =>
   (input, context) => {
     const given = Option.match(decodePathInput(input), { onNone: () => ".", onSome: (fields) => fields.path ?? "." })
-    const segments = segmentsAsWritten(path, root, given)
-    const index = segments.indexOf(DEPENDENCIES)
 
-    if (index < 0) return execute(input, context)
+    return requiringInstalledAt(services, root, given, () => execute(input, context))
+  }
 
-    return fs.exists(path.join(root, ...segments.slice(0, index + 1))).pipe(
-      Effect.orElseSucceed(() => false),
-      Effect.flatMap((installed) =>
-        installed
-          ? execute(input, context)
-          : Effect.fail(Tool.Error.make({
-            message: `Unavailable: dependencies were not installed in the caller's checkout, so ${given} is not available to this review.`,
-          }))),
-    )
+// A shell call whose explicit `workdir` enters a missing `node_modules` fails
+// with the same caller-install explanation.
+const requiringInstalledWorkdir = (services: PluginServices, root: string, execute: Execute): Execute =>
+  (input, context) => {
+    const workdir = Option.match(decodeWorkdirInput(input), { onNone: () => undefined, onSome: (fields) => fields.workdir })
+
+    return workdir === undefined
+      ? execute(input, context)
+      : requiringInstalledAt(services, root, workdir, () => execute(input, context))
   }
 
 // The directory a grep or glob call searches, when its path as written passes
@@ -365,6 +392,30 @@ const SearchInput = Schema.Struct({
 
 const decodeSearchFields = Schema.decodeUnknownOption(SearchInput)
 
+// OpenCode's Code Mode instruction key; kept on OpenAI requests when present
+// while date and environment builtins are stripped so the cached prefix stays
+// stable across days and directories.
+const CODEMODE_INSTRUCTION_KEY = "core/codemode"
+
+const InstructionSource = Schema.Struct({
+  key: Schema.String,
+  text: Schema.String,
+})
+
+const InstructionsMetadata = Schema.Struct({
+  experimental: Schema.Struct({
+    instructions: Schema.Array(InstructionSource),
+  }),
+})
+
+const decodeInstructionsMetadata = Schema.decodeUnknownOption(InstructionsMetadata)
+
+const codeModeInstructionText = (parsed: typeof InstructionsMetadata.Type): Option.Option<string> =>
+  Array.findFirst(
+    parsed.experimental.instructions,
+    (entry) => entry.key === CODEMODE_INSTRUCTION_KEY && entry.text.length > 0,
+  ).pipe(Option.map((entry) => entry.text))
+
 export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
   Plugin.define({
     id: GAUNTLET_PLUGIN_ID,
@@ -438,14 +489,30 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
               })
           })
 
-          for (const name of INSPECTION_TOOLS) {
+          // Marking inspection tools `codemode: true` makes OpenCode expose
+          // them inside `execute` when an agent allows `execute`, and directly
+          // as native tools when an agent omits `execute`.
+          for (const name of READ_ONLY_TOOLS) {
             editor.update(name, (tool) => {
+              tool.options = { ...tool.options, codemode: true, pinned: true }
               tool.execute = requiringInstalled(services, directory, tool.execute)
             })
           }
 
+          editor.update("shell", (tool) => {
+            tool.options = { ...tool.options, codemode: true, pinned: true }
+            tool.execute = requiringInstalledWorkdir(services, directory, tool.execute)
+          })
+
           editor.remove("skill")
         })
+
+        // Scrub repository-selection Git variables before spawning any shell
+        // command so model-invoked git commands always inspect the snapshot.
+        yield* ctx.shell.hook("create.before", (event) =>
+          Effect.sync(() => {
+            for (const name of Record.keys(scrubbedGitEnv)) Reflect.deleteProperty(event.env, name)
+          }))
 
         yield* ctx.agent.transform((editor) => {
           for (const [id, definition] of registry.agents.get(directory) ?? []) {
@@ -467,13 +534,31 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
             : ctx.session.interrupt({ sessionID: event.sessionID }).pipe(Effect.ignore, Effect.andThen(Effect.never)))
 
         // OpenAI's per-request extras (date, environment, discovered
-        // instructions) follow the agent's own system prompt; Gauntlet's
-        // prompts carry everything a Stage needs, so only that stays.
+        // instructions) follow the agent's own system prompt. Keep only the
+        // Code Mode catalog when present, so the cached prefix stays stable
+        // across days and directories while Code Mode agents see their catalog.
         yield* ctx.session.hook(
           "context",
           (event) =>
             Effect.sync(() => {
-              if (registry.sessions.has(event.sessionID)) event.system = event.system.slice(0, 1)
+              if (!registry.sessions.has(event.sessionID)) return
+              const [role, instructions] = event.system
+
+              if (role === undefined) return
+
+              const codeMode = Option.flatMap(
+                Option.fromUndefinedOr(instructions),
+                (part) =>
+                  decodeInstructionsMetadata(part.metadata).pipe(
+                    Option.flatMap(codeModeInstructionText),
+                    Option.map((text) => ({ ...part, text })),
+                  ),
+              )
+
+              event.system = Option.match(codeMode, {
+                onNone: () => [role],
+                onSome: (part) => [role, part],
+              })
             }),
           { providerID: "openai" },
         )
@@ -556,24 +641,78 @@ const endOf = (route: SessionRoute, last: Assistant): TurnEnd => {
   return TurnEnd.Stopped()
 }
 
+type ToolPart = Extract<Assistant["content"][number], { readonly type: "tool" }>
+
+const isInspectionToolPart = (emit: string) => (part: Assistant["content"][number]): part is ToolPart =>
+  part.type === "tool" && part.name !== emit
+
+const ExecuteCall = Schema.Struct({
+  status: Schema.Literals(["running", "completed", "error"]),
+  input: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
+})
+
+const ExecuteMetadata = Schema.Struct({
+  toolCalls: Schema.Array(ExecuteCall),
+  error: Schema.optionalKey(Schema.Boolean),
+})
+
+const decodeExecuteMetadata = Schema.decodeUnknownOption(ExecuteMetadata)
+
+interface ToolOutcomeRow {
+  readonly errored: boolean
+  readonly path?: string
+}
+
+const ToolPathInput = Schema.Struct({
+  path: Schema.optionalKey(Schema.String),
+  workdir: Schema.optionalKey(Schema.String),
+})
+
+const decodeToolPathInput = Schema.decodeUnknownOption(ToolPathInput)
+
+const normalizeToolPath = (path: Path.Path, workspace: string, parsed: Option.Option<typeof ToolPathInput.Type>): string | undefined => {
+  const raw = Option.match(parsed, { onNone: () => undefined, onSome: (fields) => fields.path ?? fields.workdir })
+
+  if (raw === undefined) return undefined
+  const relative = relativeAsWritten(path, workspace, raw)
+
+  return relative === undefined ? raw : relative === "" ? "." : relative
+}
+
+const erroredRow = (path: Path.Path, workspace: string, parsed: Option.Option<typeof ToolPathInput.Type>): ToolOutcomeRow => {
+  const normalized = normalizeToolPath(path, workspace, parsed)
+
+  return normalized === undefined ? { errored: true } : { errored: true, path: normalized }
+}
+
+const outcomesOfToolPart = (path: Path.Path, workspace: string, part: ToolPart): ReadonlyArray<ToolOutcomeRow> => {
+  if (part.name === "execute" && part.state.status === "completed") {
+    const meta = decodeExecuteMetadata(part.state.metadata)
+
+    if (Option.isSome(meta)) {
+      const inner = meta.value.toolCalls
+
+      if (inner.length === 0) return [{ errored: meta.value.error === true }]
+
+      const rows = Array.map(inner, (call): ToolOutcomeRow =>
+        call.status === "error" ? erroredRow(path, workspace, decodeToolPathInput(call.input)) : { errored: false })
+
+      return meta.value.error === true && !Array.some(rows, (row) => row.errored)
+        ? [...rows, { errored: true }]
+        : rows
+    }
+  }
+
+  return [part.state.status === "error" ? erroredRow(path, workspace, decodeToolPathInput(part.state.input)) : { errored: false }]
+}
+
 const toolCallsOf = (path: Path.Path, workspace: string, messages: ReadonlyArray<Assistant>, emit: string): AgentToolCalls => {
-  const calls = Array.flatMap(messages, (message) =>
-    Array.filter(message.content, (part) => part.type === "tool" && part.name !== emit))
+  const parts = Array.flatMap(messages, (message) => Array.filter(message.content, isInspectionToolPart(emit)))
+  const outcomes = Array.flatMap(parts, (part) => outcomesOfToolPart(path, workspace, part))
+  const errored = Array.filter(outcomes, (outcome) => outcome.errored)
+  const erroredPaths = Array.dedupe(Array.flatMap(errored, (outcome) => (outcome.path === undefined ? [] : [outcome.path])))
 
-  const errored = Array.filter(calls, (part) => part.type === "tool" && part.state.status === "error")
-
-  const erroredPaths = Array.flatMap(errored, (part) =>
-    Option.match(part.type === "tool" ? decodePathInput(part.state.input) : Option.none(), {
-      onNone: () => [],
-      onSome: ({ path: input }) => {
-        if (input === undefined) return []
-        const relative = relativeAsWritten(path, workspace, input)
-
-        return [relative === undefined ? input : relative === "" ? "." : relative]
-      },
-    }))
-
-  return { total: calls.length, errored: errored.length, erroredPaths: Array.dedupe(erroredPaths) }
+  return { total: outcomes.length, errored: errored.length, erroredPaths }
 }
 
 export const makeSessions = (client: Client, registry: Registry, path: Path.Path) => {

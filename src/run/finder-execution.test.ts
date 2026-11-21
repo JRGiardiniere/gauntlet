@@ -102,6 +102,10 @@ const executeFixture = (
       "fixture workspace tools at {{REPO_ROOT}}\n",
     )
     yield* fs.writeFileString(
+      path.join(content, "prompts", "workspace-codemode-readonly.md"),
+      "fixture codemode readonly tools at {{REPO_ROOT}}\n",
+    )
+    yield* fs.writeFileString(
       path.join(content, "prompts", "finder-related-files.md"),
       "touched:\n{{TOUCHED_FILES}}\nrelated:\n{{RELATED_FILES}}\n",
     )

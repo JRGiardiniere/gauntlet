@@ -10,7 +10,7 @@ import type {
 import type { ReviewPlan } from "../../domain/review-plan.ts"
 import { Judgment } from "../../domain/judgment.ts"
 import type { AgentUsage } from "../../domain/agent-outcome.ts"
-import { INSPECTION_TOOLS } from "../../harness/harness-session.ts"
+import { READ_ONLY_TOOLS, readOnlyWorkspacePolicy } from "../../harness/harness-session.ts"
 import {
   counted,
   coverageGapLine,
@@ -26,7 +26,7 @@ import {
 } from "./prompt.ts"
 import { indexObservations, resolveJudgment } from "./resolution.ts"
 
-export const JUDGMENT_TOOLS = INSPECTION_TOOLS
+export const JUDGMENT_TOOLS = READ_ONLY_TOOLS
 
 const repairReason = (notes: ReadonlyArray<string>): string | undefined =>
   notes.length === 0
@@ -89,7 +89,8 @@ export const executeJudgment = Effect.fn(
   }
 
   const judgmentStartedAt = yield* DateTime.now
-  const promptTemplates = yield* loadJudgmentPromptTemplates()
+  const policy = readOnlyWorkspacePolicy(seat)
+  const promptTemplates = yield* loadJudgmentPromptTemplates(policy.workspacePrompt)
 
   const prompt = yield* assembleJudgmentPrompt(
     promptTemplates,
@@ -108,7 +109,7 @@ export const executeJudgment = Effect.fn(
     workspace: reviewWorkingDirectory,
     prompt,
     contract: EmitJudgments,
-    tools: JUDGMENT_TOOLS,
+    tools: policy.tools,
   })
 
   const repair = resolveJudgment(indexed, outcome.output)

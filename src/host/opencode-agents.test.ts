@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest"
+import { describe, expect, it, vi } from "@effect/vitest"
 import * as NodeServices from "@effect/platform-node/NodeServices"
 import { LLMClient, LLMEvent } from "@opencode/ai/effect"
 import { TestLLM } from "@opencode/ai/testing"
@@ -15,9 +15,17 @@ import * as Path from "effect/Path"
 import { toEntries as recordEntries } from "effect/Record"
 import * as References from "effect/References"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
+import { workspacePromptForReadOnly } from "../content/finder-prompt.ts"
 import { emitToolSpec } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
-import { type AgentSpec, TurnEnd } from "../harness/harness-session.ts"
+import {
+  type AgentSpec,
+  READ_ONLY_CODEMODE_TOOLS,
+  READ_ONLY_TOOLS,
+  readOnlyToolsFor,
+  TurnEnd,
+  VERIFICATION_TOOLS,
+} from "../harness/harness-session.ts"
 import { EmitPool } from "../stages/pool/output-contract.ts"
 import { hostPaths, ModelCatalog } from "./host.ts"
 import { Permission } from "@opencode/core/permission"
@@ -586,5 +594,116 @@ describe("the read tools over the Caller's installed dependencies", () => {
         "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg/index.js is not available to this review.",
       )
       expect(outcomes.get("glob-missing")?.text).toContain("dependencies were not installed in the caller's checkout")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+})
+
+describe("Code Mode and provider-aware hybrid inspection", () => {
+  it("gives Claude seats read-only Code Mode and non-Claude seats native read-only tools", () => {
+    expect(readOnlyToolsFor("claude-code/opus:medium")).toEqual(READ_ONLY_CODEMODE_TOOLS)
+    expect(readOnlyToolsFor("claude-agent/opus:medium")).toEqual(READ_ONLY_CODEMODE_TOOLS)
+    expect(readOnlyToolsFor("openai/gpt-6.2-sol:medium")).toEqual(READ_ONLY_TOOLS)
+    expect(readOnlyToolsFor("openrouter/qwen3-coder:high")).toEqual(READ_ONLY_TOOLS)
+    expect(workspacePromptForReadOnly("claude-code/sonnet:medium")).toBe("workspace-codemode-readonly.md")
+    expect(workspacePromptForReadOnly("claude-agent/sonnet:medium")).toBe("workspace-codemode-readonly.md")
+    expect(workspacePromptForReadOnly("openai/gpt-6.2-sol:medium")).toBe("workspace.md")
+    expect(workspacePromptForReadOnly("openrouter/qwen3-coder:high")).toBe("workspace.md")
+  })
+
+  it.live("batches read/grep/glob in read-only Code Mode while keeping shell unavailable", () =>
+    Effect.gen(function* () {
+      const { host, llm, finder } = yield* embedded
+      const spec: AgentSpec = { ...finder(), role: "finder-cm", tools: READ_ONLY_CODEMODE_TOOLS }
+
+      yield* llm.push(
+        TestLLM.complete(
+          { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 40) },
+          LLMEvent.toolCall({
+            id: "exec-batch",
+            name: "execute",
+            input: {
+              code: `const [file, hits, files] = await Promise.all([
+                tools.read({ path: "alpha.txt" }),
+                tools.grep({ pattern: "first" }),
+                tools.glob({ pattern: "*.txt" }),
+              ]);
+              let shellState = "ALLOWED";
+              try {
+                await tools.shell({ command: "echo nope" });
+              } catch {
+                shellState = "SHELL" + "_BLOCKED";
+              }
+              return { file, hits, files, shellState }`,
+            },
+          }),
+          LLMEvent.toolCall({
+            id: "exec-missing",
+            name: "execute",
+            input: { code: `await tools.read({ path: "missing.txt" })` },
+          }),
+        ),
+        emitCall("emit-1", "emit_findings", FINDINGS),
+      )
+
+      const session = yield* host.openSession(spec)
+      const turn = yield* session.turn("review")
+      expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
+      expect(turn.toolCalls).toEqual({ total: 4, errored: 1, erroredPaths: ["missing.txt"] })
+
+      const [firstRequest, secondRequest] = yield* llm.requests()
+      expect(firstRequest === undefined ? [] : toolNames(firstRequest)).toEqual(["emit_findings", "execute"])
+      const sent = toJson(secondRequest ?? null)
+      expect(sent).toContain("first line")
+      expect(sent).toContain("SHELL_BLOCKED")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+
+  it.live("runs Verification Code Mode with scrubbed Git env and workdir-only dependency guard", () =>
+    Effect.gen(function* () {
+      const { host, llm, finder } = yield* embedded
+      const spec: AgentSpec = { ...finder(), role: "verifier-cm", tools: VERIFICATION_TOOLS }
+
+      yield* Effect.acquireRelease(
+        Effect.sync(() => {
+          vi.stubEnv("GIT_WORK_TREE", "/tmp")
+          vi.stubEnv("GIT_DIR", "/nonexistent/git-dir")
+        }),
+        () => Effect.sync(() => vi.unstubAllEnvs()),
+      )
+
+      yield* llm.push(
+        TestLLM.complete(
+          { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
+          LLMEvent.toolCall({
+            id: "exec-verify",
+            name: "execute",
+            input: {
+              code: `const [gitWorkTree, gitDir, textSearch] = await Promise.all([
+                tools.shell({ command: "printenv GIT_WORK_TREE" }),
+                tools.shell({ command: "printenv GIT_DIR" }),
+                tools.shell({ command: "printf '%s' node_modules" }),
+              ]);
+              return {
+                scrubbed: gitWorkTree.exitCode !== 0 && gitDir.exitCode !== 0 ? "GIT" + "_SCRUBBED" : "LEAKED",
+                textSearch,
+              }`,
+            },
+          }),
+          LLMEvent.toolCall({
+            id: "exec-missing-deps",
+            name: "execute",
+            input: { code: `await tools.shell({ command: "ls", workdir: "node_modules" })` },
+          }),
+        ),
+        emitCall("emit-1", "emit_findings", FINDINGS),
+      )
+
+      const session = yield* host.openSession(spec)
+      const turn = yield* session.turn("verify")
+      expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
+      expect(turn.toolCalls).toEqual({ total: 4, errored: 1, erroredPaths: ["node_modules"] })
+
+      const [, secondRequest] = yield* llm.requests()
+      const sent = toJson(secondRequest ?? null)
+      expect(sent).toContain("GIT_SCRUBBED")
+      expect(sent).toContain("Unavailable: dependencies were not installed in the caller's checkout, so node_modules is not available to this review.")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 })
