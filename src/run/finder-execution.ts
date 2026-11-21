@@ -15,11 +15,12 @@ import {
 import {
   assembleFinderAssignment,
   assembleFinderContext,
-  FINDER_TOOLS,
+  finderToolsFor,
   loadFinderPromptTemplates,
   loadRelatedFilesTemplate,
   RELATIVE_REPO_ROOT,
   renderRelatedFiles,
+  workspacePromptForReadOnly,
 } from "../content/finder-prompt.ts"
 import {
   AgentOutcome,
@@ -70,6 +71,7 @@ interface Partition {
   readonly role: string
   readonly label: string
   readonly cacheGroup: string
+  readonly systemPrompt: string
   readonly sharedContext: string
 }
 
@@ -111,7 +113,6 @@ export const executeFinders = Effect.fn(
   "gauntlet.finder_execution.execute",
 )(function* ({ plan, paths, reviewWorkingDirectory }: FinderExecutionInput) {
   const invocations = finderInvocationsInPlan(plan)
-  const templates = yield* Effect.cached(loadFinderPromptTemplates())
 
   // Gathered once, by the first partition that needs it.
   const relatedFilesSection = yield* Effect.cached(
@@ -138,30 +139,24 @@ export const executeFinders = Effect.fn(
     }),
   )
 
-  const makeFinderInput = Effect.fn(
-    "gauntlet.finder_execution.make_finder_input",
-  )(function* (
+  const makeFinderInput = (
     invocation: (typeof invocations)[number],
     partition: Partition,
-  ) {
-    const promptTemplates = yield* templates
-
-    return {
-      invocationId: `${partition.label}-${invocation.invocationKey}`,
-      role: partition.role,
-      seat: invocation.seat,
-      workspace: reviewWorkingDirectory,
-      // The shared block rides in the system prompt, not the first user
-      // message: OpenAI Codex shares a cached prefix across requests only for
-      // `instructions`, and a user-message prefix is reused only within one
-      // conversation (measured 2026-09-10: 0/3 vs 3/3 followers cached).
-      systemPrompt: `${promptTemplates.systemPrompt}\n\n${partition.sharedContext}`,
-      prompt: assembleFinderAssignment(invocation.lens),
-      cacheGroup: partition.cacheGroup,
-      contract: EmitFindings,
-      tools: FINDER_TOOLS,
-      deadlineMillis: REVIEW_INVOCATION_DEADLINE_MILLIS,
-    }
+  ) => ({
+    invocationId: `${partition.label}-${invocation.invocationKey}`,
+    role: partition.role,
+    seat: invocation.seat,
+    workspace: reviewWorkingDirectory,
+    // The shared block rides in the system prompt, not the first user
+    // message: OpenAI Codex shares a cached prefix across requests only for
+    // `instructions`, and a user-message prefix is reused only within one
+    // conversation (measured 2026-09-10: 0/3 vs 3/3 followers cached).
+    systemPrompt: `${partition.systemPrompt}\n\n${partition.sharedContext}`,
+    prompt: assembleFinderAssignment(invocation.lens),
+    cacheGroup: partition.cacheGroup,
+    contract: EmitFindings,
+    tools: finderToolsFor(invocation.seat),
+    deadlineMillis: REVIEW_INVOCATION_DEADLINE_MILLIS,
   })
 
   const finishFinder = Effect.fn(
@@ -188,9 +183,8 @@ export const executeFinders = Effect.fn(
     partition: Partition,
   ) {
     yield* runProgress(`invoking finder ${invocation.lens.name}`)
-    const input = yield* makeFinderInput(invocation, partition)
 
-    return yield* finishFinder(invocation, invoke(input))
+    return yield* finishFinder(invocation, invoke(makeFinderInput(invocation, partition)))
   })
 
   const groups = finderPartitionsInPlan(plan)
@@ -200,7 +194,7 @@ export const executeFinders = Effect.fn(
     (group, groupIndex) =>
       Effect.gen(function* () {
         const starter = Array.headNonEmpty(group)
-        const promptTemplates = yield* templates
+        const promptTemplates = yield* loadFinderPromptTemplates(workspacePromptForReadOnly(starter.seat))
 
         // The Host's tools resolve relative paths in the snapshot, so the
         // prefix names no per-Run path.
@@ -221,6 +215,7 @@ export const executeFinders = Effect.fn(
           role: `finder-${String(groupIndex + 1)}`,
           label: `${plan.runId}-finders-${String(groupIndex + 1)}`,
           cacheGroup: cacheGroupFor(starter.seat, sharedContext),
+          systemPrompt: promptTemplates.systemPrompt,
           sharedContext,
         }
 
@@ -237,7 +232,7 @@ export const executeFinders = Effect.fn(
         }
 
         yield* runProgress(`invoking finder ${starter.lens.name}`)
-        const starterInput = yield* makeFinderInput(starter, partition)
+        const starterInput = makeFinderInput(starter, partition)
         const running = yield* invokeSignaled(starterInput)
 
         const signal = yield* running.firstResponse.pipe(

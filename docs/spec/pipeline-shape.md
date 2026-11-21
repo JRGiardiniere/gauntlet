@@ -65,14 +65,17 @@ line for `spec-conformance`; invocation accounting counts only work that ran.
 
 5. **Assembly** — deterministic code, no model. Produces the Dossier.
 
-Every Stage with tools inspects the same snapshot (via Code Mode `execute` with
-`tools.read` and `tools.shell`, edit/write and web-fetch tools denied), which
-links the Caller's installed `node_modules` at the repository root and beside
-each `package.json` the reviewed version has (for a working-tree review, a new
-uncommitted one too, and not one it deletes), on demand. The tools serve any
-path inside the snapshot as written, and a path through a link reads its target;
-Gauntlet reviews trusted internal repositories and does not defend against a
-hostile one. A lockfile (`bun.lock`, `bun.lockb`,
+Every Stage with tools inspects the same snapshot, which links the Caller's
+installed `node_modules` at the repository root and beside each `package.json`
+the reviewed version has (for a working-tree review, a new uncommitted one too,
+and not one it deletes), on demand. Finders and Judgment are read-only (`read`,
+`grep`, `glob` — batched via Code Mode `execute` on Claude seats and direct on
+OpenAI and other models); Verification runs Code Mode (`execute`) with
+`tools.read`, `tools.grep`, `tools.glob`, and `tools.shell` (edit/write and
+web-fetch tools denied). The read/search tools serve any path inside the
+snapshot as written, and a path through a link reads its target; Gauntlet
+reviews trusted internal repositories and does not defend against a hostile one.
+A lockfile (`bun.lock`, `bun.lockb`,
 `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`) at such a root that
 differs between the reviewed version and the Caller's checkout (or is on one
 side only) adds a Dossier warning; a repository with a `package.json` and no

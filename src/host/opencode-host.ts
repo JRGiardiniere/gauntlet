@@ -28,9 +28,10 @@ import {
   SignInStatus,
 } from "./host.ts"
 
-// What a Run needs from OpenCode: an agent, the two providers, Code Mode's
-// read and shell tools, and the prompt and config plugins they lean on. `-*`
-// also drops SDK plugins, so Gauntlet's own plugin is listed too.
+// What a Run needs from OpenCode: an agent, the two providers, read/grep/glob
+// plus verification shell (exposed directly or inside Code Mode `execute`),
+// and the prompt and config plugins they lean on. `-*` also drops SDK plugins,
+// so Gauntlet's own plugin is listed too.
 export const KEPT_PLUGINS = [
   GAUNTLET_PLUGIN_ID,
   "opencode.agent",
@@ -46,6 +47,8 @@ export const KEPT_PLUGINS = [
   "opencode.prompt.openai",
   "opencode.tool.input.repair",
   "opencode.tool.read",
+  "opencode.tool.grep",
+  "opencode.tool.glob",
   "opencode.tool.shell",
 ] as const
 
@@ -95,7 +98,6 @@ const HOST_CONFIG = {
   snapshots: false,
   share: "disabled",
   compaction: { auto: false },
-  experimental: { full_codemode: true },
 }
 
 const catalogOptions = ModelCatalog.$match({
@@ -290,7 +292,7 @@ export const bootHost = Effect.fn("Host.boot")(function* (
     return ConnectionState.Connected()
   })
 
-  const sessions = makeSessions(client, registry)
+  const sessions = makeSessions(client, registry, path)
 
   const contract: HostContract = {
     openSession: sessions.open,

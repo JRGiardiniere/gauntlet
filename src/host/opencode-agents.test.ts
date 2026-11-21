@@ -7,7 +7,6 @@ import { AbsolutePath, Agent, Integration, Model, Provider, Session } from "@ope
 import * as Array from "effect/Array"
 import * as ConfigProvider from "effect/ConfigProvider"
 import * as Effect from "effect/Effect"
-import * as Fiber from "effect/Fiber"
 import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
@@ -16,9 +15,17 @@ import * as Path from "effect/Path"
 import { toEntries as recordEntries } from "effect/Record"
 import * as References from "effect/References"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
+import { workspacePromptForReadOnly } from "../content/finder-prompt.ts"
 import { emitToolSpec } from "../harness/invoke.ts"
 import { EmitFindings } from "../harness/output-contract.ts"
-import { type AgentSpec, INSPECTION_TOOLS, TurnEnd } from "../harness/harness-session.ts"
+import {
+  type AgentSpec,
+  READ_ONLY_CODEMODE_TOOLS,
+  READ_ONLY_TOOLS,
+  readOnlyToolsFor,
+  TurnEnd,
+  VERIFICATION_TOOLS,
+} from "../harness/harness-session.ts"
 import { EmitPool } from "../stages/pool/output-contract.ts"
 import { hostPaths, ModelCatalog } from "./host.ts"
 import { Permission } from "@opencode/core/permission"
@@ -35,7 +42,7 @@ import {
   markersWritten,
   toJson,
 } from "../test-support/agent-config-repo.fixture.ts"
-import { makeTurnLifecycle, permissionsFor, rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
+import { permissionsFor, rewriteCacheKey, withCacheKey } from "./opencode-agents.ts"
 import { bootHost } from "./opencode-host.ts"
 
 // The embedded Host, offline: OpenCode's fake language model answers every
@@ -58,9 +65,6 @@ const usage = (input: number, cacheRead: number, output: number) => ({
 
 const emitCall = (id: string, name: string, input: typeof FINDINGS | { readonly clusters: ReadonlyArray<never> }, tokens = usage(1_000, 0, 50)) =>
   TestLLM.complete({ reason: { normalized: "tool-calls" }, usage: tokens }, LLMEvent.toolCall({ id, name, input }))
-
-const executeCall = (id: string, code: string, tokens = usage(1_200, 0, 30)) =>
-  TestLLM.complete({ reason: { normalized: "tool-calls" }, usage: tokens }, LLMEvent.toolCall({ id, name: "execute", input: { code } }))
 
 const textStop = (text: string, tokens = usage(900, 100, 20)) =>
   TestLLM.complete(
@@ -109,7 +113,7 @@ const embedded = Effect.gen(function* () {
     seat: SEAT,
     workspace: path.resolve(workspace),
     systemPrompt: "fixture finder system prompt",
-    tools: INSPECTION_TOOLS,
+    tools: ["read", "grep", "glob"],
     emit: emitToolSpec(EmitFindings),
   })
 
@@ -123,15 +127,14 @@ const toolNames = (request: { readonly tools: ReadonlyArray<{ readonly name: str
   Array.sort(Array.map(request.tools, (tool) => tool.name), (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0))
 
 describe("an AgentInvocation session on the embedded Host", () => {
-  it.live("ends the turn at a valid emit with no further model request, counting each request and inner execute call once", () =>
+  it.live("ends the turn at a valid emit with no further model request, counting each request once", () =>
     Effect.gen(function* () {
       const { host, llm, finder } = yield* embedded
       yield* llm.push(
-        // A Code Mode execute call running read and shell concurrently, then the emit.
-        executeCall(
-          "exec-1",
-          `const [file, ran] = await Promise.all([tools.read({ path: "alpha.txt" }), tools.shell({ command: "echo hi" })]); return { file, ran }`,
-          usage(1_200, 0, 30),
+        // A read, then the emit in the next step.
+        TestLLM.complete(
+          { reason: { normalized: "tool-calls" }, usage: usage(1_200, 0, 30) },
+          LLMEvent.toolCall({ id: "read-1", name: "read", input: { path: "alpha.txt" } }),
         ),
         emitCall("emit-1", "emit_findings", FINDINGS, usage(200, 1_200, 40)),
       )
@@ -146,7 +149,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
         { input: 1_200, output: 30, reasoning: 0, cacheRead: 0, cacheWrite: 0 },
         { input: 200, output: 40, reasoning: 0, cacheRead: 1_200, cacheWrite: 0 },
       ])
-      expect(turn.toolCalls).toEqual({ total: 2, errored: 0, erroredPaths: [] })
+      expect(turn.toolCalls).toEqual({ total: 1, errored: 0, erroredPaths: [] })
       yield* session.firstToken
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
@@ -195,7 +198,7 @@ describe("an AgentInvocation session on the embedded Host", () => {
       ])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
-  it.live("offers a Finder execute plus its emit tool (with the Code Mode catalog only), and Pool its emit tool only", () =>
+  it.live("offers a Finder read, grep, glob and its emit tool, and Pool its emit tool only", () =>
     Effect.gen(function* () {
       const { host, llm, finder } = yield* embedded
       yield* llm.push(
@@ -218,19 +221,10 @@ describe("an AgentInvocation session on the embedded Host", () => {
       expect(pooled.end).toEqual(TurnEnd.Emitted({ raw: { clusters: [] } }))
 
       const [finderRequest, poolRequest] = yield* llm.requests()
-      expect(finderRequest === undefined ? [] : toolNames(finderRequest)).toEqual(["emit_findings", "execute"])
+      expect(finderRequest === undefined ? [] : toolNames(finderRequest)).toEqual(["emit_findings", "glob", "grep", "read"])
       expect(poolRequest === undefined ? [] : toolNames(poolRequest)).toEqual(["emit_pool"])
-      // OpenAI gets the agent's own system prompt plus the Code Mode catalog,
-      // never date/environment builtins; Pool has no Code Mode catalog.
-      const finderSystem = Array.map(finderRequest?.system ?? [], (part) => part.text)
-      expect(finderSystem).toHaveLength(2)
-      expect(finderSystem[0]).toBe("fixture finder system prompt")
-      expect(finderSystem[1]).toContain("# Code Mode")
-      expect(finderSystem[1]).toContain("tools.read")
-      expect(finderSystem[1]).toContain("tools.shell")
-      expect(finderSystem[1]).not.toContain("<env>")
-      expect(finderSystem[1]).not.toContain("Today's date")
-      expect(Array.map(poolRequest?.system ?? [], (part) => part.text)).toEqual(["fixture stage system prompt"])
+      // OpenAI gets the agent's own system prompt and nothing after it.
+      expect(Array.map(finderRequest?.system ?? [], (part) => part.text)).toEqual(["fixture finder system prompt"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
   it.live("sends every session of a cache group the group's key", () =>
@@ -313,7 +307,7 @@ describe("the partition cache key on an outgoing request", () => {
 })
 
 describe("the ReviewWorkspace permission rules", () => {
-  const rules = [...permissionsFor({ tools: INSPECTION_TOOLS, emit: "emit_findings" })]
+  const rules = [...permissionsFor({ tools: ["read", "grep", "glob"], emit: "emit_findings" })]
   const Segment = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,12}$/))
 
   it.prop(
@@ -333,12 +327,12 @@ describe("the ReviewWorkspace permission rules", () => {
   )
 
   it.each([
-    ["execute", "*", "allow"],
-    ["shell", "rg foo", "allow"],
+    ["grep", "anything", "allow"],
+    ["glob", "**/*", "allow"],
     ["emit_findings", "*", "allow"],
-    ["glob", "**/*", "deny"],
     ["write", "src/x.ts", "deny"],
     ["edit", "src/x.ts", "deny"],
+    ["shell", "touch x", "deny"],
     ["webfetch", "https://example.com", "deny"],
     ["external_directory", "/etc/*", "deny"],
   ])("%s %s → %s", (action, resource, effect) => {
@@ -349,13 +343,13 @@ describe("the ReviewWorkspace permission rules", () => {
     const pool = [...permissionsFor({ tools: [], emit: "emit_pool" })]
     expect(Permission.evaluate("emit_pool", "*", pool).effect).toBe("allow")
 
-    for (const action of ["execute", "read", "shell", "emit_findings"]) {
+    for (const action of ["read", "grep", "glob", "emit_findings"]) {
       expect(Permission.evaluate(action, "src/x.ts", pool).effect).toBe("deny")
     }
   })
 })
 
-type ToolOutcome = { readonly status: string; readonly text: string; readonly error: boolean }
+type ToolOutcome = { readonly status: string; readonly text: string }
 
 // Each tool call's ending in a session, by call id.
 const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], sessionID: string) =>
@@ -372,18 +366,17 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
 
           switch (state.status) {
             case "error":
-              outcomes.set(part.id, { status: state.status, text: state.error.message, error: true })
+              outcomes.set(part.id, { status: state.status, text: state.error.message })
               break
             case "completed":
               outcomes.set(part.id, {
                 status: state.status,
                 text: Array.join(Array.map(state.content, (item) => (item.type === "text" ? item.text : item.uri)), "\n"),
-                error: state.metadata?.["error"] === true,
               })
               break
             case "running":
             case "streaming":
-              outcomes.set(part.id, { status: state.status, text: "", error: false })
+              outcomes.set(part.id, { status: state.status, text: "" })
           }
         }
       }
@@ -393,7 +386,7 @@ const toolOutcomes = (host: Effect.Success<typeof bootEmbedded>["host"], session
   )
 
 describe("a review of a repo carrying its own agent config", () => {
-  it.live("runs Code Mode (read, shell, path) inside the snapshot, blocks edits, fetch and external paths, and loads nothing from the repo", () =>
+  it.live("serves reads inside the snapshot as written, offers no write or shell, and loads nothing from the repo", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path
       const { markers, repo, target } = yield* makeAgentConfigRepo
@@ -402,28 +395,21 @@ describe("a review of a repo carrying its own agent config", () => {
       expect(afterSnapshot).toEqual([])
       const { host, llm } = yield* bootEmbedded
 
-      // [call id, tool, input, succeeded].
-      const calls: ReadonlyArray<readonly [string, string, Readonly<Record<string, string>>, boolean]> = [
-        [
-          "exec-read",
-          "execute",
-          {
-            code: `const target = path.join("pkg", "x.ts");
-            const [toolRead, dirRead, ran] = await Promise.all([
-              tools.read({ path: target }),
-              tools.read({ path: "pkg" }),
-              tools.shell({ command: "git rev-parse --is-inside-work-tree" }),
-            ]);
-            return { toolRead, dirRead, ran }`,
-          },
-          true,
-        ],
-        ["exec-fetch", "execute", { code: `await fetch("https://example.com")` }, false],
-        ["exec-read-parent", "execute", { code: `await tools.read({ path: ${toJson(path.relative(snapshot, path.join(repo, ALLOWED_FILE)))} })` }, false],
-        ["exec-read-absolute", "execute", { code: `await tools.read({ path: ${toJson(path.join(repo, ALLOWED_FILE))} })` }, false],
-        ["exec-read-home", "execute", { code: `await tools.read({ path: "~/.bashrc" })` }, false],
-        ["direct-write", "write", { path: "new.txt", content: "x" }, false],
-        ["direct-edit", "edit", { path: ALLOWED_FILE, oldString: "allowed", newString: "x" }, false],
+      // [call id, tool, input, served].
+      const calls: ReadonlyArray<readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]> = [
+        ["read-allowed", "read", { path: ALLOWED_FILE }, true],
+        ["read-directory", "read", { path: "pkg" }, true],
+        ["grep-walk", "grep", { pattern: "allowed" }, true],
+        ["glob-walk", "glob", { pattern: "**/*", hidden: true }, true],
+        ["write", "write", { path: "new.txt", content: "x" }, false],
+        ["edit", "edit", { path: ALLOWED_FILE, oldString: "allowed", newString: "x" }, false],
+        ["shell", "shell", { command: `touch ${markers}/shell` }, false],
+        ["bash", "bash", { command: `touch ${markers}/bash` }, false],
+        ["read-parent", "read", { path: path.relative(snapshot, path.join(repo, ALLOWED_FILE)) }, false],
+        ["read-absolute", "read", { path: path.join(repo, ALLOWED_FILE) }, false],
+        ["read-home", "read", { path: "~/.bashrc" }, false],
+        ["grep-absolute", "grep", { pattern: "allowed", path: repo }, false],
+        ["glob-absolute", "glob", { pattern: "*", path: repo }, false],
       ]
 
       yield* llm.push(
@@ -440,7 +426,7 @@ describe("a review of a repo carrying its own agent config", () => {
         seat: SEAT,
         workspace: snapshot,
         systemPrompt: "fixture finder system prompt",
-        tools: INSPECTION_TOOLS,
+        tools: ["read", "grep", "glob"],
         emit: emitToolSpec(EmitFindings),
       })
 
@@ -450,17 +436,10 @@ describe("a review of a repo carrying its own agent config", () => {
       const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
       const opened = Array.findFirst(sessions.data, (info) => info.title === "fence-finder")
       const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
-
-      const served = Array.map(calls, ([id, name, , allowed]) => {
-        const outcome = outcomes.get(id)
-        const ok = outcomeSucceeded(outcome)
-
-        return [id, name, ok, allowed, ok === allowed ? "" : outcome?.text ?? ""]
-      })
-
-      expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed, allowed, ""]))
-      expect(outcomes.get("exec-read")?.text).toContain(ALLOWED_TEXT)
-      expect(outcomes.get("exec-read")?.text).toContain("true")
+      const served = Array.map(calls, ([id, name, , allowed]) => [id, name, outcomes.get(id)?.status === "completed", allowed])
+      expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed, allowed]))
+      expect(outcomes.get("read-allowed")?.text).toContain(ALLOWED_TEXT)
+      expect(outcomes.get("grep-walk")?.text).toContain(ALLOWED_FILE)
 
       // Nothing the repo wrote reached a model: no config, plugin, MCP
       // server, skill or instructions (root, nested next to the allowed
@@ -471,9 +450,10 @@ describe("a review of a repo carrying its own agent config", () => {
       expect(sent).not.toContain(CANARY)
       expect(sent).not.toContain("BANANA")
       expect(Array.map(requests, toolNames)).toEqual([
-        ["emit_findings", "execute"],
-        ["emit_findings", "execute"],
+        ["emit_findings", "glob", "grep", "read"],
+        ["emit_findings", "glob", "grep", "read"],
       ])
+      expect(Array.map(requests[0]?.system ?? [], (part) => part.text)).toEqual(["fixture finder system prompt"])
       const afterRun = yield* markersWritten(markers)
       expect(afterRun).toEqual([])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
@@ -525,25 +505,22 @@ const dependencyFinder = (snapshot: string): AgentSpec => ({
   seat: SEAT,
   workspace: snapshot,
   systemPrompt: "fixture finder system prompt",
-  tools: INSPECTION_TOOLS,
+  tools: ["read", "grep", "glob"],
   emit: emitToolSpec(EmitFindings),
 })
 
-const outcomeSucceeded = (outcome: { readonly status: string; readonly error: boolean } | undefined) =>
-  outcome?.status === "completed" && !outcome.error
+type ToolCall = readonly [string, string, Readonly<Record<string, string | boolean>>, boolean]
 
-type ScriptCall = readonly [string, string, boolean]
-
-// Runs every Code Mode script in one model step, then the emit; answers each
-// call's outcome and the turn.
-const runScripts = (snapshot: string, calls: ReadonlyArray<ScriptCall>) =>
+// Runs every call in one model step, then the emit; answers each call's
+// outcome and the turn.
+const runCalls = (snapshot: string, calls: ReadonlyArray<ToolCall>) =>
   Effect.gen(function* () {
     const { host, llm } = yield* bootEmbedded
 
     yield* llm.push(
       TestLLM.complete(
         { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
-        ...Array.map(calls, ([id, code]) => LLMEvent.toolCall({ id, name: "execute", input: { code } })),
+        ...Array.map(calls, ([id, name, input]) => LLMEvent.toolCall({ id, name, input })),
       ),
       emitCall("emit-1", "emit_findings", FINDINGS),
     )
@@ -553,88 +530,134 @@ const runScripts = (snapshot: string, calls: ReadonlyArray<ScriptCall>) =>
     const sessions = yield* host.client.sessions.list({ directory: AbsolutePath.make(snapshot) })
     const opened = Array.findFirst(sessions.data, (info) => info.title === "dependency-finder")
     const outcomes = yield* toolOutcomes(host, Option.getOrThrow(opened).id)
-
-    const served = Array.map(calls, ([id, , allowed]) => {
-      const outcome = outcomes.get(id)
-      const ok = outcomeSucceeded(outcome)
-
-      return [id, ok, ok === allowed ? "" : outcome?.text ?? ""]
-    })
-
-    expect(served).toEqual(Array.map(calls, ([id, , allowed]) => [id, allowed, ""]))
+    const served = Array.map(calls, ([id, name]) => [id, name, outcomes.get(id)?.status === "completed"])
+    expect(served).toEqual(Array.map(calls, ([id, name, , allowed]) => [id, name, allowed]))
 
     return { outcomes, turn }
   })
 
-describe("Code Mode over the Caller's installed dependencies", () => {
-  it.live("reads exposed dependency paths through tools.read and tools.shell, and reports missing files cleanly", () =>
+describe("the read tools over the Caller's installed dependencies", () => {
+  it.live("serve explicit dependency paths to read, grep and glob past the checkout's ignore rules, and nothing else ignored", () =>
     Effect.gen(function* () {
       const target = yield* makeInstalledRepo(true)
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-dependencies", "/nonexistent/overlay.patch")
       yield* exposeInstalledDependencies(target, "fence-dependencies", snapshot)
+      const fs = yield* FileSystem.FileSystem
+      const path = yield* Path.Path
+      // Ignored by the snapshot's own rules, which still apply outside dependencies.
+      yield* fs.writeFileString(path.join(snapshot, "scratch.log"), "HOOK_MARKER ignored in the snapshot\n")
 
-      const { outcomes, turn } = yield* runScripts(snapshot, [
-        [
-          "read-dependencies",
-          `const [lib, dist, tracked, workspace, bin, found] = await Promise.all([
-            tools.read({ path: "node_modules/fixture-pkg/lib/x.js" }),
-            tools.read({ path: "node_modules/fixture-pkg/dist/index.js" }),
-            tools.read({ path: "vendored/node_modules/kept.js" }),
-            tools.read({ path: "node_modules/workspace-link/w.ts" }),
-            tools.read({ path: "node_modules/.bin/fixture-tool" }),
-            tools.shell({ command: "ls node_modules/fixture-pkg" }),
-          ]);
-          return { lib, dist, tracked, workspace, bin, found }`,
-          true,
-        ],
-        ["read-dev-vars", `await tools.read({ path: ".dev.vars" })`, false],
-        ["read-build-output", `await tools.read({ path: "dist/build.js" })`, false],
-        ["read-untracked-over-tracked", `await tools.read({ path: "vendored/node_modules/untracked.js" })`, false],
+      const { outcomes, turn } = yield* runCalls(snapshot, [
+        ["read-dependency", "read", { path: "node_modules/fixture-pkg/lib/x.js" }, true],
+        ["read-dependency-directory", "read", { path: "node_modules/fixture-pkg" }, true],
+        ["grep-dependency", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg" }, true],
+        ["grep-dependency-include", "grep", { pattern: "HOOK_MARKER", path: "node_modules/fixture-pkg", include: "*.js" }, true],
+        ["glob-dependency", "glob", { pattern: "**/*.js", path: "node_modules/fixture-pkg" }, true],
+        ["glob-dependency-hidden", "glob", { pattern: "**/*", path: "node_modules/fixture-pkg", hidden: true }, true],
+        ["read-tracked-node-modules", "read", { path: "vendored/node_modules/kept.js" }, true],
+        ["read-workspace-link", "read", { path: "node_modules/workspace-link/w.ts" }, true],
+        ["read-dependency-bin", "read", { path: "node_modules/.bin/fixture-tool" }, true],
+        ["grep-snapshot-ignored", "grep", { pattern: "HOOK_MARKER" }, true],
+        ["read-dev-vars", "read", { path: ".dev.vars" }, false],
+        ["read-build-output", "read", { path: "dist/build.js" }, false],
+        ["read-untracked-over-tracked", "read", { path: "vendored/node_modules/untracked.js" }, false],
       ])
 
       const text = (id: string) => outcomes.get(id)?.text ?? ""
-      expect(text("read-dependencies")).toContain("HOOK_MARKER in lib")
-      expect(text("read-dependencies")).toContain("HOOK_MARKER in dist")
-      expect(text("read-dependencies")).toContain("tracked")
-      expect(text("read-dependencies")).toContain("export const workspace = 1")
-      expect(text("read-dependencies")).toContain("a package's executable")
-      expect(turn.toolCalls.total).toBe(9)
-      expect(turn.toolCalls.errored).toBe(3)
+      expect(text("read-dependency")).toContain("HOOK_MARKER in lib")
+      expect(text("grep-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
+      expect(text("grep-dependency")).toContain("node_modules/fixture-pkg/debug.log")
+      expect(text("grep-dependency-include")).toContain("node_modules/fixture-pkg/dist/index.js")
+      expect(text("grep-dependency-include")).toContain("node_modules/fixture-pkg/lib/x.js")
+      expect(text("grep-dependency-include")).not.toContain("debug.log")
+      expect(text("glob-dependency")).toContain("node_modules/fixture-pkg/dist/index.js")
+      expect(text("glob-dependency")).not.toContain("debug.log")
+      expect(text("glob-dependency-hidden")).toContain("node_modules/fixture-pkg/debug.log")
+      expect(text("read-workspace-link")).toContain("export const workspace = 1")
+      expect(text("grep-snapshot-ignored")).toBe("No matches found")
+
       expect(turn.toolCalls.erroredPaths).toEqual([".dev.vars", "dist/build.js", "vendored/node_modules/untracked.js"])
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
-  it.live("answers a missing dependency path with why it is missing when nothing was installed", () =>
+  it.live("answers a dependency path with why it is missing when nothing was installed", () =>
     Effect.gen(function* () {
       const target = yield* makeInstalledRepo(false)
       const snapshot = yield* acquireReviewWorkingDirectory(target, "fence-no-dependencies", "/nonexistent/overlay.patch")
       yield* exposeInstalledDependencies(target, "fence-no-dependencies", snapshot)
 
-      const { outcomes, turn } = yield* runScripts(snapshot, [
-        ["read-missing", `await tools.read({ path: "node_modules/fixture-pkg/index.js" })`, false],
-        ["shell-workdir-missing", `await tools.shell({ command: "ls", workdir: "node_modules" })`, false],
-        ["shell-cmd-missing", `await tools.shell({ command: "ls node_modules/fixture-pkg" })`, false],
+      const { outcomes } = yield* runCalls(snapshot, [
+        ["read-missing", "read", { path: "node_modules/fixture-pkg/index.js" }, false],
+        ["glob-missing", "glob", { pattern: "**/*.d.ts", path: "node_modules" }, false],
       ])
 
-      expect(outcomes.get("read-missing")?.text).toContain(
+      expect(outcomes.get("read-missing")?.text).toBe(
         "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg/index.js is not available to this review.",
       )
-      expect(outcomes.get("shell-workdir-missing")?.text).toContain(
-        "Unavailable: dependencies were not installed in the caller's checkout, so node_modules is not available to this review.",
+      expect(outcomes.get("glob-missing")?.text).toContain("dependencies were not installed in the caller's checkout")
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
+})
+
+describe("Code Mode and provider-aware hybrid inspection", () => {
+  it("gives Claude seats read-only Code Mode and non-Claude seats native read-only tools", () => {
+    expect(readOnlyToolsFor("claude-code/opus:medium")).toEqual(READ_ONLY_CODEMODE_TOOLS)
+    expect(readOnlyToolsFor("openai/gpt-6.2-sol:medium")).toEqual(READ_ONLY_TOOLS)
+    expect(readOnlyToolsFor("openrouter/qwen3-coder:high")).toEqual(READ_ONLY_TOOLS)
+    expect(workspacePromptForReadOnly("claude-code/sonnet:medium")).toBe("workspace-codemode-readonly.md")
+    expect(workspacePromptForReadOnly("openai/gpt-6.2-sol:medium")).toBe("workspace.md")
+    expect(workspacePromptForReadOnly("openrouter/qwen3-coder:high")).toBe("workspace.md")
+  })
+
+  it.live("batches read/grep/glob in read-only Code Mode while keeping shell unavailable", () =>
+    Effect.gen(function* () {
+      const { host, llm, finder } = yield* embedded
+      const spec: AgentSpec = { ...finder(), role: "finder-cm", tools: READ_ONLY_CODEMODE_TOOLS }
+
+      yield* llm.push(
+        TestLLM.complete(
+          { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 40) },
+          LLMEvent.toolCall({
+            id: "exec-batch",
+            name: "execute",
+            input: {
+              code: `const [file, hits, files] = await Promise.all([
+                tools.read({ path: "alpha.txt" }),
+                tools.grep({ pattern: "first" }),
+                tools.glob({ pattern: "*.txt" }),
+              ]);
+              let shellState = "ALLOWED";
+              try {
+                await tools.shell({ command: "echo nope" });
+              } catch {
+                shellState = "SHELL" + "_BLOCKED";
+              }
+              return { file, hits, files, shellState }`,
+            },
+          }),
+          LLMEvent.toolCall({
+            id: "exec-missing",
+            name: "execute",
+            input: { code: `await tools.read({ path: "missing.txt" })` },
+          }),
+        ),
+        emitCall("emit-1", "emit_findings", FINDINGS),
       )
-      expect(outcomes.get("shell-cmd-missing")?.text).toContain(
-        "Unavailable: dependencies were not installed in the caller's checkout, so node_modules/fixture-pkg is not available to this review.",
-      )
-      expect(turn.toolCalls).toEqual({
-        total: 3,
-        errored: 3,
-        erroredPaths: ["node_modules/fixture-pkg/index.js", "node_modules"],
-      })
+
+      const session = yield* host.openSession(spec)
+      const turn = yield* session.turn("review")
+      expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
+      expect(turn.toolCalls).toEqual({ total: 4, errored: 1, erroredPaths: ["missing.txt"] })
+
+      const [firstRequest, secondRequest] = yield* llm.requests()
+      expect(firstRequest === undefined ? [] : toolNames(firstRequest)).toEqual(["emit_findings", "execute"])
+      const sent = toJson(secondRequest ?? null)
+      expect(sent).toContain("first line")
+      expect(sent).toContain("SHELL_BLOCKED")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
 
-  it.live("scrubs caller GIT_WORK_TREE and counts shell exit codes >= 2 as tool errors", () =>
+  it.live("runs Verification Code Mode with scrubbed Git env and workdir-only dependency guard", () =>
     Effect.gen(function* () {
-      const target = yield* makeInstalledRepo(true)
-      const snapshot = yield* acquireReviewWorkingDirectory(target, "shell-git-health", "/nonexistent/overlay.patch")
+      const { host, llm, finder } = yield* embedded
+      const spec: AgentSpec = { ...finder(), role: "verifier-cm", tools: VERIFICATION_TOOLS }
 
       yield* Effect.acquireRelease(
         Effect.sync(() => {
@@ -644,77 +667,37 @@ describe("Code Mode over the Caller's installed dependencies", () => {
         () => Effect.sync(() => vi.unstubAllEnvs()),
       )
 
-      const { outcomes, turn } = yield* runScripts(snapshot, [
-        [
-          "shell-checks",
-          `const [gitEnv, noMatch, failed] = await Promise.all([
-            tools.shell({ command: "printf '%s|%s' \\"\${GIT_WORK_TREE:-unset}\\" \\"\${GIT_DIR:-unset}\\"" }),
-            tools.shell({ command: "exit 1" }),
-            tools.shell({ command: "exit 127" }),
-          ]);
-          return { gitEnv, noMatch, failed }`,
-          true,
-        ],
-      ])
+      yield* llm.push(
+        TestLLM.complete(
+          { reason: { normalized: "tool-calls" }, usage: usage(1_000, 0, 50) },
+          LLMEvent.toolCall({
+            id: "exec-verify",
+            name: "execute",
+            input: {
+              code: `const [gitEnv, textSearch] = await Promise.all([
+                tools.shell({ command: "printf '%s|%s' \\"\${GIT_WORK_TREE:-unset}\\" \\"\${GIT_DIR:-unset}\\"" }),
+                tools.shell({ command: "printf '%s' node_modules" }),
+              ]);
+              return { gitEnv, textSearch }`,
+            },
+          }),
+          LLMEvent.toolCall({
+            id: "exec-missing-deps",
+            name: "execute",
+            input: { code: `await tools.shell({ command: "ls", workdir: "node_modules" })` },
+          }),
+        ),
+        emitCall("emit-1", "emit_findings", FINDINGS),
+      )
 
-      expect(outcomes.get("shell-checks")?.text).toContain("unset|unset")
-      expect(turn.toolCalls).toEqual({ total: 3, errored: 1, erroredPaths: [] })
+      const session = yield* host.openSession(spec)
+      const turn = yield* session.turn("verify")
+      expect(turn.end).toEqual(TurnEnd.Emitted({ raw: FINDINGS }))
+      expect(turn.toolCalls).toEqual({ total: 3, errored: 1, erroredPaths: ["node_modules"] })
+
+      const [, secondRequest] = yield* llm.requests()
+      const sent = toJson(secondRequest ?? null)
+      expect(sent).toContain("unset|unset")
+      expect(sent).toContain("Unavailable: dependencies were not installed in the caller's checkout, so node_modules is not available to this review.")
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), SLOW)
-})
-
-describe("makeTurnLifecycle", () => {
-  it.effect("returns immediately when idle with no background work", () =>
-    Effect.gen(function* () {
-      const lifecycle = makeTurnLifecycle()
-      lifecycle.onIdle(false)
-      const woke = yield* lifecycle.awaitNextWake
-      expect(woke).toBe(false)
-    }))
-
-  it.effect("holds awaitNextWake open until execution starts when background work is running", () =>
-    Effect.gen(function* () {
-      const lifecycle = makeTurnLifecycle()
-      lifecycle.trackDetached("cm_1")
-      lifecycle.onIdle(true)
-
-      const waiting = yield* Effect.forkChild(lifecycle.awaitNextWake)
-      yield* Effect.yieldNow
-      yield* lifecycle.onExecutionStarted
-
-      const woke = yield* Fiber.join(waiting)
-      expect(woke).toBe(true)
-
-      // Once delivered, a subsequent idle without background work settles cleanly.
-      lifecycle.markDelivered("cm_1")
-      lifecycle.onIdle(false)
-      const settled = yield* lifecycle.awaitNextWake
-      expect(settled).toBe(false)
-    }))
-
-  it.effect("unblocks even when execution starts between onIdle and awaitNextWake", () =>
-    Effect.gen(function* () {
-      const lifecycle = makeTurnLifecycle()
-      lifecycle.trackDetached("cm_2")
-      lifecycle.onIdle(true)
-      yield* lifecycle.onExecutionStarted
-
-      const woke = yield* lifecycle.awaitNextWake
-      expect(woke).toBe(true)
-    }))
-
-  it.effect("still waits when a detached job finished before idle but has not yet been delivered", () =>
-    Effect.gen(function* () {
-      const lifecycle = makeTurnLifecycle()
-      lifecycle.trackDetached("cm_3")
-      // jobs.runningBackground is empty because the job already exited,
-      // yet its synthetic delivery has not entered context.
-      lifecycle.onIdle(false)
-
-      const waiting = yield* Effect.forkChild(lifecycle.awaitNextWake)
-      yield* Effect.yieldNow
-      yield* lifecycle.onExecutionStarted
-
-      const woke = yield* Fiber.join(waiting)
-      expect(woke).toBe(true)
-    }))
 })

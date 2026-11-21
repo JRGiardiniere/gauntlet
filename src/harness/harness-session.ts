@@ -53,9 +53,24 @@ export interface TurnResult {
   readonly diagnostics: ReadonlyArray<string>
 }
 
-export const INSPECTION_TOOLS = ["execute", "read", "shell"] as const
+export const READ_ONLY_TOOLS = ["read", "grep", "glob"] as const
+
+export const READ_ONLY_CODEMODE_TOOLS = ["execute", "read", "grep", "glob"] as const
+
+export const VERIFICATION_TOOLS = ["execute", "read", "grep", "glob", "shell"] as const
+
+export const INSPECTION_TOOLS = VERIFICATION_TOOLS
 
 export type InspectionTool = (typeof INSPECTION_TOOLS)[number]
+
+// Claude seats tend toward sequential tool calls, so they batch read-only
+// inspection through Code Mode `execute`; OpenAI and other models stay on
+// native `read`/`grep`/`glob` for Finders and Judgment. Verification always
+// uses Code Mode with `shell` for empirical checks.
+export const usesCodeModeForReadOnly = (seat: Seat): boolean => seat.startsWith("claude-code/")
+
+export const readOnlyToolsFor = (seat: Seat): ReadonlyArray<InspectionTool> =>
+  usesCodeModeForReadOnly(seat) ? READ_ONLY_CODEMODE_TOOLS : READ_ONLY_TOOLS
 
 // The emit tool as the Host registers it: the contract's JSON Schema
 // projection, and the strict decoder, which answers a rejection reason or

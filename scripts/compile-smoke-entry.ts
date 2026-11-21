@@ -14,7 +14,7 @@ import * as FileSystem from "effect/FileSystem"
 import * as Layer from "effect/Layer"
 import * as Path from "effect/Path"
 import * as Schema from "effect/Schema"
-import { INSPECTION_TOOLS, TurnEnd } from "../src/harness/harness-session.ts"
+import { TurnEnd, VERIFICATION_TOOLS } from "../src/harness/harness-session.ts"
 import { emitToolSpec } from "../src/harness/invoke.ts"
 import { EmitFindings } from "../src/harness/output-contract.ts"
 import { hostPaths, ModelCatalog } from "../src/host/host.ts"
@@ -82,8 +82,8 @@ const program = Effect.gen(function* () {
     role: "finder-1",
     seat: "openai/gpt-6-luna:low",
     workspace,
-    systemPrompt: "compile smoke finder",
-    tools: INSPECTION_TOOLS,
+    systemPrompt: "compile smoke verifier",
+    tools: VERIFICATION_TOOLS,
     emit: emitToolSpec(EmitFindings),
   })
 

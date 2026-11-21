@@ -1,14 +1,18 @@
+// oxlint-disable-next-line effecttsgo/node-builtin-import -- Effect's Path has no glob matcher, and this is the OpenCode tool adapter boundary
+import { matchesGlob } from "node:path"
 import { gunzipSync, gzipSync, zstdCompressSync, zstdDecompressSync } from "node:zlib"
 import { FileAccess } from "@opencode/core/file-access"
+import { GlobTool } from "@opencode/core/tool/plugin/glob"
+import { GrepTool } from "@opencode/core/tool/plugin/grep"
 import { Plugin } from "@opencode/plugin/effect"
 import { AbsolutePath, Agent, Model, type OpenCode, Provider, type Session, Tool } from "@opencode/sdk/effect"
 import * as Array from "effect/Array"
+import * as LogLevel from "effect/LogLevel"
+import * as Option from "effect/Option"
 import * as Deferred from "effect/Deferred"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import type * as FileSystem from "effect/FileSystem"
-import * as LogLevel from "effect/LogLevel"
-import * as Option from "effect/Option"
 import type * as Path from "effect/Path"
 import * as Record from "effect/Record"
 import * as Schema from "effect/Schema"
@@ -23,6 +27,7 @@ import {
   type AgentSpec,
   type HarnessSession,
   type InspectionTool,
+  READ_ONLY_TOOLS,
   TurnEnd,
   type TurnResult,
   type UsageRow,
@@ -39,12 +44,32 @@ export const GAUNTLET_PLUGIN_ID = "gauntlet"
 // Seat's model, so a stuck plugin fails the invocation instead of hanging it.
 const AGENT_READY_TIMEOUT = Duration.seconds(60)
 
+// The spike's grep default: enough matches to locate code, small enough that
+// a broad pattern does not flood the context.
+const GREP_DEFAULT_LIMIT = 30
+
+// OpenCode's own glob default.
+const GLOB_DEFAULT_LIMIT = 100
+
+// A search of exposed dependencies with its own include or pattern collects
+// this many results before filtering them.
+const DEPENDENCY_SEARCH_LIMIT = 2000
+
+const EVERYTHING = "*"
+
 // Bounds paging through a session's assistant messages.
 const MESSAGE_PAGE = 200
 
-// OpenCode's Code Mode instruction key; kept on OpenAI requests while date and
-// environment builtins are stripped so the cached prefix stays stable.
-const CODEMODE_INSTRUCTION_KEY = "core/codemode"
+const READ_DESCRIPTION = Array.join([
+  "Read lines of a file, or a directory's entries. Each text line is prefixed by its 1-based line number as <line>: <content>; the prefix is not part of the file.",
+  "Read only the region you need: find it with grep first, then pass offset and limit (usually 40-150 lines). The change's diff and touched files are already in your context, so do not re-read them.",
+  "Output is capped at 2000 lines or 50 KB.",
+], " ")
+
+const GREP_DESCRIPTION = Array.join([
+  `Search file contents with ripgrep regular expressions (or literal text). Returns matching lines without context, grouped by file, at most \`limit\` lines (default ${String(GREP_DEFAULT_LIMIT)}).`,
+  "Combine related searches into one call with alternation (a|b|c) instead of several calls, and narrow with path and include. Then read only the lines around a match with offset and limit.",
+], " ")
 
 interface AgentDefinition {
   readonly system: string
@@ -57,73 +82,11 @@ interface EmitDefinition {
   readonly parameters: AgentSpec["emit"]["parameters"]
 }
 
-// One logical turn's idle-to-wake lifecycle for detached Code Mode and shell
-// jobs. Owns both the waiter deferred and the set of detached jobs whose
-// synthetic results have not yet entered context, so a job that finishes right
-// before `experimental.idle` or wakes before `awaitNextWake` cannot strand or
-// prematurely end the turn.
-export interface TurnLifecycle {
-  readonly resetWaiter: () => void
-  readonly trackDetached: (jobID: string) => void
-  readonly markDelivered: (jobID: string) => void
-  readonly onIdle: (hasRunningBackground: boolean) => void
-  readonly onExecutionStarted: Effect.Effect<void>
-  readonly awaitNextWake: Effect.Effect<boolean>
-}
-
-export const makeTurnLifecycle = (): TurnLifecycle => {
-  const detached = new Set<string>()
-  let waiter: Deferred.Deferred<void> | undefined
-
-  return {
-    resetWaiter: () => {
-      waiter = undefined
-    },
-    trackDetached: (jobID) => {
-      detached.add(jobID)
-    },
-    markDelivered: (jobID) => {
-      detached.delete(jobID)
-    },
-    onIdle: (hasRunningBackground) => {
-      if ((hasRunningBackground || detached.size > 0) && waiter === undefined) {
-        waiter = Deferred.makeUnsafe<void>()
-      }
-    },
-    onExecutionStarted: Effect.suspend(() =>
-      waiter === undefined ? Effect.void : Deferred.succeed(waiter, undefined).pipe(Effect.asVoid)),
-    awaitNextWake: Effect.suspend(() => {
-      const pending = waiter
-
-      if (pending === undefined) return Effect.succeed(false)
-
-      return Deferred.await(pending).pipe(
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (waiter === pending) waiter = undefined
-          }),
-        ),
-        Effect.as(true),
-      )
-    }),
-  }
-}
-
-interface RecordedToolCall {
-  readonly errored: boolean
-  readonly path?: string
-}
-
 // What the plugin knows about one open session.
 interface SessionRoute {
-  readonly workspace: string
   readonly emit: AgentSpec["emit"]
   readonly cacheGroup: string | undefined
   readonly firstToken: Deferred.Deferred<void>
-  readonly lifecycle: TurnLifecycle
-  // Tool outcomes recorded inside this turn (covers both foreground and
-  // detached Code Mode inner calls, plus script-level errors with no inner calls).
-  turnCalls: Array<RecordedToolCall>
   // The first emit that passed the strict decoder; once set, the session
   // sends no further model request.
   emitted: Schema.Json | undefined
@@ -146,11 +109,10 @@ export const makeRegistry = (): Registry => ({
   sessions: new Map(),
 })
 
-// Last match wins: everything denied, so nothing falls through to asking
-// (including edits, writes, and web fetches); then the tools the Stage uses
-// and its own emit tool; then anything outside the snapshot as written, denied
-// again over those allows. Pool, with no inspection tools, sees its emit tool
-// only.
+// Last match wins: everything denied, so nothing falls through to asking;
+// then the read tools the Stage uses and its own emit tool; then anything
+// outside the snapshot as written, denied again over those allows. Pool, with
+// no read tools, sees its emit tool only.
 export const permissionsFor = (definition: Pick<AgentDefinition, "tools" | "emit">) => [
   { action: "*", resource: "*", effect: "deny" as const },
   ...Array.map(definition.tools, (tool) => ({ action: tool, resource: "*", effect: "allow" as const })),
@@ -169,35 +131,9 @@ const PathInput = Schema.Struct({ path: Schema.optionalKey(Schema.String) })
 
 const decodePathInput = Schema.decodeUnknownOption(PathInput)
 
-const ShellInput = Schema.Struct({
-  command: Schema.optionalKey(Schema.String),
-  workdir: Schema.optionalKey(Schema.String),
-})
+const WorkdirInput = Schema.Struct({ workdir: Schema.optionalKey(Schema.String) })
 
-const decodeShellInput = Schema.decodeUnknownOption(ShellInput)
-
-const ShellOutput = Schema.Struct({
-  exitCode: Schema.Finite.pipe(Schema.NullOr, Schema.optionalKey),
-  signal: Schema.optionalKey(Schema.String),
-  shellID: Schema.optionalKey(Schema.String),
-})
-
-const decodeShellOutput = Schema.decodeUnknownOption(ShellOutput)
-
-const DetachedMetadata = Schema.Struct({
-  jobID: Schema.optionalKey(Schema.String),
-  shellID: Schema.optionalKey(Schema.String),
-})
-
-const decodeDetachedMetadata = Schema.decodeUnknownOption(DetachedMetadata)
-
-const ExecuteAfterMetadata = Schema.Struct({
-  jobID: Schema.optionalKey(Schema.String),
-  error: Schema.optionalKey(Schema.Boolean),
-  toolCalls: Schema.Struct({ status: Schema.String }).pipe(Schema.Array, Schema.optionalKey),
-})
-
-const decodeExecuteAfterMetadata = Schema.decodeUnknownOption(ExecuteAfterMetadata)
+const decodeWorkdirInput = Schema.decodeUnknownOption(WorkdirInput)
 
 // A tool call's path relative to the snapshot at `root`, resolved as the tool
 // resolves it (`~`, `..`, absolute) without following links; undefined when
@@ -211,145 +147,134 @@ const relativeAsWritten = (path: Path.Path, root: string, input: string) => {
 const segmentsAsWritten = (path: Path.Path, root: string, input: string) =>
   relativeAsWritten(path, root, input)?.split(path.sep) ?? []
 
-const normalizePath = (path: Path.Path, workspace: string, raw: string | undefined): string | undefined => {
-  if (raw === undefined) return undefined
-  const relative = relativeAsWritten(path, workspace, raw)
-
-  return relative === undefined ? raw : relative === "" ? "." : relative
-}
-
-type Execute = Tool.Info["execute"]
-
-const missingDependenciesError = (given: string) =>
-  Tool.Error.make({
-    message: `Unavailable: dependencies were not installed in the caller's checkout, so ${given} is not available to this review.`,
-  })
-
-const checkInstalledPath = ({ fs, path }: PluginServices, root: string, given: string) => {
+const requiringInstalledAt = (
+  { fs, path }: PluginServices,
+  root: string,
+  given: string,
+  run: () => ReturnType<Execute>,
+) => {
   const segments = segmentsAsWritten(path, root, given)
   const index = segments.indexOf(DEPENDENCIES)
 
-  if (index < 0) return Effect.succeed(true)
+  if (index < 0) return run()
 
-  return fs.exists(path.join(root, ...segments.slice(0, index + 1))).pipe(Effect.orElseSucceed(() => false))
+  return fs.exists(path.join(root, ...segments.slice(0, index + 1))).pipe(
+    Effect.orElseSucceed(() => false),
+    Effect.flatMap((installed) =>
+      installed
+        ? run()
+        : Effect.fail(Tool.Error.make({
+          message: `Unavailable: dependencies were not installed in the caller's checkout, so ${given} is not available to this review.`,
+        }))),
+  )
 }
 
-// A read call naming a path under a `node_modules` the snapshot lacks fails
+// A tool call naming a path under a `node_modules` the snapshot lacks fails
 // with why: the Caller's checkout had none installed there.
 const requiringInstalled = (services: PluginServices, root: string, execute: Execute): Execute =>
   (input, context) => {
     const given = Option.match(decodePathInput(input), { onNone: () => ".", onSome: (fields) => fields.path ?? "." })
 
-    return checkInstalledPath(services, root, given).pipe(
-      Effect.flatMap((installed) => (installed ? execute(input, context) : Effect.fail(missingDependenciesError(given)))),
-    )
+    return requiringInstalledAt(services, root, given, () => execute(input, context))
   }
 
-// Extracts the first token in a shell command referencing `node_modules`, if any.
-const dependencyTokenInCommand = (command: string | undefined): string | undefined =>
-  command?.match(/(?:^|[\s"'=:(])([^\s"'=;:()|&]*\bnode_modules(?:\/[^\s"'=;:()|&]*)?)/)?.[1]
-
-// A shell call targeting a missing `node_modules` (via `workdir` or command
-// argument) fails with the same caller-install explanation as `read`.
-const requiringInstalledShell = (services: PluginServices, root: string, execute: Execute): Execute =>
+// A shell call whose explicit `workdir` enters a missing `node_modules` fails
+// with the same caller-install explanation.
+const requiringInstalledWorkdir = (services: PluginServices, root: string, execute: Execute): Execute =>
   (input, context) => {
-    const parsed = decodeShellInput(input)
-    const workdir = Option.match(parsed, { onNone: () => undefined, onSome: (fields) => fields.workdir })
-    const command = Option.match(parsed, { onNone: () => undefined, onSome: (fields) => fields.command })
+    const workdir = Option.match(decodeWorkdirInput(input), { onNone: () => undefined, onSome: (fields) => fields.workdir })
 
-    if (workdir !== undefined) {
-      const segments = segmentsAsWritten(services.path, root, workdir)
+    return workdir === undefined
+      ? execute(input, context)
+      : requiringInstalledAt(services, root, workdir, () => execute(input, context))
+  }
 
-      if (segments.includes(DEPENDENCIES)) {
-        return checkInstalledPath(services, root, workdir).pipe(
-          Effect.flatMap((installed) => (installed ? execute(input, context) : Effect.fail(missingDependenciesError(workdir)))),
-        )
+// The directory a grep or glob call searches, when its path as written passes
+// through a `node_modules`.
+const dependencySearchDirectory = (
+  { fs, path }: PluginServices,
+  root: string,
+  input: string | undefined,
+): Effect.Effect<Option.Option<string>> => {
+  const segments = segmentsAsWritten(path, root, input ?? ".")
+
+  if (!Array.contains(segments, DEPENDENCIES)) return Effect.succeedNone
+  const resolved = path.join(root, ...segments)
+
+  return fs.stat(resolved).pipe(
+    Effect.map((info) => info.type === "Directory"),
+    Effect.orElseSucceed(() => false),
+    Effect.map((directory) => Option.some(directory ? resolved : path.dirname(resolved))),
+  )
+}
+
+// How ripgrep reads an include or glob pattern: without a slash it matches a
+// file's name at any depth, with one the path below the searched directory.
+const matchesSearchGlob = (path: Path.Path, glob: string, relative: string) =>
+  glob.includes("/") ? matchesGlob(relative, glob.replace(/^\//, "")) : matchesGlob(path.basename(relative), glob)
+
+const decodeGrepMatches = Schema.decodeUnknownOption(GrepTool.Output)
+
+const decodeGlobEntries = Schema.decodeUnknownOption(GlobTool.Output)
+
+type Execute = Tool.Info["execute"]
+
+type ToolResult = Effect.Success<ReturnType<Execute>>
+
+const truncatedResult = (result: ToolResult) => result.metadata?.["truncated"] === true
+
+// A grep result cut to the matches whose snapshot-relative path is kept, and
+// to `limit` of them.
+const keepMatches = (
+  path: Path.Path,
+  root: string,
+  result: ToolResult,
+  keep: (relative: string) => boolean,
+  limit: number,
+): ToolResult =>
+  Option.match(decodeGrepMatches(result.output), {
+    onNone: () => result,
+    onSome: (matches) => {
+      const matching = Array.filter(matches, (match) => keep(match.entry.path))
+
+      if (matching.length === matches.length && matching.length <= limit) return result
+      const kept = matching.slice(0, limit)
+      const truncated = truncatedResult(result) || matching.length > limit
+      const shown = Array.map(kept, (match) => ({ ...match, entry: { ...match.entry, path: path.resolve(root, match.entry.path) } }))
+
+      return {
+        ...result,
+        output: kept,
+        content: GrepTool.toModelContent(shown, truncated),
+        metadata: { ...result.metadata, matches: kept.length, truncated },
       }
-    }
+    },
+  })
 
-    const token = dependencyTokenInCommand(command)
+// The same for a glob result's entries.
+const keepEntries = (
+  path: Path.Path,
+  root: string,
+  result: ToolResult,
+  keep: (relative: string) => boolean,
+  limit: number,
+): ToolResult =>
+  Option.match(decodeGlobEntries(result.output), {
+    onNone: () => result,
+    onSome: (entries) => {
+      const matching = Array.filter(entries, (entry) => keep(entry.path))
+      const kept = matching.slice(0, limit)
+      const truncated = truncatedResult(result) || matching.length > limit
+      const shown = Array.map(kept, (entry) => ({ ...entry, path: path.resolve(root, entry.path) }))
 
-    if (token === undefined) return execute(input, context)
-    const base = workdir ?? "."
-    const target = services.path.join(base, token)
-
-    return Effect.zipWith(
-      checkInstalledPath(services, root, target),
-      services.fs.exists(services.path.join(root, DEPENDENCIES)).pipe(Effect.orElseSucceed(() => false)),
-      (underBase, atRoot) => underBase || atRoot,
-    ).pipe(
-      Effect.flatMap((installed) => (installed ? execute(input, context) : Effect.fail(missingDependenciesError(token)))),
-    )
-  }
-
-const WRAPPED_TOOLS: ReadonlySet<string> = new Set(["read", "shell", "grep", "glob"])
-
-// Records each read/grep/glob invocation for turn tool-health accounting,
-// whether called directly or inside a foreground/detached Code Mode script.
-const observingPathTool = (registry: Registry, path: Path.Path, execute: Execute): Execute =>
-  (input, context) => {
-    const rawPath = Option.match(decodePathInput(input), { onNone: () => undefined, onSome: (fields) => fields.path })
-
-    return execute(input, context).pipe(
-      Effect.tap(() =>
-        Effect.sync(() => {
-          registry.sessions.get(context.sessionID)?.turnCalls.push({ errored: false })
-        })),
-      Effect.tapError(() =>
-        Effect.sync(() => {
-          const route = registry.sessions.get(context.sessionID)
-
-          if (route === undefined) return
-          const normalized = normalizePath(path, route.workspace, rawPath)
-          route.turnCalls.push(normalized === undefined ? { errored: true } : { errored: true, path: normalized })
-        })),
-    )
-  }
-
-// Records each shell invocation for turn tool-health accounting: exit code 0
-// and 1 (normal "no match" for rg/grep or failing test probe) count as healthy;
-// exit code >= 2 (command not found, bad syntax, git fatal) or a signal or
-// thrown Tool.Error counts as errored.
-const observingShellTool = (registry: Registry, path: Path.Path, execute: Execute): Execute =>
-  (input, context) => {
-    const rawWorkdir = Option.match(decodeShellInput(input), { onNone: () => undefined, onSome: (fields) => fields.workdir })
-
-    return execute(input, context).pipe(
-      Effect.tap((result) =>
-        Effect.sync(() => {
-          const route = registry.sessions.get(context.sessionID)
-
-          if (route === undefined) return
-          const parsed = decodeShellOutput(result.output)
-
-          if (Option.isSome(parsed) && parsed.value.shellID !== undefined) {
-            route.lifecycle.trackDetached(parsed.value.shellID)
-          }
-
-          const failed = Option.isSome(parsed) && (
-            parsed.value.signal !== undefined ||
-            (parsed.value.exitCode !== undefined && parsed.value.exitCode !== null && parsed.value.exitCode >= 2)
-          )
-
-          if (!failed) {
-            route.turnCalls.push({ errored: false })
-
-            return
-          }
-
-          const normalized = normalizePath(path, route.workspace, rawWorkdir)
-          route.turnCalls.push(normalized === undefined ? { errored: true } : { errored: true, path: normalized })
-        })),
-      Effect.tapError(() =>
-        Effect.sync(() => {
-          const route = registry.sessions.get(context.sessionID)
-
-          if (route === undefined) return
-          const normalized = normalizePath(path, route.workspace, rawWorkdir)
-          route.turnCalls.push(normalized === undefined ? { errored: true } : { errored: true, path: normalized })
-        })),
-    )
-  }
+      return {
+        ...result,
+        output: kept,
+        content: GlobTool.toModelContent(shown, truncated),
+        metadata: { ...result.metadata, count: kept.length, truncated },
+      }
+    },
+  })
 
 const agentID = (role: string) => `gauntlet-${role}`
 
@@ -455,6 +380,23 @@ export const withCacheKey = (request: Request, key: string) =>
     Effect.orElseSucceed(() => request),
   )
 
+const decodeToolInput = Schema.decodeUnknownOption(Schema.Record(Schema.String, Schema.Unknown))
+
+// The grep and glob fields the wrappers read; the rest pass through as given.
+const SearchInput = Schema.Struct({
+  path: Schema.optionalKey(Schema.String),
+  pattern: Schema.String,
+  include: Schema.optionalKey(Schema.String),
+  limit: Schema.optionalKey(Schema.Finite),
+})
+
+const decodeSearchFields = Schema.decodeUnknownOption(SearchInput)
+
+// OpenCode's Code Mode instruction key; kept on OpenAI requests when present
+// while date and environment builtins are stripped so the cached prefix stays
+// stable across days and directories.
+const CODEMODE_INSTRUCTION_KEY = "core/codemode"
+
 const InstructionSource = Schema.Struct({
   key: Schema.String,
   text: Schema.String,
@@ -495,18 +437,72 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
           }
 
           editor.update("read", (tool) => {
-            tool.execute = observingPathTool(registry, services.path, requiringInstalled(services, directory, tool.execute))
+            tool.description = READ_DESCRIPTION
           })
 
-          editor.update("shell", (tool) => {
-            tool.execute = observingShellTool(registry, services.path, requiringInstalledShell(services, directory, tool.execute))
+          // ripgrep runs in a search's real directory, which for exposed
+          // dependencies is inside the Caller's checkout, so that checkout's
+          // ignore rules (`dist/`, `*.log`) would prune it. A glob matching
+          // everything overrides them; the call's own include or pattern
+          // then filters what came back.
+          const searchingDependencies = (searchPath: string | undefined) =>
+            dependencySearchDirectory(services, directory, searchPath)
+
+          const belowSearched = (searched: string, glob: string) => (relative: string) =>
+            matchesSearchGlob(services.path, glob, services.path.relative(searched, services.path.resolve(directory, relative)))
+
+          editor.update("grep", (tool) => {
+            tool.description = GREP_DESCRIPTION
+            const execute = tool.execute
+            tool.execute = (input, context) =>
+              Option.match(Option.all({ raw: decodeToolInput(input), fields: decodeSearchFields(input) }), {
+                onNone: () => execute(input, context),
+                onSome: ({ fields, raw }) =>
+                  searchingDependencies(fields.path).pipe(Effect.flatMap((searched) => {
+                    const limit = fields.limit ?? GREP_DEFAULT_LIMIT
+                    const include = fields.include
+
+                    if (Option.isNone(searched)) return execute({ ...raw, limit }, context)
+
+                    if (include === undefined) return execute({ ...raw, limit, include: EVERYTHING }, context)
+
+                    return execute({ ...raw, include: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
+                      Effect.map((result) => keepMatches(services.path, directory, result, belowSearched(searched.value, include), limit)),
+                    )
+                  })),
+              })
           })
 
-          for (const name of ["grep", "glob"]) {
+          editor.update("glob", (tool) => {
+            const execute = tool.execute
+            tool.execute = (input, context) =>
+              Option.match(Option.all({ raw: decodeToolInput(input), fields: decodeSearchFields(input) }), {
+                onNone: () => execute(input, context),
+                onSome: ({ fields, raw }) =>
+                  searchingDependencies(fields.path).pipe(Effect.flatMap((searched) =>
+                    Option.isNone(searched)
+                      ? execute(input, context)
+                      : execute({ ...raw, pattern: EVERYTHING, limit: DEPENDENCY_SEARCH_LIMIT }, context).pipe(
+                        Effect.map((result) =>
+                          keepEntries(services.path, directory, result, belowSearched(searched.value, fields.pattern), fields.limit ?? GLOB_DEFAULT_LIMIT)),
+                      ))),
+              })
+          })
+
+          // Marking inspection tools `codemode: true` makes OpenCode expose
+          // them inside `execute` when an agent allows `execute`, and directly
+          // as native tools when an agent omits `execute`.
+          for (const name of READ_ONLY_TOOLS) {
             editor.update(name, (tool) => {
-              tool.execute = observingPathTool(registry, services.path, requiringInstalled(services, directory, tool.execute))
+              tool.options = { ...tool.options, codemode: true, pinned: true }
+              tool.execute = requiringInstalled(services, directory, tool.execute)
             })
           }
+
+          editor.update("shell", (tool) => {
+            tool.options = { ...tool.options, codemode: true, pinned: true }
+            tool.execute = requiringInstalledWorkdir(services, directory, tool.execute)
+          })
 
           editor.remove("skill")
         })
@@ -516,61 +512,6 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
         yield* ctx.shell.hook("create.before", (event) =>
           Effect.sync(() => {
             for (const name of Record.keys(scrubbedGitEnv)) Reflect.deleteProperty(event.env, name)
-          }))
-
-        // Track detached Code Mode scripts and record script-level outcomes
-        // that never reached an inner wrapped tool (pure JS or syntax error).
-        yield* ctx.tool.hook("execute.after", (event) =>
-          Effect.sync(() => {
-            const route = registry.sessions.get(event.sessionID)
-
-            if (route === undefined || event.tool === route.emit.name) return
-
-            if (event.tool === "execute") {
-              if (event.status === "error") {
-                route.turnCalls.push({ errored: true })
-
-                return
-              }
-
-              const meta = decodeExecuteAfterMetadata(event.result.metadata)
-
-              if (Option.isNone(meta)) {
-                route.turnCalls.push({ errored: false })
-
-                return
-              }
-
-              if (meta.value.jobID !== undefined) {
-                route.lifecycle.trackDetached(meta.value.jobID)
-
-                return
-              }
-
-              const inner = meta.value.toolCalls ?? []
-
-              if (inner.length === 0) {
-                route.turnCalls.push({ errored: meta.value.error === true })
-
-                return
-              }
-
-              if (meta.value.error === true && !Array.some(inner, (call) => call.status === "error")) {
-                route.turnCalls.push({ errored: true })
-              }
-
-              return
-            }
-
-            if (WRAPPED_TOOLS.has(event.tool)) return
-
-            if (event.status === "error") {
-              const rawPath = Option.match(decodePathInput(event.input), { onNone: () => undefined, onSome: (fields) => fields.path })
-              const normalized = normalizePath(services.path, route.workspace, rawPath)
-              route.turnCalls.push(normalized === undefined ? { errored: true } : { errored: true, path: normalized })
-            } else {
-              route.turnCalls.push({ errored: false })
-            }
           }))
 
         yield* ctx.agent.transform((editor) => {
@@ -584,34 +525,18 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
           }
         })
 
-        // Before every model request: mark delivered detached-job notifications,
-        // and once a session's emit has landed stop it here so no request after
-        // the emit is built or sent.
-        yield* ctx.session.hook("context", (event) => {
-          const route = registry.sessions.get(event.sessionID)
-
-          if (route === undefined) return Effect.void
-
-          for (const message of event.messages) {
-            const meta = decodeDetachedMetadata(message.metadata)
-
-            if (Option.isSome(meta)) {
-              if (meta.value.jobID !== undefined) route.lifecycle.markDelivered(meta.value.jobID)
-
-              if (meta.value.shellID !== undefined) route.lifecycle.markDelivered(meta.value.shellID)
-            }
-          }
-
-          return route.emitted === undefined
+        // Before every model request: once a session's emit has landed, stop
+        // it here, so the request after the emit is never built or sent.
+        yield* ctx.session.hook("context", (event) =>
+          registry.sessions.get(event.sessionID)?.emitted === undefined
             ? Effect.void
             // @effect-diagnostics-next-line anyUnknownInErrorContext:off -- OpenCode's plugin API types its failures as unknown; ignored here
-            : ctx.session.interrupt({ sessionID: event.sessionID }).pipe(Effect.ignore, Effect.andThen(Effect.never))
-        })
+            : ctx.session.interrupt({ sessionID: event.sessionID }).pipe(Effect.ignore, Effect.andThen(Effect.never)))
 
         // OpenAI's per-request extras (date, environment, discovered
         // instructions) follow the agent's own system prompt. Keep only the
         // Code Mode catalog when present, so the cached prefix stays stable
-        // across days and directories while models still see the catalog.
+        // across days and directories while Code Mode agents see their catalog.
         yield* ctx.session.hook(
           "context",
           (event) =>
@@ -637,23 +562,6 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
             }),
           { providerID: "openai" },
         )
-
-        // Under full_codemode, scripts running past 10s detach into a
-        // background job that wakes the session when done. Track that here so
-        // `turn()` waits for the wake instead of treating the pause as Stopped.
-        yield* ctx.session.hook("experimental.idle", (event) =>
-          Effect.sync(() => {
-            const route = registry.sessions.get(event.sessionID)
-
-            if (route === undefined || route.emitted !== undefined) return
-
-            const hasRunning = Array.some(
-              event.background,
-              (work) => work.sessionID === event.sessionID && (work.kind === "codemode" || work.kind === "shell"),
-            )
-
-            route.lifecycle.onIdle(hasRunning)
-          }))
 
         yield* ctx.session.hook("model.request", (event) =>
           Effect.sync(() => {
@@ -682,16 +590,12 @@ export const gauntletPlugin = (registry: Registry, services: PluginServices) =>
             event.frame = Option.getOrElse(rewriteCacheKey(event.frame, key), () => event.frame)
           }))
 
-        yield* ctx.event.subscribe({ types: ["session.step.first-token", "session.execution.started"] }).pipe(
+        yield* ctx.event.subscribe({ types: ["session.step.first-token"] }).pipe(
           Stream.runForEach((event) =>
             Effect.suspend(() => {
               const route = registry.sessions.get(event.data.sessionID)
 
-              if (route === undefined) return Effect.void
-
-              if (event.type === "session.step.first-token") return Deferred.succeed(route.firstToken, undefined)
-
-              return route.lifecycle.onExecutionStarted
+              return route === undefined ? Effect.void : Deferred.succeed(route.firstToken, undefined)
             })),
           Effect.ignore,
           Effect.forkScoped,
@@ -737,14 +641,81 @@ const endOf = (route: SessionRoute, last: Assistant): TurnEnd => {
   return TurnEnd.Stopped()
 }
 
-const summarizeToolCalls = (calls: ReadonlyArray<RecordedToolCall>): AgentToolCalls => {
-  const errored = Array.filter(calls, (call) => call.errored)
-  const erroredPaths = Array.dedupe(Array.flatMap(errored, (call) => (call.path === undefined ? [] : [call.path])))
+type ToolPart = Extract<Assistant["content"][number], { readonly type: "tool" }>
 
-  return { total: calls.length, errored: errored.length, erroredPaths }
+const isInspectionToolPart = (emit: string) => (part: Assistant["content"][number]): part is ToolPart =>
+  part.type === "tool" && part.name !== emit
+
+const ExecuteCall = Schema.Struct({
+  status: Schema.Literals(["running", "completed", "error"]),
+  input: Schema.optionalKey(Schema.Record(Schema.String, Schema.Json)),
+})
+
+const ExecuteMetadata = Schema.Struct({
+  toolCalls: Schema.Array(ExecuteCall),
+  error: Schema.optionalKey(Schema.Boolean),
+})
+
+const decodeExecuteMetadata = Schema.decodeUnknownOption(ExecuteMetadata)
+
+interface ToolOutcomeRow {
+  readonly errored: boolean
+  readonly path?: string
 }
 
-export const makeSessions = (client: Client, registry: Registry) => {
+const ToolPathInput = Schema.Struct({
+  path: Schema.optionalKey(Schema.String),
+  workdir: Schema.optionalKey(Schema.String),
+})
+
+const decodeToolPathInput = Schema.decodeUnknownOption(ToolPathInput)
+
+const normalizeToolPath = (path: Path.Path, workspace: string, parsed: Option.Option<typeof ToolPathInput.Type>): string | undefined => {
+  const raw = Option.match(parsed, { onNone: () => undefined, onSome: (fields) => fields.path ?? fields.workdir })
+
+  if (raw === undefined) return undefined
+  const relative = relativeAsWritten(path, workspace, raw)
+
+  return relative === undefined ? raw : relative === "" ? "." : relative
+}
+
+const erroredRow = (path: Path.Path, workspace: string, parsed: Option.Option<typeof ToolPathInput.Type>): ToolOutcomeRow => {
+  const normalized = normalizeToolPath(path, workspace, parsed)
+
+  return normalized === undefined ? { errored: true } : { errored: true, path: normalized }
+}
+
+const outcomesOfToolPart = (path: Path.Path, workspace: string, part: ToolPart): ReadonlyArray<ToolOutcomeRow> => {
+  if (part.name === "execute" && part.state.status === "completed") {
+    const meta = decodeExecuteMetadata(part.state.metadata)
+
+    if (Option.isSome(meta)) {
+      const inner = meta.value.toolCalls
+
+      if (inner.length === 0) return [{ errored: meta.value.error === true }]
+
+      const rows = Array.map(inner, (call): ToolOutcomeRow =>
+        call.status === "error" ? erroredRow(path, workspace, decodeToolPathInput(call.input)) : { errored: false })
+
+      return meta.value.error === true && !Array.some(rows, (row) => row.errored)
+        ? [...rows, { errored: true }]
+        : rows
+    }
+  }
+
+  return [part.state.status === "error" ? erroredRow(path, workspace, decodeToolPathInput(part.state.input)) : { errored: false }]
+}
+
+const toolCallsOf = (path: Path.Path, workspace: string, messages: ReadonlyArray<Assistant>, emit: string): AgentToolCalls => {
+  const parts = Array.flatMap(messages, (message) => Array.filter(message.content, isInspectionToolPart(emit)))
+  const outcomes = Array.flatMap(parts, (part) => outcomesOfToolPart(path, workspace, part))
+  const errored = Array.filter(outcomes, (outcome) => outcome.errored)
+  const erroredPaths = Array.dedupe(Array.flatMap(errored, (outcome) => (outcome.path === undefined ? [] : [outcome.path])))
+
+  return { total: outcomes.length, errored: errored.length, erroredPaths }
+}
+
+export const makeSessions = (client: Client, registry: Registry, path: Path.Path) => {
   const registering = Semaphore.makeUnsafe(1)
 
   // Declares the role's agent (and its emit tool) for the Location, reloading
@@ -823,12 +794,9 @@ export const makeSessions = (client: Client, registry: Registry) => {
     const { id, ref } = yield* ensureAgent(spec)
 
     const route: SessionRoute = {
-      workspace: spec.workspace,
       emit: spec.emit,
       cacheGroup: spec.cacheGroup,
       firstToken: yield* Deferred.make<void>(),
-      lifecycle: makeTurnLifecycle(),
-      turnCalls: [],
       emitted: undefined,
       rejections: [],
     }
@@ -884,44 +852,29 @@ export const makeSessions = (client: Client, registry: Registry) => {
       return usageOf(fresh)
     })
 
-    const awaitSettled = Effect.gen(function* () {
-      while (true) {
-        yield* client.experimental.session.wait({ sessionID: session.id }).pipe(Effect.mapError(violation("wait failed")))
-
-        if (route.emitted !== undefined) return
-        const woke = yield* route.lifecycle.awaitNextWake
-
-        if (!woke) return
-      }
-    })
-
     const turn = Effect.fn("Host.turn")(function* (text: string) {
-      route.lifecycle.resetWaiter()
-      route.turnCalls = []
-      yield* client.sessions.prompt({ sessionID: session.id, text }).pipe(Effect.mapError(violation("prompt failed")))
-      yield* logTranscript([{ role: "user", text }])
-      yield* awaitSettled
-      const messages = yield* assistantMessages(session.id).pipe(Effect.mapError(violation("reading messages failed")))
-      const fresh = unseen(messages)
-      yield* logTranscript(fresh)
-      const last = Array.last(fresh)
+        yield* client.sessions.prompt({ sessionID: session.id, text }).pipe(Effect.mapError(violation("prompt failed")))
+        yield* logTranscript([{ role: "user", text }])
+        yield* client.experimental.session.wait({ sessionID: session.id }).pipe(Effect.mapError(violation("wait failed")))
+        const messages = yield* assistantMessages(session.id).pipe(Effect.mapError(violation("reading messages failed")))
+        const fresh = unseen(messages)
+        yield* logTranscript(fresh)
+        const last = Array.last(fresh)
 
-      if (Option.isNone(last)) {
-        return yield* AdapterContractViolation.make({ reason: "the turn ended with no assistant message" })
-      }
+        if (Option.isNone(last)) {
+          return yield* AdapterContractViolation.make({ reason: "the turn ended with no assistant message" })
+        }
 
-      const diagnostics = route.rejections
-      route.rejections = []
-      const toolCalls = summarizeToolCalls(route.turnCalls)
-      route.turnCalls = []
+        const diagnostics = route.rejections
+        route.rejections = []
 
-      return {
-        end: endOf(route, last.value),
-        usage: usageOf(fresh),
-        toolCalls,
-        diagnostics,
-      } satisfies TurnResult
-    })
+        return {
+          end: endOf(route, last.value),
+          usage: usageOf(fresh),
+          toolCalls: toolCallsOf(path, spec.workspace, fresh, spec.emit.name),
+          diagnostics,
+        } satisfies TurnResult
+      })
 
     return { turn, cutShort, firstToken: Deferred.await(route.firstToken) } satisfies HarnessSession
   })
