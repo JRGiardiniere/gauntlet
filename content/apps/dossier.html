@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gauntlet Dossier</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --color-background-primary: light-dark(#ffffff, #1a1a1a);
+    --color-background-secondary: light-dark(#f4f4f5, #262626);
+    --color-text-primary: light-dark(#18181b, #fafafa);
+    --color-text-secondary: light-dark(#52525b, #a1a1aa);
+    --color-text-danger: light-dark(#b91c1c, #f87171);
+    --color-text-warning: light-dark(#a16207, #facc15);
+    --color-text-info: light-dark(#1d4ed8, #60a5fa);
+    --color-border-primary: light-dark(#e4e4e7, #3f3f46);
+    --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+    --font-text-sm-size: 13px;
+    --font-text-md-size: 14px;
+    --border-radius-sm: 4px;
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--color-background-primary);
+    color: var(--color-text-primary);
+    font-family: var(--font-sans);
+    font-size: var(--font-text-md-size);
+    line-height: 1.45;
+  }
+  main { padding: 12px 14px; }
+  .muted { color: var(--color-text-secondary); }
+  .error { color: var(--color-text-danger); white-space: pre-wrap; }
+  header { margin-bottom: 10px; }
+  header .target { font-weight: 600; }
+  .tally { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; font-size: var(--font-text-sm-size); }
+  .tally b { font-variant-numeric: tabular-nums; }
+  h2 { font-size: var(--font-text-sm-size); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 5px 0; border-top: 1px solid var(--color-border-primary); }
+  .badge {
+    display: inline-block; min-width: 72px; margin-right: 6px; padding: 0 6px;
+    border-radius: var(--border-radius-sm); background: var(--color-background-secondary);
+    font-size: var(--font-text-sm-size); text-align: center;
+  }
+  .badge.confirmed { color: var(--color-text-danger); }
+  .badge.plausible { color: var(--color-text-warning); }
+  .badge.judgment { color: var(--color-text-info); }
+  .badge.undecided { color: var(--color-text-secondary); }
+  .location { font-family: var(--font-mono); font-size: var(--font-text-sm-size); word-break: break-all; }
+  .summary { display: block; margin-top: 2px; }
+  footer { margin-top: 12px; font-size: var(--font-text-sm-size); }
+  .path { font-family: var(--font-mono); word-break: break-all; }
+</style>
+</head>
+<body>
+<main>
+  <div id="view"><p class="muted">Waiting for the Dossier…</p></div>
+  <footer class="muted"><div id="source"></div><div id="host">Connecting to host…</div></footer>
+</main>
+<script>
+(() => {
+  "use strict"
+  const view = document.getElementById("view")
+  const hostLine = document.getElementById("host")
+  const sourceLine = document.getElementById("source")
+  const pending = new Map()
+  let nextId = 1
+
+  const post = (message) => window.parent.postMessage({ jsonrpc: "2.0", ...message }, "*")
+  const notify = (method, params) => post({ method, params })
+  const request = (method, params) => new Promise((resolve, reject) => {
+    const id = nextId++
+    pending.set(id, { resolve, reject })
+    post({ id, method, params })
+  })
+
+  const el = (tag, className, text) => {
+    const node = document.createElement(tag)
+    if (className) node.className = className
+    if (text !== undefined) node.textContent = text
+    return node
+  }
+
+  const showError = (text) => view.replaceChildren(el("p", "error", text))
+
+  const applyContext = (context) => {
+    if (!context) return
+    if (context.theme === "light" || context.theme === "dark") {
+      document.documentElement.dataset.theme = context.theme
+    }
+    const variables = context.styles && context.styles.variables
+    if (variables) {
+      for (const [name, value] of Object.entries(variables)) {
+        if (typeof value === "string") document.documentElement.style.setProperty(name, value)
+      }
+    }
+  }
+
+  const PRIORITIES = [["P1", "P1"], ["P2", "P2"], ["P3", "P3"], [undefined, "No priority"]]
+
+  const render = (digest) => {
+    const header = el("header")
+    header.append(el("div", "target", digest.target), el("div", "muted", digest.runId))
+    const tally = el("div", "tally")
+    for (const [key, label] of [["confirmed", "confirmed"], ["kept", "kept"], ["plausible", "plausible"], ["undecided", "undecided"]]) {
+      const item = el("span")
+      item.append(el("b", "", String(digest.tally[key])), document.createTextNode(` ${label}`))
+      tally.append(item)
+    }
+    header.append(tally)
+    const parts = [header]
+
+    if (digest.coverageGaps.length > 0) {
+      parts.push(el("h2", "error", `Coverage gaps (${digest.coverageGaps.length})`))
+      const list = el("ul")
+      for (const gap of digest.coverageGaps) list.append(el("li", "", gap))
+      parts.push(list)
+    }
+
+    if (digest.entries.length === 0) parts.push(el("p", "muted", "No findings."))
+    for (const [priority, heading] of PRIORITIES) {
+      const group = digest.entries.filter((entry) => entry.priority === priority)
+      if (group.length === 0) continue
+      parts.push(el("h2", "muted", `${heading} (${group.length})`))
+      const list = el("ul")
+      for (const entry of group) {
+        const item = el("li")
+        item.append(el("span", `badge ${entry.tag}`, entry.tag), el("span", "location", entry.location), el("span", "summary", entry.summary))
+        list.append(item)
+      }
+      parts.push(list)
+    }
+
+    view.replaceChildren(...parts)
+    sourceLine.replaceChildren(el("span", "path", digest.dossierMarkdown))
+  }
+
+  const onToolResult = (result) => {
+    const text = result && Array.isArray(result.content) && result.content[0] && result.content[0].text
+    if (result && result.isError) return showError(text || "show_dossier failed.")
+    let digest = result && result.structuredContent
+    if (!digest && typeof text === "string") {
+      try { digest = JSON.parse(text) } catch { digest = undefined }
+    }
+    if (!digest || !digest.tally || !Array.isArray(digest.entries)) return showError("The tool result is not a Dossier digest.")
+    render(digest)
+  }
+
+  window.addEventListener("message", (event) => {
+    if (event.source !== window.parent) return
+    const message = event.data
+    if (!message || message.jsonrpc !== "2.0") return
+
+    if (message.id !== undefined && message.method === undefined) {
+      const waiter = pending.get(message.id)
+      if (!waiter) return
+      pending.delete(message.id)
+      if (message.error) waiter.reject(new Error(message.error.message || "host error"))
+      else waiter.resolve(message.result)
+      return
+    }
+
+    if (message.id !== undefined) {
+      if (message.method === "ping" || message.method === "ui/resource-teardown") post({ id: message.id, result: {} })
+      else post({ id: message.id, error: { code: -32601, message: `Method not found: ${message.method}` } })
+      return
+    }
+
+    switch (message.method) {
+      case "ui/notifications/tool-input": {
+        const runDir = message.params && message.params.arguments && message.params.arguments.run_dir
+        if (typeof runDir === "string") view.replaceChildren(el("p", "muted", `Waiting for the Dossier in ${runDir}…`))
+        break
+      }
+      case "ui/notifications/tool-result":
+        onToolResult(message.params)
+        break
+      case "ui/notifications/tool-cancelled":
+        showError(`show_dossier was cancelled${message.params && message.params.reason ? `: ${message.params.reason}` : "."}`)
+        break
+      case "ui/notifications/host-context-changed":
+        applyContext(message.params)
+        break
+    }
+  })
+
+  let lastSize = ""
+  const reportSize = () => {
+    // The body's own box, so the page can shrink below an initial iframe height.
+    const box = document.body.getBoundingClientRect()
+    const width = Math.ceil(box.width)
+    const height = Math.ceil(box.height)
+    const size = `${width}x${height}`
+    if (size === lastSize) return
+    lastSize = size
+    notify("ui/notifications/size-changed", { width, height })
+  }
+
+  request("ui/initialize", {
+    protocolVersion: "2026-01-26",
+    appInfo: { name: "gauntlet-dossier", version: "0.1.0" },
+    appCapabilities: { availableDisplayModes: ["inline"] },
+  }).then((result) => {
+    applyContext(result && result.hostContext)
+    const info = (result && result.hostInfo) || {}
+    hostLine.textContent = `Rendered by ${info.name || "unknown host"} ${info.version || ""}`.trim()
+    notify("ui/notifications/initialized", {})
+    new ResizeObserver(reportSize).observe(document.body)
+    reportSize()
+  }, (error) => {
+    hostLine.textContent = `ui/initialize failed: ${error.message}`
+  })
+})()
+</script>
+</body>
+</html>

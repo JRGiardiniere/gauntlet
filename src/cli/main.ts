@@ -4,6 +4,7 @@ import * as Option from "effect/Option"
 import * as Command from "effect/cli/Command"
 import { configCommand } from "./config.ts"
 import { loginCommand } from "./login.ts"
+import { mcpCommand } from "./mcp.ts"
 import {
   deliverCommand,
   progress,
@@ -21,6 +22,7 @@ const gauntlet = Command.make("gauntlet").pipe(
     configCommand,
     loginCommand,
     upgradeCommand,
+    mcpCommand,
   ]),
   Command.withDescription("Effect-native code-review agent on an embedded OpenCode Host"),
 )
@@ -67,8 +69,9 @@ export const runGauntlet = Effect.fn("gauntlet.cli.run")(function* (
 ) {
   // upgrade does its own release lookup; a concurrent notice would probe the
   // same endpoint twice and report the pre-upgrade version right after a
-  // successful upgrade.
-  if (argv[0] === "upgrade") return yield* runCli(argv)
+  // successful upgrade. The MCP server runs until its client leaves, where a
+  // notice has no reader.
+  if (argv[0] === "upgrade" || argv[0] === "mcp") return yield* runCli(argv)
   // Forked before the command so the daily release probe overlaps the real
   // work; the notice never affects the exit code.
   const notice = yield* Effect.forkChild(availableUpdateNotice())

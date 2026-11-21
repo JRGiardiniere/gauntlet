@@ -1,6 +1,6 @@
 import * as Array from "effect/Array"
 import { pipe } from "effect/Function"
-import type { Dossier } from "../domain/dossier.ts"
+import type { CoverageGap, Dossier } from "../domain/dossier.ts"
 import { selectRunnableFinders } from "../domain/finder-selection.ts"
 import type { ReviewPlan } from "../domain/review-plan.ts"
 import { SeatedStageName } from "../domain/stage.ts"
@@ -29,16 +29,34 @@ const boundedLine = (text: string): string => {
   return flat.length > 200 ? `${flat.slice(0, 199)}…` : flat
 }
 
-const candidateLocation = (candidate: {
-  readonly file: string
-  readonly line?: number
-}): string =>
+export const entryLocation = ({ candidate }: DossierEntryView): string =>
   boundedLine(
     `${candidate.file}${candidate.line === undefined ? "" : `:${candidate.line}`}`,
   )
 
+export const entrySummary = ({ candidate }: DossierEntryView): string =>
+  boundedLine(candidate.summary)
+
+export const describeCoverageGap = (gap: CoverageGap): string =>
+  boundedLine(`${gap.lens ?? gap.stage} (${gap.reason})`)
+
+// The tally line's four counts.
+export const tallyDossier = (view: DossierView) => {
+  const count = (
+    entries: ReadonlyArray<DossierEntryView>,
+    tag: DossierEntryView["tag"],
+  ) => Array.filter(entries, (entry) => entry.tag === tag).length
+
+  return {
+    confirmed: count(view.findings, "confirmed"),
+    kept: count(view.findings, "judgment"),
+    plausible: count(view.unresolved, "plausible"),
+    undecided: count(view.unresolved, "undecided"),
+  }
+}
+
 const entryLine = (entry: DossierEntryView): string =>
-  `- [${entry.tag}] ${candidateLocation(entry.candidate)} — ${boundedLine(entry.candidate.summary)}`
+  `- [${entry.tag}] ${entryLocation(entry)} — ${entrySummary(entry)}`
 
 // "2 confirmed, 1 judgment": the tags of entries the digest leaves to
 // dossier.md, in their first-seen order.
@@ -106,14 +124,11 @@ export const renderDigest = (
   const view = viewDossier(dossier)
   const recipeName = plan.recipeName ?? "none"
 
-  const count = (
-    entries: ReadonlyArray<DossierEntryView>,
-    tag: DossierEntryView["tag"],
-  ) => String(Array.filter(entries, (entry) => entry.tag === tag).length)
+  const { confirmed, kept, plausible, undecided } = tallyDossier(view)
 
   const tally =
-    `${count(view.findings, "confirmed")} confirmed · ${count(view.findings, "judgment")} kept · ` +
-    `${count(view.unresolved, "plausible")} plausible · ${count(view.unresolved, "undecided")} undecided — ` +
+    `${String(confirmed)} confirmed · ${String(kept)} kept · ` +
+    `${String(plausible)} plausible · ${String(undecided)} undecided — ` +
     `${describeTargetShort(dossier.target)} — recipe: ${recipeName} — ` +
     `${accounting.wallTimeSeconds}s`
 
@@ -123,8 +138,7 @@ export const renderDigest = (
     ? []
     : [boundedLine(
       `coverage gaps: ${String(dossier.coverageGaps.length)} — ${
-        pipe(dossier.coverageGaps, Array.map((gap) =>
-          `${gap.lens ?? gap.stage} (${gap.reason})`), Array.join("; "))
+        pipe(dossier.coverageGaps, Array.map(describeCoverageGap), Array.join("; "))
       }`,
     )]
 
